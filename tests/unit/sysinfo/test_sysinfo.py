@@ -66,14 +66,115 @@ class TestGetWindowsNativeMachine:
         assert sys_mod._get_windows_native_machine() is None
 
 
+class TestGetWindowsVersionInfo:
+    """Test detailed Windows version collection from the registry."""
+
+    def test_reads_available_current_version_values(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from winml.modelkit.commands import sys as sys_mod
+
+        values = {
+            "DisplayVersion": ("24H2", 1),
+            "CurrentBuild": ("26100", 1),
+            "UBR": (4946, 4),
+            "BuildBranch": ("ge_release", 1),
+            "BuildLabEx": ("26100.1.amd64fre.ge_release.240331-1435", 1),
+        }
+        key = MagicMock()
+        winreg = MagicMock()
+        winreg.HKEY_LOCAL_MACHINE = object()
+        winreg.KEY_READ = 0x20019
+        winreg.KEY_WOW64_64KEY = 0x100
+        winreg.OpenKey.return_value.__enter__.return_value = key
+        winreg.QueryValueEx.side_effect = lambda _key, name: values[name]
+
+        monkeypatch.setattr(sys, "platform", "win32")
+        with patch.dict(sys.modules, {"winreg": winreg}):
+            result = sys_mod._get_windows_version_info()
+
+        assert result == {
+            "display_version": "24H2",
+            "current_build": "26100",
+            "ubr": 4946,
+            "build_branch": "ge_release",
+            "build_lab_ex": "26100.1.amd64fre.ge_release.240331-1435",
+        }
+        winreg.OpenKey.assert_called_once_with(
+            winreg.HKEY_LOCAL_MACHINE,
+            sys_mod._WINDOWS_CURRENT_VERSION_KEY,
+            access=winreg.KEY_READ | winreg.KEY_WOW64_64KEY,
+        )
+
+    def test_keeps_other_values_when_one_is_missing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from winml.modelkit.commands import sys as sys_mod
+
+        winreg = MagicMock()
+        winreg.HKEY_LOCAL_MACHINE = object()
+        winreg.KEY_READ = 0x20019
+        winreg.KEY_WOW64_64KEY = 0x100
+        winreg.QueryValueEx.side_effect = [
+            OSError("missing"),
+            ("26100", 1),
+            (4946, 4),
+            ("ge_release", 1),
+            ("build-lab", 1),
+        ]
+
+        monkeypatch.setattr(sys, "platform", "win32")
+        with patch.dict(sys.modules, {"winreg": winreg}):
+            result = sys_mod._get_windows_version_info()
+
+        assert "display_version" not in result
+        assert result["current_build"] == "26100"
+
+    def test_returns_empty_when_registry_key_is_unavailable(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from winml.modelkit.commands import sys as sys_mod
+
+        winreg = MagicMock()
+        winreg.HKEY_LOCAL_MACHINE = object()
+        winreg.KEY_READ = 0x20019
+        winreg.KEY_WOW64_64KEY = 0x100
+        winreg.OpenKey.side_effect = OSError("access denied")
+
+        monkeypatch.setattr(sys, "platform", "win32")
+        with patch.dict(sys.modules, {"winreg": winreg}):
+            assert sys_mod._get_windows_version_info() == {}
+
+    def test_returns_empty_on_non_windows(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from winml.modelkit.commands import sys as sys_mod
+
+        monkeypatch.setattr(sys, "platform", "linux")
+
+        assert sys_mod._get_windows_version_info() == {}
+
+
 class TestGetPlatformInfo:
     """Test _get_platform_info function."""
 
     @patch("winml.modelkit.commands.sys._get_windows_native_machine", return_value=None)
+    @patch(
+        "winml.modelkit.commands.sys._get_windows_version_info",
+        return_value={
+            "display_version": "24H2",
+            "current_build": "26100",
+            "ubr": 4946,
+            "build_branch": "ge_release",
+            "build_lab_ex": "build-lab",
+        },
+    )
     @patch("winml.modelkit.commands.sys.OS")
     @patch("winml.modelkit.commands.sys.platform")
     def test_windows_11_detection(
-        self, mock_platform: MagicMock, mock_os_class: MagicMock, _mock_native: MagicMock
+        self,
+        mock_platform: MagicMock,
+        mock_os_class: MagicMock,
+        _mock_version: MagicMock,
+        _mock_native: MagicMock,
     ) -> None:
         """Test Windows 11 is correctly detected."""
         from winml.modelkit.commands.sys import _get_platform_info
@@ -93,6 +194,11 @@ class TestGetPlatformInfo:
         assert result["system"] == "Windows"
         assert result["release"] == "11"  # Should be corrected to 11
         assert result["machine"] == "AMD64"
+        assert result["display_version"] == "24H2"
+        assert result["current_build"] == "26100"
+        assert result["ubr"] == 4946
+        assert result["build_branch"] == "ge_release"
+        assert result["build_lab_ex"] == "build-lab"
         mock_os_class.get.assert_called_once()
 
     @patch("winml.modelkit.commands.sys._get_windows_native_machine", return_value=None)

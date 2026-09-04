@@ -233,6 +233,35 @@ def _resolve_ep_monitor(
     device_norm = (device or "").lower()
 
     if op_tracing:
+        if ep_norm == "openvino":
+            from ..session.monitor.openvino_monitor import OpenVinoMonitor
+
+            if op_tracing != "basic":
+                raise RuntimeError("OpenVINO op-tracing currently supports only level 'basic'.")
+            if device_norm not in ("cpu", "npu"):
+                raise RuntimeError(
+                    "OpenVINO op-tracing currently supports only --device cpu or --device npu."
+                )
+            OpenVinoMonitor.validate_runtime_version()
+            if not OpenVinoMonitor.is_available():
+                raise RuntimeError(
+                    "Op-tracing --ep openvino requested but OpenVINO is not available "
+                    "on this system."
+                )
+            return OpenVinoMonitor(
+                level="basic",
+                output_dir=output_dir,
+                device=cast("Literal['cpu', 'npu']", device_norm),
+            )
+
+        if (ep_norm and ep_norm != "qnn") or (
+            not ep_norm and device_norm not in ("npu", "auto", "")
+        ):
+            raise RuntimeError(
+                f"Op-tracing not available for EP {ep!r} on device {device!r}. "
+                "Supported EPs: qnn, openvino (basic on cpu/npu)."
+            )
+
         from ..session.monitor.qnn_monitor import QNNMonitor
 
         qnn_available: bool | None = None
@@ -260,14 +289,16 @@ def _resolve_ep_monitor(
             )
 
         raise RuntimeError(
-            f"Op-tracing not available for EP {ep!r} on device {device!r}. Supported EPs: qnn."
+            f"Op-tracing not available for EP {ep!r} on device {device!r}. "
+            "Supported EPs: qnn, openvino (basic on cpu/npu)."
         )
 
     # Proof-of-execution monitors (no op-tracing)
-    from ..session.monitor.vitisai_monitor import VitisAIMonitor
+    if ep_norm == "vitisai":
+        from ..session.monitor.vitisai_monitor import VitisAIMonitor
 
-    if ep_norm == "vitisai" and VitisAIMonitor.is_available():
-        return VitisAIMonitor()
+        if VitisAIMonitor.is_available():
+            return VitisAIMonitor()
     return NullEPMonitor()
 
 
@@ -328,27 +359,20 @@ def _get_ep_device_binding(
         candidates = [
             candidate
             for candidate in ep_device.ep.devices
-            if provider_device is None
-            or candidate.device_type.lower() == provider_device
+            if provider_device is None or candidate.device_type.lower() == provider_device
         ]
         if not candidates:
             return None, provider_device
         candidate_options = [
             (
                 candidate,
-                {
-                    str(key): str(value)
-                    for key, value in candidate.ort_handle.ep_options.items()
-                },
+                {str(key): str(value) for key, value in candidate.ort_handle.ep_options.items()},
             )
             for candidate in candidates
         ]
-        advertised_keys = {
-            key for _, options in candidate_options for key in options
-        }
+        advertised_keys = {key for _, options in candidate_options for key in options}
         selected_options = {
-            str(key): str(value)
-            for key, value in device.ort_handle.ep_options.items()
+            str(key): str(value) for key, value in device.ort_handle.ep_options.items()
         }
         device_overrides = {
             key: str(value)
@@ -1767,9 +1791,7 @@ def _perf_modules(
                             device=effective_monitor_device,
                             ep_name=cast("EPName | None", session.ep_name),
                             adapter_luid=adapter_luid,
-                            adapter_device=(
-                                adapter_device if adapter_luid is not None else None
-                            ),
+                            adapter_device=(adapter_device if adapter_luid is not None else None),
                         )
 
                 if hw_ctx:
@@ -2149,10 +2171,13 @@ def _print_save_to_footer(
     console: Console,
     *,
     profiling_csv: str | None,
+    profiling_json: str | None = None,
 ) -> None:
     """Print the raw profiling artifact path after the op-trace report."""
     if profiling_csv:
         console.print(f"[dim]Profiling CSV:[/dim] {profiling_csv}")
+    if profiling_json:
+        console.print(f"[dim]Profiling JSON:[/dim] {profiling_json}")
 
 
 @dataclass
@@ -3464,6 +3489,7 @@ def perf(
             _print_save_to_footer(
                 console,
                 profiling_csv=profiling_csv,
+                profiling_json=trace_result.artifacts.get("profile"),
             )
         else:
             if json_mode:

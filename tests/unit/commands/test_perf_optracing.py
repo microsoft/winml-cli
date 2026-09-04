@@ -129,6 +129,59 @@ class TestResolveEpMonitor:
         ):
             _resolve_ep_monitor(ep="qnn", op_tracing="basic", output_dir=tmp_path)
 
+    @pytest.mark.parametrize("device", ["cpu", "npu"])
+    def test_op_tracing_openvino_basic_returns_monitor(self, tmp_path: Path, device: str):
+        """OpenVINO basic tracing supports CPU and NPU devices."""
+        from winml.modelkit.session.monitor.openvino_monitor import OpenVinoMonitor
+
+        with (
+            patch.object(OpenVinoMonitor, "validate_runtime_version"),
+            patch.object(OpenVinoMonitor, "is_available", return_value=True),
+        ):
+            monitor = _resolve_ep_monitor(
+                ep="openvino",
+                op_tracing="basic",
+                output_dir=tmp_path,
+                device=device,
+            )
+
+        assert isinstance(monitor, OpenVinoMonitor)
+        assert monitor._device == device
+
+    def test_op_tracing_openvino_rejects_detail(self, tmp_path: Path):
+        """OpenVINO detail tracing is not exposed by the initial profiler."""
+        with pytest.raises(RuntimeError, match="only level 'basic'"):
+            _resolve_ep_monitor(
+                ep="openvino",
+                op_tracing="detail",
+                output_dir=tmp_path,
+                device="npu",
+            )
+
+    def test_op_tracing_openvino_rejects_gpu(self, tmp_path: Path):
+        """OpenVINO tracing is initially limited to CPU and NPU."""
+        with pytest.raises(RuntimeError, match="only --device cpu or --device npu"):
+            _resolve_ep_monitor(
+                ep="openvino",
+                op_tracing="basic",
+                output_dir=tmp_path,
+                device="gpu",
+            )
+
+    def test_op_tracing_openvino_rejects_old_ort(self, tmp_path: Path):
+        """OpenVINO tracing requires the ORT detailed profiling integration."""
+
+        with (
+            patch("onnxruntime.__version__", "1.25.1"),
+            pytest.raises(RuntimeError, match=r"onnxruntime-windowsml>=1\.26"),
+        ):
+            _resolve_ep_monitor(
+                ep="openvino",
+                op_tracing="basic",
+                output_dir=tmp_path,
+                device="cpu",
+            )
+
     def test_op_tracing_unsupported_ep_raises(self, tmp_path: Path):
         """Unsupported EP with op_tracing raises RuntimeError (NFR-2 hard-fail)."""
         with pytest.raises(RuntimeError, match="Op-tracing not available for EP 'dml'"):
@@ -258,14 +311,21 @@ class TestResolveEpMonitor:
         assert "QNN is not available" in msg
         assert "onnxruntime" in msg
 
-    def test_op_tracing_openvino_uses_generic_unsupported_error(self, tmp_path: Path):
-        """OpenVINO is not advertised as an op-tracing implementation."""
-        with pytest.raises(RuntimeError) as excinfo:
-            _resolve_ep_monitor(ep="openvino", op_tracing="basic", output_dir=tmp_path)
+    def test_op_tracing_openvino_unavailable_raises(self, tmp_path: Path):
+        """An explicit OpenVINO trace reports when the EP is unavailable."""
+        from winml.modelkit.session.monitor.openvino_monitor import OpenVinoMonitor
 
-        message = str(excinfo.value)
-        assert "not available for EP 'openvino'" in message
-        assert "Supported EPs: qnn." in message
+        with (
+            patch.object(OpenVinoMonitor, "validate_runtime_version"),
+            patch.object(OpenVinoMonitor, "is_available", return_value=False),
+            pytest.raises(RuntimeError, match="OpenVINO is not available"),
+        ):
+            _resolve_ep_monitor(
+                ep="openvino",
+                op_tracing="basic",
+                output_dir=tmp_path,
+                device="npu",
+            )
 
     def test_npu_op_tracing_without_qnn_raises_no_openvino_fallback(self, tmp_path: Path):
         """Unavailable QNN does not silently select another NPU monitor."""
@@ -282,8 +342,8 @@ class TestResolveEpMonitor:
         with pytest.raises(RuntimeError, match="Op-tracing not available for EP"):
             _resolve_ep_monitor(ep=None, op_tracing="basic", output_dir=tmp_path, device="gpu")
 
-    def test_unsupported_ep_error_mentions_only_supported_ep(self, tmp_path: Path):
-        """The diagnostic advertises only implemented tracing backends."""
+    def test_unsupported_ep_error_mentions_supported_eps(self, tmp_path: Path):
+        """The diagnostic advertises the implemented tracing backends."""
         with pytest.raises(RuntimeError) as excinfo:
             _resolve_ep_monitor(
                 ep="dml",
@@ -292,7 +352,7 @@ class TestResolveEpMonitor:
             )
         msg = str(excinfo.value)
         assert "qnn" in msg.lower()
-        assert "openvino" not in msg.lower()
+        assert "openvino" in msg.lower()
 
 
 class TestOpTracingIterationsSmartDefault:
@@ -604,9 +664,7 @@ class TestOpTracingHardwareMonitor:
         benchmark._ep_device = SimpleNamespace(
             device=SimpleNamespace(
                 device_type="NPU",
-                ort_handle=SimpleNamespace(
-                    device=SimpleNamespace(metadata={"LUID": "99219"})
-                )
+                ort_handle=SimpleNamespace(device=SimpleNamespace(metadata={"LUID": "99219"})),
             )
         )
 
@@ -981,8 +1039,8 @@ class TestCliOpTracingDispatch:
             status="not_run",
         )
 
-        result, display_report, write_json, display_trace = (
-            _invoke_text_op_trace_failure(tmp_path, trace)
+        result, display_report, write_json, display_trace = _invoke_text_op_trace_failure(
+            tmp_path, trace
         )
 
         assert result.exit_code == 4

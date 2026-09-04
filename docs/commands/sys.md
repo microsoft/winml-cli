@@ -30,12 +30,15 @@ $ winml sys [options]
 ## How it works
 
 `winml sys` queries Python's `platform` and `importlib.metadata` modules to report
-library versions, then probes PyTorch for CUDA availability and GPU device names.
-Backend availability checks use the installed runtime environment. On Windows,
-GPU and NPU enumeration uses DXCore as the source of adapter identity and LUID,
-then enriches those native rows with WMI/PnP driver and manufacturer details.
-CPU enumeration uses WMI. Devices remain in NPU > GPU > CPU priority order, and
-EP enumeration merges the WinML EP registry with ONNX Runtime's
+library versions. On Windows, it also reads the native
+`HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion` registry key to report the
+display version, build, update build revision (UBR), build branch, and build lab.
+It then probes PyTorch for CUDA availability and GPU device names.
+Backend availability checks use the installed runtime environment. GPU and NPU
+enumeration uses DXCore as the source of adapter identity and LUID, then enriches
+those native rows with WMI/PnP driver and manufacturer details. CPU enumeration
+uses WMI. Devices remain in NPU > GPU > CPU priority order, and EP enumeration
+merges the WinML EP registry with ONNX Runtime's
 `get_available_providers()`. When
 `--format json` is used the full report — including devices and EPs — is emitted as
 a single JSON object, making it easy to capture in CI pipelines.
@@ -57,6 +60,11 @@ Environment
   Python Executable C:\...\python.exe
   OS                Windows 11
   Machine           AMD64
+  Display Version   24H2
+  Current Build     26100
+  UBR               4946
+  Build Branch      ge_release
+  BuildLabEx        26100.1.amd64fre.ge_release.240331-1435
 
 ML Libraries
   Library        Version   Status

@@ -36,6 +36,8 @@ if TYPE_CHECKING:
     from pathlib import Path
     from typing import Self
 
+    import onnxruntime as ort
+
     from .op_metrics import OpTraceResult
 
 
@@ -78,6 +80,11 @@ class WinMLEPMonitor(ABC):
     #: hooks return empty dicts.
     ep_name: ClassVar[str | None] = None
 
+    #: Whether the monitor mutates native ``SessionOptions`` attributes through
+    #: :meth:`configure_session_options` and therefore needs a dedicated
+    #: inference session for the perf window.
+    configures_session_options: ClassVar[bool] = False
+
     def __init_subclass__(cls, **kwargs: Any) -> None:
         """Reject subclasses that try to shadow load-bearing class vars.
 
@@ -109,6 +116,13 @@ class WinMLEPMonitor(ABC):
         ``"profiling_level": "detailed"``.
         """
         return {}
+
+    def configure_session_options(self, session_options: ort.SessionOptions) -> None:  # noqa: B027
+        """Apply monitor-specific native ``SessionOptions`` attributes.
+
+        Default: no-op. This complements :meth:`get_session_options`, which is
+        limited to string-valued ``add_session_config_entry`` settings.
+        """
 
     def set_onnx_op_types(self, onnx_op_types: dict[str, str]) -> None:  # noqa: B027 - intentional no-op default; op-tracing monitors override
         """Inject the ONNX ``node.name -> node.op_type`` map.
