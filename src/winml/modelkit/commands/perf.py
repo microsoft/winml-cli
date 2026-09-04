@@ -3033,13 +3033,21 @@ def perf(
     compile_ep_options = None
     from ..session import short_ep_name
 
-    if ep_name is not None:
-        qnn_tracing_target = short_ep_name(ep_name) == "qnn"
-    else:
-        from ..session.monitor.qnn_monitor import QNNMonitor
+    qnn_tracing_target = False
+    if op_tracing == "detail" and is_onnx:
+        if ep_name is not None:
+            qnn_tracing_target = short_ep_name(ep_name) == "qnn"
+        elif device.lower() == "npu":
+            from ..session import EPDeviceTarget, resolve_device
 
-        qnn_tracing_target = device.lower() in ("auto", "npu") and QNNMonitor.is_available()
-    if op_tracing == "detail" and is_onnx and qnn_tracing_target:
+            resolved_target = resolve_device(EPDeviceTarget(ep="auto", device="npu"))
+            qnn_tracing_target = short_ep_name(resolved_target.ep) == "qnn"
+        else:
+            from ..session.monitor.qnn_monitor import QNNMonitor
+
+            qnn_tracing_target = device.lower() == "auto" and QNNMonitor.is_available()
+
+    if qnn_tracing_target:
         from ..onnx import is_compiled_onnx
 
         if not is_compiled_onnx(model_path):
