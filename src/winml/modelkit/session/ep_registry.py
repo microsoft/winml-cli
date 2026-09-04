@@ -531,10 +531,23 @@ class WinMLEPRegistry:
         ep_full = expand_ep_name(target.ep)
         candidates = self._entries_for(ep_full)
 
+        catalog_missing = target.source == "winml-catalog" and not any(
+            _entry_source_tag(entry) == "winml-catalog" for entry in candidates
+        )
+        if target.source in (None, "winml-catalog") and (not candidates or catalog_missing):
+            from ..ep_path import _resolve_requested_winml_catalog_ep
+
+            catalog_entries = _resolve_requested_winml_catalog_ep(ep_full)
+            if catalog_entries:
+                self._discovered.extend(catalog_entries)
+                self._available_eps_cache = None
+                candidates = self._entries_for(ep_full)
+
         if not candidates:
             raise WinMLEPNotDiscovered(
                 f"No EPEntry discovered for ep={target.ep!r}. "
-                f"Hint: install the plugin or set WINMLCLI_EP_PATH."
+                f"Hint: verify Windows ML EP Catalog support, install a BYO plugin, "
+                f"or set WINMLCLI_EP_PATH."
             )
 
         if target.source is not None:

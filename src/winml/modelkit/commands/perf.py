@@ -211,8 +211,8 @@ def _resolve_ep_monitor(
             if not is_qnn_available():
                 raise RuntimeError(
                     "Op-tracing --ep qnn requested but QNN is not available on "
-                    "this system. Install onnxruntime-qnn or onnxruntime-windowsml "
-                    "with QNN runtime, or run `wmk perf` without --op-tracing."
+                    "this system. Install QNN through Windows ML EP Catalog or a "
+                    "compatible BYO plugin, or run `wmk perf` without --op-tracing."
                 )
             return QNNMonitor(
                 level=cast('Literal["basic", "detail"]', op_tracing),
