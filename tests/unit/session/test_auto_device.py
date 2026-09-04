@@ -163,6 +163,47 @@ class TestAutoDevice:
         assert fresh_registry._discovered == [entry]
         assert result.ep is winml_ep
 
+    def test_ensure_discovered_catalog_entry_is_idempotent(
+        self, fresh_registry: WinMLEPRegistry
+    ) -> None:
+        entry = _catalog_entry("QNNExecutionProvider")
+
+        with patch(
+            "winml.modelkit.ep_path._resolve_requested_winml_catalog_ep",
+            return_value=[entry],
+        ) as mock_resolve:
+            first = fresh_registry.ensure_discovered_ep("qnn")
+            second = fresh_registry.ensure_discovered_ep("qnn")
+
+        assert first == second == (entry,)
+        assert fresh_registry._discovered == [entry]
+        mock_resolve.assert_called_once_with("QNNExecutionProvider")
+
+    def test_catalog_pin_preserves_same_path_as_msix_source(
+        self, fresh_registry: WinMLEPRegistry
+    ) -> None:
+        dll = "C:/fake/shared-qnn.dll"
+        msix_entry = _msix_workload_entry("QNNExecutionProvider", dll=dll)
+        catalog_entry = _catalog_entry("QNNExecutionProvider", dll=dll)
+        catalog_ep = _winml_ep_with_device(catalog_entry, "NPU")
+        fresh_registry._discovered = [msix_entry]
+
+        with (
+            patch(
+                "winml.modelkit.ep_path._resolve_requested_winml_catalog_ep",
+                return_value=[catalog_entry],
+            ),
+            patch.object(fresh_registry, "register_ep", return_value=catalog_ep) as mock_register,
+        ):
+            result = fresh_registry.auto_device(
+                EPDeviceTarget(ep="qnn", device="npu", source="winml-catalog")
+            )
+
+        assert result.ep is catalog_ep
+        assert len(fresh_registry._discovered) == 2
+        assert fresh_registry._discovered[1].status == "shadowed"
+        mock_register.assert_called_once_with(fresh_registry._discovered[1])
+
     def test_pinned_byo_source_does_not_acquire_catalog_ep(
         self, fresh_registry: WinMLEPRegistry
     ) -> None:

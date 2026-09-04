@@ -407,6 +407,30 @@ class TestEPRegistration:
             session.load()
         assert registered == [("QNNExecutionProvider", "C:\\fake\\qnn.dll")]
 
+    def test_hardware_ep_bundle_acquires_missing_catalog_ep(
+        self, bundle_dir_with_pipeline: Path, fresh_registry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A clean GenAI install acquires its explicitly configured plugin EP."""
+        self._reset_process_registration_cache(monkeypatch)
+        qnn_entry = _plugin_entry("QNNExecutionProvider", "C:/fake/catalog-qnn.dll")
+        og, registered = _fake_og_module()
+
+        with (
+            patch.object(
+                fresh_registry,
+                "ensure_discovered_ep",
+                return_value=(qnn_entry,),
+            ) as mock_ensure,
+            patch.object(fresh_registry, "all_discovered", return_value=(qnn_entry,)),
+            _patch_og(og),
+        ):
+            GenaiSession(bundle_dir_with_pipeline, ep="qnn").load()
+
+        mock_ensure.assert_called_once_with("QNNExecutionProvider")
+        assert registered == [
+            ("QNNExecutionProvider", "C:\\fake\\catalog-qnn.dll")
+        ]
+
     def test_hardware_ep_bundle_registers_only_required_ep_idempotently(
         self, bundle_dir_with_pipeline: Path, fresh_registry, monkeypatch: pytest.MonkeyPatch
     ) -> None:
