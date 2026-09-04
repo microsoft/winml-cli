@@ -2733,9 +2733,11 @@ library versions. On Windows, it also reads the native
 <code>HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion</code> registry key to report the
 display version, build, update build revision (UBR), build branch, and build lab.
 It then probes PyTorch for CUDA availability and GPU device names.
-Backend availability checks use the installed runtime environment, while device
-enumeration queries hardware directly in NPU &gt; GPU &gt; CPU priority order, and EP
-enumeration merges the WinML EP registry with ONNX Runtime's
+Backend availability checks use the installed runtime environment. GPU and NPU
+enumeration uses DXCore as the source of adapter identity and LUID, then enriches
+those native rows with WMI/PnP driver and manufacturer details. CPU enumeration
+uses WMI. Devices remain in NPU &gt; GPU &gt; CPU priority order, and EP enumeration
+merges the WinML EP registry with ONNX Runtime's
 <code>get_available_providers()</code>. When
 <code>--format json</code> is used the full report — including devices and EPs — is emitted as
 a single JSON object, making it easy to capture in CI pipelines.</p>
@@ -2767,13 +2769,16 @@ a single JSON object, making it easy to capture in CI pipelines.</p>
 </span><span id="__span-2-22"><a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>
 </span><span id="__span-2-23"><a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>Available Devices (priority order)
 </span><span id="__span-2-24"><a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a>  #1  NPU   Qualcomm(R) Hexagon NPU
-</span><span id="__span-2-25"><a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a>  #2  GPU   Qualcomm(R) Adreno GPU
-</span><span id="__span-2-26"><a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a>  #3  CPU   Snapdragon(R) X Elite
-</span><span id="__span-2-27"><a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a>
-</span><span id="__span-2-28"><a id="__codelineno-2-28" name="__codelineno-2-28" href="#__codelineno-2-28"></a>Available Execution Providers
-</span><span id="__span-2-29"><a id="__codelineno-2-29" name="__codelineno-2-29" href="#__codelineno-2-29"></a>  QNNExecutionProvider           -&gt; NPU/GPU
-</span><span id="__span-2-30"><a id="__codelineno-2-30" name="__codelineno-2-30" href="#__codelineno-2-30"></a>  DmlExecutionProvider           -&gt; GPU
-</span><span id="__span-2-31"><a id="__codelineno-2-31" name="__codelineno-2-31" href="#__codelineno-2-31"></a>  CPUExecutionProvider           -&gt; CPU
+</span><span id="__span-2-25"><a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a>             LUID: 0x00000000_0x00018393 | Driver: 1.0.0 | Manufacturer: Qualcomm
+</span><span id="__span-2-26"><a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a>  #2  GPU   Qualcomm(R) Adreno GPU
+</span><span id="__span-2-27"><a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a>             LUID: 0x00000000_0x00018394 | Driver: 1.0.0 | Manufacturer: Qualcomm
+</span><span id="__span-2-28"><a id="__codelineno-2-28" name="__codelineno-2-28" href="#__codelineno-2-28"></a>  #3  CPU   Snapdragon(R) X Elite
+</span><span id="__span-2-29"><a id="__codelineno-2-29" name="__codelineno-2-29" href="#__codelineno-2-29"></a>             LUID: N/A | Cores: 12 | Threads: 12 | Architecture: ARM64
+</span><span id="__span-2-30"><a id="__codelineno-2-30" name="__codelineno-2-30" href="#__codelineno-2-30"></a>
+</span><span id="__span-2-31"><a id="__codelineno-2-31" name="__codelineno-2-31" href="#__codelineno-2-31"></a>Available Execution Providers
+</span><span id="__span-2-32"><a id="__codelineno-2-32" name="__codelineno-2-32" href="#__codelineno-2-32"></a>  QNNExecutionProvider           -&gt; NPU/GPU
+</span><span id="__span-2-33"><a id="__codelineno-2-33" name="__codelineno-2-33" href="#__codelineno-2-33"></a>  DmlExecutionProvider           -&gt; GPU
+</span><span id="__span-2-34"><a id="__codelineno-2-34" name="__codelineno-2-34" href="#__codelineno-2-34"></a>  CPUExecutionProvider           -&gt; CPU
 </span></code></pre></div>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Compact one-liner — useful for CI logs</span>
 </span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>$<span class="w"> </span>winml<span class="w"> </span>sys<span class="w"> </span>--format<span class="w"> </span>compact
