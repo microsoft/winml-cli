@@ -34,9 +34,11 @@ library versions. On Windows, it also reads the native
 `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion` registry key to report the
 display version, build, update build revision (UBR), build branch, and build lab.
 It then probes PyTorch for CUDA availability and GPU device names.
-Backend availability checks use the installed runtime environment, while device
-enumeration queries hardware directly in NPU > GPU > CPU priority order, and EP
-enumeration merges the WinML EP registry with ONNX Runtime's
+Backend availability checks use the installed runtime environment. GPU and NPU
+enumeration uses DXCore as the source of adapter identity and LUID, then enriches
+those native rows with WMI/PnP driver and manufacturer details. CPU enumeration
+uses WMI. Devices remain in NPU > GPU > CPU priority order, and EP enumeration
+merges the WinML EP registry with ONNX Runtime's
 `get_available_providers()`. When
 `--format json` is used the full report — including devices and EPs — is emitted as
 a single JSON object, making it easy to capture in CI pipelines.
@@ -73,8 +75,11 @@ ML Libraries
 
 Available Devices (priority order)
   #1  NPU   Qualcomm(R) Hexagon NPU
+             LUID: 0x00000000_0x00018393 | Driver: 1.0.0 | Manufacturer: Qualcomm
   #2  GPU   Qualcomm(R) Adreno GPU
+             LUID: 0x00000000_0x00018394 | Driver: 1.0.0 | Manufacturer: Qualcomm
   #3  CPU   Snapdragon(R) X Elite
+             LUID: N/A | Cores: 12 | Threads: 12 | Architecture: ARM64
 
 Available Execution Providers
   QNNExecutionProvider           -> NPU/GPU

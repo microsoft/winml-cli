@@ -17,6 +17,7 @@ if TYPE_CHECKING:
         resolve_device,
         resolve_eps,
     )
+    from .dxcore_adapters import DXCoreAdapterInfo, enumerate_compute_adapters
     from .hardware import CPU, GPU, NPU, get_available_devices
     from .luid import format_pdh_luid, get_ep_device_luid
     from .software import OS
@@ -29,6 +30,8 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "resolve_check_device_ep": (".device", "resolve_check_device_ep"),
     "resolve_device": (".device", "resolve_device"),
     "resolve_eps": (".device", "resolve_eps"),
+    "DXCoreAdapterInfo": (".dxcore_adapters", "DXCoreAdapterInfo"),
+    "enumerate_compute_adapters": (".dxcore_adapters", "enumerate_compute_adapters"),
     "CPU": (".hardware", "CPU"),
     "GPU": (".hardware", "GPU"),
     "NPU": (".hardware", "NPU"),
@@ -44,7 +47,9 @@ __all__ = [
     "GPU",
     "NPU",
     "OS",
+    "DXCoreAdapterInfo",
     "SysInfo",
+    "enumerate_compute_adapters",
     "format_pdh_luid",
     "get_available_devices",
     "get_device_ep_map",
