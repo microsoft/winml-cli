@@ -26,7 +26,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from winml.modelkit.ep_path import EPEntry, MSIXPackageSource, PyPISource
+from winml.modelkit.ep_path import (
+    EPEntry,
+    MSIXPackageSource,
+    PyPISource,
+    WinMLCatalogSource,
+)
 from winml.modelkit.session import (
     DeviceNotFound,
     EPDeviceTarget,
@@ -34,6 +39,7 @@ from winml.modelkit.session import (
     WinMLDevice,
     WinMLEP,
     WinMLEPDevice,
+    WinMLEPNotDiscovered,
     WinMLEPRegistrationFailed,
     WinMLEPRegistry,
     resolve_device,
@@ -95,6 +101,18 @@ def _msix_ms_channel_entry(ep_name: str, dll: str = "C:/fake/msix-ms.dll") -> EP
     )
 
 
+def _catalog_entry(ep_name: str, dll: str = "C:/fake/catalog.dll") -> EPEntry:
+    return EPEntry(
+        ep_name=ep_name,
+        dll_path=Path(dll),
+        source=WinMLCatalogSource(
+            catalog_name=ep_name,
+            eps=(ep_name,),
+            auto_download=True,
+        ),
+    )
+
+
 def _winml_ep_with_device(entry: EPEntry, device_type: str) -> WinMLEP:
     """Build a WinMLEP wrapping one device of the requested type."""
     device = WinMLDevice(_fake_ort_device(entry.ep_name, device_type))
@@ -125,6 +143,81 @@ class TestAutoDevice:
         assert result.device.device_type == "NPU"
         assert result.ep is winml_ep
         mock_register.assert_called_once_with(entry)
+
+    def test_explicit_missing_ep_is_acquired_from_catalog(
+        self, fresh_registry: WinMLEPRegistry
+    ) -> None:
+        entry = _catalog_entry("QNNExecutionProvider")
+        winml_ep = _winml_ep_with_device(entry, "NPU")
+
+        with (
+            patch(
+                "winml.modelkit.ep_path._resolve_requested_winml_catalog_ep",
+                return_value=[entry],
+            ) as mock_resolve,
+            patch.object(fresh_registry, "register_ep", return_value=winml_ep),
+        ):
+            result = fresh_registry.auto_device(EPDeviceTarget(ep="qnn", device="npu"))
+
+        mock_resolve.assert_called_once_with("QNNExecutionProvider")
+        assert fresh_registry._discovered == [entry]
+        assert result.ep is winml_ep
+
+    def test_ensure_discovered_catalog_entry_is_idempotent(
+        self, fresh_registry: WinMLEPRegistry
+    ) -> None:
+        entry = _catalog_entry("QNNExecutionProvider")
+
+        with patch(
+            "winml.modelkit.ep_path._resolve_requested_winml_catalog_ep",
+            return_value=[entry],
+        ) as mock_resolve:
+            first = fresh_registry.ensure_discovered_ep("qnn")
+            second = fresh_registry.ensure_discovered_ep("qnn")
+
+        assert first == second == (entry,)
+        assert fresh_registry._discovered == [entry]
+        mock_resolve.assert_called_once_with("QNNExecutionProvider")
+
+    def test_catalog_pin_preserves_same_path_as_msix_source(
+        self, fresh_registry: WinMLEPRegistry
+    ) -> None:
+        dll = "C:/fake/shared-qnn.dll"
+        msix_entry = _msix_workload_entry("QNNExecutionProvider", dll=dll)
+        catalog_entry = _catalog_entry("QNNExecutionProvider", dll=dll)
+        catalog_ep = _winml_ep_with_device(catalog_entry, "NPU")
+        fresh_registry._discovered = [msix_entry]
+
+        with (
+            patch(
+                "winml.modelkit.ep_path._resolve_requested_winml_catalog_ep",
+                return_value=[catalog_entry],
+            ),
+            patch.object(fresh_registry, "register_ep", return_value=catalog_ep) as mock_register,
+        ):
+            result = fresh_registry.auto_device(
+                EPDeviceTarget(ep="qnn", device="npu", source="winml-catalog")
+            )
+
+        assert result.ep is catalog_ep
+        assert len(fresh_registry._discovered) == 2
+        assert fresh_registry._discovered[1].status == "shadowed"
+        mock_register.assert_called_once_with(fresh_registry._discovered[1])
+
+    def test_pinned_byo_source_does_not_acquire_catalog_ep(
+        self, fresh_registry: WinMLEPRegistry
+    ) -> None:
+        with (
+            patch(
+                "winml.modelkit.ep_path._resolve_requested_winml_catalog_ep"
+            ) as mock_resolve,
+            pytest.raises(WinMLEPNotDiscovered),
+        ):
+            fresh_registry.auto_device(
+                EPDeviceTarget(ep="qnn", device="npu", source="pypi")
+            )
+
+        mock_resolve.assert_not_called()
 
     def test_b_pinned_source_matches(self, fresh_registry: WinMLEPRegistry) -> None:
         """Scenario b: source='pypi' pinned, candidate exists."""

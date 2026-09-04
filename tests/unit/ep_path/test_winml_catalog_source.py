@@ -570,6 +570,26 @@ def test_not_present_provider_downloads_with_opt_in(
     assert provider.ensure_ready_calls == 1
 
 
+def test_explicit_catalog_resolution_downloads_requested_provider(
+    reset_catalog_singleton: None,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    dll = tmp_path / "qnn.dll"
+    dll.write_bytes(b"")
+    provider = _FakeProvider("QNNExecutionProvider", "NotPresent", str(dll))
+    _install_windowsml_module(monkeypatch, _FakeCatalog([provider]))
+
+    entries = _ep._resolve_requested_winml_catalog_ep("QNNExecutionProvider")
+
+    assert provider.ensure_ready_calls == 1
+    assert [entry.dll_path for entry in entries] == [dll]
+    assert all(
+        isinstance(entry.source, WinMLCatalogSource) and entry.source.auto_download
+        for entry in entries
+    )
+
+
 # ---------------------------------------------------------------------------
 # _is_ready helper.
 # ---------------------------------------------------------------------------

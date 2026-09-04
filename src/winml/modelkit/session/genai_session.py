@@ -1753,6 +1753,8 @@ class GenaiSession:
         """Register each required plugin EP from its selected discovery entries."""
         required = {normalize_ep_name(ep) for ep in required_eps}
         registry = WinMLEPRegistry.instance()
+        for ep in required:
+            registry.ensure_discovered_ep(ep)
         entries_by_ep: dict[str, list] = {ep: [] for ep in required}
         for entry in registry.all_discovered():
             if (

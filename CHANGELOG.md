@@ -12,7 +12,7 @@ This hotfix restores compatibility with current Transformers and Windows runtime
 
 - **Hugging Face export and evaluation** — stabilized SDPA and attention-mask handling, decoder wrappers, BLIP export, QNN/HTP tracing, and processor resolution for Transformers 4.57 (#1372, #1379, #1384).
 - **VitisAI compilation** — moved the compilation cache under the user-writable WinML cache root instead of installation-relative protected paths (#1378).
-- **Runtime dependencies** — constrained `plotext` to the compatible 5.x series, required the published Windows ML runtime build, and prevented QNN from installing a conflicting standard ONNX Runtime distribution (#1372).
+- **Runtime dependencies** — constrained `plotext` to the compatible 5.x series, required the published Windows ML runtime build, and routed QNN acquisition through the architecture-aware Windows ML EP Catalog so wheel installations preserve both QNN and DirectML without installing a conflicting standard ONNX Runtime distribution (#1372).
 
 ### 📦 Assets
 

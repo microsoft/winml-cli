@@ -255,7 +255,8 @@ class TestResolveEpMonitor:
             )
         msg = str(excinfo.value)
         assert "QNN is not available" in msg
-        assert "onnxruntime" in msg
+        assert "Windows ML EP Catalog" in msg
+        assert "BYO plugin" in msg
 
     def test_op_tracing_openvino_uses_generic_unsupported_error(self, tmp_path: Path):
         """OpenVINO is not advertised as an op-tracing implementation."""
@@ -395,6 +396,71 @@ class TestDetailOpTracingAutoCompile:
             "result_compile_optrace.csv"
         )
         assert "Raw ONNX detected" in result.output
+
+    @pytest.mark.parametrize(
+        ("ep_args", "source"),
+        [
+            ([], None),
+            (["--ep", "auto"], None),
+            (["--ep", "auto@winml-catalog"], "winml-catalog"),
+        ],
+        ids=["device-only", "explicit-auto", "source-qualified-auto"],
+    )
+    def test_npu_catalog_resolution_enables_compile_pipeline(
+        self,
+        tmp_path: Path,
+        ep_args: list[str],
+        source: str | None,
+    ) -> None:
+        """Automatic NPU tracing resolves QNN before deciding whether to compile."""
+        from winml.modelkit.session import EPDeviceTarget
+
+        model_path = tmp_path / "model.onnx"
+        model_path.write_bytes(b"raw onnx")
+        captured: dict = {}
+        runner = CliRunner()
+
+        with (
+            patch(
+                "winml.modelkit.session.resolve_device",
+                return_value=EPDeviceTarget(ep="QNNExecutionProvider", device="npu"),
+            ) as mock_resolve,
+            patch(
+                "winml.modelkit.session.monitor.qnn_monitor.QNNMonitor.is_available",
+                return_value=False,
+            ) as mock_monitor_available,
+            patch("winml.modelkit.onnx.is_compiled_onnx", return_value=False),
+            patch(
+                "winml.modelkit.commands.perf.BenchmarkConfig",
+                side_effect=lambda **kw: (captured.update(kw), _ConfigStub(**kw))[1],
+            ),
+            patch("winml.modelkit.commands.perf.PerfBenchmark") as mock_bench,
+        ):
+            mock_bench.return_value.run.side_effect = RuntimeError("stop")
+            result = runner.invoke(
+                perf,
+                [
+                    "-m",
+                    str(model_path),
+                    "--device",
+                    "npu",
+                    *ep_args,
+                    "--op-tracing",
+                    "detail",
+                    "-o",
+                    str(tmp_path / "result.json"),
+                ],
+                obj={},
+            )
+
+        assert result.exit_code != 0
+        assert captured["no_compile"] is False
+        assert captured["skip_build"] is False
+        assert captured["compile_ep_options"]["profiling_level"] == "optrace"
+        mock_resolve.assert_called_once_with(
+            EPDeviceTarget(ep="auto", device="npu", source=source)
+        )
+        mock_monitor_available.assert_not_called()
 
     @pytest.mark.parametrize(
         ("flag", "message"),

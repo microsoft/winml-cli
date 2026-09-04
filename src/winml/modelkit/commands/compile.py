@@ -247,7 +247,8 @@ def compile(
         raise click.ClickException(str(e)) from e
     except WinMLEPNotDiscovered as e:
         raise click.ClickException(
-            f"EP plugin not found: {e}. Install the required EP package (e.g. onnxruntime-qnn)."
+            f"EP plugin not found: {e}. Verify that the requested EP is available "
+            "through Windows ML EP Catalog or install a compatible BYO plugin."
         ) from e
     except WinMLEPRegistrationFailed as e:
         raise click.ClickException(f"EP registration failed: {e}") from e

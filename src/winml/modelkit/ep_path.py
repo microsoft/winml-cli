@@ -1486,10 +1486,23 @@ def _list_msix_eps(
 # ---------------------------------------------------------------------------
 # Default EP source list.
 # ---------------------------------------------------------------------------
+def _winml_catalog_sources(*, auto_download: bool = False) -> list[WinMLCatalogSource]:
+    """Build catalog sources for every non-bundled EP in the shared catalog."""
+    return [
+        WinMLCatalogSource(
+            catalog_name=ep_name,
+            eps=(ep_name,),
+            auto_download=auto_download,
+        )
+        for ep_name in EP_CATALOG.all_eps()
+        if EP_CATALOG.dll_name_for(ep_name) is not None
+    ]
+
+
 def _default_ep_sources() -> list[EPSource]:
     """Default EP source list for this project.
 
-    Order: PyPI sources first (most deterministic, locked by pyproject),
+    Order: manually installed PyPI BYO sources first,
     then ``NuGetSource`` entries (opportunistic pickup of plugin EPs the
     user already restored into the global NuGet cache via a .NET
     project), then ``WinMLCatalogSource`` entries (opportunistic MSIX
@@ -1504,8 +1517,11 @@ def _default_ep_sources() -> list[EPSource]:
 
     The ``WinMLCatalogSource`` rows are live: on Windows they use the
     required ``windowsml`` dependency to pick up MSIX-delivered EPs that
-    Windows Update has provisioned. On unsupported platforms or when
-    catalog construction fails, they yield nothing.
+    Windows Update has provisioned. Default discovery never downloads a
+    missing provider; an explicit EP request retries its catalog source with
+    acquisition enabled via :func:`_resolve_requested_winml_catalog_ep`.
+    On unsupported platforms or when catalog construction fails, they yield
+    nothing.
 
     The ``NuGetSource`` rows are also live: they yield nothing silently
     when the relevant package is not in ``~/.nuget/packages``. Only EPs
@@ -1514,7 +1530,7 @@ def _default_ep_sources() -> list[EPSource]:
     MIGraphX as of 2026-05) are intentionally absent.
     """
     return [
-        # 1. PyPI plugin wheels — primary source today.
+        # 1. Manually installed PyPI plugin wheels — BYO sources.
         PyPISource(
             distribution="onnxruntime-ep-openvino",
             relative_dll=("onnxruntime_ep_openvino/onnxruntime_providers_openvino_plugin.dll"),
@@ -1553,30 +1569,10 @@ def _default_ep_sources() -> list[EPSource]:
             relative_dll=("runtimes/win-arm64/native/onnxruntime_providers_qnn.dll"),
             eps=("QNNExecutionProvider",),
         ),
-        # 3. WinAppSDK ExecutionProviderCatalog — opportunistic MSIX
-        #    pickup for any EP we don't already have via PyPI. Order
-        #    matters: PyPI wins if both are present (more deterministic,
-        #    locked by pyproject vs Windows-Update-managed MSIX).
-        WinMLCatalogSource(
-            catalog_name="OpenVINOExecutionProvider",
-            eps=("OpenVINOExecutionProvider",),
-        ),
-        WinMLCatalogSource(
-            catalog_name="QNNExecutionProvider",
-            eps=("QNNExecutionProvider",),
-        ),
-        WinMLCatalogSource(
-            catalog_name="VitisAIExecutionProvider",
-            eps=("VitisAIExecutionProvider",),
-        ),
-        WinMLCatalogSource(
-            catalog_name="MIGraphXExecutionProvider",
-            eps=("MIGraphXExecutionProvider",),
-        ),
-        WinMLCatalogSource(
-            catalog_name="NvTensorRTRTXExecutionProvider",
-            eps=("NvTensorRTRTXExecutionProvider",),
-        ),
+        # 3. WinAppSDK ExecutionProviderCatalog — default discovery picks up
+        #    ready MSIX providers without downloading. Explicit EP requests
+        #    can acquire a missing provider via the helper below.
+        *_winml_catalog_sources(),
         # 4. Well-known third-party installer drops, gated by env var so
         #    they no-op on machines without the installer present.
         DirectorySource(
@@ -1605,6 +1601,15 @@ def _default_ep_sources() -> list[EPSource]:
         #    dedup in discover_all_eps collapses identical-DLL dups.
         *_list_msix_eps(),
     ]
+
+
+def _resolve_requested_winml_catalog_ep(ep_name: str) -> list[EPEntry]:
+    """Resolve an explicitly requested EP, opting into Catalog acquisition."""
+    source = next(
+        (source for source in _winml_catalog_sources(auto_download=True) if ep_name in source.eps),
+        None,
+    )
+    return list(source.resolve()) if source is not None else []
 
 
 # ---------------------------------------------------------------------------

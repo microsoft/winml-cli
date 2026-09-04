@@ -14,7 +14,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
@@ -376,6 +376,44 @@ class WinMLEPRegistry:
         """
         return [e for e in self._discovered if e.ep_name == ep_full_name]
 
+    def ensure_discovered_ep(
+        self,
+        ep_name: str,
+        *,
+        source: str | None = None,
+    ) -> tuple[EPEntry, ...]:
+        """Return entries for an explicit EP, acquiring its Catalog package if needed."""
+        ep_full = expand_ep_name(ep_name)
+        candidates = self._entries_for(ep_full)
+        catalog_missing = source == "winml-catalog" and not any(
+            _entry_source_tag(entry) == "winml-catalog" for entry in candidates
+        )
+        if source in (None, "winml-catalog") and (not candidates or catalog_missing):
+            from ..ep_path import _resolve_requested_winml_catalog_ep
+
+            catalog_entries = _resolve_requested_winml_catalog_ep(ep_full)
+            existing_keys = {
+                (entry.ep_name, entry.dll_path, _entry_source_tag(entry))
+                for entry in self._discovered
+            }
+            has_primary = any(entry.status == "primary" for entry in candidates)
+            added = False
+            for entry in catalog_entries:
+                key = (entry.ep_name, entry.dll_path, _entry_source_tag(entry))
+                if key in existing_keys:
+                    continue
+                if has_primary:
+                    entry = replace(entry, status="shadowed")
+                else:
+                    has_primary = True
+                self._discovered.append(entry)
+                existing_keys.add(key)
+                added = True
+            if added:
+                self._available_eps_cache = None
+                candidates = self._entries_for(ep_full)
+        return tuple(candidates)
+
     def register_ep(self, entry: EPEntry) -> WinMLEP:
         """Return the WinMLEP for ``entry.dll_path``, loading the DLL if needed.
 
@@ -529,12 +567,13 @@ class WinMLEPRegistry:
             )
 
         ep_full = expand_ep_name(target.ep)
-        candidates = self._entries_for(ep_full)
+        candidates = list(self.ensure_discovered_ep(ep_full, source=target.source))
 
         if not candidates:
             raise WinMLEPNotDiscovered(
                 f"No EPEntry discovered for ep={target.ep!r}. "
-                f"Hint: install the plugin or set WINMLCLI_EP_PATH."
+                f"Hint: verify Windows ML EP Catalog support, install a BYO plugin, "
+                f"or set WINMLCLI_EP_PATH."
             )
 
         if target.source is not None:

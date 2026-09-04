@@ -753,11 +753,18 @@ def resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
         available_eps = registry.available_eps()
         selected_ep: str | None = None
         vendor_detection_failed = False
-        for spec in EP_DEVICE_SPECS:
+        candidates = sorted(
+            (
+                spec
+                for spec in EP_DEVICE_SPECS
+                if spec.device == device and _is_policy_supported_spec(spec)
+            ),
+            key=lambda spec: spec.ep not in available_eps,
+        )
+        for spec in candidates:
             if (
-                spec.device != device
-                or spec.ep not in available_eps
-                or not _is_policy_supported_spec(spec)
+                vendor_detection_failed
+                and spec.device != "cpu"
             ):
                 continue
             try:
