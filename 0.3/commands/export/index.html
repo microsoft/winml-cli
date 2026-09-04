@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -31,7 +31,7 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -2839,7 +2839,7 @@ understand custom metadata.</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Export a BERT model, overriding input shapes for longer sequences</span>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>winml<span class="w"> </span><span class="nb">export</span><span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>-o<span class="w"> </span>bert.onnx<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span>--shape-config<span class="w"> </span>shape.json
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1"># shape.json: {&quot;sequence_length&quot;: 512}</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1"># shape.json: {"sequence_length": 512}</span>
 </span></code></pre></div>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Export with a hand-crafted input-spec file (skips auto-detection)</span>
 </span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>winml<span class="w"> </span><span class="nb">export</span><span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>-o<span class="w"> </span>bert.onnx<span class="w"> </span>--input-specs<span class="w"> </span>inputs.json
@@ -2849,12 +2849,12 @@ understand custom metadata.</p>
 </span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="c1"># pin any symbolic dimensions to concrete sizes, or --input-specs to fully</span>
 </span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># specify every input tensor.</span>
 </span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>winml<span class="w"> </span><span class="nb">export</span><span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>-o<span class="w"> </span>bert.onnx<span class="w"> </span>--shape-config<span class="w"> </span>shape_config.json
-</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="c1"># shape_config.json: {&quot;sequence_length&quot;: 128}</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="c1"># shape_config.json: {"sequence_length": 128}</span>
 </span></code></pre></div>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Export with dynamic batch and sequence dimensions</span>
 </span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>winml<span class="w"> </span><span class="nb">export</span><span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>-o<span class="w"> </span>bert.onnx<span class="w"> </span>--dynamic-axes<span class="w"> </span>dynamic_axes.json
 </span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="c1"># dynamic_axes.json:</span>
-</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="c1"># {&quot;input_ids&quot;: {&quot;0&quot;: &quot;batch&quot;, &quot;1&quot;: &quot;sequence&quot;}, &quot;attention_mask&quot;: {&quot;0&quot;: &quot;batch&quot;, &quot;1&quot;: &quot;sequence&quot;}}</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="c1"># {"input_ids": {"0": "batch", "1": "sequence"}, "attention_mask": {"0": "batch", "1": "sequence"}}</span>
 </span></code></pre></div>
 <p><code>--input-specs</code> also accepts symbolic dimension names in <code>shape</code>; symbolic
 entries are used as dynamic ONNX axis names while size <code>1</code> is used for the
@@ -2972,7 +2972,7 @@ dummy input tensor. For example, <code>{"input_ids": {"dtype": "int64", "shape":
       <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
-      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

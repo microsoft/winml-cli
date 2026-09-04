@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -31,7 +31,7 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -2920,9 +2920,9 @@
 </span></code></pre></div>
 <p>Evaluate against a custom dataset whose label names differ from the model's class IDs. The <code>--label-mapping</code> flag points to a JSON file whose <strong>keys are the label name strings as they appear in the dataset</strong> and whose <strong>values are the integer class IDs the model emits</strong>. For example, ResNet-50 outputs ImageNet-1k class IDs (<code>0</code>–<code>999</code>), so if your custom dataset uses readable strings like <code>"tabby cat"</code> or <code>"golden retriever"</code>, <code>labels.json</code> translates each dataset label to the corresponding ImageNet ID the model predicts:</p>
 <div class="language-json highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="p">{</span>
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="nt">&quot;tabby cat&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">281</span><span class="p">,</span>
-</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span><span class="nt">&quot;Egyptian cat&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">285</span><span class="p">,</span>
-</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">  </span><span class="nt">&quot;golden retriever&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">207</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="nt">"tabby cat"</span><span class="p">:</span><span class="w"> </span><span class="mi">281</span><span class="p">,</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">  </span><span class="nt">"Egyptian cat"</span><span class="p">:</span><span class="w"> </span><span class="mi">285</span><span class="p">,</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">  </span><span class="nt">"golden retriever"</span><span class="p">:</span><span class="w"> </span><span class="mi">207</span>
 </span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="p">}</span>
 </span></code></pre></div>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>$<span class="w"> </span>winml<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>--dataset<span class="w"> </span>my-org/my-pets-dataset<span class="w"> </span>--label-mapping<span class="w"> </span>labels.json<span class="w"> </span>-o<span class="w"> </span>results/resnet_eval.json
@@ -3005,7 +3005,7 @@
       <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
-      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

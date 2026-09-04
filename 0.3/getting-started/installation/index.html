@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -31,7 +31,7 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -2628,7 +2628,7 @@
 <p class="admonition-title">Windows on Arm requires x64 Python</p>
 <p>winml-cli supports <strong>x64 (AMD64) Python only</strong>. On an Arm64 device, native Arm64 Python cannot install the dependencies because PyTorch and the Windows ML runtime packages publish no <code>win_arm64</code> wheels — <code>uv sync</code> fails with an unsupported-platform error. Install an x64 build of Python 3.11 and point <code>uv</code> at it:</p>
 <div class="language-powershell highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">uv</span> <span class="n">python</span> <span class="n">install</span> <span class="n">cpython</span><span class="p">-</span><span class="n">3</span><span class="p">.</span><span class="n">11-windows-x86_64-none</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">uv</span> <span class="n">sync</span> <span class="p">-</span><span class="n">-locked</span> <span class="p">-</span><span class="n">-python</span> <span class="n">cpython</span><span class="p">-</span><span class="n">3</span><span class="p">.</span><span class="n">11-windows-x86_64-none</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">uv</span> <span class="n">sync</span> <span class="p">-</span><span class="n">-python</span> <span class="n">cpython</span><span class="p">-</span><span class="n">3</span><span class="p">.</span><span class="n">11-windows-x86_64-none</span>
 </span></code></pre></div>
 <p>The x64 interpreter runs under Windows emulation on Arm64 hardware; <code>winml sys</code> still reports the Arm64 machine, and the NPU/GPU/CPU providers work normally.</p>
 </div>
@@ -2733,7 +2733,7 @@
       <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
-      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
@@ -31,7 +31,7 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
         <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
@@ -2614,7 +2614,7 @@
 <p>winml-cli defaults to <strong>opset 17</strong> when exporting a PyTorch model to ONNX. This is the value of <code>opset_version: int = 17</code> in <code>WinMLExportConfig</code> (<code>src/winml/modelkit/export/config.py</code>, line 75). Opset 17 introduced layer-normalisation and group-normalisation operators in native form, eliminating the multi-node decompositions required by earlier opsets, which is why it is the recommended baseline for modern transformer and vision architectures.</p>
 <p>Higher opsets unlock additional operators and fix known edge-case behavior, but not every Execution Provider supports the latest opset. QNN, for instance, may lag behind the ONNX standard by one or two versions. If you need to target an older EP, pass a custom export configuration:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Write a config override</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nb">echo</span><span class="w"> </span><span class="s1">&#39;{&quot;opset_version&quot;: 16}&#39;</span><span class="w"> </span>&gt;<span class="w"> </span>export_cfg.json
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nb">echo</span><span class="w"> </span><span class="s1">'{"opset_version": 16}'</span><span class="w"> </span>&gt;<span class="w"> </span>export_cfg.json
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
 </span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># Export with the override</span>
 </span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>winml<span class="w"> </span><span class="nb">export</span><span class="w"> </span>-m<span class="w"> </span>prajjwal1/bert-tiny<span class="w"> </span>-o<span class="w"> </span>bert.onnx<span class="w"> </span>--export-config<span class="w"> </span>export_cfg.json
@@ -2691,7 +2691,7 @@
       <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
-      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>
