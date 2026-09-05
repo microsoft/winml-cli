@@ -72,12 +72,14 @@ class TestEvaluationConfig:
                 split="test",
                 samples=20,
                 columns_mapping={"label_column": "lbl"},
+                label_mapping={"blues": 3},
             ),
         )
         restored = WinMLEvaluationConfig.from_dict(config.to_dict())
         assert restored.model_id == config.model_id
         assert restored.dataset.path == config.dataset.path
         assert restored.dataset.columns_mapping == config.dataset.columns_mapping
+        assert restored.dataset.label_mapping == config.dataset.label_mapping
 
     def test_config_roundtrip_preserves_revision(self):
         """DatasetConfig.revision survives to_dict/from_dict roundtrip."""
@@ -97,6 +99,27 @@ class TestEvaluationConfig:
         ds = DatasetConfig(path="some-dataset")
         assert ds.revision is None
         assert "revision" not in ds.to_dict()
+
+    def test_dataset_config_max_duration_seconds_roundtrip(self):
+        dataset = DatasetConfig(path="audio-dataset", max_duration_seconds=2.0)
+
+        restored = WinMLEvaluationConfig.from_dict(
+            WinMLEvaluationConfig(dataset=dataset).to_dict()
+        )
+
+        assert restored.dataset.max_duration_seconds == 2.0
+        assert dataset.to_dict()["max_duration_seconds"] == 2.0
+
+    def test_dataset_config_max_duration_seconds_defaults_to_unbounded(self):
+        dataset = DatasetConfig(path="audio-dataset")
+
+        assert dataset.max_duration_seconds is None
+        assert "max_duration_seconds" not in dataset.to_dict()
+
+    @pytest.mark.parametrize("value", [0.0, -1.0, float("nan"), float("inf")])
+    def test_dataset_config_rejects_nonpositive_max_duration(self, value: float):
+        with pytest.raises(ValueError, match="finite value greater than zero"):
+            DatasetConfig(max_duration_seconds=value)
 
     def test_input_data_default_is_none(self):
         """input_data defaults to None and is omitted from to_dict."""
