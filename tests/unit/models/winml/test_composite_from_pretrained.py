@@ -355,6 +355,107 @@ def test_encoder_decoder_prefills_every_prompt_token() -> None:
     assert cache.step == 3
 
 
+def test_encoder_decoder_preserves_encoder_alignment_across_independent_rows() -> None:
+    from winml.modelkit.models.winml.encoder_decoder import WinMLEncoderDecoderModel
+
+    class _SourceConditionedDecoder:
+        def __init__(self) -> None:
+            self.io_config = {
+                "input_names": [
+                    "decoder_input_ids",
+                    "encoder_hidden_states",
+                    "attention_mask",
+                    "decoder_attention_mask",
+                    "cache_position",
+                    "past_0_key",
+                    "past_0_value",
+                ],
+                "input_shapes": [
+                    [1, 1],
+                    [1, 4, 2],
+                    [1, 4],
+                    [1, 4],
+                    [1],
+                    [1, 2, 4, 2],
+                    [1, 2, 4, 2],
+                ],
+                "input_types": [
+                    np.int64,
+                    np.float32,
+                    np.int64,
+                    np.int64,
+                    np.int64,
+                    np.float32,
+                    np.float32,
+                ],
+            }
+            self.attention_masks: list[torch.Tensor] = []
+
+        def __call__(self, **feeds):
+            attention_mask = feeds["attention_mask"]
+            self.attention_masks.append(attention_mask.clone())
+            source_token = int(
+                (feeds["encoder_hidden_states"][:, :, 0] * attention_mask).sum().item()
+            )
+            logits = torch.zeros(1, 1, 4)
+            logits[0, 0, source_token] = 1
+            present = torch.full((1, 2, 1, 2), float(source_token))
+            return {
+                "logits": logits,
+                "present_0_key": present,
+                "present_0_value": present.clone(),
+            }
+
+    def make_cache():
+        cache = MagicMock()
+        cache.step = 0
+        cache.layers = [
+            SimpleNamespace(
+                keys=torch.zeros(1, 2, 4, 2),
+                values=torch.zeros(1, 2, 4, 2),
+            )
+        ]
+        cache.build_decoder_mask.return_value = torch.tensor([[1, 0, 0, 0]])
+        cache.get_query_cache_position.return_value = torch.tensor([0])
+
+        def _advance(outputs):
+            cache.step += outputs["present_0_key"].shape[2]
+
+        cache.update_all_layers.side_effect = _advance
+        return cache
+
+    decoder = _SourceConditionedDecoder()
+    model = WinMLEncoderDecoderModel(
+        {"encoder": SimpleNamespace(io_config={}), "decoder": decoder},
+        MagicMock(is_encoder_decoder=True),
+    )
+    first_cache = make_cache()
+    second_cache = make_cache()
+    rows = [
+        (torch.tensor([[[1.0, 0.0], [0.0, 0.0], [0.0, 0.0], [0.0, 0.0]]]), 1),
+        (torch.tensor([[[2.0, 0.0], [0.0, 0.0], [0.0, 0.0], [0.0, 0.0]]]), 2),
+    ]
+
+    generated_tokens = []
+    with patch.object(model, "_resolve_cache", side_effect=[first_cache, second_cache]):
+        for hidden_state, _ in rows:
+            result = model.forward(
+                encoder_outputs=BaseModelOutput(last_hidden_state=hidden_state),
+                decoder_input_ids=torch.tensor([[0]]),
+                attention_mask=torch.tensor([[1]]),
+            )
+            generated_tokens.append(int(result.logits[:, -1, :].argmax(dim=-1)[0]))
+
+    assert [mask.tolist() for mask in decoder.attention_masks] == [
+        [[1, 0, 0, 0]],
+        [[1, 0, 0, 0]],
+    ]
+    assert generated_tokens == [1, 2]
+    assert first_cache.step == second_cache.step == 1
+    assert first_cache.update_all_layers.call_count == 1
+    assert second_cache.update_all_layers.call_count == 1
+
+
 def test_static_cache_rejects_out_of_range_query_positions() -> None:
     from winml.modelkit.models.winml.kv_cache import WinMLStaticCache
 
