@@ -265,15 +265,13 @@ class BlipDecoderWrapper(WinMLDecoderWrapper):
             dtype=torch.long,
             device=encoder_hidden_states.device,
         )
-        decoder_mask = (1 - inputs["decoder_attention_mask"]).to(dtype=encoder_hidden_states.dtype)
-        decoder_mask = decoder_mask.unsqueeze(1).unsqueeze(1)
-        decoder_mask = decoder_mask * torch.finfo(encoder_hidden_states.dtype).min
+        decoder_mask = inputs["decoder_attention_mask"].unsqueeze(1)
         # self.model is nn.Module; torch's __getattr__ types text_decoder as
         # Tensor | Module, so narrow to a callable Module.
         outputs = cast("nn.Module", self.model.text_decoder)(
             input_ids=inputs["decoder_input_ids"],
             # HF's causal-mask reconstruction traces as ops the NPU analyzer
-            # doesn't support; pass an additive 4-D mask to bypass reconstruction.
+            # doesn't support; pass a 3-D mask to bypass reconstruction.
             attention_mask=decoder_mask,
             # Without explicit position_ids, BlipTextModel would derive them
             # from past_kv_len=0 (a frozen constant in the trace), giving every
