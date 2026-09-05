@@ -1,0 +1,153 @@
+{
+  "export": {
+    "opset_version": 17,
+    "batch_size": 1,
+    "export_params": true,
+    "do_constant_folding": true,
+    "verbose": false,
+    "dynamo": false,
+    "enable_hierarchy_tags": true,
+    "clean_onnx": false,
+    "hierarchy_tag_format": "full",
+    "input_tensors": [
+      {
+        "name": "input_ids",
+        "dtype": "int32",
+        "shape": [
+          1,
+          512
+        ],
+        "value_range": [
+          0,
+          128100
+        ]
+      },
+      {
+        "name": "attention_mask",
+        "dtype": "int32",
+        "shape": [
+          1,
+          512
+        ],
+        "value_range": [
+          0,
+          2
+        ]
+      }
+    ],
+    "output_tensors": [
+      {
+        "name": "logits"
+      }
+    ],
+    "compatibility": {
+      "transformers_attention": "eager"
+    }
+  },
+  "optim": {},
+  "quant": {
+    "mode": "fp16",
+    "samples": 10,
+    "calibration_method": "minmax",
+    "weight_type": "uint8",
+    "activation_type": "uint8",
+    "per_channel": false,
+    "symmetric": false,
+    "weight_symmetric": null,
+    "activation_symmetric": null,
+    "save_calibration": false,
+    "distribution": "uniform",
+    "seed": null,
+    "calibration_load_path": null,
+    "calibration_save_path": null,
+    "op_types_to_quantize": null,
+    "nodes_to_exclude": null,
+    "task": "reranking",
+    "model_id": "mixedbread-ai/mxbai-rerank-base-v1",
+    "model_type": "deberta-v2",
+    "fp16_keep_io_types": true,
+    "fp16_op_block_list": null,
+    "fp16_nodes_to_exclude": [
+      "InsertedPrecisionFreeCast_/deberta/embeddings/LayerNorm/LayerNormalization_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.0/attention/self/Transpose_3_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.0/attention/self/Reshape_1_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.0/attention/self/Reshape_3_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.0/attention/self/Transpose_8_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.0/attention/self/Reshape_5_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.0/attention/self/Reshape_13_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.1/attention/self/Transpose_3_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.1/attention/self/Reshape_1_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.1/attention/self/Reshape_3_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.1/attention/self/Transpose_8_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.1/attention/self/Reshape_5_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.1/attention/self/Reshape_13_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.2/attention/self/Transpose_3_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.2/attention/self/Reshape_1_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.2/attention/self/Reshape_3_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.2/attention/self/Transpose_8_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.2/attention/self/Reshape_5_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.2/attention/self/Reshape_13_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.3/attention/self/Transpose_3_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.3/attention/self/Reshape_1_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.3/attention/self/Reshape_3_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.3/attention/self/Transpose_8_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.3/attention/self/Reshape_5_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.3/attention/self/Reshape_13_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.4/attention/self/Transpose_3_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.4/attention/self/Reshape_1_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.4/attention/self/Reshape_3_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.4/attention/self/Transpose_8_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.4/attention/self/Reshape_5_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.4/attention/self/Reshape_13_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.5/attention/self/Transpose_3_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.5/attention/self/Reshape_1_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.5/attention/self/Reshape_3_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.5/attention/self/Transpose_8_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.5/attention/self/Reshape_5_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.5/attention/self/Reshape_13_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.6/attention/self/Transpose_3_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.6/attention/self/Reshape_1_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.6/attention/self/Reshape_3_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.6/attention/self/Transpose_8_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.6/attention/self/Reshape_5_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.6/attention/self/Reshape_13_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.7/attention/self/Transpose_3_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.7/attention/self/Reshape_1_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.7/attention/self/Reshape_3_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.7/attention/self/Transpose_8_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.7/attention/self/Reshape_5_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.7/attention/self/Reshape_13_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.8/attention/self/Transpose_3_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.8/attention/self/Reshape_1_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.8/attention/self/Reshape_3_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.8/attention/self/Transpose_8_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.8/attention/self/Reshape_5_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.8/attention/self/Reshape_13_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.9/attention/self/Transpose_3_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.9/attention/self/Reshape_1_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.9/attention/self/Reshape_3_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.9/attention/self/Transpose_8_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.9/attention/self/Reshape_5_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.9/attention/self/Reshape_13_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.10/attention/self/Transpose_3_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.10/attention/self/Reshape_1_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.10/attention/self/Reshape_3_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.10/attention/self/Transpose_8_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.10/attention/self/Reshape_5_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.10/attention/self/Reshape_13_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.11/attention/self/Transpose_3_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.11/attention/self/Reshape_1_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.11/attention/self/Reshape_3_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.11/attention/self/Transpose_8_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.11/attention/self/Reshape_5_output_0",
+      "InsertedPrecisionFreeCast_/deberta/encoder/layer.11/attention/self/Reshape_13_output_0",
+      "InsertedPrecisionFreeCast_/pooler/Gather_output_0"
+    ]
+  },
+  "compile": null,
+  "loader": {
+    "task": "reranking",
+    "model_class": "DebertaV2ForSequenceClassification",
+    "model_type": "deberta-v2"
+  }
+}

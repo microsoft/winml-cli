@@ -39,16 +39,17 @@
       {
         "name": "logits"
       }
-    ]
+    ],
+    "compatibility": {
+      "transformers_attention": "eager"
+    }
   },
-  "optim": {
-    "clamp_constant_values": true
-  },
+  "optim": {},
   "quant": null,
   "compile": null,
   "loader": {
-    "task": "text-classification",
-    "model_class": "AutoModelForSequenceClassification",
+    "task": "reranking",
+    "model_class": "DebertaV2ForSequenceClassification",
     "model_type": "deberta-v2"
   }
 }

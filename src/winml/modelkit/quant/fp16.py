@@ -2822,7 +2822,7 @@ def _validate_local_function_conversion(model: ModelProto) -> None:
         raise RuntimeError(msg) from error
 
 
-def _validate_converted_types(model: ModelProto) -> None:
+def _validate_converted_types(model: ModelProto, *, required: bool = True) -> bool:
     """Reject converted graphs whose concrete types no longer agree."""
     from onnx import checker, shape_inference
 
@@ -2831,11 +2831,16 @@ def _validate_converted_types(model: ModelProto) -> None:
         inferred = shape_inference.infer_shapes(model, check_type=True, strict_mode=True)
         checker.check_model(inferred)
     except (
+        AttributeError,
+        EncodeError,
         checker.ValidationError,
         shape_inference.InferenceError,
     ) as error:
+        if not required:
+            return False
         msg = "FP16 conversion produced incompatible FP16 types."
         raise RuntimeError(msg) from error
+    return True
 
 
 def _node_dependencies(node: NodeProto) -> set[str]:
@@ -2889,6 +2894,7 @@ def convert_to_fp16(
     *,
     keep_io_types: bool = True,
     op_block_list: list[str] | None = None,
+    node_block_list: list[str] | None = None,
 ) -> ModelProto:
     """Convert an ONNX model from FP32 to FP16 precision.
 
@@ -3024,11 +3030,13 @@ def convert_to_fp16(
     if op_block_list:
         logger.info("  Keeping ops in FP32: %s", op_block_list)
 
+    supports_strict_type_validation = _validate_converted_types(conversion_model, required=False)
     try:
         converted: ModelProto = convert_float_to_float16(
             conversion_model,
             keep_io_types=keep_io_types,
             op_block_list=op_block_list,
+            node_block_list=node_block_list,
         )
     except EncodeError:
         logger.warning(
@@ -3041,6 +3049,7 @@ def convert_to_fp16(
             keep_io_types=keep_io_types,
             disable_shape_infer=True,
             op_block_list=op_block_list,
+            node_block_list=node_block_list,
         )
 
     converted_graphs = _ort_traversed_graphs(converted, op_block_list)
@@ -3060,7 +3069,7 @@ def convert_to_fp16(
     _repair_sparse_float_initializers(converted, op_block_list, keep_io_types=keep_io_types)
     _graph_topological_sort(converted.graph)
     _validate_initializer_output_types(converted)
-    if requires_attribute_validation or external_attribute_tensors or requires_container_validation:
+    if supports_strict_type_validation:
         _validate_converted_types(converted)
     _validate_local_function_conversion(converted)
 
