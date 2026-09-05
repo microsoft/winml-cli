@@ -260,6 +260,26 @@ class TestResolveLoaderConfig:
 
         assert loader_config.trust_remote_code is True
 
+    def test_mms_target_language_is_persisted_in_loader_config(self) -> None:
+        mock_config = MagicMock()
+        mock_config.model_type = "wav2vec2"
+        mock_config.target_lang = "deu"
+        mock_config.adapter_attn_dim = 16
+        mock_class = MagicMock(spec=[])
+        mock_class.__name__ = "Wav2Vec2ForCTC"
+        mock_class.config_class = None
+
+        with patch(
+            "winml.modelkit.loader.resolution.resolve_task",
+            return_value=_make_resolution("automatic-speech-recognition", mock_class),
+        ):
+            loader_config, _, _, _ = resolve_loader_config(
+                "facebook/mms-1b-all",
+                hf_config=mock_config,
+            )
+
+        assert loader_config.target_lang == "deu"
+
     def test_explicit_task_passed_through(self) -> None:
         """Explicit task is forwarded to resolve_task."""
         mock_config = MagicMock()
