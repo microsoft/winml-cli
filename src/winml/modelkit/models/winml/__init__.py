@@ -50,6 +50,7 @@ TASK_TO_WINML_CLASS: dict[str, str] = {
     "feature-extraction": "WinMLModelForFeatureExtraction",
     "sentence-similarity": "WinMLModelForFeatureExtraction",
     "image-feature-extraction": "WinMLModelForFeatureExtraction",
+    "automatic-speech-recognition": "WinMLModelForGenericTask",
 }
 
 # Level 2: (model_type, task) -> Specialized class (exceptions only)
