@@ -323,6 +323,12 @@ class TestGetEvaluatorClass:
             assert cls.__module__ == module_path
             assert cls.__name__ == class_name
 
+    def test_text_classification_still_uses_classification_evaluator(self) -> None:
+        from winml.modelkit.eval import WinMLEvaluationConfig, get_evaluator_class
+
+        cls = get_evaluator_class(WinMLEvaluationConfig(task="text-classification"))
+        assert cls.__name__ == "WinMLTextClassificationEvaluator"
+
     def test_unsupported_task_raises_value_error(self):
         from winml.modelkit.eval import WinMLEvaluationConfig, get_evaluator_class
 
@@ -717,6 +723,76 @@ class TestWinMLEvaluator:
 
         mock_load_ds.assert_called_once()
         assert mock_load_ds.call_args.kwargs["revision"] is None
+
+    @patch("evaluate.evaluator")
+    @patch("transformers.pipeline")
+    @patch("datasets.load_from_disk")
+    def test_local_dataset_dict_uses_requested_split(
+        self,
+        mock_load_from_disk,
+        mock_pipeline,
+        mock_hf_eval,
+        tmp_path,
+    ):
+        from winml.modelkit.eval import WinMLEvaluator
+
+        local_dir = tmp_path / "fixture"
+        local_dir.mkdir()
+
+        dev_ds = MagicMock()
+        dev_ds.__len__ = lambda self: 3
+        dev_ds.shuffle.return_value = dev_ds
+        dev_ds.select.return_value = dev_ds
+        dev_ds.column_names = ["image", "label"]
+
+        train_ds = MagicMock()
+        train_ds.__len__ = lambda self: 5
+        train_ds.shuffle.return_value = train_ds
+        train_ds.select.return_value = train_ds
+        train_ds.column_names = ["image", "label"]
+
+        mock_load_from_disk.return_value = {"train": train_ds, "dev": dev_ds}
+        mock_pipeline.return_value = MagicMock()
+        mock_hf_eval.return_value = MagicMock(compute=MagicMock(return_value={}))
+
+        model = MagicMock()
+        model.config.label2id = None
+
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            dataset=DatasetConfig(path=str(local_dir), split="dev", samples=2),
+        )
+
+        WinMLEvaluator(config, model)
+
+        dev_ds.select.assert_called_once_with(range(2))
+        train_ds.select.assert_not_called()
+
+    @patch("datasets.load_from_disk")
+    def test_local_dataset_dict_missing_split_raises(
+        self,
+        mock_load_from_disk,
+        tmp_path,
+    ):
+        from winml.modelkit.eval import WinMLEvaluator
+        from winml.modelkit.utils.eval_utils import DatasetValidationError
+
+        local_dir = tmp_path / "fixture"
+        local_dir.mkdir()
+
+        mock_load_from_disk.return_value = {"train": MagicMock()}
+
+        model = MagicMock()
+        model.config.label2id = None
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            dataset=DatasetConfig(path=str(local_dir), split="dev", samples=1),
+        )
+
+        with pytest.raises(DatasetValidationError, match="has splits"):
+            WinMLEvaluator(config, model)
 
     @patch("evaluate.evaluator")
     @patch("transformers.pipeline")

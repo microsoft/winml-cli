@@ -103,7 +103,17 @@ class WinMLEvaluator:
         try:
             ds_path = Path(ds.path).expanduser() if ds.path else None
             if ds_path and ds_path.is_dir():
-                dataset = load_from_disk(str(ds_path))
+                loaded = load_from_disk(str(ds_path))
+                if isinstance(loaded, Dataset):
+                    dataset = loaded
+                else:
+                    available_splits = sorted(str(name) for name in loaded)
+                    if ds.split not in loaded:
+                        raise DatasetValidationError(
+                            f"Local dataset '{ds.path}' has splits {available_splits}, "
+                            f"but split '{ds.split}' was requested"
+                        )
+                    dataset = loaded[ds.split]
             else:
                 dataset = load_dataset(
                     ds.path,

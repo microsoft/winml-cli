@@ -414,6 +414,24 @@ def resolve_composite_load_task(
 _SEQ2SEQ_GENERATION_TASK = "text2text-generation"
 
 
+def _surface_detected_task(config: PretrainedConfig, opt_task: str, model_id: str | None) -> str:
+    """Return the surfaced WinML task for a detected Optimum task.
+
+    Keeps export/model-class resolution on Optimum's canonical task while allowing
+    user-facing task semantics to upgrade when authoritative metadata carries a
+    narrower meaning.
+    """
+    surfaced = _resolve_task_modality(config, opt_task)
+    if surfaced != "text-classification" or not model_id:
+        return surfaced
+
+    from ..utils.hub_utils import get_pipeline_tag
+
+    if normalize_task(get_pipeline_tag(model_id) or "") == "reranking":
+        return "reranking"
+    return surfaced
+
+
 def _infer_task_from_architecture(config: PretrainedConfig) -> str:
     """Optimum task inferred from ``config.architectures[0]``.
 
@@ -518,8 +536,9 @@ def resolve_task(
             # pixel_values arch). (b) is a no-op for non-feature-extraction tasks, so (a)
             # is preserved. Consistent with the inferred branch below and USER_TASK —
             # adding --model-class must not collapse the modality.
-            opt_task = normalize_task(task)
-            surfaced = _resolve_task_modality(config, opt_task)
+            surfaced_task = normalize_task(task)
+            opt_task = to_optimum_task(surfaced_task)
+            surfaced = _resolve_task_modality(config, surfaced_task)
         else:
             # Task inferred from the architecture: surface it modality-aware, consistent
             # with the detection path (Stage 3), so e.g. a ViT backbone is
@@ -556,6 +575,7 @@ def resolve_task(
     if task is not None:
         original = task
         normalized = normalize_task(task)
+        optimum_task = to_optimum_task(normalized)
         # Exact-key composite lookup on the ORIGINAL user string: registration keys are
         # `summarization` / `table-question-answering`, never the normalized
         # `text2text-generation`. So `--task summarization` tags the composite while
@@ -569,7 +589,7 @@ def resolve_task(
         if resolved is None:
             try:
                 resolved = TasksManager.get_model_class_for_task(
-                    normalized, framework="pt", model_type=model_type or None
+                    optimum_task, framework="pt", model_type=model_type or None
                 )
             except KeyError as e:
                 if composite is not None:
@@ -583,8 +603,13 @@ def resolve_task(
                         f"Task '{normalized}' not supported by TasksManager. "
                         f"Check optimum documentation for supported tasks."
                     ) from e
+        surfaced_task = normalized if original == "text-ranking" else original
         return TaskResolution(
-            original, to_optimum_task(original), resolved, TaskSource.USER_TASK, composite
+            surfaced_task,
+            to_optimum_task(surfaced_task),
+            resolved,
+            TaskSource.USER_TASK,
+            composite,
         )
 
     # --- Stage 1: detection -----------------------------------------------
@@ -664,7 +689,7 @@ def resolve_task(
                 resolved = _resolve_model_class_from_config(config)  # arch fallback
 
     # --- Stage 3: modality upgrade (surfaced task only) -------------------
-    surfaced = _resolve_task_modality(config, opt_task)
+    surfaced = _surface_detected_task(config, opt_task, model_id)
 
     # --- Stage 4: composite tag (detection path) --------------------------
     composite = _composite_components_for_task(model_type, opt_task) if model_type else None

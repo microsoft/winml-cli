@@ -208,6 +208,19 @@ class TestPreparePipelineInputOverride:
         result = engine._prepare_pipeline_input(inputs, {}, None, mapping=None)
         assert result == {"x": 1}
 
+    def test_reranking_maps_query_and_document_to_tokenizer_pair(self) -> None:
+        engine = InferenceEngine()
+        spec = TASK_REGISTRY["reranking"]
+
+        result = engine._prepare_pipeline_input(
+            {"query": "search terms", "document": "candidate passage"},
+            {},
+            schema=spec.user_inputs,
+            mapping=spec.mapping,
+        )
+
+        assert result == {"text": "search terms", "text_pair": "candidate passage"}
+
 
 # ---------------------------------------------------------------------------
 # _normalize_pipeline_output with task override
