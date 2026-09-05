@@ -119,6 +119,20 @@ class WinMLQuantizationConfig:
     # FP16 conversion settings (only used when mode="fp16")
     fp16_keep_io_types: bool = True
     fp16_op_block_list: list[str] | None = None
+    fp16_nodes_to_exclude: list[str] | None = None
+
+    def __post_init__(self) -> None:
+        """Normalize FP16 node exclusions while preserving declaration order."""
+        node_exclusions: object = self.fp16_nodes_to_exclude
+        if node_exclusions is None:
+            return
+        if not isinstance(node_exclusions, list):
+            msg = "fp16_nodes_to_exclude must be a list of non-empty strings"
+            raise TypeError(msg)
+        if not all(isinstance(name, str) and name for name in node_exclusions):
+            msg = "fp16_nodes_to_exclude entries must be non-empty strings"
+            raise ValueError(msg)
+        self.fp16_nodes_to_exclude = list(dict.fromkeys(node_exclusions))
 
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization.
@@ -168,6 +182,7 @@ class WinMLQuantizationConfig:
         if self.mode == "fp16":
             result["fp16_keep_io_types"] = self.fp16_keep_io_types
             result["fp16_op_block_list"] = self.fp16_op_block_list
+            result["fp16_nodes_to_exclude"] = self.fp16_nodes_to_exclude
         return result
 
     @classmethod
@@ -217,6 +232,7 @@ class WinMLQuantizationConfig:
             reduce_range=data.get("reduce_range", False),
             fp16_keep_io_types=data.get("fp16_keep_io_types", True),
             fp16_op_block_list=data.get("fp16_op_block_list"),
+            fp16_nodes_to_exclude=data.get("fp16_nodes_to_exclude"),
         )
 
 

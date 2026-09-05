@@ -2925,6 +2925,56 @@ class TestQuantModelId:
         assert config.model_id == "microsoft/resnet-50"
 
 
+class TestFP16NodeExclusions:
+    def test_absent_null_and_non_empty_round_trip(self) -> None:
+        assert WinMLQuantizationConfig.from_dict({"mode": "fp16"}).fp16_nodes_to_exclude is None
+        assert (
+            WinMLQuantizationConfig.from_dict(
+                {"mode": "fp16", "fp16_nodes_to_exclude": None}
+            ).fp16_nodes_to_exclude
+            is None
+        )
+        config = WinMLQuantizationConfig.from_dict(
+            {"mode": "fp16", "fp16_nodes_to_exclude": ["cast_b", "cast_a", "cast_b"]}
+        )
+        assert config.fp16_nodes_to_exclude == ["cast_b", "cast_a"]
+        assert WinMLQuantizationConfig.from_dict(config.to_dict()) == config
+
+    def test_field_is_serialized_only_for_fp16_mode(self) -> None:
+        assert "fp16_nodes_to_exclude" not in WinMLQuantizationConfig().to_dict()
+        assert WinMLQuantizationConfig(mode="fp16").to_dict()["fp16_nodes_to_exclude"] is None
+
+    def test_non_string_or_empty_entries_are_rejected(self) -> None:
+        with pytest.raises(TypeError, match="must be a list"):
+            WinMLQuantizationConfig.from_dict({"mode": "fp16", "fp16_nodes_to_exclude": "cast"})
+        with pytest.raises(TypeError, match="must be a list"):
+            WinMLQuantizationConfig(
+                mode="fp16",
+                fp16_nodes_to_exclude=("cast",),  # type: ignore[arg-type]
+            )
+        with pytest.raises(ValueError, match="non-empty strings"):
+            WinMLQuantizationConfig(mode="fp16", fp16_nodes_to_exclude=[""])
+        with pytest.raises(ValueError, match="non-empty strings"):
+            WinMLQuantizationConfig.from_dict(
+                {"mode": "fp16", "fp16_nodes_to_exclude": ["cast", 1]}
+            )
+
+    def test_node_exclusions_affect_cache_key_but_null_matches_omitted(self) -> None:
+        omitted = WinMLBuildConfig(quant=WinMLQuantizationConfig(mode="fp16"))
+        explicit_null = WinMLBuildConfig(
+            quant=WinMLQuantizationConfig.from_dict({"mode": "fp16", "fp16_nodes_to_exclude": None})
+        )
+        cast_a = WinMLBuildConfig(
+            quant=WinMLQuantizationConfig(mode="fp16", fp16_nodes_to_exclude=["cast_a"])
+        )
+        cast_b = WinMLBuildConfig(
+            quant=WinMLQuantizationConfig(mode="fp16", fp16_nodes_to_exclude=["cast_b"])
+        )
+
+        assert omitted.generate_cache_key() == explicit_null.generate_cache_key()
+        assert cast_a.generate_cache_key() != cast_b.generate_cache_key()
+
+
 # =============================================================================
 # TestInt16QuantTypes - Tests for int16/uint16 quantization type support
 # =============================================================================
