@@ -1,0 +1,72 @@
+{
+  "export": {
+    "opset_version": 17,
+    "batch_size": 1,
+    "export_params": true,
+    "do_constant_folding": true,
+    "verbose": false,
+    "dynamo": false,
+    "enable_hierarchy_tags": true,
+    "clean_onnx": false,
+    "hierarchy_tag_format": "full",
+    "input_tensors": [
+      {
+        "name": "input_ids",
+        "dtype": "int32",
+        "shape": [
+          1,
+          512
+        ],
+        "value_range": [
+          0,
+          250002
+        ]
+      },
+      {
+        "name": "attention_mask",
+        "dtype": "int32",
+        "shape": [
+          1,
+          512
+        ],
+        "value_range": [
+          0,
+          2
+        ]
+      }
+    ],
+    "output_tensors": [
+      {
+        "name": "logits"
+      }
+    ]
+  },
+  "optim": {
+    "clamp_constant_values": true
+  },
+  "quant": null,
+  "compile": null,
+  "loader": {
+    "task": "reranking",
+    "model_class": "AutoModelForSequenceClassification",
+    "model_type": "xlm-roberta"
+  },
+  "eval": {
+    "task": "reranking",
+    "dataset": {
+      "path": "C-MTEB/Mmarco-reranking",
+      "name": "default",
+      "split": "dev",
+      "samples": 2,
+      "shuffle": false,
+      "streaming": true,
+      "revision": "8e0c766dbe9e16e1d221116a3f36795fbade07f6",
+      "columns_mapping": {
+        "query_column": "query",
+        "positive_column": "positive",
+        "negative_column": "negative",
+        "max_candidates": "10"
+      }
+    }
+  }
+}
