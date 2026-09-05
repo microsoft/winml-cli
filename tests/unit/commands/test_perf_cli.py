@@ -36,6 +36,7 @@ from winml.modelkit.commands.perf import (
     PerfBenchmark,
     display_console_report,
     generate_output_path,
+    generate_random_inputs,
     perf,
 )
 from winml.modelkit.utils.console import SafeConsole
@@ -253,6 +254,21 @@ class TestPerfOutputPath:
         """Sanity: regardless of input, the file lands under ~/.cache/winml/perf."""
         result = generate_output_path("microsoft/resnet-50")
         assert self._cache_root in result.parents
+
+
+class TestGenerateRandomInputs:
+    def test_uses_persisted_floating_value_range(self) -> None:
+        io_config = {
+            "input_names": ["image"],
+            "input_shapes": [[1, 3, 8, 8]],
+            "input_types": ["float32"],
+            "input_value_ranges": {"image": [-2.1179039478302, 2.640000343322754]},
+        }
+
+        inputs = generate_random_inputs(io_config)
+
+        assert inputs["image"].min() >= io_config["input_value_ranges"]["image"][0]
+        assert inputs["image"].max() < io_config["input_value_ranges"]["image"][1]
 
 
 # =============================================================================
