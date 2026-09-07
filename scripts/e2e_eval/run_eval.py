@@ -99,6 +99,10 @@ EVAL_DATASETS_CACHE = Path.home() / ".cache" / "winml" / "eval_datasets"
 TIMEOUT_SKIP_LIST_PATH = Path(__file__).parent / "cache" / "timeout_skip_list.json"
 _DEFAULT_SAMPLES = 1000
 _DEFAULT_PRECISION_NPU = "w8a16"
+_DEFAULT_HF_DOWNLOAD_STALL_TIMEOUT = 600
+_HF_DOWNLOAD_STALL_TIMEOUT = float(_DEFAULT_HF_DOWNLOAD_STALL_TIMEOUT)
+_SUBPROCESS_POLL_INTERVAL = 0.25
+_PRIORITY_RANK = {f"P{index}": index for index in range(4)}
 _RETRY_FAILED_TYPES = (
     *(failure_type.value for failure_type in FailureType),
     "FAIL",
@@ -619,22 +623,89 @@ def _kill_process_tree(pid: int) -> None:
             pass  # Process already exited; nothing to kill
 
 
-def _run_subprocess(args: list[str], timeout: int) -> dict:
-    """Run a subprocess with three-layer timeout protection.
+def _snapshot_hf_downloads(env: dict[str, str]) -> dict[Path, tuple[int, int]]:
+    """Return observable Hugging Face partial downloads as size/mtime pairs."""
+    hf_home = Path(env.get("HF_HOME", Path.home() / ".cache" / "huggingface")).expanduser()
+    hub_cache = Path(
+        env.get("HF_HUB_CACHE")
+        or env.get("HUGGINGFACE_HUB_CACHE")
+        or hf_home / "hub"
+    ).expanduser()
+    datasets_cache = Path(env.get("HF_DATASETS_CACHE") or hf_home / "datasets").expanduser()
+    searches = (
+        (hub_cache, ("*/blobs/*.incomplete", "*.incomplete")),
+        (datasets_cache, ("downloads/*.incomplete",)),
+        (hf_home / "xet", ("**/*.incomplete",)),
+    )
+    snapshot: dict[Path, tuple[int, int]] = {}
+    for root, patterns in searches:
+        if not root.is_dir():
+            continue
+        for pattern in patterns:
+            try:
+                candidates = root.glob(pattern)
+                for path in candidates:
+                    try:
+                        stat = path.stat()
+                    except OSError:
+                        continue
+                    snapshot[path] = (stat.st_size, stat.st_mtime_ns)
+            except OSError:
+                continue
+    return snapshot
 
-    Returns a dict with: stdout, stderr, exit_code, elapsed, timeout, command.
+
+class _HfDownloadTracker:
+    """Detect active Hub downloads from growing ``*.incomplete`` cache files."""
+
+    def __init__(self, env: dict[str, str], now: float) -> None:
+        self._env = env
+        self._previous = _snapshot_hf_downloads(env)
+        self._active_paths: set[Path] = set()
+        self.last_progress = now
+
+    def poll(self, now: float) -> bool:
+        current = _snapshot_hf_downloads(self._env)
+        progressed = {
+            path for path, state in current.items() if self._previous.get(path) != state
+        }
+        if progressed:
+            self._active_paths.update(progressed)
+            self.last_progress = now
+        self._active_paths.intersection_update(current)
+        self._previous = current
+        return bool(self._active_paths)
+
+
+def _run_subprocess(args: list[str], timeout: int) -> dict:
+    """Run a subprocess with execution and HF-download-stall timeouts.
+
+    ``timeout`` starts normally when no Hugging Face download is observed. If a
+    Hub download starts, the execution budget is suspended and reset to its
+    full value after the download completes. Downloads get an independent
+    inactivity budget: if an ``*.incomplete`` cache file stops changing for
+    ``_HF_DOWNLOAD_STALL_TIMEOUT`` seconds, the process is terminated as an HF
+    fetch failure.
 
     Windows fix: On Windows, child processes can inherit pipe handles, causing
-    ``proc.communicate()`` to block indefinitely even after ``taskkill`` kills
-    the process tree.  We work around this by:
+    pipe reads to block indefinitely even after ``taskkill`` kills the process
+    tree. We work around this by:
     1. Using ``CREATE_NO_WINDOW`` to prevent console inheritance issues.
-    2. Reading stdout/stderr in background threads so the main thread can
-       enforce the timeout independently of pipe EOF.
-    3. Using a hard watchdog timer that forcefully closes pipes.
+    2. Reading stdout/stderr in background threads.
+    3. Polling process state independently of pipe EOF.
     """
-    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    env = {
+        **os.environ,
+        "PYTHONIOENCODING": "utf-8",
+        "HF_HUB_DOWNLOAD_TIMEOUT": str(int(_HF_DOWNLOAD_STALL_TIMEOUT)),
+    }
     start = time.perf_counter()
     timed_out = False
+    hf_download_stalled = False
+    execution_elapsed = 0.0
+    last_poll = start
+    download_tracker = _HfDownloadTracker(env, start)
+    download_was_active = False
 
     popen_kwargs: dict = {
         "stdout": subprocess.PIPE,
@@ -667,46 +738,57 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
     stdout_thread.start()
     stderr_thread.start()
 
-    def _watchdog() -> None:
-        try:
-            _kill_process_tree(proc.pid)
-            proc.kill()
-            for pipe in (proc.stdout, proc.stderr):
-                if pipe:
-                    try:
-                        pipe.close()
-                    except OSError:
-                        pass  # Pipe already closed
-        except Exception:
-            pass  # Best-effort cleanup; ignore all errors in watchdog
-
-    watchdog = threading.Timer(timeout + 30, _watchdog)
-    watchdog.daemon = True
-    watchdog.start()
-
     try:
-        proc.wait(timeout=timeout)
-        exit_code = proc.returncode
+        while True:
+            remaining = max(0.01, timeout - execution_elapsed)
+            try:
+                proc.wait(timeout=min(_SUBPROCESS_POLL_INTERVAL, remaining))
+                now = time.perf_counter()
+                download_active = download_tracker.poll(now)
+                if download_was_active and not download_active:
+                    execution_elapsed = 0.0
+                elif not download_active:
+                    execution_elapsed += now - last_poll
+                exit_code = proc.returncode
+                break
+            except subprocess.TimeoutExpired:
+                now = time.perf_counter()
+                download_active = download_tracker.poll(now)
+                if download_active:
+                    download_was_active = True
+                    if now - download_tracker.last_progress >= _HF_DOWNLOAD_STALL_TIMEOUT:
+                        hf_download_stalled = True
+                else:
+                    if download_was_active:
+                        execution_elapsed = 0.0
+                        download_was_active = False
+                    else:
+                        execution_elapsed += now - last_poll
+                    if execution_elapsed >= timeout:
+                        timed_out = True
+                last_poll = now
+
+                if not timed_out and not hf_download_stalled:
+                    continue
+
+                _kill_process_tree(proc.pid)
+                with contextlib.suppress(OSError):
+                    proc.kill()
+                exit_code = -1
+                break
+
         # Give reader threads a moment to finish draining
         stdout_thread.join(timeout=10)
         stderr_thread.join(timeout=10)
-    except subprocess.TimeoutExpired:
-        _kill_process_tree(proc.pid)
-        proc.kill()
-        # Give threads a short time to drain after kill
-        stdout_thread.join(timeout=5)
-        stderr_thread.join(timeout=5)
-        exit_code = -1
-        timed_out = True
     except KeyboardInterrupt:
         safe_print("\n  [Ctrl+C] Killing subprocess...")
         _kill_process_tree(proc.pid)
-        proc.kill()
+        with contextlib.suppress(OSError):
+            proc.kill()
         stdout_thread.join(timeout=5)
         stderr_thread.join(timeout=5)
         raise
     finally:
-        watchdog.cancel()
         # Force-close pipes to unblock any stuck reader threads
         for pipe in (proc.stdout, proc.stderr):
             if pipe:
@@ -723,6 +805,12 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
 
     stdout = b"".join(stdout_chunks).decode("utf-8", errors="replace")
     stderr = b"".join(stderr_chunks).decode("utf-8", errors="replace")
+    if hf_download_stalled:
+        stderr += (
+            "\nError while downloading from https://huggingface.co: "
+            f"no cache progress for {_HF_DOWNLOAD_STALL_TIMEOUT:g} seconds "
+            "(Hugging Face download stalled).\n"
+        )
     elapsed = round(time.perf_counter() - start, 1)
 
     result = {
@@ -731,6 +819,7 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
         "exit_code": exit_code,
         "elapsed": elapsed,
         "timeout": timed_out,
+        "hf_download_stalled": hf_download_stalled,
         "command": " ".join(str(a) for a in args),
     }
 
@@ -2705,6 +2794,14 @@ class EvalJob:
         return self.fallback_precision or self.entry.precision
 
 
+def _model_sort_key(entry: ModelEntry) -> tuple[int, str]:
+    """Sort P0-P3 models by priority, then case-insensitive model ID."""
+    return (
+        _PRIORITY_RANK.get(entry.priority.upper(), len(_PRIORITY_RANK)),
+        entry.hf_id.casefold(),
+    )
+
+
 def _is_quantized_precision(precision: str) -> bool:
     """True if a recipe precision implies quantization.
 
@@ -2783,7 +2880,10 @@ def _build_jobs(
             )
         else:
             jobs.append(EvalJob(entry, None))
-    return jobs
+    return sorted(
+        jobs,
+        key=lambda job: _model_sort_key(job.entry),
+    )
 
 
 def _build_for_job(
@@ -3023,6 +3123,16 @@ def parse_args() -> argparse.Namespace:
         "--timeout", type=int, default=600, help="Per-subprocess timeout in seconds (default: 600)"
     )
     parser.add_argument(
+        "--hf-download-stall-timeout",
+        type=int,
+        default=_DEFAULT_HF_DOWNLOAD_STALL_TIMEOUT,
+        help=(
+            "Hugging Face download inactivity timeout in seconds; active download "
+            "time is excluded and --timeout restarts after download completion "
+            "(default: 600)"
+        ),
+    )
+    parser.add_argument(
         "--clean-cache",
         dest="clean_cache",
         nargs="*",
@@ -3097,7 +3207,12 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     """Run E2E evaluation pipeline."""
+    global _HF_DOWNLOAD_STALL_TIMEOUT
+
     args = parse_args()
+    if args.hf_download_stall_timeout <= 0:
+        raise ValueError("--hf-download-stall-timeout must be positive")
+    _HF_DOWNLOAD_STALL_TIMEOUT = float(args.hf_download_stall_timeout)
     clean_cache_targets = _resolve_clean_cache_targets(args.clean_cache)
     args.clean_cache_targets = clean_cache_targets
 
@@ -3146,6 +3261,7 @@ def main() -> None:
     if not entries:
         safe_print("No models matched the filters.")
         sys.exit(1)
+    entries.sort(key=_model_sort_key)
 
     # Register dataset configs from registry entries as fallback
     register_from_registry(entries)
