@@ -11,12 +11,18 @@ from typing import TYPE_CHECKING, Any, cast
 from optimum.exporters.onnx.model_configs import LayoutLMOnnxConfig
 from optimum.utils import NormalizedTextConfig
 from optimum.utils.input_generators import DummyBboxInputGenerator, DummyVisionInputGenerator
+from transformers import LayoutLMForQuestionAnswering
 
 from ...export import MaxLengthTextInputGenerator, register_onnx_overwrite
 
 
 if TYPE_CHECKING:
     import torch
+
+
+MODEL_CLASS_MAPPING: dict[tuple[str, str], type] = {
+    ("layoutlm", "question-answering"): LayoutLMForQuestionAnswering,
+}
 
 
 class ZeroTokenTypeLayoutLMTextInputGenerator(MaxLengthTextInputGenerator):
@@ -30,7 +36,17 @@ class ZeroTokenTypeLayoutLMTextInputGenerator(MaxLengthTextInputGenerator):
         float_dtype: str = "fp32",
     ) -> torch.Tensor:
         """Generate LayoutLM text inputs, replacing token_type_ids with zeros."""
-        tensor = cast(
+        if input_name == "token_type_ids":
+            return cast(
+                "torch.Tensor",
+                self.random_int_tensor(
+                    (self.batch_size, self.sequence_length),
+                    max_value=1,
+                    framework=framework,
+                    dtype=int_dtype,
+                ),
+            )
+        return cast(
             "torch.Tensor",
             super().generate(
                 input_name,
@@ -39,9 +55,6 @@ class ZeroTokenTypeLayoutLMTextInputGenerator(MaxLengthTextInputGenerator):
                 float_dtype=float_dtype,
             ),
         )
-        if input_name == "token_type_ids":
-            return tensor.new_zeros(tensor.shape)
-        return tensor
 
 
 @register_onnx_overwrite("layoutlm", "question-answering", library_name="transformers")

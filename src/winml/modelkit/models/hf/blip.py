@@ -20,9 +20,8 @@ HF's ``BlipTextLMHeadModel``; the wrapper only plumbs KV tensors.
 
 BLIP-specific trace-time adjustments:
 
-- **Binary ``decoder_attention_mask`` passthrough** — the decoder accepts
-    2-D or 3-D binary masks and expands them internally. Preserve caller rank
-    so export paths can provide either shape.
+- **3-D binary ``decoder_attention_mask``** — expand 2-D inputs once and
+  preserve already-3-D inputs to bypass the decoder's causal-mask reconstruction.
 - **Explicit ``position_ids``** — ``BlipTextEmbeddings`` would otherwise
   derive positions from ``past_key_values_length`` (which traces as 0 for a
   static cache), baking the wrong position into the embedding lookup.
@@ -265,12 +264,16 @@ class BlipDecoderWrapper(WinMLDecoderWrapper):
             device=encoder_hidden_states.device,
         )
         decoder_mask = inputs["decoder_attention_mask"]
-        if decoder_mask.dim() not in (2, 3):
+        if decoder_mask.dim() == 2:
+            decoder_mask = decoder_mask.unsqueeze(1)
+        elif decoder_mask.dim() != 3:
             raise ValueError("decoder_attention_mask must be a 2-D or 3-D tensor")
         # self.model is nn.Module; torch's __getattr__ types text_decoder as
         # Tensor | Module, so narrow to a callable Module.
         outputs = cast("nn.Module", self.model.text_decoder)(
             input_ids=inputs["decoder_input_ids"],
+            # HF's causal-mask reconstruction traces as ops the NPU analyzer
+            # doesn't support; pass a 3-D mask to bypass reconstruction.
             attention_mask=decoder_mask,
             # Without explicit position_ids, BlipTextModel would derive them
             # from past_kv_len=0 (a frozen constant in the trace), giving every

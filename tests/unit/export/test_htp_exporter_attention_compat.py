@@ -351,11 +351,12 @@ def test_export_context_restores_sdpa_after_failure() -> None:
     model = _NestedAttentionModel()
     original_sdpa = torch.nn.functional.scaled_dot_product_attention
 
-    with (
-        pytest.raises(RuntimeError, match="export failed"),
-        HTPExporter()._export_compatibility_context(model, _export_config(eager_attention=True)),
-    ):
-        raise RuntimeError("export failed")
+    # Keep exception suppression explicit for CodeQL's control-flow analysis.
+    with pytest.raises(RuntimeError, match="export failed"):  # noqa: SIM117
+        with HTPExporter()._export_compatibility_context(
+            model, _export_config(eager_attention=True)
+        ):
+            raise RuntimeError("export failed")
 
     assert torch.nn.functional.scaled_dot_product_attention is original_sdpa
     assert model.config._attn_implementation == "sdpa"

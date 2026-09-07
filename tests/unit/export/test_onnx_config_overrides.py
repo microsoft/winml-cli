@@ -186,6 +186,7 @@ class TestLayoutLMQuestionAnsweringOverride:
         ]
         assert specs["input_shapes"] == [(1, 32), (1, 32, 4), (1, 32), (1, 32)]
         assert specs["output_names"] == ["start_logits", "end_logits"]
+        assert specs["value_ranges"]["token_type_ids"] == (0, 1)
 
 
 class TestLayoutLMv3QuestionAnsweringOverride:

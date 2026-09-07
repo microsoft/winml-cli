@@ -70,6 +70,16 @@ class TestHFModelClassMappingDesign:
         )
         assert result.__name__ == "AutoModelForSemanticSegmentation"
 
+    def test_layoutlm_question_answering_returns_concrete_model(self):
+        """LayoutLM QA must bypass the incompatible AutoModel mapping."""
+        from winml.modelkit.loader.resolution import _get_custom_model_class
+
+        result = _get_custom_model_class(
+            model_type="layoutlm",
+            task="question-answering",
+        )
+        assert result.__name__ == "LayoutLMForQuestionAnswering"
+
     # =========================================================================
     # Level 2: Task Defaults (tasks not in TasksManager)
     # =========================================================================
