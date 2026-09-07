@@ -38,6 +38,7 @@ from winml.modelkit.session import (
     WinMLEPRegistry,
     resolve_device,
 )
+from winml.modelkit.sysinfo import get_ep_device_luid
 
 
 # ---------- helpers --------------------------------------------------------
@@ -110,6 +111,85 @@ def _winml_ep_with_device(entry: EPEntry, device_type: str) -> WinMLEP:
 
 class TestAutoDevice:
     """One test per scenario from the Batch E plan."""
+
+    @pytest.mark.parametrize("index", range(2))
+    @pytest.mark.parametrize("device_type", ["GPU", "NPU"])
+    def test_luid_selects_exact_handle(
+        self, fresh_registry: WinMLEPRegistry, index: int, device_type: str
+    ) -> None:
+        from winml.modelkit.session.session import _build_session_options
+
+        entry = _pypi_entry("OpenVINOExecutionProvider")
+        handles = [_fake_ort_device(entry.ep_name, device_type) for _ in range(2)]
+        for ordinal, handle in enumerate(handles):
+            handle.device.metadata = {"LUID": str((ordinal + 1) << 32)}
+        devices = tuple(WinMLDevice(handle) for handle in handles)
+        winml_ep = WinMLEP(source=entry, devices=devices, arg0=entry.ep_name)
+        fresh_registry._discovered = [entry]
+        luid = get_ep_device_luid(handles[index])
+        assert luid is not None
+        with patch.object(fresh_registry, "register_ep", return_value=winml_ep):
+            selected = fresh_registry.auto_device(
+                EPDeviceTarget(ep="openvino", device=device_type),
+                device_luid=luid.swapcase(),
+            )
+        assert selected.device is devices[index]
+        options = MagicMock()
+        _build_session_options(selected, session_options_factory=lambda: options)
+        assert options.add_provider_for_devices.call_args.args[0] == [handles[index]]
+
+    @pytest.mark.parametrize("metadata_kind", ["different", "missing", "invalid", "wrong-kind"])
+    def test_luid_never_falls_back_to_another_adapter(
+        self, fresh_registry: WinMLEPRegistry, metadata_kind: str
+    ) -> None:
+        entry = _pypi_entry("OpenVINOExecutionProvider")
+        handle = _fake_ort_device(entry.ep_name, "NPU" if metadata_kind == "wrong-kind" else "GPU")
+        requested_handle = _fake_ort_device(entry.ep_name, "GPU")
+        requested_handle.device.metadata = {"LUID": str(1 << 32)}
+        handle.device.metadata = {
+            "different": {"LUID": str(2 << 32)},
+            "missing": {},
+            "invalid": {"LUID": "invalid"},
+            "wrong-kind": requested_handle.device.metadata,
+        }[metadata_kind]
+        winml_ep = WinMLEP(source=entry, devices=(WinMLDevice(handle),), arg0=entry.ep_name)
+        fresh_registry._discovered = [entry]
+        with (
+            patch.object(fresh_registry, "register_ep", return_value=winml_ep),
+            pytest.raises(DeviceNotFound, match=r"LUID.*winml sys"),
+        ):
+            fresh_registry.auto_device(
+                EPDeviceTarget(ep="openvino", device="gpu"),
+                device_luid=get_ep_device_luid(requested_handle),
+            )
+
+    @pytest.mark.parametrize("source", [None, "pypi", "msix"])
+    def test_luid_selection_respects_source_pin(
+        self, fresh_registry: WinMLEPRegistry, source: str | None
+    ) -> None:
+        entries = [
+            _msix_workload_entry("OpenVINOExecutionProvider"),
+            _pypi_entry("OpenVINOExecutionProvider"),
+        ]
+        registrations = {}
+        for index, entry in enumerate(entries):
+            handle = _fake_ort_device(entry.ep_name, "GPU")
+            handle.device.metadata = {"LUID": str((index + 1) << 32)}
+            registrations[entry.dll_path] = WinMLEP(
+                source=entry, devices=(WinMLDevice(handle),), arg0=entry.ep_name
+            )
+        expected = registrations[entries[-1].dll_path]
+        luid = get_ep_device_luid(expected.devices[0].ort_handle)
+        fresh_registry._discovered = entries
+        with patch.object(
+            fresh_registry, "register_ep", side_effect=lambda entry: registrations[entry.dll_path]
+        ):
+            target = EPDeviceTarget(ep="openvino", device="gpu", source=source)
+            if source == "msix":
+                with pytest.raises(DeviceNotFound, match="LUID"):
+                    fresh_registry.auto_device(target, device_luid=luid)
+            else:
+                assert fresh_registry.auto_device(target, device_luid=luid).ep is expected
 
     def test_a_single_pypi_source_no_source_pin(self, fresh_registry: WinMLEPRegistry) -> None:
         """Scenario a: single PyPI source discovered, source=None on target."""

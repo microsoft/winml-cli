@@ -669,6 +669,55 @@ class _PerfBenchmarkSuite:
 class TestPerfONNXDirect(_PerfBenchmarkSuite):
     """Benchmark a pre-exported ONNX file directly via WinMLSession."""
 
+    def test_dml_device_luid_selection(self, tmp_path: Path, onnx_model_path: Path) -> None:
+        """Every DML adapter is selectable using the DXCore LUID shown by sys."""
+        require_ep("dml", device="gpu")
+        from winml.modelkit.session import EPDeviceTarget, WinMLEPRegistry
+        from winml.modelkit.sysinfo import enumerate_compute_adapters, get_ep_device_luid
+
+        selected = WinMLEPRegistry.instance().auto_device(EPDeviceTarget(ep="dml", device="gpu"))
+        advertised_luids = [
+            get_ep_device_luid(device.ort_handle)
+            for device in selected.ep.devices
+            if device.device_type == "GPU"
+        ]
+        assert advertised_luids and None not in advertised_luids, "DML must publish an adapter LUID"
+        luids = {luid for luid in advertised_luids if luid is not None}
+        native_luids = {adapter.luid for adapter in enumerate_compute_adapters()}
+        assert luids <= native_luids
+
+        for index, luid in enumerate(sorted(luids)):
+            output_file = tmp_path / f"gpu_{index}.json"
+            args = _build_perf_args(
+                model_arg=str(onnx_model_path),
+                output_file=output_file,
+                ep="dml",
+                device="gpu",
+                monitor=True,
+                duration_overwrite=1,
+            )
+            result = _run_winml_cli_subprocess(["perf", *args, "--device-luid", luid])
+            assert result.returncode == 0, result.stdout + result.stderr
+            data = json.loads(output_file.read_text())
+            assert data["benchmark_info"]["device_luid"] == luid
+            assert data["hw_monitor"]["adapter_luid"] == luid
+            assert data["hw_monitor"]["device_kind"] == "gpu"
+            assert "Multiple devices match" not in result.stderr
+
+        result = _run_winml_cli_subprocess(
+            [
+                "perf",
+                *_build_perf_args(
+                    model_arg=str(onnx_model_path),
+                    output_file=tmp_path / "default_gpu.json",
+                    ep="dml",
+                    device="gpu",
+                ),
+            ]
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert ("Multiple devices match" in result.stderr) == (len(luids) > 1)
+
     @pytest.fixture
     def model_arg(self, onnx_model_path: Path) -> str:
         return str(onnx_model_path)

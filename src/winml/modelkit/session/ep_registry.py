@@ -89,16 +89,20 @@ def _suppress_dll_load_dialogs() -> Iterator[None]:
 
 
 def _dedup_ort_devices(devices: list[ort.OrtEpDevice]) -> list[ort.OrtEpDevice]:
-    """Collapse OrtEpDevices that share ``(vendor_id, device_id, type)``.
+    """Collapse duplicate routes to the same adapter, identified by LUID.
 
-    Some hosts (dual-iGPU listings, OpenVINO on Intel) emit duplicate handles
-    for the same physical device.
+    PCI vendor/device IDs identify a product, not a physical adapter. Without
+    a LUID, retain every handle rather than hiding identical installed GPUs.
     """
-    seen: set[tuple[int, int, str]] = set()
+    seen: set[tuple[str, str, str, tuple[tuple[str, str], ...]]] = set()
     out: list[ort.OrtEpDevice] = []
     for d in devices:
         try:
-            key = (d.device.vendor_id, d.device.device_id, d.device.type.name)
+            luid = get_ep_device_luid(d)
+            if luid is None:
+                out.append(d)
+                continue
+            key = (luid, d.ep_name, d.device.type.name, tuple(sorted(d.ep_options.items())))
         except AttributeError:
             out.append(d)
             continue
@@ -506,14 +510,17 @@ class WinMLEPRegistry:
         ort.unregister_execution_provider_library(winml_ep.arg0)
         self._registered.pop(winml_ep.source.dll_path, None)
 
-    def auto_device(self, target: EPDeviceTarget) -> WinMLEPDevice:
+    def auto_device(
+        self, target: EPDeviceTarget, *, device_luid: str | None = None
+    ) -> WinMLEPDevice:
         """Find the first source satisfying ``target`` (ep + device + optional source).
 
         ``target`` must be fully resolved (no ``"auto"`` values). Filters
         the cached :attr:`_discovered` list by ``target.ep`` + optional
         ``target.source`` tag, then tries each candidate in precedence
         order. First registration that succeeds *and* exposes
-        ``target.device`` wins.
+        ``target.device`` wins. When ``device_luid`` is given, only the
+        adapter with that LUID (as displayed by ``winml sys``) can match.
 
         Raises:
             ValueError: when ``target`` still contains an ``"auto"`` axis.
@@ -554,7 +561,11 @@ class WinMLEPRegistry:
                 last_error = e
                 continue
             for device in winml_ep.devices:
-                if device.device_type == target_device_upper:
+                if device.device_type == target_device_upper and (
+                    device_luid is None
+                    or (get_ep_device_luid(device.ort_handle) or "").casefold()
+                    == device_luid.casefold()
+                ):
                     return WinMLEPDevice(ep=winml_ep, device=device)
             # Registration succeeded but no device-class match — this
             # candidate is NOT a registration failure, so don't let a
@@ -571,6 +582,12 @@ class WinMLEPRegistry:
         raise DeviceNotFound(
             f"No source for {target.ep}/{target.device} exposed device "
             f"class {target.device.upper()!r}"
+            + (
+                f" with LUID {device_luid!r}. Run 'winml sys' to list adapter LUIDs; "
+                "the selected EP must expose that adapter's LUID."
+                if device_luid is not None
+                else ""
+            )
         )
 
     def all_discovered(self) -> tuple[EPEntry, ...]:

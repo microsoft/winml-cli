@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import re
 import sys
 import time
 from dataclasses import dataclass, field, replace
@@ -57,7 +58,7 @@ if TYPE_CHECKING:
 
     from ..models.winml.base import WinMLPreTrainedModel
     from ..models.winml.composite_model import WinMLCompositeModel
-    from ..session import WinMLEPDevice
+    from ..session import EPDeviceTarget, WinMLEPDevice
     from ..session.monitor.ep_monitor import WinMLEPMonitor
     from ..session.monitor.op_metrics import TraceFallbackReason
     from ..session.stats import PerfStats
@@ -441,6 +442,60 @@ def _get_monitor_binding(
     )
 
 
+def _validate_device_luid(
+    ctx: click.Context, param: click.Parameter, value: str | None
+) -> str | None:
+    if value is not None and not re.fullmatch(r"0x[0-9a-f]{8}_0x[0-9a-f]{8}", value, re.IGNORECASE):
+        raise click.BadParameter(
+            "expected 0xHHHHHHHH_0xLLLLLLLL; copy the adapter LUID from 'winml sys'.",
+            ctx=ctx,
+            param=param,
+        )
+    return value
+
+
+def _resolve_perf_ep_device(
+    target: EPDeviceTarget,
+    device_luid: str | None,
+    provider_options: dict[str, str] | None,
+) -> WinMLEPDevice:
+    """Bind one runtime device and surface ambiguous or conflicting selection."""
+    from ..session import WinMLEPRegistry
+    from ..sysinfo import get_ep_device_luid
+
+    registry = WinMLEPRegistry.instance()
+    selected = (
+        registry.auto_device(target, device_luid=device_luid)
+        if device_luid is not None
+        else registry.auto_device(target)
+    )
+    if device_luid is not None:
+        bound_luid, bound_kind = _get_ep_device_binding(selected, provider_options)
+        if (bound_luid or "").casefold() != device_luid.casefold() or (
+            bound_kind != selected.device.device_type.lower()
+        ):
+            raise ValueError(
+                "--ep-options conflict with --device-luid or do not identify the pinned "
+                "adapter unambiguously. Remove the device-selecting provider options."
+            )
+    else:
+        candidates = [
+            device for device in selected.ep.devices if device.device_type.lower() == target.device
+        ]
+        # Multiple EP routes to one known adapter are not multiple adapters.
+        identities = {get_ep_device_luid(device.ort_handle) or id(device) for device in candidates}
+        if len(identities) > 1:
+            logger.warning(
+                "Multiple devices match %s/%s; using the first ORT device: %s (LUID: %s). "
+                "Pass --device-luid <LUID> to select an adapter; run 'winml sys' to list LUIDs.",
+                target.ep,
+                target.device,
+                selected.device.hardware_name or "unnamed",
+                get_ep_device_luid(selected.device.ort_handle) or "unavailable",
+            )
+    return selected
+
+
 def _open_ep_monitor_or_exit(
     *,
     op_tracing: str | None,
@@ -502,6 +557,7 @@ class BenchmarkConfig:
     memory: bool = True
     ep: EPNameOrAlias | None = None
     ep_source: str | None = None  # parsed from '--ep <name>@<source>' syntax
+    device_luid: str | None = None
     ep_options: dict[str, str] | None = None
     compile_ep_options: dict[str, str] | None = None
     shape_config: dict | None = None
@@ -584,6 +640,7 @@ class BenchmarkResult:
                 "device": self.actual_device,
                 "ep": self.actual_ep,
                 "ep_source": self.config.ep_source,
+                "device_luid": self.config.device_luid,
                 "ep_options": self.config.ep_options,
                 "precision": self.config.precision,
                 # In duration mode the run isn't bounded by a fixed count, so
@@ -888,7 +945,7 @@ class PerfBenchmark:
             return
 
         with suppress_native_warnings(enabled=True):
-            from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
+            from ..session import EPDeviceTarget, resolve_device
 
         with suppress_native_warnings(enabled=True):
             # resolve_device() availability-checks even when --ep is explicit, so a
@@ -900,7 +957,9 @@ class PerfBenchmark:
                     source=self.config.ep_source,
                 )
             )
-            self._ep_device = WinMLEPRegistry.instance().auto_device(target)
+            self._ep_device = _resolve_perf_ep_device(
+                target, self.config.device_luid, self.config.ep_options
+            )
         self._resolved_device = target.device
         self._resolved_ep = cast("EPNameOrAlias", target.ep)
 
@@ -1555,6 +1614,7 @@ def _perf_modules(
     device: str = "auto",
     ep: EPNameOrAlias | None = None,
     ep_source: str | None = None,
+    device_luid: str | None = None,
     ep_options: dict[str, str] | None = None,
     precision: str = "auto",
     allow_unsupported_nodes: bool = False,
@@ -1591,6 +1651,7 @@ def _perf_modules(
             derived from the resolved device so the analyzer targets one EP.
         ep_source: Optional EP source tag parsed from ``--ep <name>@<source>``,
             threaded into device resolution to pin a specific EP registration.
+        device_luid: Adapter LUID from ``winml sys`` to pin runtime inference.
         ep_options: Runtime EP provider options (e.g. QNN
             ``htp_performance_mode``) forwarded to each per-module session.
         precision: Precision mode passed through to the build stage.
@@ -1610,7 +1671,7 @@ def _perf_modules(
     from ..cache import get_cache_dir, get_cache_key, get_model_dir
     from ..config import SubmoduleClassNotFoundError, generate_hf_build_config
     from ..loader.task import get_task_abbrev
-    from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
+    from ..session import EPDeviceTarget, resolve_device
     from .build import _instantiate_parent_model
 
     request_device = (device or "auto").lower()
@@ -1618,7 +1679,7 @@ def _perf_modules(
     resolved_target = resolve_device(
         EPDeviceTarget(ep=request_ep or "auto", device=request_device, source=ep_source)
     )
-    resolved_ep_device = WinMLEPRegistry.instance().auto_device(resolved_target)
+    resolved_ep_device = _resolve_perf_ep_device(resolved_target, device_luid, ep_options)
     resolved_device = resolved_target.device
     ep = cast("EPName", resolved_target.ep)
 
@@ -2736,6 +2797,14 @@ def _validate_duration(
 )
 @cli_utils.precision_option()
 @click.option(
+    "--device-luid",
+    type=str,
+    default=None,
+    callback=_validate_device_luid,
+    help="Select a specific adapter within the resolved EP/device pair using its LUID "
+    "from 'winml sys' (0xHHHHHHHH_0xLLLLLLLL). Not supported with --runtime ort-genai.",
+)
+@click.option(
     "--ep",
     "ep",
     type=EpAtSourceParamType(),
@@ -2859,6 +2928,7 @@ def perf(
     warmup: int,
     duration: float | None,
     device: str,
+    device_luid: str | None,
     precision: str,
     ep: tuple[str, str | None] | None,
     ep_options: tuple[str, ...],
@@ -3004,6 +3074,8 @@ def perf(
     # GENAI RUNTIME: benchmark an onnxruntime-genai bundle folder
     # =========================================================================
     if runtime == "ort-genai":
+        if device_luid is not None:
+            raise click.UsageError("--device-luid is not supported with --runtime ort-genai.")
         if input_data is not None:
             raise click.UsageError(
                 "--input-data is not supported with --runtime ort-genai; "
@@ -3156,6 +3228,7 @@ def perf(
             # sessions target the requested provider (see #939).
             ep=ep_name,
             ep_source=ep_source_part,
+            device_luid=device_luid,
             ep_options=ep_provider_options,
             precision=precision.lower(),
             allow_unsupported_nodes=allow_unsupported_nodes,
@@ -3309,6 +3382,7 @@ def perf(
         # case-preserved; expand_ep_name lowercases short-name lookups
         ep=ep_name,
         ep_source=ep_source_part,
+        device_luid=device_luid,
         ep_options=ep_provider_options,
         compile_ep_options=compile_ep_options,
         shape_config=shape_config,

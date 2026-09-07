@@ -22,6 +22,7 @@ $ winml perf [options]
 | `--iterations` | | `INTEGER` | `100` | Number of timed inference iterations used to compute statistics. |
 | `--warmup` | | `INTEGER` | `10` | Number of warm-up iterations run before timing begins; excluded from statistics. |
 | `--device` | `-d` | `auto\|cpu\|gpu\|npu` | `auto` | Device to run the benchmark on. `auto` selects the highest-priority available device. |
+| `--device-luid` | | `TEXT` | — | Pin a physical adapter within the resolved EP/device pair using its LUID from `winml sys` (`0xHHHHHHHH_0xLLLLLLLL`, case-insensitive). Requires the EP to expose that adapter's LUID. Not supported with `--runtime ort-genai`. |
 | `--precision` | | `TEXT` | `auto` | Precision mode applied during model build: `auto`, `fp32`, `fp16`, `int8`, `int16`, or compound forms such as `w8a16`. |
 | `--ep` | | `TEXT` | — | Force a specific execution provider (e.g., `qnn`, `dml`, `vitisai`, `openvino`, `cpu`). Overrides the device-to-provider mapping. |
 | `--ep-options` | | `KEY=VALUE` (multiple) | — | Runtime EP provider option forwarded to the inference session (e.g., `--ep-options htp_performance_mode=burst`). Repeatable. Applies to both HuggingFace model IDs and ONNX file inputs. When detail op-tracing automatically compiles a raw ONNX model, these options are also applied to that compilation. |
@@ -109,6 +110,26 @@ Benchmark with live hardware monitoring enabled:
 ```bash
 $ winml perf -m microsoft/resnet-50 --device npu --monitor
 ```
+
+Select one of multiple GPUs supported by the same EP:
+
+```bash
+$ winml sys
+$ winml perf -m model.onnx --ep dml --device gpu --device-luid 0x00000000_0x00012C8B --monitor
+```
+
+Replace the example LUID with the adapter's value from `winml sys`. LUIDs are
+local to the current Windows boot, not portable hardware IDs. The flag narrows
+the resolved EP/device pair (and optional `--ep name@source`); it does not change
+the EP/device auto-selection policy. It applies to ONNX, HuggingFace,
+composite, and per-module runtime inference, including memory and hardware
+monitoring. It does not pin the separate model-build compilation stage.
+
+If multiple adapters match and `--device-luid` is omitted, perf warns and keeps
+the first ORT device as the default. An unavailable LUID fails instead of
+falling back to another adapter. Provider options that redirect the binding away
+from the pinned adapter are rejected. The requested pin is saved in
+`benchmark_info.device_luid` in the single-model report.
 
 Pass runtime EP provider options to tune the session (repeatable):
 
