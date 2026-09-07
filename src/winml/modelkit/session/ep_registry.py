@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 import onnxruntime as ort
 
 from ..ep_path import BuiltinSource, EPEntry, discover_all_eps
+from ..sysinfo.luid import get_ep_device_luid
 from .ep_device import (
     DeviceNotFound,
     EPDeviceTarget,
@@ -213,6 +214,7 @@ class WinMLEP:
                     "device_type": d.device_type,
                     "hardware_name": d.hardware_name,
                     "vendor": d.vendor,
+                    "luid": get_ep_device_luid(d._ort),
                     "facts": list(d.ep_facts()),
                     "device_facts": list(d.device_facts()),
                 }

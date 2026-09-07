@@ -604,7 +604,7 @@ def _gather_device_info(
     Returns:
         List of device dicts with type, priority, and details.
     """
-    from ..sysinfo import CPU, GPU, NPU
+    from ..sysinfo import CPU, GPU, NPU, enumerate_compute_adapters
 
     # NPU > GPU > CPU priority order.
     hw_queries: list[tuple[str, type[NPU] | type[GPU] | type[CPU]]] = [
@@ -613,8 +613,9 @@ def _gather_device_info(
         ("CPU", CPU),
     ]
 
-    with ThreadPoolExecutor(max_workers=len(hw_queries)) as pool:
+    with ThreadPoolExecutor(max_workers=len(hw_queries) + 1) as pool:
         futures = [(label, pool.submit(cls.get_all)) for label, cls in hw_queries]
+        native_adapters_future = pool.submit(enumerate_compute_adapters)
         # Sequence (not list) because list is invariant in its element type:
         # fut.result() at runtime is list[CPU] | list[GPU] | list[NPU], none
         # of which are list[Any]. Sequence is covariant, so this accepts
@@ -626,26 +627,37 @@ def _gather_device_info(
                 ordered_results.append((label, cast("Sequence[Any]", fut.result())))
             except Exception as e:  # noqa: PERF203 - per-future error capture
                 ordered_results.append((label, e))
+        try:
+            native_adapters = native_adapters_future.result()
+        except Exception as e:
+            logger.warning("DXCore adapter discovery failed: %s", e)
+            native_adapters = []
 
     result: list[dict[str, Any]] = []
     priority = 1
     for device_label, items in ordered_results:
+        system_adapters = [
+            adapter for adapter in native_adapters if adapter.device_type == device_label
+        ]
         if isinstance(items, Exception):
             logger.warning("Failed to get %s details: %s", device_label, items)
-            # CPU always exists, NPU/GPU may not — only surface CPU errors.
-            if device_label == "CPU":
-                result.append(
-                    {
-                        "priority": priority,
-                        "type": device_label,
-                        "name": "(detection error)",
-                        "details": {"error": str(items)},
-                    }
-                )
-                priority += 1
-            continue
-
-        for item in items:
+            if system_adapters:
+                items = []
+            else:
+                # CPU always exists, NPU/GPU may not — only surface CPU errors.
+                if device_label == "CPU":
+                    result.append(
+                        {
+                            "priority": priority,
+                            "type": device_label,
+                            "name": "(detection error)",
+                            "details": {"error": str(items)},
+                        }
+                    )
+                    priority += 1
+                continue
+        device_items: Sequence[Any] = system_adapters or items
+        for item in device_items:
             entry: dict[str, Any] = {
                 "priority": priority,
                 "type": device_label,
@@ -653,15 +665,21 @@ def _gather_device_info(
                 "details": {},
             }
             if device_label in ("NPU", "GPU"):
+                metadata_item = (
+                    _find_hardware_metadata_item(items, item) if system_adapters else item
+                )
+                entry["name"] = getattr(metadata_item, "name", None) or item.name
                 entry["details"] = {
-                    "driver": item.driver_version,
-                    "manufacturer": item.manufacturer,
+                    "driver": getattr(metadata_item, "driver_version", None),
+                    "manufacturer": getattr(metadata_item, "manufacturer", None),
+                    "luid": item.luid if system_adapters else None,
                 }
             elif device_label == "CPU":
                 entry["details"] = {
                     "cores": item.core_count,
                     "threads": item.thread_count,
                     "architecture": item.architecture.name,
+                    "luid": None,
                 }
             result.append(entry)
             priority += 1
@@ -682,6 +700,10 @@ def _gather_device_info(
     # subprocess boundary.
     if ep_info:
         try:
+            device_type_counts: dict[str, int] = {}
+            for entry in result:
+                device_type_counts[entry["type"]] = device_type_counts.get(entry["type"], 0) + 1
+
             for entry in result:
                 match_type = entry["type"]
                 sysinfo_name = entry["name"]
@@ -689,6 +711,7 @@ def _gather_device_info(
                     ep_info,
                     match_type,
                     sysinfo_name,
+                    allow_unnamed=device_type_counts[match_type] == 1,
                 )
                 if matched_dev is None:
                     continue
@@ -705,17 +728,49 @@ def _gather_device_info(
     return result
 
 
+def _find_hardware_metadata_item(
+    items: Sequence[Any],
+    system_adapter: Any,
+) -> Any | None:
+    """Find WMI/PnP metadata for a DXCore adapter without assigning identity."""
+    id_matches = [
+        item
+        for item in items
+        if getattr(item, "vendor_id", None) == system_adapter.vendor_id
+        and getattr(item, "device_id", None) == system_adapter.device_id
+    ]
+    if id_matches:
+        return id_matches[0]
+
+    for item in items:
+        name = getattr(item, "name", "") or ""
+        if (
+            name == system_adapter.name
+            or name in system_adapter.name
+            or system_adapter.name in name
+        ):
+            return item
+    return None
+
+
 def _find_matching_device(
     ep_info: dict[str, dict[str, Any]],
     match_type: str,
     sysinfo_name: str,
+    *,
+    allow_unnamed: bool,
 ) -> dict[str, Any] | None:
     """Return the first device dict in ``ep_info`` matching type + fuzzy name.
 
     Fuzzy relation: substring-in-either-direction covers both bias cases
     (OpenVINO appends "(iGPU)" to FULL_DEVICE_NAME that sysinfo's WMI
     query doesn't include; sysinfo may report a wordier form ORT trims).
+
+    Some providers expose a LUID but no hardware name. If sysinfo found only
+    one device of this type and every unnamed provider candidate identifies
+    the same adapter, that adapter is unambiguous and can still enrich it.
     """
+    unnamed_candidates: list[dict[str, Any]] = []
     for record in ep_info.values():
         for source_desc in record.get("entries", ()):
             for dev in source_desc.get("devices") or ():
@@ -724,6 +779,11 @@ def _find_matching_device(
                 hw = dev.get("hardware_name", "") or ""
                 if hw == sysinfo_name or sysinfo_name in hw or hw in sysinfo_name:
                     return cast("dict[str, Any]", dev)
+                if not hw or hw == "<unknown>":
+                    unnamed_candidates.append(cast("dict[str, Any]", dev))
+
+    if allow_unnamed and unnamed_candidates:
+        return unnamed_candidates[0]
     return None
 
 
@@ -748,6 +808,7 @@ def _output_device_text(devices: list[dict[str, Any]]) -> None:
             console.print(f"             [red]Error: {escape(details['error'])}[/red]")
         elif dev["type"] in ("NPU", "GPU"):
             parts = [
+                f"LUID: {details.get('luid') or 'N/A'}",
                 f"Driver: {details.get('driver', 'N/A')}",
                 f"Manufacturer: {details.get('manufacturer', 'N/A')}",
             ]
@@ -756,7 +817,8 @@ def _output_device_text(devices: list[dict[str, Any]]) -> None:
             console.print(f"             {' | '.join(parts)}")
         elif dev["type"] == "CPU":
             console.print(
-                f"             Cores: {details.get('cores', 'N/A')} | "
+                f"             LUID: {details.get('luid') or 'N/A'} | "
+                f"Cores: {details.get('cores', 'N/A')} | "
                 f"Threads: {details.get('threads', 'N/A')} | "
                 f"Architecture: {details.get('architecture', 'N/A')}"
             )
@@ -1255,7 +1317,11 @@ def _render_compact(info: dict[str, Any], _verbose: bool) -> None:
     if "python" in info:
         _output_compact(info)
     if "devices" in info:
-        parts = [f"{d['type']}: {d['name'].strip()}" for d in info["devices"]]
+        parts = [
+            f"{d['type']}: {d['name'].strip()} "
+            f"(LUID: {d.get('details', {}).get('luid') or 'N/A'})"
+            for d in info["devices"]
+        ]
         click.echo(" | ".join(parts) if parts else "No devices found")
     if "executionProviders" in info:
         parts = list(info["executionProviders"])

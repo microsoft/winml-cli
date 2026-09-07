@@ -190,6 +190,15 @@ class TestSysJsonShape:
                 f"Device priorities are not sequential 1..N: {priorities}"
             )
 
+    def test_default_json_devices_include_luid(self):
+        data = _run_sys_json()
+        for device in data["devices"]:
+            assert "luid" in device["details"]
+            luid = device["details"]["luid"]
+            assert luid is None or re.fullmatch(
+                r"0x[0-9A-F]{8}_0x[0-9A-F]{8}", luid
+            )
+
     def test_default_json_eps_have_source_entries(self):
         data = _run_sys_json()
         eps = data["executionProviders"]

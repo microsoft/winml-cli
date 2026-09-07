@@ -63,7 +63,7 @@ def _fake_ort_device(
     d.device.vendor_id = QNN_VENDOR_ID
     d.device.device_id = 0x0001
     d.device.vendor = "FakeVendor"
-    d.device.metadata = {}
+    d.device.metadata = {"LUID": "99219"}
     d.ep_vendor = "Microsoft"
     return d
 
@@ -109,9 +109,11 @@ def test_to_dict_then_unregister_ep(
         "device_type",
         "hardware_name",
         "vendor",
+        "luid",
         "facts",
         "device_facts",
     }
+    assert dev["luid"] == "0x00000000_0x00018393"
 
     # 2/3. unregister_ep hits ORT only for DLL-backed sources.
     if expects_ort_unregister:
