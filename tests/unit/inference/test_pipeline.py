@@ -29,6 +29,8 @@ from winml.modelkit.inference.pipeline import (
     _adapt_tokenizer_padding,
     _detect_tokenizer_dict_param,
     _ExtractiveQuestionAnsweringPipeline,
+    _ImageToTextProcessor,
+    _load_image_to_text_processor,
     _pipeline_component_kwargs,
     _resolve_hf_pipeline_task,
     create_pipeline,
@@ -195,6 +197,133 @@ class TestPipelineComponentKwargs:
             result = _pipeline_component_kwargs("test-task", "model-id")
 
         assert result == {"processor": "model-id"}
+
+    def test_image_to_text_composes_separate_image_processor_and_tokenizer(self) -> None:
+        tokenizer = MagicMock()
+        image_processor = MagicMock()
+        model = MagicMock()
+        model.config.decoder_start_token_id = 42
+
+        with (
+            patch("transformers.AutoProcessor.from_pretrained", return_value=tokenizer),
+            patch(
+                "transformers.AutoImageProcessor.from_pretrained",
+                return_value=image_processor,
+            ),
+        ):
+            result = _pipeline_component_kwargs(
+                "image-text-to-text", "model-id", model=model
+            )
+
+        processor = result["processor"]
+        assert isinstance(processor, _ImageToTextProcessor)
+        assert processor.tokenizer is tokenizer
+        assert processor.image_processor is image_processor
+        assert processor.decoder_start_token_id == 42
+
+    def test_image_to_text_preserves_existing_combined_processor(self) -> None:
+        from transformers import ProcessorMixin, ViTImageProcessor
+
+        class CombinedProcessor(ProcessorMixin):
+            image_processor_class = "AutoImageProcessor"
+            tokenizer_class = "AutoTokenizer"
+
+        processor = CombinedProcessor(ViTImageProcessor(), _make_fast_qa_tokenizer())
+        with (
+            patch("transformers.AutoProcessor.from_pretrained", return_value=processor),
+            patch("transformers.AutoImageProcessor.from_pretrained") as load_image_processor,
+        ):
+            result = _load_image_to_text_processor("model-id", model=MagicMock())
+
+        assert result is processor
+        load_image_processor.assert_not_called()
+
+    @pytest.mark.parametrize("missing_component", ["image_processor", "tokenizer"])
+    def test_image_to_text_rejects_incomplete_combined_processor(
+        self, missing_component: str
+    ) -> None:
+        from transformers import ProcessorMixin, ViTImageProcessor
+
+        class CombinedProcessor(ProcessorMixin):
+            image_processor_class = "AutoImageProcessor"
+            tokenizer_class = "AutoTokenizer"
+
+        processor = CombinedProcessor(ViTImageProcessor(), _make_fast_qa_tokenizer())
+        setattr(processor, missing_component, None)
+
+        with (
+            patch("transformers.AutoProcessor.from_pretrained", return_value=processor),
+            pytest.raises(TypeError, match=f"callable {missing_component.replace('_', ' ')}"),
+        ):
+            _load_image_to_text_processor("model-id", model=MagicMock())
+
+    @pytest.mark.parametrize(
+        ("image_processor", "tokenizer", "message"),
+        [
+            (object(), MagicMock(), "callable image processor"),
+            (MagicMock(), object(), "callable tokenizer with batch decoding"),
+        ],
+    )
+    def test_image_to_text_rejects_missing_component_capability(
+        self,
+        image_processor: Any,
+        tokenizer: Any,
+        message: str,
+    ) -> None:
+        with pytest.raises(TypeError, match=message):
+            _ImageToTextProcessor(image_processor, tokenizer, 42)
+
+    def test_image_to_text_rejects_missing_decoder_start_token(self) -> None:
+        tokenizer = MagicMock()
+        image_processor = MagicMock()
+        model = MagicMock()
+        model.config.decoder_start_token_id = None
+
+        with (
+            patch("transformers.AutoProcessor.from_pretrained", return_value=tokenizer),
+            patch(
+                "transformers.AutoImageProcessor.from_pretrained",
+                return_value=image_processor,
+            ),
+            pytest.raises(TypeError, match="missing decoder_start_token_id"),
+        ):
+            _load_image_to_text_processor("model-id", model=model)
+
+    def test_composed_processor_preprocesses_images_and_decodes_generation(self) -> None:
+        tokenizer = MagicMock()
+        tokenizer.batch_decode.return_value = ["a caption"]
+        image_processor = MagicMock(return_value={"pixel_values": torch.ones(1, 3, 4, 4)})
+        processor = _ImageToTextProcessor(image_processor, tokenizer, 42)
+
+        result = processor(images="image", text="", return_tensors="pt")
+        decoded = processor.post_process_image_text_to_text(
+            torch.tensor([[1, 2]]), skip_special_tokens=True
+        )
+
+        image_processor.assert_called_once_with("image", return_tensors="pt")
+        assert set(result) == {"pixel_values", "input_ids"}
+        assert result["input_ids"].tolist() == [[42]]
+        tokenizer.batch_decode.assert_called_once()
+        assert decoded == ["a caption"]
+
+    def test_composed_processor_preserves_nonempty_text_prompt(self) -> None:
+        tokenizer = MagicMock(return_value={"input_ids": torch.tensor([[7, 8]])})
+        image_processor = MagicMock(return_value={"pixel_values": torch.ones(1, 3, 4, 4)})
+        processor = _ImageToTextProcessor(image_processor, tokenizer, 42)
+
+        result = processor(images="image", text="describe", return_tensors="pt")
+
+        tokenizer.assert_called_once_with("describe", return_tensors="pt")
+        assert result["input_ids"].tolist() == [[7, 8]]
+
+    def test_composed_processor_public_signatures_match_pipeline_calls(self) -> None:
+        call_parameters = inspect.signature(_ImageToTextProcessor.__call__).parameters
+        decode_parameters = inspect.signature(
+            _ImageToTextProcessor.post_process_image_text_to_text
+        ).parameters
+
+        assert {"images", "text", "kwargs"} <= set(call_parameters)
+        assert {"generated_outputs", "kwargs"} <= set(decode_parameters)
 
 
 class TestCreatePipeline:

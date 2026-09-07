@@ -524,10 +524,94 @@ _COMPAT_PIPELINE_FACTORIES = {
 }
 
 
-def _pipeline_component_kwargs(task: str, model_id: str | None) -> dict[str, str]:
+class _ImageToTextProcessor:
+    """Compose separate image and text processors for encoder-decoder captioning."""
+
+    def __init__(
+        self,
+        image_processor: Any,
+        tokenizer: Any,
+        decoder_start_token_id: int,
+    ) -> None:
+        if not callable(image_processor):
+            raise TypeError("Image-to-text requires a callable image processor.")
+        if not callable(tokenizer) or not callable(getattr(tokenizer, "batch_decode", None)):
+            raise TypeError("Image-to-text requires a callable tokenizer with batch decoding.")
+        self.image_processor = image_processor
+        self.tokenizer = tokenizer
+        self.decoder_start_token_id = decoder_start_token_id
+
+    def __call__(
+        self,
+        images: Any = None,
+        text: Any = None,
+        **kwargs: Any,
+    ) -> Any:
+        if images is None:
+            return self.tokenizer(text, **kwargs)
+        import torch
+
+        inputs = self.image_processor(images, **kwargs)
+        if text:
+            inputs.update(self.tokenizer(text, **kwargs))
+        else:
+            inputs["input_ids"] = torch.tensor([[self.decoder_start_token_id]], dtype=torch.int64)
+        return inputs
+
+    def post_process_image_text_to_text(self, generated_outputs: Any, **kwargs: Any) -> Any:
+        return self.tokenizer.batch_decode(generated_outputs, **kwargs)
+
+
+def _load_image_to_text_processor(
+    model_id: str,
+    *,
+    model: Any,
+    trust_remote_code: bool = False,
+) -> Any:
+    """Load or compose the image and text capabilities required by image-to-text."""
+    from transformers import AutoImageProcessor, AutoProcessor, ProcessorMixin
+
+    load_kwargs = {"trust_remote_code": True} if trust_remote_code else {}
+    processor = AutoProcessor.from_pretrained(model_id, **load_kwargs)
+    if isinstance(processor, ProcessorMixin):
+        if not callable(getattr(processor, "image_processor", None)):
+            raise TypeError("Image-to-text processor is missing a callable image processor.")
+        if not callable(getattr(processor, "tokenizer", None)):
+            raise TypeError("Image-to-text processor is missing a callable tokenizer.")
+        if not callable(getattr(processor, "post_process_image_text_to_text", None)):
+            raise TypeError("Image-to-text processor is missing generation decoding support.")
+        return processor
+
+    decoder_start_token_id = getattr(
+        getattr(model, "config", None),
+        "decoder_start_token_id",
+        None,
+    )
+    if not isinstance(decoder_start_token_id, int):
+        raise TypeError("Image-to-text model config is missing decoder_start_token_id.")
+    image_processor = AutoImageProcessor.from_pretrained(model_id, **load_kwargs)
+    return _ImageToTextProcessor(image_processor, processor, decoder_start_token_id)
+
+
+def _pipeline_component_kwargs(
+    task: str,
+    model_id: str | None,
+    *,
+    model: Any = None,
+    trust_remote_code: bool = False,
+) -> dict[str, Any]:
     """Select model components from the resolved pipeline's capabilities."""
     if model_id is None:
         return {}
+
+    if task == "image-text-to-text":
+        return {
+            "processor": _load_image_to_text_processor(
+                model_id,
+                model=model,
+                trust_remote_code=trust_remote_code,
+            )
+        }
 
     from transformers.pipelines import check_task
 
@@ -580,7 +664,12 @@ def create_pipeline(
             # "device" is for HF pipeline tensor placement, not ORT EP.
             # WinMLSession handles device delegation internally.
             "device": device,
-            **_pipeline_component_kwargs(hf_task, model_id),
+            **_pipeline_component_kwargs(
+                hf_task,
+                model_id,
+                model=model,
+                trust_remote_code=trust_remote_code,
+            ),
         }
         if trust_remote_code:
             kwargs["trust_remote_code"] = True

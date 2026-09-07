@@ -94,9 +94,57 @@ class TestTasksManagerFallback:
 
             r = resolve_task(config)
 
-        assert r.task == "image-text-to-text"
+        assert r.task == "image-to-text"
         # Should fallback to architecture class
         assert r.model_class == BlipForConditionalGeneration
+
+    def test_auto_detected_alias_uses_registered_image_to_text_composite(self):
+        import winml.modelkit.models.hf  # noqa: F401
+
+        config = MagicMock()
+        config.architectures = ["VisionEncoderDecoderModel"]
+        config.model_type = "vision-encoder-decoder"
+        config._name_or_path = ""
+
+        with patch(
+            "winml.modelkit.loader.resolution._infer_task_from_architecture",
+            return_value="image-text-to-text",
+        ):
+            r = resolve_task(config)
+
+        assert r.task == "image-to-text"
+        assert r.optimum_task == "image-to-text"
+        assert r.composite is not None
+
+    def test_auto_detected_alias_is_preserved_without_image_to_text_composite(self):
+        config = MagicMock()
+        config.architectures = ["BlipForConditionalGeneration"]
+        config.model_type = "unregistered-multimodal"
+        config._name_or_path = ""
+
+        with patch(
+            "winml.modelkit.loader.resolution._infer_task_from_architecture",
+            return_value="image-text-to-text",
+        ):
+            r = resolve_task(config)
+
+        assert r.task == "image-text-to-text"
+        assert r.optimum_task == "image-text-to-text"
+        assert r.composite is None
+
+    def test_explicit_image_to_text_is_unchanged(self):
+        import winml.modelkit.models.hf  # noqa: F401
+
+        config = MagicMock()
+        config.architectures = ["VisionEncoderDecoderModel"]
+        config.model_type = "vision-encoder-decoder"
+        config._name_or_path = ""
+
+        r = resolve_task(config, task="image-to-text")
+
+        assert r.task == "image-to-text"
+        assert r.optimum_task == "image-to-text"
+        assert r.composite is not None
 
 
 class TestModelTaskDefaultsOverride:
