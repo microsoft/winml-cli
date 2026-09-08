@@ -26,5 +26,6 @@ def gpu_priority_key(
             if parsed >= 0:
                 index = parsed
         except ValueError:
+            # Invalid optional ranking metadata leaves this GPU unranked; use LUID ordering.
             pass
     return (index is None, index if index is not None else 0, not luid, (luid or "").casefold())
