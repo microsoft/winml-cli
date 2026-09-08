@@ -604,7 +604,20 @@ def _gather_device_info(
     Returns:
         List of device dicts with type, priority, and details.
     """
-    from ..sysinfo import CPU, GPU, NPU, enumerate_compute_adapters
+    from ..sysinfo import CPU, GPU, NPU, enumerate_compute_adapters, gpu_priority_key
+
+    # DXCore owns physical inventory. Join only ORT's Windows preference by
+    # LUID: names and PCI IDs cannot distinguish identical installed GPUs.
+    gpu_priorities: dict[str, tuple[bool, int, bool, str]] = {}
+    for provider in (ep_info or {}).values():
+        for source in provider.get("entries", []):
+            for device in source.get("devices") or []:
+                luid = device.get("luid")
+                if device.get("device_type") != "GPU" or not luid:
+                    continue
+                key = gpu_priority_key(luid, device.get("high_performance_index"))
+                normalized_luid = luid.casefold()
+                gpu_priorities[normalized_luid] = min(key, gpu_priorities.get(normalized_luid, key))
 
     # NPU > GPU > CPU priority order.
     hw_queries: list[tuple[str, type[NPU] | type[GPU] | type[CPU]]] = [
@@ -639,6 +652,12 @@ def _gather_device_info(
         system_adapters = [
             adapter for adapter in native_adapters if adapter.device_type == device_label
         ]
+        if device_label == "GPU":
+            system_adapters.sort(
+                key=lambda adapter: gpu_priorities.get(
+                    adapter.luid.casefold(), gpu_priority_key(adapter.luid)
+                )
+            )
         if isinstance(items, Exception):
             logger.warning("Failed to get %s details: %s", device_label, items)
             if system_adapters:
@@ -1318,8 +1337,7 @@ def _render_compact(info: dict[str, Any], _verbose: bool) -> None:
         _output_compact(info)
     if "devices" in info:
         parts = [
-            f"{d['type']}: {d['name'].strip()} "
-            f"(LUID: {d.get('details', {}).get('luid') or 'N/A'})"
+            f"{d['type']}: {d['name'].strip()} (LUID: {d.get('details', {}).get('luid') or 'N/A'})"
             for d in info["devices"]
         ]
         click.echo(" | ".join(parts) if parts else "No devices found")

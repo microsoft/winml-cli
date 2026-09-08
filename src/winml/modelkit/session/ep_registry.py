@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 import onnxruntime as ort
 
 from ..ep_path import BuiltinSource, EPEntry, discover_all_eps
-from ..sysinfo.luid import get_ep_device_luid
+from ..sysinfo import get_ep_device_luid, gpu_priority_key
 from .ep_device import (
     DeviceNotFound,
     EPDeviceTarget,
@@ -219,6 +219,9 @@ class WinMLEP:
                     "hardware_name": d.hardware_name,
                     "vendor": d.vendor,
                     "luid": get_ep_device_luid(d._ort),
+                    "high_performance_index": d._ort.device.metadata.get(
+                        "DxgiHighPerformanceIndex"
+                    ),
                     "facts": list(d.ep_facts()),
                     "device_facts": list(d.device_facts()),
                 }
@@ -521,16 +524,17 @@ class WinMLEPRegistry:
         order. First registration that succeeds *and* exposes
         ``target.device`` wins. When ``device_luid`` is given, only the
         adapter with that LUID (as displayed by ``winml sys``) can match.
+        Unpinned GPUs use the Windows high-performance index, then LUID,
+        rather than ORT enumeration order.
 
         Raises:
             ValueError: when ``target`` still contains an ``"auto"`` axis.
             WinMLEPNotDiscovered: no candidate EPEntry for the requested ep.
             UnknownListingPick: ``target.source`` is set but doesn't match any
                 discovered EPEntry for ``target.ep``.
-            WinMLEPRegistrationFailed: every candidate either failed to
-                register or exposed no matching device class.
-            DeviceNotFound: candidates registered cleanly but none exposed
-                ``target.device``.
+            WinMLEPRegistrationFailed: every candidate failed to register.
+            DeviceNotFound: at least one candidate registered cleanly but
+                none exposed the requested device class and optional LUID.
         """
         if target.ep == "auto" or target.device == "auto":
             raise ValueError(
@@ -554,27 +558,34 @@ class WinMLEPRegistry:
 
         target_device_upper = target.device.upper()
         last_error: Exception | None = None
+        any_registered = False
         for entry in candidates:
             try:
                 winml_ep = self.register_ep(entry)
             except WinMLEPRegistrationFailed as e:
                 last_error = e
                 continue
-            for device in winml_ep.devices:
+            any_registered = True
+            devices = winml_ep.devices
+            if target_device_upper == "GPU" and device_luid is None:
+                devices = tuple(
+                    sorted(
+                        devices,
+                        key=lambda device: gpu_priority_key(
+                            get_ep_device_luid(device.ort_handle),
+                            device.ort_handle.device.metadata.get("DxgiHighPerformanceIndex"),
+                        ),
+                    )
+                )
+            for device in devices:
                 if device.device_type == target_device_upper and (
                     device_luid is None
                     or (get_ep_device_luid(device.ort_handle) or "").casefold()
                     == device_luid.casefold()
                 ):
                     return WinMLEPDevice(ep=winml_ep, device=device)
-            # Registration succeeded but no device-class match — this
-            # candidate is NOT a registration failure, so don't let a
-            # prior candidate's stale traceback survive into the
-            # post-loop `last_error is not None` branch (T-04).
-            last_error = None
-
         # All candidates exhausted without a match.
-        if last_error is not None:
+        if not any_registered and last_error is not None:
             raise WinMLEPRegistrationFailed(
                 f"No compatible source for {target.ep}/{target.device}; "
                 f"all {len(candidates)} candidates failed"

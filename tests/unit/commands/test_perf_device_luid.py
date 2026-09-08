@@ -22,7 +22,16 @@ from winml.modelkit.commands.perf import (
     perf,
 )
 from winml.modelkit.ep_path import BuiltinSource, EPEntry
-from winml.modelkit.session import EPDeviceTarget, WinMLDevice, WinMLEP, expand_ep_name
+from winml.modelkit.session import (
+    DeviceNotFound,
+    EPDeviceTarget,
+    UnknownListingPick,
+    WinMLDevice,
+    WinMLEP,
+    WinMLEPNotDiscovered,
+    WinMLEPRegistrationFailed,
+    expand_ep_name,
+)
 from winml.modelkit.sysinfo import get_ep_device_luid
 
 
@@ -101,6 +110,72 @@ def test_unpinned_warning_only_for_multiple_adapters(gpu_ep, inventory, caplog):
     if should_warn:
         assert "--device-luid" in caplog.text
         assert "winml sys" in caplog.text
+
+
+@pytest.mark.parametrize("index", range(2))
+@pytest.mark.parametrize("default_index", range(2))
+def test_unpinned_provider_option_selects_adapter_without_warning(
+    gpu_ep, index, default_index, caplog
+):
+    selected = gpu_ep.ep_devices()[default_index]
+    options = dict(gpu_ep.devices[index].ort_handle.ep_options)
+    with patch("winml.modelkit.session.WinMLEPRegistry.instance") as instance:
+        instance.return_value.auto_device.return_value = selected
+        result = _resolve_perf_ep_device(EPDeviceTarget(ep="dml", device="gpu"), None, options)
+    assert result is selected
+    assert "Multiple devices" not in caplog.text
+    assert _get_monitor_binding(result, "gpu", options) == (
+        "gpu",
+        get_ep_device_luid(gpu_ep.devices[index].ort_handle),
+        "gpu",
+    )
+
+
+@pytest.mark.parametrize("options", [{"non_selector": "value"}, {"device_id": "unknown"}])
+def test_unpinned_options_without_unique_adapter_keep_warning(gpu_ep, options, caplog):
+    with patch("winml.modelkit.session.WinMLEPRegistry.instance") as instance:
+        instance.return_value.auto_device.return_value = gpu_ep.ep_devices()[0]
+        _resolve_perf_ep_device(EPDeviceTarget(ep="dml", device="gpu"), None, options)
+    assert "Multiple devices" in caplog.text
+    assert "using the first" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        DeviceNotFound("requested LUID is unavailable"),
+        ValueError("--ep-options conflict with --device-luid"),
+        WinMLEPNotDiscovered("EP not installed"),
+        WinMLEPRegistrationFailed("DLL failed"),
+        UnknownListingPick("dml", "pypi"),
+    ],
+)
+def test_module_cli_formats_resolution_errors(gpu_ep, error):
+    luid = get_ep_device_luid(gpu_ep.devices[0].ort_handle)
+    with (
+        patch("winml.modelkit.commands.perf._resolve_perf_ep_device", side_effect=error),
+        patch("winml.modelkit.config.generate_hf_build_config") as build_config,
+    ):
+        result = CliRunner().invoke(
+            perf,
+            [
+                "-m",
+                "fake/model",
+                "--module",
+                "Linear",
+                "--device",
+                "gpu",
+                "--ep",
+                "dml",
+                "--device-luid",
+                luid,
+            ],
+            catch_exceptions=False,
+        )
+    assert result.exit_code == 1
+    assert f"Error: Error resolving benchmark device: {error}" in result.output
+    assert "Traceback" not in result.output
+    build_config.assert_not_called()
 
 
 def test_benchmark_resolves_pin_once_before_loading(gpu_ep):

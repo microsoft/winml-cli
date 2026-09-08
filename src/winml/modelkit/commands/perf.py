@@ -485,8 +485,17 @@ def _resolve_perf_ep_device(
         # Multiple EP routes to one known adapter are not multiple adapters.
         identities = {get_ep_device_luid(device.ort_handle) or id(device) for device in candidates}
         if len(identities) > 1:
+            if provider_options:
+                effective_bindings = {
+                    _get_ep_device_binding(replace(selected, device=device), provider_options)
+                    for device in candidates
+                }
+                if len(effective_bindings) == 1:
+                    effective_luid, _ = next(iter(effective_bindings))
+                    if effective_luid is not None:
+                        return selected
             logger.warning(
-                "Multiple devices match %s/%s; using the first ORT device: %s (LUID: %s). "
+                "Multiple devices match %s/%s; default ORT device: %s (LUID: %s). "
                 "Pass --device-luid <LUID> to select an adapter; run 'winml sys' to list LUIDs.",
                 target.ep,
                 target.device,
@@ -1671,15 +1680,31 @@ def _perf_modules(
     from ..cache import get_cache_dir, get_cache_key, get_model_dir
     from ..config import SubmoduleClassNotFoundError, generate_hf_build_config
     from ..loader.task import get_task_abbrev
-    from ..session import EPDeviceTarget, resolve_device
+    from ..session import (
+        DeviceNotFound,
+        EPDeviceTarget,
+        UnknownListingPick,
+        WinMLEPNotDiscovered,
+        WinMLEPRegistrationFailed,
+        resolve_device,
+    )
     from .build import _instantiate_parent_model
 
     request_device = (device or "auto").lower()
     request_ep = ep
-    resolved_target = resolve_device(
-        EPDeviceTarget(ep=request_ep or "auto", device=request_device, source=ep_source)
-    )
-    resolved_ep_device = _resolve_perf_ep_device(resolved_target, device_luid, ep_options)
+    try:
+        resolved_target = resolve_device(
+            EPDeviceTarget(ep=request_ep or "auto", device=request_device, source=ep_source)
+        )
+        resolved_ep_device = _resolve_perf_ep_device(resolved_target, device_luid, ep_options)
+    except (
+        DeviceNotFound,
+        UnknownListingPick,
+        WinMLEPNotDiscovered,
+        WinMLEPRegistrationFailed,
+        ValueError,
+    ) as exc:
+        raise click.ClickException(f"Error resolving benchmark device: {exc}") from exc
     resolved_device = resolved_target.device
     ep = cast("EPName", resolved_target.ep)
 

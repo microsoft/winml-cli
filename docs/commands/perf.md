@@ -125,10 +125,20 @@ the EP/device auto-selection policy. It applies to ONNX, HuggingFace,
 composite, and per-module runtime inference, including memory and hardware
 monitoring. It does not pin the separate model-build compilation stage.
 
-If multiple adapters match and `--device-luid` is omitted, perf warns and keeps
-the first ORT device as the default. An unavailable LUID fails instead of
-falling back to another adapter. Provider options that redirect the binding away
-from the pinned adapter are rejected. The requested pin is saved in
+If multiple adapters match and `--device-luid` is omitted, perf warns and uses
+the default ORT device unless `--ep-options` uniquely determines a known adapter
+binding across all candidates. Non-selector options, or options whose adapter
+binding cannot be established, do not suppress the warning.
+
+The default GPU is selected by numeric `DxgiHighPerformanceIndex` from ORT
+hardware metadata (0 first), then by LUID to break ties. Missing or invalid
+indices sort after ranked GPUs, in LUID order. This is the same ordering used
+by `winml sys`, restricted to the selected EP source's exposed devices rather
+than all installed GPUs; it does not depend on ORT enumeration order.
+
+An unavailable LUID fails instead of falling back to another adapter. Provider
+options that redirect the binding away from the pinned adapter are rejected.
+The requested pin is saved in
 `benchmark_info.device_luid` in the single-model report.
 
 Pass runtime EP provider options to tune the session (repeatable):
