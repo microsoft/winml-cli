@@ -58,7 +58,7 @@ if TYPE_CHECKING:
 
     from ..models.winml.base import WinMLPreTrainedModel
     from ..models.winml.composite_model import WinMLCompositeModel
-    from ..session import EPDeviceTarget, WinMLEPDevice
+    from ..session import EPDeviceTarget, WinMLDevice, WinMLEPDevice
     from ..session.monitor.ep_monitor import WinMLEPMonitor
     from ..session.monitor.op_metrics import TraceFallbackReason
     from ..session.stats import PerfStats
@@ -338,15 +338,13 @@ def _pre_bench_kwargs_from_ep_device(
     }
 
 
-def _get_ep_device_binding(
+def _get_provider_bound_device(
     ep_device: WinMLEPDevice | None,
     provider_options: dict[str, str] | None = None,
-) -> tuple[str | None, str | None]:
-    """Return the effective LUID and device kind for a concrete EP binding."""
+) -> tuple[WinMLDevice | None, str | None]:
+    """Resolve provider selectors to the actual candidate and device kind."""
     if ep_device is None:
         return None, None
-
-    from ..sysinfo import get_ep_device_luid
 
     device = ep_device.device
     has_provider_selector, provider_device = _get_provider_selected_device(
@@ -394,11 +392,23 @@ def _get_ep_device_binding(
                 return None, provider_device
             device = candidates[0]
 
-    luid = get_ep_device_luid(device.ort_handle)
-    device_kind = device.device_type.lower()
+    return device, device.device_type.lower()
+
+
+def _get_ep_device_binding(
+    ep_device: WinMLEPDevice | None,
+    provider_options: dict[str, str] | None = None,
+) -> tuple[str | None, str | None]:
+    """Return the effective LUID and device kind for a concrete EP binding."""
+    from ..sysinfo import get_ep_device_luid
+
+    device, device_kind = _get_provider_bound_device(ep_device, provider_options)
+    if device is None:
+        return None, device_kind
+    has_provider_selector, _ = _get_provider_selected_device(ep_device, provider_options)
     if device_kind not in ACCELERATOR_DEVICE_TYPES:
         return (None, device_kind) if has_provider_selector else (None, None)
-    return luid, device_kind
+    return get_ep_device_luid(device.ort_handle), device_kind
 
 
 def _get_provider_selected_device(
@@ -469,6 +479,13 @@ def _resolve_perf_ep_device(
         if device_luid is not None
         else registry.auto_device(target)
     )
+    effective_device, effective_kind = _get_provider_bound_device(selected, provider_options)
+    if provider_options and effective_kind is not None and effective_kind != target.device:
+        raise ValueError(
+            f"--ep-options select device {effective_kind!r}, but the resolved device is "
+            f"{target.device!r}. Use --device {effective_kind} or remove the conflicting "
+            "provider options so build and runtime use the same device kind."
+        )
     if device_luid is not None:
         bound_luid, bound_kind = _get_ep_device_binding(selected, provider_options)
         if (bound_luid or "").casefold() != device_luid.casefold() or (
@@ -479,6 +496,8 @@ def _resolve_perf_ep_device(
                 "adapter unambiguously. Remove the device-selecting provider options."
             )
     else:
+        if effective_device is not None and effective_device is not selected.device:
+            selected = replace(selected, device=effective_device)
         candidates = [
             device for device in selected.ep.devices if device.device_type.lower() == target.device
         ]

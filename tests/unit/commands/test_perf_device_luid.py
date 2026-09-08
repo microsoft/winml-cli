@@ -18,6 +18,7 @@ from winml.modelkit.commands.perf import (
     BenchmarkResult,
     PerfBenchmark,
     _get_monitor_binding,
+    _pre_bench_kwargs_from_ep_device,
     _resolve_perf_ep_device,
     perf,
 )
@@ -42,7 +43,10 @@ def gpu_ep() -> WinMLEP:
         handle = MagicMock()
         handle.ep_name = "DmlExecutionProvider"
         handle.device.type.name = "GPU"
-        handle.device.metadata = {"LUID": str((index + 1) << 32)}
+        handle.device.metadata = {
+            "LUID": str((index + 1) << 32),
+            "Description": f"GPU {index}",
+        }
         handle.ep_metadata = {}
         handle.ep_options = {"device_id": str(index)}
         devices.append(WinMLDevice(handle))
@@ -122,13 +126,100 @@ def test_unpinned_provider_option_selects_adapter_without_warning(
     with patch("winml.modelkit.session.WinMLEPRegistry.instance") as instance:
         instance.return_value.auto_device.return_value = selected
         result = _resolve_perf_ep_device(EPDeviceTarget(ep="dml", device="gpu"), None, options)
-    assert result is selected
+    assert result.device is gpu_ep.devices[index]
+    assert result.ep is selected.ep
+    assert result.device.hardware_name == gpu_ep.devices[index].hardware_name
+    assert get_ep_device_luid(result.device.ort_handle) == get_ep_device_luid(
+        gpu_ep.devices[index].ort_handle
+    )
+    identity = _pre_bench_kwargs_from_ep_device(
+        result,
+        model_id=None,
+        task=None,
+        opset=None,
+        inputs=None,
+        outputs=None,
+        cached_onnx_path=None,
+        onnx_file=None,
+    )
+    assert identity["hardware_name"] == gpu_ep.devices[index].hardware_name
     assert "Multiple devices" not in caplog.text
     assert _get_monitor_binding(result, "gpu", options) == (
         "gpu",
         get_ep_device_luid(gpu_ep.devices[index].ort_handle),
         "gpu",
     )
+
+
+def test_provider_selection_preserves_identity_without_luid(gpu_ep):
+    for device in gpu_ep.devices:
+        device.ort_handle.device.metadata.pop("LUID")
+    expected = gpu_ep.devices[1]
+    with patch("winml.modelkit.session.WinMLEPRegistry.instance") as instance:
+        instance.return_value.auto_device.return_value = gpu_ep.ep_devices()[0]
+        result = _resolve_perf_ep_device(
+            EPDeviceTarget(ep="dml", device="gpu"), None, dict(expected.ort_handle.ep_options)
+        )
+    assert result.device is expected
+    assert result.device.hardware_name == expected.hardware_name
+
+
+@pytest.mark.parametrize("module_mode", [False, True])
+@pytest.mark.parametrize("exposes_gpu", [False, True])
+def test_cross_kind_provider_selector_rejected_before_build(gpu_ep, module_mode, exposes_gpu):
+    for index, device in enumerate(gpu_ep.devices):
+        device.ort_handle.ep_name = expand_ep_name("qnn")
+        device.ort_handle.ep_options = {}
+        device.ort_handle.device.type.name = "NPU" if index == 0 else "GPU"
+    devices = gpu_ep.devices if exposes_gpu else gpu_ep.devices[:1]
+    qnn_ep = WinMLEP(
+        source=EPEntry(
+            ep_name=expand_ep_name("qnn"),
+            dll_path=Path(),
+            source=BuiltinSource(eps=(expand_ep_name("qnn"),)),
+        ),
+        devices=devices,
+        arg0=expand_ep_name("qnn"),
+    )
+    with (
+        patch("winml.modelkit.session.WinMLEPRegistry.instance") as instance,
+        patch("winml.modelkit.config.generate_hf_build_config") as build_config,
+        patch("winml.modelkit.commands.perf.PerfBenchmark._load_model") as load_model,
+    ):
+        instance.return_value.auto_device.return_value = qnn_ep.ep_devices()[0]
+        if module_mode:
+            result = CliRunner().invoke(
+                perf,
+                [
+                    "-m",
+                    "fake/model",
+                    "--module",
+                    "Linear",
+                    "--device",
+                    "npu",
+                    "--ep",
+                    "qnn",
+                    "--ep-options",
+                    "backend_type=gpu",
+                ],
+                catch_exceptions=False,
+            )
+            assert result.exit_code == 1
+            assert "--ep-options select device 'gpu'" in result.output
+            assert "--device gpu" in result.output
+        else:
+            benchmark = PerfBenchmark(
+                BenchmarkConfig(
+                    model_id="fake/model",
+                    device="npu",
+                    ep="qnn",
+                    ep_options={"backend_type": "gpu"},
+                )
+            )
+            with pytest.raises(ValueError, match="--ep-options select device 'gpu'"):
+                benchmark._resolve_device_ep()
+        build_config.assert_not_called()
+        load_model.assert_not_called()
 
 
 @pytest.mark.parametrize("options", [{"non_selector": "value"}, {"device_id": "unknown"}])

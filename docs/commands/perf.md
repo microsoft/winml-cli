@@ -129,6 +129,11 @@ If multiple adapters match and `--device-luid` is omitted, perf warns and uses
 the default ORT device unless `--ep-options` uniquely determines a known adapter
 binding across all candidates. Non-selector options, or options whose adapter
 binding cannot be established, do not suppress the warning.
+When provider options resolve to another adapter of the same kind, that adapter
+is used for the runtime binding, device identity, and monitoring. Options that
+select a different device kind (for example, `--device npu --ep qnn` with
+`--ep-options backend_type=gpu`) are rejected before the build; use the matching
+`--device` instead so build and runtime agree.
 
 The default GPU is selected by numeric `DxgiHighPerformanceIndex` from ORT
 hardware metadata (0 first), then by LUID to break ties. Missing or invalid
