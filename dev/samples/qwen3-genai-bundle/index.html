@@ -2705,8 +2705,8 @@ the memory-bound companions stay on CPU.</p>
 <ul>
 <li>winml-cli installed and <code>winml</code> on your PATH.</li>
 <li>A network connection to download Qwen3 weights from HuggingFace on first run.</li>
-<li>An NPU target with either the QNN (Qualcomm) or VitisAI (AMD) execution
-  provider available.</li>
+<li>For NPU inference, a QNN (Qualcomm) or VitisAI (AMD) execution provider.
+  CPU inference does not require either NPU provider.</li>
 </ul>
 <h2 id="overall-workflow">Overall workflow<a class="headerlink" href="#overall-workflow" title="Permanent link">&para;</a></h2>
 <pre class="mermaid"><code>graph LR
@@ -2728,8 +2728,8 @@ recipe for that resolved target, so on an NPU host no flags are needed:</p>
 <p>This builds (or reuses from cache) all four components and assembles them, writing
 <code>out/qwen3-bundle/genai_config.json</code> alongside the ONNX graphs and tokenizer.
 <code>--output-dir</code> is required — the bundle is a directory — and <code>--use-cache</code> is not
-supported for bundles. On a host without the NPU the resolved target has no recipe
-and the build fails fast. Pin the provider to select a target explicitly:</p>
+supported for bundles. The recipe supports CPU, QNN/NPU, and VitisAI/NPU;
+other resolved targets fail fast. Pin the provider to select a target explicitly:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Qualcomm Snapdragon NPU</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>winml<span class="w"> </span>build<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>-o<span class="w"> </span>out/qwen3-bundle<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span>--export-type<span class="w"> </span>optimized<span class="w"> </span>--ep<span class="w"> </span>qnn<span class="w"> </span>--device<span class="w"> </span>npu
@@ -2801,10 +2801,19 @@ When <code>-m</code> is not a prebuilt bundle directory, it builds the genai bun
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>--runtime<span class="w"> </span>ort-genai<span class="w"> </span>--compile<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>--compile-timeout<span class="w"> </span><span class="m">600</span><span class="w"> </span>--max-new-tokens<span class="w"> </span><span class="m">20</span><span class="w"> </span>--prompt<span class="w"> </span><span class="s2">"What is the capital of France?"</span>
 </span></code></pre></div>
-<p>The model-ID auto-build shortcut targets the NPU HTP via QNN. To use VitisAI,
-first build the bundle explicitly in Step 1 and then point <code>perf -m</code> at that
-directory. <code>-o/--output</code> stays the results-JSON path, and <code>--rebuild</code> forces
-a fresh bundle.</p>
+<p>Without a device or EP override, the model-ID shortcut targets QNN/NPU.
+An explicit <code>--device</code> or <code>--ep</code> also selects the transformer build target,
+not just the inference target. For example, a CPU run does not require QNN:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>--runtime<span class="w"> </span>ort-genai<span class="w"> </span>--device<span class="w"> </span>cpu<span class="w"> </span>--no-compile<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>--warmup<span class="w"> </span><span class="m">2</span><span class="w"> </span>--iterations<span class="w"> </span><span class="m">10</span><span class="w"> </span>--max-new-tokens<span class="w"> </span><span class="m">20</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span>--prompt<span class="w"> </span><span class="s2">"What is the capital of France?"</span>
+</span></code></pre></div>
+<p>Use <code>--ep vitisai --device npu --compile</code> for VitisAI. Auto-building rejects
+targets not supported by the recipe; a prebuilt bundle can still be passed
+to <code>perf</code> for a runtime override. Explicit targets have
+separate bundle caches, so a CPU run never reuses a QNN build. CPU companions
+retain their recipe precisions. <code>-o/--output</code> stays the results-JSON path,
+and <code>--rebuild</code> forces a fresh bundle for the selected target.</p>
 </div>
 <div class="admonition warning">
 <p class="admonition-title"><code>--compile</code> is required on the NPU</p>
