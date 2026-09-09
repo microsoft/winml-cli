@@ -536,11 +536,16 @@ def resolve_task(
         # CLIP --model-class override).
         resolved = None
         if model_type_norm:
-            custom = (
-                _get_custom_model_class(model_type_norm, task) if task is not None else None
-            ) or _get_custom_model_class(model_type_norm, opt_task)
-            if custom is not None and custom.__name__ == model_class:
-                resolved = custom
+            candidate_tasks = [opt_task]
+            if task is not None:
+                candidate_tasks.insert(0, task)
+            for candidate_task in candidate_tasks:
+                custom = _get_custom_model_class(model_type_norm, candidate_task)
+                if custom is not None and custom.__name__ == model_class:
+                    resolved = custom
+                    if task is not None and candidate_task == task:
+                        surfaced = task
+                    break
         if resolved is None:
             try:
                 resolved = TasksManager.get_model_class_for_task(
