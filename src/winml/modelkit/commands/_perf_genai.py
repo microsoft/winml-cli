@@ -57,6 +57,7 @@ if TYPE_CHECKING:
 
     from rich.console import Console
 
+    from ..session import EPDeviceTarget
     from ..utils.constants import EPName, RuntimeName
 
 logger = logging.getLogger(__name__)
@@ -98,6 +99,12 @@ def resolve_genai_ep(device: str) -> EPNameOrAlias | None:
             device has no compatible EP available -- fail fast, like the ONNX
             path, rather than silently falling back to CPU.
     """
+    target = _resolve_genai_target(device)
+    return cast("EPNameOrAlias", short_ep_name(target.ep)) if target is not None else None
+
+
+def _resolve_genai_target(device: str) -> EPDeviceTarget | None:
+    """Resolve the EP and concrete device together, retaining multi-device routing."""
     if device == GENAI_CONFIG_DEVICE:
         return None
 
@@ -117,9 +124,7 @@ def resolve_genai_ep(device: str) -> EPNameOrAlias | None:
     # device, not a cross-device accelerator that also happens to support it.
     native = [ep for ep in eps if EP_SUPPORTED_DEVICES[cast("EPName", ep)][0] == resolved_device]
     best = native[0] if native else eps[0]
-    # short_ep_name returns a plain ``str``; the value is a canonical EP short
-    # alias (a member of EPAlias) that GenaiSession accepts as an override.
-    return cast("EPNameOrAlias", short_ep_name(best))
+    return EPDeviceTarget(ep=best, device=resolved_device)
 
 
 def genai_output_path(bundle_dir: str | Path) -> Path:
