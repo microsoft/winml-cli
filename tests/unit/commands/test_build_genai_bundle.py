@@ -530,12 +530,23 @@ def test_use_cache_rejected_for_bundle(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 
-def test_export_type_optimized_resolves_target_and_builds(tmp_path: Path):
+@pytest.mark.parametrize(
+    ("resolved_target", "expected_ep", "expected_device"),
+    [
+        (EPDeviceTarget(ep="QNNExecutionProvider", device="npu"), "qnn", "npu"),
+        (EPDeviceTarget(ep="CPUExecutionProvider", device="cpu"), "cpu", "cpu"),
+    ],
+)
+def test_export_type_optimized_resolves_target_and_builds(
+    tmp_path: Path,
+    resolved_target,
+    expected_ep,
+    expected_device,
+):
     """``--export-type optimized`` resolves the host target, then builds its recipe.
 
-    No ``--device``/``--ep`` is pinned, so the target is hardware-probed (here the
-    autouse fixture resolves the NPU); the qwen3 -> qnn/npu recipe supports it, so
-    the bundle is built for that resolved ``(ep, device)``.
+    No ``--device``/``--ep`` is pinned, so the target is hardware-probed.
+    Both CPU and QNN/NPU are supported by the recipe.
     """
     out = tmp_path / "bundle"
     recorded: dict = {}
@@ -545,6 +556,7 @@ def test_export_type_optimized_resolves_target_and_builds(tmp_path: Path):
         patch(_BUNDLE_TARGET, side_effect=_record_bundle(recorded)) as bundle,
         patch(_RUN_SINGLE_TARGET) as run_single,
         patch(_COMPOSITE_TARGET, return_value=None),
+        patch(_RESOLVE_DEVICE_TARGET, return_value=resolved_target),
     ):
         result = _invoke(["-m", "Qwen/Qwen3-0.6B", "-o", str(out), "--export-type", "optimized"])
 
@@ -552,16 +564,15 @@ def test_export_type_optimized_resolves_target_and_builds(tmp_path: Path):
     assert bundle.call_count == 1
     run_single.assert_not_called()
     kwargs = recorded["kwargs"]
-    assert kwargs["ep"] == "qnn"
-    assert kwargs["device"] == "npu"
+    assert kwargs["ep"] == expected_ep
+    assert kwargs["device"] == expected_device
 
 
 def test_export_type_optimized_errors_when_resolved_target_unsupported(tmp_path: Path):
     """Optimized resolves the host target first; a host the recipe can't serve errors.
 
-    On a machine without the recipe's accelerator, auto-resolution lands on a
-    non-NPU device, so the optimized bundle (qwen3 -> qnn/npu) is unavailable and
-    the build fails fast naming the resolved ep/device. Regression test for the
+    When auto-resolution lands on a GPU, the optimized bundle is unavailable
+    and the build fails fast naming the resolved ep/device. Regression test for the
     reviewer note on PR #1104 (resolve first, then error -- not infer-from-recipe).
     """
     with (
@@ -569,7 +580,10 @@ def test_export_type_optimized_errors_when_resolved_target_unsupported(tmp_path:
         patch(_BUNDLE_TARGET) as bundle,
         patch(_RUN_SINGLE_TARGET) as run_single,
         patch(_COMPOSITE_TARGET, return_value=None),
-        patch(_RESOLVE_DEVICE_TARGET, return_value=_CPU_TARGET) as probe,
+        patch(
+            _RESOLVE_DEVICE_TARGET,
+            return_value=EPDeviceTarget(ep="DmlExecutionProvider", device="gpu"),
+        ) as probe,
     ):
         result = _invoke(
             ["-m", "Qwen/Qwen3-0.6B", "-o", str(tmp_path / "o"), "--export-type", "optimized"]
@@ -578,7 +592,7 @@ def test_export_type_optimized_errors_when_resolved_target_unsupported(tmp_path:
     assert result.exit_code != 0
     probe.assert_called_once()
     assert "not supported for" in result.output
-    assert "device=cpu" in result.output
+    assert "device=gpu" in result.output
     bundle.assert_not_called()
     run_single.assert_not_called()
 
@@ -734,8 +748,8 @@ def test_resolve_optimized_target_rejects_unsupported_device():
     from winml.modelkit.models.winml import resolve_genai_bundle
 
     recipe = resolve_genai_bundle("qwen3")
-    with pytest.raises(click.UsageError, match="not supported for ep=cpu, device=cpu"):
-        _resolve_optimized_target(recipe, device="cpu", ep="cpu")
+    with pytest.raises(click.UsageError, match="not supported for ep=cpu, device=gpu"):
+        _resolve_optimized_target(recipe, device="gpu", ep="cpu")
 
 
 def test_optimized_rejects_onnx_input():

@@ -17,7 +17,7 @@ $ winml perf [options]
 | Flag | Short | Type | Default | Description |
 |---|---|---|---|---|
 | `--model` | `-m` | `TEXT` | — | HuggingFace model ID or path to a local `.onnx` file. Required. With `--runtime ort-genai`, also accepts a prebuilt genai **bundle directory**, or a HuggingFace model ID that is auto-built into a bundle on demand. |
-| `--runtime` | | `winml-ort\|ort-genai` | `winml-ort` | Inference runtime. `winml-ort` benchmarks single-shot ONNX inference; `ort-genai` benchmarks an onnxruntime-genai bundle (LLM generation: time-to-first-token + decode tokens/sec). With `ort-genai`, a model ID that is not a bundle directory is auto-built into one (cached under `~/.cache/winml/`, targeting the NPU HTP via QNN) before benchmarking. GenAI cache controls are tracked in issue #1275. |
+| `--runtime` | | `winml-ort\|ort-genai` | `winml-ort` | Inference runtime. `winml-ort` benchmarks single-shot ONNX inference; `ort-genai` benchmarks an onnxruntime-genai bundle (LLM generation: time-to-first-token + decode tokens/sec). With `ort-genai`, a model ID that is not a bundle directory is auto-built into one before benchmarking. An explicit `--ep` or `--device` selects both the transformer build and runtime target; without an override, the auto-build defaults to QNN/NPU. Bundles are cached under `~/.cache/winml/`, separately for each explicit EP/device target. GenAI cache controls are tracked in issue #1275. |
 | `--task` | | `TEXT` | auto-detected | Explicit task override (e.g., `image-classification`). Inferred from the model if omitted. |
 | `--iterations` | | `INTEGER` | `100` | Number of timed inference iterations used to compute statistics. |
 | `--warmup` | | `INTEGER` | `10` | Number of warm-up iterations run before timing begins; excluded from statistics. |
@@ -53,6 +53,12 @@ Both runtime reports include `schema_version: 2` and a `benchmark_info.runtime` 
 When `--memory` is enabled, both `winml-ort` and `ort-genai` reports use the same `memory` field names for shared concepts: RSS baseline, after-compile/load, after-inference, peak, model-load delta, inference/generation delta, and total delta; VRAM local/shared baseline, after-compile/load, after-inference, peak, model-load delta, inference/generation delta, and total delta.
 
 With `--runtime ort-genai`, `winml perf` benchmarks the onnxruntime-genai decoder pipeline rather than a single `session.run()`. The JSON report uses a phase-based schema: `load` contains startup spans, `requests` contains one warmup or timed generation sample per request, `aggregate` summarizes timed requests only, `memory` contains optional RAM/VRAM deltas, and `hw_monitor` contains optional monitor output. The optional `memory` and `hw_monitor` top-level names match the classic `winml-ort` perf report; GenAI keeps `load`/`requests`/`aggregate` instead of classic `latency_ms`/`throughput` because generation has distinct prompt, first-token, and decode phases.
+
+For model-ID auto-builds, the selected EP/device must be supported by the model's
+bundle recipe; unsupported targets fail before export. `--device auto` retains
+the concrete device selected by hardware detection. Prebuilt bundle directories
+keep their existing runtime-override behavior and do not pass through this build
+target validation.
 
 ### GenAI metric definitions
 
