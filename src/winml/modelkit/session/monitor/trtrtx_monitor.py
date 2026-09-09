@@ -184,7 +184,7 @@ class NvTensorRTRTXMonitor(EPMonitor):
                 or not name
                 or type(pid) is not int
                 or type(tid) is not int
-                or type(duration) not in (int, float)
+                or (type(duration) is not int and type(duration) is not float)
                 or not math.isfinite(duration)
                 or duration < 0
             ):
