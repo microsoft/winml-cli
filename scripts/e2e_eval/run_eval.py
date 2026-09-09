@@ -623,19 +623,34 @@ def _kill_process_tree(pid: int) -> None:
             pass  # Process already exited; nothing to kill
 
 
+def _expand_cache_path(path: str | os.PathLike[str]) -> Path:
+    return Path(os.path.expandvars(os.fspath(path))).expanduser()
+
+
+def _hf_cache_roots(env: dict[str, str]) -> tuple[Path, Path, Path]:
+    """Resolve cache roots using Hugging Face's environment precedence."""
+    if "HF_HOME" in env:
+        hf_home = _expand_cache_path(env["HF_HOME"])
+    else:
+        xdg_cache = _expand_cache_path(env.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+        hf_home = xdg_cache / "huggingface"
+
+    hub_cache_value = env.get("HF_HUB_CACHE")
+    if hub_cache_value is None:
+        hub_cache_value = env.get("HUGGINGFACE_HUB_CACHE")
+    hub_cache = _expand_cache_path(hub_cache_value or hf_home / "hub")
+    datasets_cache = _expand_cache_path(env.get("HF_DATASETS_CACHE") or hf_home / "datasets")
+    xet_cache = _expand_cache_path(env.get("HF_XET_CACHE") or hf_home / "xet")
+    return hub_cache, datasets_cache, xet_cache
+
+
 def _snapshot_hf_downloads(env: dict[str, str]) -> dict[Path, tuple[int, int]]:
     """Return observable Hugging Face partial downloads as size/mtime pairs."""
-    hf_home = Path(env.get("HF_HOME", Path.home() / ".cache" / "huggingface")).expanduser()
-    hub_cache = Path(
-        env.get("HF_HUB_CACHE")
-        or env.get("HUGGINGFACE_HUB_CACHE")
-        or hf_home / "hub"
-    ).expanduser()
-    datasets_cache = Path(env.get("HF_DATASETS_CACHE") or hf_home / "datasets").expanduser()
+    hub_cache, datasets_cache, xet_cache = _hf_cache_roots(env)
     searches = (
         (hub_cache, ("*/blobs/*.incomplete", "*.incomplete")),
         (datasets_cache, ("downloads/*.incomplete",)),
-        (hf_home / "xet", ("**/*.incomplete",)),
+        (xet_cache, ("**/*.incomplete",)),
     )
     snapshot: dict[Path, tuple[int, int]] = {}
     for root, patterns in searches:
@@ -655,24 +670,63 @@ def _snapshot_hf_downloads(env: dict[str, str]) -> dict[Path, tuple[int, int]]:
     return snapshot
 
 
+def _normalized_path(path: str | os.PathLike[str]) -> str:
+    return os.path.normcase(os.path.realpath(os.fspath(path)))
+
+
+def _process_tree_open_paths(pid: int) -> set[str]:
+    """Return normalized paths opened by a process and its descendants."""
+    try:
+        import psutil
+    except ImportError:
+        return set()
+
+    try:
+        root = psutil.Process(pid)
+    except psutil.Error:
+        return set()
+
+    processes = [root]
+    with contextlib.suppress(psutil.Error):
+        processes.extend(root.children(recursive=True))
+
+    paths: set[str] = set()
+    for process in processes:
+        try:
+            open_files = process.open_files()
+        except psutil.Error:
+            continue
+        paths.update(_normalized_path(open_file.path) for open_file in open_files)
+    return paths
+
+
 class _HfDownloadTracker:
-    """Detect active Hub downloads from growing ``*.incomplete`` cache files."""
+    """Detect downloads owned by the monitored subprocess tree."""
 
     def __init__(self, env: dict[str, str], now: float) -> None:
         self._env = env
         self._previous = _snapshot_hf_downloads(env)
         self._active_paths: set[Path] = set()
+        self._pid: int | None = None
         self.last_progress = now
+
+    def bind(self, pid: int) -> None:
+        self._pid = pid
 
     def poll(self, now: float) -> bool:
         current = _snapshot_hf_downloads(self._env)
+        open_paths = _process_tree_open_paths(self._pid) if self._pid is not None else set()
         progressed = {
-            path for path, state in current.items() if self._previous.get(path) != state
+            path
+            for path, state in current.items()
+            if self._previous.get(path) != state and _normalized_path(path) in open_paths
         }
         if progressed:
             self._active_paths.update(progressed)
             self.last_progress = now
-        self._active_paths.intersection_update(current)
+        self._active_paths.intersection_update(
+            path for path in current if _normalized_path(path) in open_paths
+        )
         self._previous = current
         return bool(self._active_paths)
 
@@ -717,6 +771,7 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
     else:
         popen_kwargs["start_new_session"] = True
     proc = subprocess.Popen(args, **popen_kwargs)  # noqa: S603
+    download_tracker.bind(proc.pid)
 
     # Read pipes in background threads so communicate() timeout works even
     # when grandchild processes keep pipe handles alive (Windows issue).
