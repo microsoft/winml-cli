@@ -404,8 +404,8 @@ def _get_ep_device_binding(
     binding = _get_provider_bound_device(ep_device, provider_options)
     if binding.device is None:
         return None, binding.device_kind
-    has_provider_selector, _ = _get_provider_selected_device(ep_device, provider_options)
     if binding.device_kind not in ACCELERATOR_DEVICE_TYPES:
+        has_provider_selector, _ = _get_provider_selected_device(ep_device, provider_options)
         return (None, binding.device_kind) if has_provider_selector else (None, None)
     return get_ep_device_luid(binding.device.ort_handle), binding.device_kind
 
@@ -1453,11 +1453,8 @@ class PerfBenchmark:
                 "Running without hardware monitoring."
             )
 
-        # Track the device actually being benchmarked so the monitor polls
-        # GPU when --device gpu is specified, NPU when --device npu, etc.
-        # ep_name lets the monitor resolve the exact LUID via ORT's autoEP
-        # metadata so we follow the adapter the session actually binds to.
-        # Full ORT EP name; HWMonitor resolves the adapter LUID from it.
+        # Monitor the bound adapter's LUID; without one, disable adapter
+        # sampling rather than discovering a different GPU/NPU by EP name.
         ep_name = cast("EPName | None", self._single.ep_name)
         monitor_device = self._single.device or self.config.device or "auto"
         effective_monitor_device, adapter_luid, adapter_device = _get_monitor_binding(

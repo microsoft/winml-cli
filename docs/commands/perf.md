@@ -143,7 +143,8 @@ select a different device kind (for example, `--device npu --ep qnn` with
 
 If the bound adapter has no LUID, perf uses CPU/RAM monitoring mode rather
 than guessing another GPU/NPU. Adapter-specific utilization and VRAM sampling
-are disabled in that case.
+are disabled in that case. Separately labelled aggregate GPU telemetry may
+remain available; it is not attributed to the selected adapter.
 
 The default GPU is selected by numeric `DxgiHighPerformanceIndex` from ORT
 hardware metadata (0 first), then by LUID to break ties. Missing or invalid
