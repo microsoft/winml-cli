@@ -24,7 +24,7 @@ import time
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 
 import click
 import numpy as np
@@ -338,13 +338,19 @@ def _pre_bench_kwargs_from_ep_device(
     }
 
 
+class _ProviderBinding(NamedTuple):
+    device: WinMLDevice | None
+    device_kind: str | None
+    selected_by_options: bool = False
+
+
 def _get_provider_bound_device(
     ep_device: WinMLEPDevice | None,
     provider_options: dict[str, str] | None = None,
-) -> tuple[WinMLDevice | None, str | None]:
+) -> _ProviderBinding:
     """Resolve provider selectors to the actual candidate and device kind."""
     if ep_device is None:
-        return None, None
+        return _ProviderBinding(None, None)
 
     device = ep_device.device
     has_provider_selector, provider_device = _get_provider_selected_device(
@@ -352,7 +358,7 @@ def _get_provider_bound_device(
         provider_options,
     )
     if has_provider_selector and provider_device is None:
-        return None, None
+        return _ProviderBinding(None, None)
 
     if provider_options:
         candidates = [
@@ -361,7 +367,7 @@ def _get_provider_bound_device(
             if provider_device is None or candidate.device_type.lower() == provider_device
         ]
         if not candidates:
-            return None, provider_device
+            return _ProviderBinding(None, provider_device)
         candidate_options = [
             (
                 candidate,
@@ -370,29 +376,22 @@ def _get_provider_bound_device(
             for candidate in candidates
         ]
         advertised_keys = {key for _, options in candidate_options for key in options}
-        selected_options = {
-            str(key): str(value) for key, value in device.ort_handle.ep_options.items()
+        device_selectors = {
+            key: str(value) for key, value in provider_options.items() if key in advertised_keys
         }
-        device_overrides = {
-            key: str(value)
-            for key, value in provider_options.items()
-            if key in advertised_keys and selected_options.get(key) != str(value)
-        }
-        if device_overrides:
+        if device_selectors or has_provider_selector:
             matches = [
                 candidate
                 for candidate, options in candidate_options
-                if all(options.get(key) == value for key, value in device_overrides.items())
+                if all(options.get(key) == value for key, value in device_selectors.items())
             ]
-            if len(matches) != 1:
-                return None, provider_device
-            device = matches[0]
-        elif has_provider_selector and device not in candidates:
-            if len(candidates) != 1:
-                return None, provider_device
-            device = candidates[0]
+            if len(matches) == 1:
+                device = matches[0]
+                return _ProviderBinding(device, device.device_type.lower(), True)
+            if device not in matches:
+                return _ProviderBinding(None, provider_device)
 
-    return device, device.device_type.lower()
+    return _ProviderBinding(device, device.device_type.lower())
 
 
 def _get_ep_device_binding(
@@ -402,13 +401,13 @@ def _get_ep_device_binding(
     """Return the effective LUID and device kind for a concrete EP binding."""
     from ..sysinfo import get_ep_device_luid
 
-    device, device_kind = _get_provider_bound_device(ep_device, provider_options)
-    if device is None:
-        return None, device_kind
+    binding = _get_provider_bound_device(ep_device, provider_options)
+    if binding.device is None:
+        return None, binding.device_kind
     has_provider_selector, _ = _get_provider_selected_device(ep_device, provider_options)
-    if device_kind not in ACCELERATOR_DEVICE_TYPES:
-        return (None, device_kind) if has_provider_selector else (None, None)
-    return get_ep_device_luid(device.ort_handle), device_kind
+    if binding.device_kind not in ACCELERATOR_DEVICE_TYPES:
+        return (None, binding.device_kind) if has_provider_selector else (None, None)
+    return get_ep_device_luid(binding.device.ort_handle), binding.device_kind
 
 
 def _get_provider_selected_device(
@@ -437,11 +436,9 @@ def _get_monitor_binding(
         ep_device,
         provider_options,
     )
-    has_provider_selector, _ = _get_provider_selected_device(
-        ep_device,
-        provider_options,
-    )
-    if has_provider_selector and adapter_luid is None:
+    # A concrete EP binding is authoritative; missing metadata must not
+    # trigger heuristic discovery of a different adapter.
+    if ep_device is not None and adapter_luid is None:
         return "cpu", None, None
 
     monitor_device = adapter_device or requested_device
@@ -479,48 +476,44 @@ def _resolve_perf_ep_device(
         if device_luid is not None
         else registry.auto_device(target)
     )
-    effective_device, effective_kind = _get_provider_bound_device(selected, provider_options)
-    if provider_options and effective_kind is not None and effective_kind != target.device:
+    binding = _get_provider_bound_device(selected, provider_options)
+    if (
+        provider_options
+        and binding.device_kind is not None
+        and binding.device_kind != target.device
+    ):
         raise ValueError(
-            f"--ep-options select device {effective_kind!r}, but the resolved device is "
-            f"{target.device!r}. Use --device {effective_kind} or remove the conflicting "
+            f"--ep-options select device {binding.device_kind!r}, but the resolved device is "
+            f"{target.device!r}. Use --device {binding.device_kind} or remove the conflicting "
             "provider options so build and runtime use the same device kind."
         )
     if device_luid is not None:
-        bound_luid, bound_kind = _get_ep_device_binding(selected, provider_options)
-        if (bound_luid or "").casefold() != device_luid.casefold() or (
-            bound_kind != selected.device.device_type.lower()
-        ):
+        if binding.device is not selected.device:
             raise ValueError(
                 "--ep-options conflict with --device-luid or do not identify the pinned "
                 "adapter unambiguously. Remove the device-selecting provider options."
             )
-    else:
-        if effective_device is not None and effective_device is not selected.device:
-            selected = replace(selected, device=effective_device)
-        candidates = [
-            device for device in selected.ep.devices if device.device_type.lower() == target.device
-        ]
-        # Multiple EP routes to one known adapter are not multiple adapters.
-        identities = {get_ep_device_luid(device.ort_handle) or id(device) for device in candidates}
-        if len(identities) > 1:
-            if provider_options:
-                effective_bindings = {
-                    _get_ep_device_binding(replace(selected, device=device), provider_options)
-                    for device in candidates
-                }
-                if len(effective_bindings) == 1:
-                    effective_luid, _ = next(iter(effective_bindings))
-                    if effective_luid is not None:
-                        return selected
-            logger.warning(
-                "Multiple devices match %s/%s; default ORT device: %s (LUID: %s). "
-                "Pass --device-luid <LUID> to select an adapter; run 'winml sys' to list LUIDs.",
-                target.ep,
-                target.device,
-                selected.device.hardware_name or "unnamed",
-                get_ep_device_luid(selected.device.ort_handle) or "unavailable",
-            )
+        return selected
+    if binding.device is not None and binding.device is not selected.device:
+        selected = replace(selected, device=binding.device)
+    if binding.selected_by_options:
+        return selected
+
+    # Multiple EP routes to one known adapter are not multiple adapters.
+    identities = {
+        get_ep_device_luid(device.ort_handle) or id(device)
+        for device in selected.ep.devices
+        if device.device_type.lower() == target.device
+    }
+    if len(identities) > 1:
+        logger.warning(
+            "Multiple devices match %s/%s; default ORT device: %s (LUID: %s). "
+            "Pass --device-luid <LUID> to select an adapter; run 'winml sys' to list LUIDs.",
+            target.ep,
+            target.device,
+            selected.device.hardware_name or "unnamed",
+            get_ep_device_luid(selected.device.ort_handle) or "unavailable",
+        )
     return selected
 
 
@@ -1379,48 +1372,15 @@ class PerfBenchmark:
             )
 
     def _resolve_adapter_luid(self) -> str | None:
-        """Resolve adapter LUID for VRAM queries."""
+        """Use only the bound adapter's LUID for VRAM queries."""
         if sys.platform != "win32":
             return None
 
-        assert self._model is not None
-        device = self._single.device or self._resolved_device or self.config.device
-        if device == "cpu":
-            return None
-
-        bound_luid, bound_device = _get_ep_device_binding(
+        bound_luid, _ = _get_ep_device_binding(
             self._ep_device,
             self.config.ep_options,
         )
-        if bound_luid is not None:
-            return bound_luid
-        has_provider_selector, _ = _get_provider_selected_device(
-            self._ep_device,
-            self.config.ep_options,
-        )
-        if has_provider_selector:
-            return None
-
-        try:
-            from ..sysinfo.pdh_adapters import resolve_adapter_luid
-
-            # ep_name is the full ORT EP name (a member of EPName at runtime);
-            # WinMLPreTrainedModel types it loosely as ``str | None``.
-            ep_name = cast("EPName | None", self._single.ep_name)
-            effective_device = bound_device or device
-            kinds = (
-                (effective_device,)
-                if effective_device in ACCELERATOR_DEVICE_TYPES
-                else ACCELERATOR_DEVICE_TYPES
-            )
-            for kind in kinds:
-                luid = resolve_adapter_luid(kind, ep_name=ep_name)
-                if luid:
-                    return luid
-            return None
-        except Exception:
-            logger.debug("Could not resolve adapter LUID", exc_info=True)
-            return None
+        return bound_luid
 
     def _run_benchmark(self) -> PerfStats:
         """Execute benchmark iterations with timing.
@@ -2846,7 +2806,8 @@ def _validate_duration(
     default=None,
     callback=_validate_device_luid,
     help="Select a specific adapter within the resolved EP/device pair using its LUID "
-    "from 'winml sys' (0xHHHHHHHH_0xLLLLLLLL). Not supported with --runtime ort-genai.",
+    "from 'winml sys' (0xHHHHHHHH_0xLLLLLLLL). Cannot be combined with "
+    "--ep-options device_id=VALUE. Not supported with --runtime ort-genai.",
 )
 @click.option(
     "--ep",
@@ -3043,6 +3004,13 @@ def perf(
     if not model:
         raise click.UsageError("A model is required via -m/--model.")
 
+    ep_provider_options = cli_utils.parse_ep_options(ep_options)
+    if device_luid is not None and "device_id" in (ep_provider_options or {}):
+        raise click.UsageError(
+            "--device-luid cannot be combined with --ep-options device_id=...; "
+            "use only one adapter selector."
+        )
+
     # Merge top-level -v/-q with subcommand-level flags before any model
     # resolution that can touch Hugging Face Hub and emit warning records.
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
@@ -3106,10 +3074,6 @@ def perf(
                 ep = (configured_target.ep, configured_target.source)
             elif "execution_provider" in cc:
                 ep = (cc["execution_provider"], None)
-
-    # Runtime EP provider options (e.g. QNN htp_performance_mode) forwarded to
-    # the inference session for both HF model IDs and ONNX file inputs.
-    ep_provider_options = cli_utils.parse_ep_options(ep_options)
 
     json_mode = output_format == "json"
     console = SafeConsole(stderr=True) if json_mode else SafeConsole()

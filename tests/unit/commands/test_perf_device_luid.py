@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -18,6 +19,7 @@ from winml.modelkit.commands.perf import (
     BenchmarkResult,
     PerfBenchmark,
     _get_monitor_binding,
+    _get_provider_bound_device,
     _pre_bench_kwargs_from_ep_device,
     _resolve_perf_ep_device,
     perf,
@@ -151,17 +153,51 @@ def test_unpinned_provider_option_selects_adapter_without_warning(
     )
 
 
-def test_provider_selection_preserves_identity_without_luid(gpu_ep):
+@pytest.mark.parametrize("index", range(2))
+@pytest.mark.parametrize("default_index", range(2))
+def test_provider_selection_preserves_identity_without_luid(gpu_ep, index, default_index, caplog):
     for device in gpu_ep.devices:
         device.ort_handle.device.metadata.pop("LUID")
-    expected = gpu_ep.devices[1]
+    expected = gpu_ep.devices[index]
+    options = dict(expected.ort_handle.ep_options)
     with patch("winml.modelkit.session.WinMLEPRegistry.instance") as instance:
-        instance.return_value.auto_device.return_value = gpu_ep.ep_devices()[0]
-        result = _resolve_perf_ep_device(
-            EPDeviceTarget(ep="dml", device="gpu"), None, dict(expected.ort_handle.ep_options)
-        )
+        instance.return_value.auto_device.return_value = gpu_ep.ep_devices()[default_index]
+        result = _resolve_perf_ep_device(EPDeviceTarget(ep="dml", device="gpu"), None, options)
     assert result.device is expected
     assert result.device.hardware_name == expected.hardware_name
+    assert _get_provider_bound_device(result, options).selected_by_options
+    assert _get_monitor_binding(result, "gpu", options) == ("cpu", None, None)
+    assert "Multiple devices" not in caplog.text
+
+    benchmark = PerfBenchmark(
+        BenchmarkConfig(model_id="fake/model", device="gpu", ep="dml", ep_options=options)
+    )
+    benchmark._ep_device = result
+    benchmark._model = SimpleNamespace(device="gpu", ep_name=expand_ep_name("dml"))
+    heuristic = MagicMock()
+    with (
+        patch("winml.modelkit.commands.perf.sys.platform", "win32"),
+        patch.dict("sys.modules", {"winml.modelkit.sysinfo.pdh_adapters": heuristic}),
+    ):
+        assert benchmark._resolve_adapter_luid() is None
+    heuristic.resolve_adapter_luid.assert_not_called()
+
+
+def test_default_adapter_without_luid_does_not_guess_monitor(gpu_ep):
+    selected = gpu_ep.ep_devices()[0]
+    selected.device.ort_handle.device.metadata.pop("LUID")
+    assert not _get_provider_bound_device(selected).selected_by_options
+    assert _get_monitor_binding(selected, "gpu", None) == ("cpu", None, None)
+
+
+def test_provider_selection_matches_all_advertised_constraints(gpu_ep):
+    for index, device in enumerate(gpu_ep.devices):
+        device.ort_handle.ep_options["adapter_index"] = str(index)
+    binding = _get_provider_bound_device(
+        gpu_ep.ep_devices()[0], {"device_id": "1", "adapter_index": "0"}
+    )
+    assert binding.device is None
+    assert not binding.selected_by_options
 
 
 @pytest.mark.parametrize("module_mode", [False, True])
@@ -324,7 +360,8 @@ def test_module_resolves_pin_before_build(gpu_ep):
 
 
 @pytest.mark.parametrize("module_mode", [False, True])
-def test_cli_forwards_luid(gpu_ep, tmp_path, module_mode):
+@pytest.mark.parametrize("tuning_options", [None, {"enable_metacommands": "1"}])
+def test_cli_forwards_luid(gpu_ep, tmp_path, module_mode, tuning_options):
     luid = get_ep_device_luid(gpu_ep.devices[1].ort_handle)
     assert luid is not None
     with (
@@ -347,12 +384,47 @@ def test_cli_forwards_luid(gpu_ep, tmp_path, module_mode):
         ]
         if module_mode:
             args.extend(["--module", "Linear"])
+        for key, value in (tuning_options or {}).items():
+            args.extend(["--ep-options", f"{key}={value}"])
         result = CliRunner().invoke(perf, args)
     assert result.exit_code == 0, result.output
     if module_mode:
         assert modules.call_args.kwargs["device_luid"] == luid
+        assert modules.call_args.kwargs["ep_options"] == tuning_options
     else:
         assert benchmark.call_args.args[0].device_luid == luid
+        assert benchmark.call_args.args[0].ep_options == tuning_options
+
+
+@pytest.mark.parametrize("module_mode", [False, True])
+@pytest.mark.parametrize("device_id", ["0", "1", ""])
+def test_cli_rejects_device_id_with_luid_before_resolution(gpu_ep, module_mode, device_id):
+    luid = get_ep_device_luid(gpu_ep.devices[0].ort_handle)
+    with (
+        patch("winml.modelkit.commands.perf.cli_utils.normalize_model_arg") as normalize,
+        patch("winml.modelkit.session.WinMLEPRegistry.instance") as registry,
+        patch("winml.modelkit.commands.perf.PerfBenchmark") as benchmark,
+        patch("winml.modelkit.commands.perf._perf_modules") as modules,
+    ):
+        args = [
+            "-m",
+            "fake/model",
+            "--device-luid",
+            luid,
+            "--ep-options",
+            f" device_id = {device_id} ",
+            "--ep-options",
+            "enable_metacommands=1",
+        ]
+        if module_mode:
+            args.extend(["--module", "Linear"])
+        result = CliRunner().invoke(perf, args, catch_exceptions=False)
+    assert result.exit_code == 2
+    assert "--device-luid cannot be combined with --ep-options device_id=" in result.output
+    normalize.assert_not_called()
+    registry.assert_not_called()
+    benchmark.assert_not_called()
+    modules.assert_not_called()
 
 
 @pytest.mark.parametrize("invalid", ["garbage", "0", "0x1_0x2", "0x00000000_0x0000000G"])

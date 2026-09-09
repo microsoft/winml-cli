@@ -125,15 +125,25 @@ the EP/device auto-selection policy. It applies to ONNX, HuggingFace,
 composite, and per-module runtime inference, including memory and hardware
 monitoring. It does not pin the separate model-build compilation stage.
 
+`--device-luid` cannot be combined with `--ep-options device_id=...`, even if
+both identify the same adapter. This is rejected as a CLI usage error before
+model or device resolution. Other provider options, such as performance tuning,
+can still be used with `--device-luid`.
+
 If multiple adapters match and `--device-luid` is omitted, perf warns and uses
-the default ORT device unless `--ep-options` uniquely determines a known adapter
-binding across all candidates. Non-selector options, or options whose adapter
+the default ORT device unless `--ep-options` uniquely selects a concrete adapter.
+This explicit selection suppresses the warning even when that adapter has no
+LUID metadata. Non-selector options, or options whose adapter
 binding cannot be established, do not suppress the warning.
 When provider options resolve to another adapter of the same kind, that adapter
 is used for the runtime binding, device identity, and monitoring. Options that
 select a different device kind (for example, `--device npu --ep qnn` with
 `--ep-options backend_type=gpu`) are rejected before the build; use the matching
 `--device` instead so build and runtime agree.
+
+If the bound adapter has no LUID, perf uses CPU/RAM monitoring mode rather
+than guessing another GPU/NPU. Adapter-specific utilization and VRAM sampling
+are disabled in that case.
 
 The default GPU is selected by numeric `DxgiHighPerformanceIndex` from ORT
 hardware metadata (0 first), then by LUID to break ties. Missing or invalid
