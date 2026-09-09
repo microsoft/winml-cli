@@ -714,8 +714,8 @@ class _HfDownloadTracker:
         self._pid = pid
 
     def poll(self, now: float) -> bool:
-        current = _snapshot_hf_downloads(self._env)
         open_paths = _process_tree_open_paths(self._pid) if self._pid is not None else set()
+        current = _snapshot_hf_downloads(self._env)
         progressed = {
             path
             for path, state in current.items()

@@ -298,6 +298,33 @@ class TestRunSubprocessTimeouts:
         assert result["timeout"] is False
         assert result["hf_download_stalled"] is False
 
+    def test_execution_timeout_restarts_after_hf_download_with_slow_handle_scan(
+        self, run_eval, tmp_path
+    ):
+        incomplete = tmp_path / "hub" / "models--acme--model" / "blobs" / "model.incomplete"
+        script = self._download_script(
+            incomplete,
+            [0.2] * 5,
+            before_download=0.35,
+            after_download=0.35,
+        )
+        real_open_paths = run_eval._process_tree_open_paths
+
+        def slow_open_paths(pid):
+            time.sleep(0.7)
+            return real_open_paths(pid)
+
+        with (
+            self._cache_env(run_eval, HF_HOME=tmp_path),
+            patch.object(run_eval, "_HF_DOWNLOAD_STALL_TIMEOUT", 2.0),
+            patch.object(run_eval, "_process_tree_open_paths", side_effect=slow_open_paths),
+        ):
+            result = run_eval._run_subprocess([sys.executable, "-c", script], timeout=0.5)
+
+        assert result["exit_code"] == 0
+        assert result["timeout"] is False
+        assert result["hf_download_stalled"] is False
+
     def test_stalled_hf_download_uses_independent_timeout(self, run_eval, tmp_path):
         incomplete = tmp_path / "hub" / "models--acme--model" / "blobs" / "model.incomplete"
         script = self._download_script(incomplete, [5.0])
