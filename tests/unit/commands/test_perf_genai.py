@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -34,7 +35,9 @@ from winml.modelkit.commands._perf_genai import (
     write_genai_report,
 )
 from winml.modelkit.commands.perf import _resolve_runtime, perf
+from winml.modelkit.models.winml import GenaiTarget
 from winml.modelkit.session import (
+    EPDeviceTarget,
     GenaiNotInstalledError,
     GenaiSessionError,
     GenerationTiming,
@@ -167,6 +170,23 @@ def _fake_build_genai_bundle(captured: dict):
     return _build
 
 
+def _fake_genai_recipe():
+    return SimpleNamespace(
+        supported_targets=tuple(
+            GenaiTarget(ep=ep, device=device)
+            for ep, device in (
+                ("qnn", "npu"),
+                ("vitisai", "npu"),
+                ("cpu", "cpu"),
+                ("dml", "gpu"),
+                ("openvino", "cpu"),
+                ("openvino", "gpu"),
+                ("openvino", "npu"),
+            )
+        )
+    )
+
+
 # ---------------------------------------------------------------------------
 # resolve_genai_ep
 # ---------------------------------------------------------------------------
@@ -196,6 +216,8 @@ class TestResolveGenaiEp:
         [
             # auto picks the highest-priority available device + its best EP.
             ("auto", "npu", ["QNNExecutionProvider"], "qnn"),
+            ("auto", "gpu", ["OpenVINOExecutionProvider"], "openvino"),
+            ("auto", "cpu", ["OpenVINOExecutionProvider"], "openvino"),
             # npu that is QNN vs VitisAI/OpenVINO -- whatever ORT advertises,
             # not a static "npu -> qnn" guess.
             ("npu", "npu", ["QNNExecutionProvider", "OpenVINOExecutionProvider"], "qnn"),
@@ -228,6 +250,10 @@ class TestResolveGenaiEp:
         )
         monkeypatch.setattr(session, "available_eps_for_device", lambda _device: list(eps))
         assert resolve_genai_ep(device) == expected
+        target = perf_genai._resolve_genai_target(device)
+        assert target is not None
+        assert session.short_ep_name(target.ep) == expected
+        assert target.device == resolved_device
 
     def test_no_available_ep_returns_none(self, monkeypatch) -> None:
         # A device that resolves to an empty EP list falls back to None
@@ -1024,7 +1050,7 @@ class TestCliDispatch:
         assert result.exit_code == 0, result.output
         cfg = capture_run["config"]
         assert cfg.ep == "dml"
-        assert cfg.device == "auto"
+        assert cfg.device == "gpu"
 
     def test_explicit_ep_overrides_device(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict
@@ -1410,7 +1436,7 @@ class TestCliDispatch:
         monkeypatch.setattr(
             loader_mod, "resolve_loader_config", _fake_resolve_loader_config("qwen3")
         )
-        monkeypatch.setattr(winml_models, "resolve_genai_bundle", lambda _mt: object())
+        monkeypatch.setattr(winml_models, "resolve_genai_bundle", lambda _mt: _fake_genai_recipe())
         build_calls: dict = {}
         monkeypatch.setattr(
             winml_models, "build_genai_bundle", _fake_build_genai_bundle(build_calls)
@@ -1419,7 +1445,7 @@ class TestCliDispatch:
         result = runner.invoke(perf, ["-m", "Qwen/Qwen3-0.6B", "--runtime", "ort-genai"])
 
         assert result.exit_code == 0, result.output
-        # Built once, pinned to the NPU HTP via QNN regardless of --device.
+        # Without an override, preserve the default QNN/NPU bundle.
         assert build_calls["build"]["ep"] == "qnn"
         assert build_calls["build"]["device"] == "npu"
         assert build_calls["build"]["force_rebuild"] is False
@@ -1431,6 +1457,212 @@ class TestCliDispatch:
         # Omitting --device keeps the "respect the bundle" default.
         assert cfg.device == "config"
         assert cfg.ep is None
+
+    @pytest.mark.parametrize(
+        ("args", "resolved_ep", "build_ep", "build_device"),
+        [
+            (["--device", "cpu"], "cpu", "cpu", "cpu"),
+            (["--device", "gpu"], "dml", "dml", "gpu"),
+            (["--device", "npu"], "vitisai", "vitisai", "npu"),
+            (["--device", "auto"], "cpu", "cpu", "cpu"),
+            (["--device", "auto"], "dml", "dml", "gpu"),
+            (["--device", "auto"], "openvino", "openvino", "gpu"),
+            (["--device", "auto"], "openvino", "openvino", "cpu"),
+            (["--ep", "cpu"], None, "cpu", "cpu"),
+            (["--ep", "CPUExecutionProvider"], None, "cpu", "cpu"),
+            (["--ep", "vitisai", "--device", "npu"], None, "vitisai", "npu"),
+            (["--ep", "openvino", "--device", "cpu"], None, "openvino", "cpu"),
+        ],
+    )
+    def test_autobuild_uses_runtime_target_and_separate_cache(
+        self,
+        runner,
+        tmp_path,
+        capture_run,
+        monkeypatch,
+        args,
+        resolved_ep,
+        build_ep,
+        build_device,
+    ) -> None:
+        import winml.modelkit.loader as loader_mod
+        import winml.modelkit.models.winml as winml_models
+        from winml.modelkit.cache import get_model_dir
+        from winml.modelkit.session import short_ep_name
+
+        model = "test-org/test-decoder"
+        monkeypatch.setenv("WINML_CACHE_DIR", str(tmp_path))
+        legacy = get_model_dir(model, cache_dir=tmp_path) / "genai-bundle"
+        legacy.mkdir(parents=True)
+        (legacy / "genai_config.json").write_text("{}", encoding="utf-8")
+        loader = MagicMock(side_effect=_fake_resolve_loader_config("test-decoder"))
+        monkeypatch.setattr(loader_mod, "resolve_loader_config", loader)
+        monkeypatch.setattr(winml_models, "resolve_genai_bundle", lambda _mt: _fake_genai_recipe())
+        resolver = MagicMock(
+            return_value=(
+                EPDeviceTarget(ep=resolved_ep, device=build_device) if resolved_ep else None
+            )
+        )
+        monkeypatch.setattr(perf_genai, "_resolve_genai_target", resolver)
+        build_calls: dict = {}
+        builder = MagicMock(side_effect=_fake_build_genai_bundle(build_calls))
+        monkeypatch.setattr(winml_models, "build_genai_bundle", builder)
+        cli_args = [
+            "-m",
+            model,
+            "--runtime",
+            "ort-genai",
+            "--no-compile",
+            "--warmup",
+            "2",
+            "--iterations",
+            "10",
+            "--max-new-tokens",
+            "20",
+            "--prompt",
+            "What is the capital of France?",
+            *args,
+        ]
+
+        result = runner.invoke(perf, cli_args)
+
+        assert result.exit_code == 0, result.output
+        built = build_calls["build"]
+        assert (built["ep"], built["device"]) == (build_ep, build_device)
+        cfg = capture_run["config"]
+        assert short_ep_name(cfg.ep) == build_ep
+        assert cfg.bundle_dir == built["output_dir"]
+        assert cfg.bundle_dir != legacy
+        assert (cfg.warmup, cfg.iterations, cfg.max_new_tokens) == (2, 10, 20)
+        assert cfg.compile is False
+        if "--ep" in args:
+            resolver.assert_not_called()
+        else:
+            resolver.assert_called_once()
+            assert cfg.device == build_device
+
+        # The same target reuses its own cache without resolving the HF model.
+        result = runner.invoke(perf, cli_args)
+        assert result.exit_code == 0, result.output
+        builder.assert_called_once()
+        loader.assert_called_once()
+        assert capture_run["config"].bundle_dir == cfg.bundle_dir
+        assert (legacy / "genai_config.json").read_text(encoding="utf-8") == "{}"
+
+        result = runner.invoke(perf, [*cli_args, "--rebuild"])
+        assert result.exit_code == 0, result.output
+        assert builder.call_count == 2
+        assert build_calls["build"]["force_rebuild"] is True
+        assert capture_run["config"].bundle_dir == cfg.bundle_dir
+
+    def test_autobuild_cache_separates_devices_for_same_ep(
+        self,
+        runner,
+        tmp_path,
+        capture_run,
+        monkeypatch,
+    ) -> None:
+        import winml.modelkit.loader as loader_mod
+        import winml.modelkit.models.winml as winml_models
+
+        monkeypatch.setenv("WINML_CACHE_DIR", str(tmp_path))
+        monkeypatch.setattr(
+            loader_mod, "resolve_loader_config", _fake_resolve_loader_config("test-decoder")
+        )
+        monkeypatch.setattr(winml_models, "resolve_genai_bundle", lambda _mt: _fake_genai_recipe())
+        builder = MagicMock(side_effect=_fake_build_genai_bundle({}))
+        monkeypatch.setattr(winml_models, "build_genai_bundle", builder)
+        cli_args = ["-m", "test-org/test-decoder", "--runtime", "ort-genai", "--ep", "openvino"]
+        bundles = []
+        for device in ("cpu", "gpu", "npu"):
+            result = runner.invoke(perf, [*cli_args, "--device", device])
+            assert result.exit_code == 0, result.output
+            bundles.append(capture_run["config"].bundle_dir)
+        assert len(set(bundles)) == len(bundles)
+        assert builder.call_count == len(bundles)
+
+    def test_autobuild_rejects_incompatible_ep_device(
+        self,
+        runner,
+        tmp_path,
+        capture_run,
+        monkeypatch,
+    ) -> None:
+        import winml.modelkit.models.winml as winml_models
+
+        monkeypatch.setenv("WINML_CACHE_DIR", str(tmp_path))
+        builder = MagicMock()
+        monkeypatch.setattr(winml_models, "build_genai_bundle", builder)
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                "test-org/test-decoder",
+                "--runtime",
+                "ort-genai",
+                "--ep",
+                "cpu",
+                "--device",
+                "npu",
+            ],
+        )
+        assert result.exit_code == 2, result.output
+        assert "does not support device 'npu'" in result.output
+        builder.assert_not_called()
+        assert "config" not in capture_run
+
+    @pytest.mark.parametrize("unavailable", [None, ValueError("device unavailable")])
+    def test_autobuild_unavailable_device_fails_before_build(
+        self,
+        runner,
+        tmp_path,
+        capture_run,
+        monkeypatch,
+        unavailable,
+    ) -> None:
+        import winml.modelkit.models.winml as winml_models
+
+        monkeypatch.setenv("WINML_CACHE_DIR", str(tmp_path))
+        resolver = MagicMock(
+            return_value=unavailable,
+            side_effect=unavailable if isinstance(unavailable, ValueError) else None,
+        )
+        monkeypatch.setattr(perf_genai, "_resolve_genai_target", resolver)
+        builder = MagicMock()
+        monkeypatch.setattr(winml_models, "build_genai_bundle", builder)
+        result = runner.invoke(
+            perf, ["-m", "test-org/test-decoder", "--runtime", "ort-genai", "--device", "gpu"]
+        )
+        assert result.exit_code == 2
+        assert "device" in result.output.lower()
+        builder.assert_not_called()
+        assert "config" not in capture_run
+
+    def test_autobuild_rejects_unsupported_recipe_target(
+        self,
+        runner,
+        tmp_path,
+        capture_run,
+        monkeypatch,
+    ) -> None:
+        import winml.modelkit.loader as loader_mod
+        import winml.modelkit.models.winml as winml_models
+
+        monkeypatch.setenv("WINML_CACHE_DIR", str(tmp_path))
+        monkeypatch.setattr(
+            loader_mod, "resolve_loader_config", _fake_resolve_loader_config("test-decoder")
+        )
+        recipe = SimpleNamespace(supported_targets=(GenaiTarget(ep="cpu", device="cpu"),))
+        monkeypatch.setattr(winml_models, "resolve_genai_bundle", lambda _mt: recipe)
+        builder = MagicMock()
+        monkeypatch.setattr(winml_models, "build_genai_bundle", builder)
+        result = runner.invoke(
+            perf, ["-m", "test-org/test-decoder", "--runtime", "ort-genai", "--ep", "dml"]
+        )
+        assert result.exit_code == 2, result.output
+        assert "does not support --ep dml --device gpu" in result.output
+        builder.assert_not_called()
+        assert "config" not in capture_run
 
     def test_autobuild_reuses_cached_bundle(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict, monkeypatch
@@ -1469,7 +1701,7 @@ class TestCliDispatch:
         monkeypatch.setattr(
             loader_mod, "resolve_loader_config", _fake_resolve_loader_config("qwen3")
         )
-        monkeypatch.setattr(winml_models, "resolve_genai_bundle", lambda _mt: object())
+        monkeypatch.setattr(winml_models, "resolve_genai_bundle", lambda _mt: _fake_genai_recipe())
         build_calls: dict = {}
         monkeypatch.setattr(
             winml_models, "build_genai_bundle", _fake_build_genai_bundle(build_calls)
@@ -1496,7 +1728,7 @@ class TestCliDispatch:
         monkeypatch.setattr(
             loader_mod, "resolve_loader_config", _fake_resolve_loader_config("qwen3")
         )
-        monkeypatch.setattr(winml_models, "resolve_genai_bundle", lambda _mt: object())
+        monkeypatch.setattr(winml_models, "resolve_genai_bundle", lambda _mt: _fake_genai_recipe())
         monkeypatch.setattr(winml_models, "build_genai_bundle", _fake_build_genai_bundle({}))
 
         result = runner.invoke(

@@ -1283,21 +1283,22 @@ class TestPerfT5Composite:
 
 def _genai_perf_args(
     *,
-    bundle_dir: Path,
+    model_arg: str | Path,
     output_file: Path,
     device: str | None = None,
     ep: str | None = None,
+    runtime: str = "ort-genai",
 ) -> list[str]:
-    """Build argv for a fast ort-genai perf run against a tiny bundle.
+    """Build argv for a fast genai perf run against a model ID or bundle.
 
     Kept deliberately small (2 iterations, 1 warmup, 4 new tokens) so the
     generation loop stays quick while still producing real timing samples.
     """
     args: list[str] = [
         "-m",
-        str(bundle_dir),
+        str(model_arg),
         "--runtime",
-        "ort-genai",
+        runtime,
         "--iterations",
         "2",
         "--warmup",
@@ -1346,6 +1347,100 @@ class TestPerfGenaiContract:
         assert result.exit_code == 2, f"expected UsageError exit 2, got {result.exit_code}"
         assert "--device config is only valid with --runtime ort-genai" in result.output
         assert not output_file.exists(), "no report should be written on rejection"
+
+
+@pytest.mark.slow
+@pytest.mark.network
+@pytest.mark.timeout(600)
+def test_genai_cpu_autobuild_and_cached_entrypoints(tmp_path: Path, monkeypatch):
+    """Exercise the real four-stage build once, then reuse it without HF access."""
+    model_id = "yujiepan/qwen3-tiny-random"
+    cache_dir = tmp_path / "winml-cache"
+    monkeypatch.setenv("WINML_CACHE_DIR", str(cache_dir))
+    assert not cache_dir.exists()
+
+    def run(
+        name: str,
+        model_arg: str | Path,
+        *,
+        device: str | None = None,
+        ep: str | None = None,
+        runtime: str = "ort-genai",
+        timeout: int = 60,
+    ) -> dict:
+        output = tmp_path / f"{name}.json"
+        result = _run_winml_cli_subprocess(
+            [
+                "perf",
+                *_genai_perf_args(
+                    model_arg=model_arg,
+                    output_file=output,
+                    device=device,
+                    ep=ep,
+                    runtime=runtime,
+                ),
+                "--no-compile",
+                "--no-memory",
+                "--no-color",
+                "--prompt",
+                "What is the capital of France?",
+            ],
+            timeout=timeout,
+        )
+        assert result.returncode == 0, (
+            f"{name} failed (exit {result.returncode}):\n{result.stdout}\n{result.stderr}"
+        )
+        assert output.is_file(), result.stdout
+        data = json.loads(output.read_text(encoding="utf-8"))
+        info = data["benchmark_info"]
+        assert info["runtime"] == "ort-genai"
+        assert info["ep"] == info["effective_device"] == "cpu"
+        assert info["compile"] is False
+        assert info["warmup"] == 1
+        assert info["iterations"] == 2
+        assert info["max_new_tokens"] == 4
+        requests = data["requests"]
+        assert [request["kind"] for request in requests] == ["warmup", "timed", "timed"]
+        assert all(request["prompt_tokens"] > 0 for request in requests)
+        assert all(0 < request["generated_tokens"] <= 4 for request in requests)
+        return data
+
+    cold = run("cold", model_id, device="cpu", timeout=300)
+    assert cold["benchmark_info"]["device"] == "cpu"
+    bundle_dir = Path(cold["benchmark_info"]["bundle_dir"])
+    assert bundle_dir.resolve().is_relative_to(cache_dir.resolve())
+    config = json.loads((bundle_dir / "genai_config.json").read_text(encoding="utf-8"))
+    pipeline = config["model"]["decoder"]["pipeline"]
+    assert len(pipeline) > 1, "must exercise WinML's staged bundle, not a flat third-party export"
+    for entry in pipeline:
+        for stage in entry.values():
+            assert (bundle_dir / stage["filename"]).is_file()
+            assert not stage.get("session_options", {}).get("provider_options"), (
+                "the CPU build must not leave accelerator-routed stages in the saved bundle"
+            )
+
+    bundle_files = {
+        path.relative_to(bundle_dir): (path.stat().st_size, path.stat().st_mtime_ns)
+        for path in bundle_dir.rglob("*")
+        if path.is_file()
+    }
+    # Empty, offline HF caches make accidental model resolution/rebuild fail.
+    offline_cache = tmp_path / "offline-hf"
+    monkeypatch.setenv("HF_HOME", str(offline_cache))
+    monkeypatch.setenv("HF_HUB_CACHE", str(offline_cache / "hub"))
+    monkeypatch.setenv("TRANSFORMERS_CACHE", str(offline_cache / "transformers"))
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    monkeypatch.setenv("TRANSFORMERS_OFFLINE", "1")
+
+    cached = run("cached", model_id, ep="CPUExecutionProvider")
+    assert Path(cached["benchmark_info"]["bundle_dir"]) == bundle_dir
+    prebuilt = run("prebuilt", bundle_dir, device="cpu", runtime="auto")
+    assert Path(prebuilt["benchmark_info"]["bundle_dir"]) == bundle_dir
+    assert {
+        path.relative_to(bundle_dir): (path.stat().st_size, path.stat().st_mtime_ns)
+        for path in bundle_dir.rglob("*")
+        if path.is_file()
+    } == bundle_files, "cache-hit and prebuilt runs must not rebuild or recompile the bundle"
 
 
 @pytest.mark.slow
@@ -1424,7 +1519,7 @@ class TestPerfGenai:
         """Invoke perf on the bundle and return the parsed JSON report."""
         result = CliRunner().invoke(
             perf,
-            _genai_perf_args(bundle_dir=bundle, output_file=output_file, device=device, ep=ep),
+            _genai_perf_args(model_arg=bundle, output_file=output_file, device=device, ep=ep),
             obj={},
             catch_exceptions=False,
         )

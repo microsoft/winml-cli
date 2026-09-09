@@ -2452,7 +2452,13 @@ def _warn_ignored_genai_flags(
 
 
 def _autobuild_genai_bundle(
-    ctx: click.Context, *, model: str, console: Console, stack: contextlib.ExitStack
+    ctx: click.Context,
+    *,
+    model: str,
+    ep: EPNameOrAlias | None,
+    device: str,
+    console: Console,
+    stack: contextlib.ExitStack,
 ) -> tuple[Path, bool]:
     """Build (or reuse) a genai bundle for a HuggingFace model id.
 
@@ -2460,12 +2466,12 @@ def _autobuild_genai_bundle(
     rather than a prebuilt bundle directory, emit a genai bundle and benchmark
     it. Cache handling matches the single-model path:
 
-    * a plain run reuses a previously built bundle keyed by the model id;
+    * a plain run reuses a bundle keyed by model id and any explicit EP/device;
     * ``--rebuild`` overwrites that cached bundle in place;
 
-    genai bundles target the NPU HTP via QNN, so the build pins ``ep=qnn`` /
-    ``device=npu`` regardless of the benchmark's ``--device`` (which still
-    selects the runtime EP).
+    An explicit runtime target also selects the transformer build target.
+    Without an override, keep the default QNN/NPU bundle and its legacy cache
+    location; prebuilt bundles keep their own per-stage routing.
 
     The imports are function-local so ``winml perf --help`` does not pay their
     cost and so a bundle-directory run never imports the build stack.
@@ -2477,11 +2483,27 @@ def _autobuild_genai_bundle(
     from ..cache import get_cache_dir, get_model_dir
     from ..loader import resolve_loader_config
     from ..models.winml import build_genai_bundle, resolve_genai_bundle
+    from ..session import EPDeviceTarget, ep_to_device, resolve_device, short_ep_name
+    from ..utils.constants import normalize_ep_name
 
     p = ctx.params
 
     cache_dir = get_cache_dir()
     bundle_dir = get_model_dir(model, cache_dir=cache_dir) / "genai-bundle"
+    build_ep, build_device = "qnn", "npu"
+    if ep is not None:
+        try:
+            target = resolve_device(
+                EPDeviceTarget(
+                    ep=ep,
+                    device=ep_to_device(ep) if device in ("config", "auto") else device,
+                )
+            )
+        except ValueError as exc:
+            raise click.UsageError(str(exc)) from exc
+        build_ep, build_device = short_ep_name(target.ep), target.device
+        # Do not reuse a bundle exported for a different execution provider.
+        bundle_dir = bundle_dir.with_name(f"genai-bundle-{build_ep}-{build_device}")
     build_cache_dir = cache_dir
     # --rebuild overwrites the cached bundle; a plain run reuses it. Checked
     # before any model resolution so a cache hit never touches the network.
@@ -2512,6 +2534,20 @@ def _autobuild_genai_bundle(
             f"'winml build -m {model} -o <dir> --device npu --ep qnn')."
         )
 
+    if not any(
+        normalize_ep_name(target.ep) == normalize_ep_name(build_ep)
+        and target.device == build_device
+        for target in recipe.supported_targets
+    ):
+        supported = ", ".join(
+            f"--ep {target.ep} --device {target.device}" for target in recipe.supported_targets
+        )
+        raise click.UsageError(
+            f"The genai bundle recipe for '{model_type}' does not support "
+            f"--ep {build_ep} --device {build_device} (supported: {supported}). "
+            "Pass a prebuilt bundle directory to override its runtime routing."
+        )
+
     precision = p["precision"] if cli_utils.is_cli_provided(ctx, "precision") else None
     bundle_dir.mkdir(parents=True, exist_ok=True)
     console.print(
@@ -2522,8 +2558,8 @@ def _autobuild_genai_bundle(
         model,
         bundle_dir,
         recipe,
-        ep="qnn",
-        device="npu",
+        ep=build_ep,
+        device=build_device,
         precision=precision,
         force_rebuild=force_rebuild,
         cache_dir=build_cache_dir,
@@ -2542,10 +2578,11 @@ def _run_genai_runtime(
     """
     import contextlib
 
+    from ..session import short_ep_name
     from ._perf_genai import (
         GenaiPerfConfig,
+        _resolve_genai_target,
         genai_output_path,
-        resolve_genai_ep,
         run_genai_perf,
     )
 
@@ -2560,6 +2597,25 @@ def _run_genai_runtime(
     # silently ignore (this return runs before the winml-path --submodel handling).
     if p.get("submodel"):
         raise click.UsageError("--submodel is not supported with --runtime ort-genai.")
+
+    # Resolve once, before auto-building, so export and inference share the EP.
+    # Omitted --device respects the bundle; an explicit --ep takes precedence
+    # over device-based EP selection.
+    device = p["device"].lower() if cli_utils.is_cli_provided(ctx, "device") else "config"
+    ep: EPNameOrAlias | None
+    if cli_utils.is_cli_provided(ctx, "ep"):
+        ep_part, _ep_source = p["ep"] if p["ep"] else (None, None)
+        ep = cast("EPNameOrAlias | None", ep_part)
+    else:
+        try:
+            target = _resolve_genai_target(device)
+        except ValueError as exc:
+            raise click.UsageError(str(exc)) from exc
+        if target is None and device != "config":
+            raise click.UsageError(f"No execution provider available for device '{device}'.")
+        ep = cast("EPNameOrAlias", short_ep_name(target.ep)) if target is not None else None
+        if target is not None:
+            device = target.device
 
     # Keep any bundle-lifetime resources alive across the benchmark.
     with contextlib.ExitStack() as stack:
@@ -2582,7 +2638,7 @@ def _run_genai_runtime(
             )
         else:
             bundle_dir, built_fresh = _autobuild_genai_bundle(
-                ctx, model=model, console=console, stack=stack
+                ctx, model=model, ep=ep, device=device, console=console, stack=stack
             )
             autobuilt_from = model
 
@@ -2595,10 +2651,6 @@ def _run_genai_runtime(
         iterations = p["iterations"] if cli_utils.is_cli_provided(ctx, "iterations") else 10
         warmup = p["warmup"] if cli_utils.is_cli_provided(ctx, "warmup") else 2
 
-        # genai defaults to "config" (respect the bundle's own per-stage routing).
-        # The shared --device default is "auto" (the ONNX default), so an omitted
-        # flag is treated as "config"; an explicit --device is a deliberate override.
-        device = p["device"].lower() if cli_utils.is_cli_provided(ctx, "device") else "config"
         if p.get("output"):
             output = p["output"]
         elif autobuilt_from is not None:
@@ -2608,18 +2660,6 @@ def _run_genai_runtime(
         else:
             output = genai_output_path(bundle_dir)
         cli_utils.guard_output(output, p["overwrite"])
-
-        # EP override precedence: an explicit ``--ep`` wins over the ``--device``
-        # resolution, which in turn wins over the default ("config" = respect the
-        # bundle's genai_config.json routing).  GenaiSession validates the value.
-        # ``--ep`` is parsed by EpAtSourceParamType into ``(ep, source)``; genai
-        # bundles are prebuilt so the source tag does not apply -- take the EP name.
-        ep: EPNameOrAlias | None
-        if cli_utils.is_cli_provided(ctx, "ep"):
-            ep_part, _ep_source = p["ep"] if p["ep"] else (None, None)
-            ep = cast("EPNameOrAlias | None", ep_part)
-        else:
-            ep = resolve_genai_ep(device)
 
         prompt = p["prompt"]
         prompt_file: Path | None = p.get("prompt_file")
