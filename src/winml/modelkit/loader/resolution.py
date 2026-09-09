@@ -536,7 +536,9 @@ def resolve_task(
         # CLIP --model-class override).
         resolved = None
         if model_type_norm:
-            custom = _get_custom_model_class(model_type_norm, opt_task)
+            custom = (
+                _get_custom_model_class(model_type_norm, task) if task is not None else None
+            ) or _get_custom_model_class(model_type_norm, opt_task)
             if custom is not None and custom.__name__ == model_class:
                 resolved = custom
         if resolved is None:

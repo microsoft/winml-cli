@@ -106,6 +106,27 @@ def test_user_class_unknown_raises_friendly_error():
         resolve_task(cfg, model_class="NotARealClass")
 
 
+@pytest.mark.parametrize(
+    ("model_type", "architecture", "model_class"),
+    [
+        ("sam", "SamModel", "SAMMaskGeneration"),
+        ("sam2", "Sam2Model", "SAM2MaskGeneration"),
+    ],
+)
+def test_user_class_custom_wrapper_uses_original_task(
+    model_type, architecture, model_class
+):
+    r = resolve_task(
+        _cfg(model_type, [architecture]),
+        task="mask-generation",
+        model_class=model_class,
+    )
+
+    assert r.task == "image-feature-extraction"
+    assert r.model_class.__name__ == model_class
+    assert r.model_class.__module__ == "winml.modelkit.models.hf.sam"
+
+
 def test_user_task_unsupported_raises_friendly_error():
     cfg = _cfg("bert", ["BertModel"])
     with pytest.raises(ValueError, match="not supported by TasksManager"):
