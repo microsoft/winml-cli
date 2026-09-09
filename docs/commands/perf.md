@@ -154,8 +154,40 @@ context model with different input names — the trace falls back to random inpu
 and logs a warning.
 
 Op-tracing results are included in the main benchmark JSON under
-`hw_monitor.ep_proof`. The profiling CSV remains available as the raw trace
+`hw_monitor.ep_proof`. The EP's profiling CSV or JSON remains available as the raw trace
 artifact; no separate `_op_trace.json` file is written.
+
+### TensorRT RTX operator tracing
+
+```bash
+$ winml perf -m model.onnx --device gpu --ep nv_tensorrt_rtx --op-tracing basic
+```
+
+TensorRT RTX supports `basic` tracing on GPU with EP
+[2.30.49](https://dev.azure.com/WSSI/COMPUTE/_artifacts/feed/WCR/UPack/nvtensorrtrtx2-ep-msix/overview/2.30.49)
+or newer, with support for
+`nv_enable_profiling` and `nv_profiling_output_file`. The monitor enables these
+options and reads the EP's JSON after session teardown. The raw trace is retained
+at the path reported in `hw_monitor.ep_proof.artifacts.profile`.
+
+Operator paths preserve native TensorRT RTX layer names, including fused and
+EP-added layers; they do not need to map back to ORT nodes. A layer referencing
+multiple ONNX nodes is labeled `Fused`; a single-node mapping displays its exact
+ONNX type. Without source metadata, an exact native-name match can still resolve
+the type. Unresolved or ambiguous types are labeled `Unknown`.
+
+Each operator's optional `onnx_nodes` JSON array lists the contributing nodes as
+`{"name": "...", "op_type": "..."}` entries, preserving source order and removing
+duplicates. Unresolved node types are `null`; operators without known source
+nodes omit the array. Fused layers do not claim a single `onnx_op_type`, and their
+timings remain attached to the native layer rather than being divided among or
+assigned to one of the source nodes.
+
+Warmups are excluded separately for each EP context (`pid`); each `tid` identifies
+a run in first-seen order. Repeated native layer names are summed per measured
+iteration, including matching names across contexts. Percentages reflect traced
+GPU layer time, not wall-clock latency or CPU fallback work. `detail` tracing is
+not supported.
 
 ## Common pitfalls
 

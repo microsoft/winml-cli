@@ -233,6 +233,21 @@ def _resolve_ep_monitor(
     device_norm = (device or "").lower()
 
     if op_tracing:
+        if ep_norm == "nvtensorrtrtx":
+            from ..session.monitor import NvTensorRTRTXMonitor
+
+            if op_tracing != "basic":
+                raise RuntimeError("TensorRT RTX op-tracing currently supports only level 'basic'.")
+            if device_norm not in ("gpu", "auto", ""):
+                raise RuntimeError("TensorRT RTX op-tracing requires --device gpu.")
+            if not NvTensorRTRTXMonitor.is_available():
+                raise RuntimeError(
+                    "Op-tracing --ep nv_tensorrt_rtx requested but TensorRT RTX is not "
+                    "available on this system. Install it through Windows ML EP Catalog "
+                    "or a compatible BYO plugin."
+                )
+            return NvTensorRTRTXMonitor(output_dir=output_dir)
+
         if ep_norm == "openvino":
             from ..session.monitor.openvino_monitor import OpenVinoMonitor
 
@@ -259,7 +274,8 @@ def _resolve_ep_monitor(
         ):
             raise RuntimeError(
                 f"Op-tracing not available for EP {ep!r} on device {device!r}. "
-                "Supported EPs: qnn, openvino (basic on cpu/npu)."
+                "Supported EPs: qnn, openvino (basic on cpu/npu), "
+                "nv_tensorrt_rtx (basic on gpu)."
             )
 
         from ..session.monitor.qnn_monitor import QNNMonitor
@@ -290,7 +306,8 @@ def _resolve_ep_monitor(
 
         raise RuntimeError(
             f"Op-tracing not available for EP {ep!r} on device {device!r}. "
-            "Supported EPs: qnn, openvino (basic on cpu/npu)."
+            "Supported EPs: qnn, openvino (basic on cpu/npu), "
+            "nv_tensorrt_rtx (basic on gpu)."
         )
 
     # Proof-of-execution monitors (no op-tracing)

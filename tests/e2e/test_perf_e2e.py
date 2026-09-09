@@ -797,6 +797,57 @@ class TestPerfONNXDirect(_PerfBenchmarkSuite):
         assert data["benchmark_info"]["effective_batch_size"] == effective_batch
         assert data["latency_ms"]["mean"] > 0
 
+    def test_op_tracing_basic_trtrtx_gpu(self, tmp_path: Path, onnx_model_path: Path):
+        """Trace a generated graph and compare reported timings with the real EP artifact."""
+        require_ep("nv_tensorrt_rtx", device="gpu")
+        output_file = tmp_path / "perf_op_tracing_trtrtx_gpu.json"
+        result = CliRunner().invoke(
+            perf,
+            _build_perf_args(
+                model_arg=str(onnx_model_path),
+                output_file=output_file,
+                device="gpu",
+                ep="nv_tensorrt_rtx",
+                op_tracing="basic",
+                memory=False,
+            ),
+            obj={},
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+        output = json.loads(output_file.read_text(encoding="utf-8"))
+        trace = output["hw_monitor"]["ep_proof"]
+        assert trace["status"] == "ok"
+        assert trace["metadata"]["device"] == "gpu"
+        assert trace["metadata"]["num_samples"] == output["benchmark_info"]["iterations"]
+        assert trace["operators"]
+
+        payload = json.loads(Path(trace["artifacts"]["profile"]).read_text(encoding="utf-8"))
+        events = payload["traceEvents"] if isinstance(payload, dict) else payload
+        layers = [
+            event
+            for event in events
+            if event.get("cat") == "nv::trt::layer" and event.get("ph") == "X"
+        ]
+        warmup = output["benchmark_info"]["warmup"]
+        measured = output["benchmark_info"]["iterations"]
+        retained = []
+        for pid in dict.fromkeys(event["pid"] for event in layers):
+            context = [event for event in layers if event["pid"] == pid]
+            tids = list(dict.fromkeys(event["tid"] for event in context))
+            retained.extend(
+                event for event in context if event["tid"] in tids[warmup : warmup + measured]
+            )
+        assert {operator["op_path"] for operator in trace["operators"]} == {
+            event["name"] for event in retained
+        }
+        for operator in trace["operators"]:
+            expected = sum(
+                event["dur"] for event in retained if event["name"] == operator["op_path"]
+            )
+            assert sum(operator["samples_us"]) == pytest.approx(expected)
+            assert len(operator["samples_us"]) == measured
+
     def test_op_tracing_basic_qnn_npu(self, tmp_path: Path, npu_model_arg: str):
         """--op-tracing basic produces a QNN NPU operator trace."""
         require_ep("qnn")
