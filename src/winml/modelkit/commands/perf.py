@@ -18,12 +18,13 @@ from __future__ import annotations
 import json
 import logging
 import math
+import re
 import sys
 import time
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 
 import click
 import numpy as np
@@ -57,7 +58,7 @@ if TYPE_CHECKING:
 
     from ..models.winml.base import WinMLPreTrainedModel
     from ..models.winml.composite_model import WinMLCompositeModel
-    from ..session import WinMLEPDevice
+    from ..session import EPDeviceTarget, WinMLDevice, WinMLEPDevice
     from ..session.monitor.ep_monitor import WinMLEPMonitor
     from ..session.monitor.op_metrics import TraceFallbackReason
     from ..session.stats import PerfStats
@@ -337,15 +338,19 @@ def _pre_bench_kwargs_from_ep_device(
     }
 
 
-def _get_ep_device_binding(
+class _ProviderBinding(NamedTuple):
+    device: WinMLDevice | None
+    device_kind: str | None
+    selected_by_options: bool = False
+
+
+def _get_provider_bound_device(
     ep_device: WinMLEPDevice | None,
     provider_options: dict[str, str] | None = None,
-) -> tuple[str | None, str | None]:
-    """Return the effective LUID and device kind for a concrete EP binding."""
+) -> _ProviderBinding:
+    """Resolve provider selectors to the actual candidate and device kind."""
     if ep_device is None:
-        return None, None
-
-    from ..sysinfo import get_ep_device_luid
+        return _ProviderBinding(None, None)
 
     device = ep_device.device
     has_provider_selector, provider_device = _get_provider_selected_device(
@@ -353,7 +358,7 @@ def _get_ep_device_binding(
         provider_options,
     )
     if has_provider_selector and provider_device is None:
-        return None, None
+        return _ProviderBinding(None, None)
 
     if provider_options:
         candidates = [
@@ -362,7 +367,7 @@ def _get_ep_device_binding(
             if provider_device is None or candidate.device_type.lower() == provider_device
         ]
         if not candidates:
-            return None, provider_device
+            return _ProviderBinding(None, provider_device)
         candidate_options = [
             (
                 candidate,
@@ -371,33 +376,38 @@ def _get_ep_device_binding(
             for candidate in candidates
         ]
         advertised_keys = {key for _, options in candidate_options for key in options}
-        selected_options = {
-            str(key): str(value) for key, value in device.ort_handle.ep_options.items()
+        device_selectors = {
+            key: str(value) for key, value in provider_options.items() if key in advertised_keys
         }
-        device_overrides = {
-            key: str(value)
-            for key, value in provider_options.items()
-            if key in advertised_keys and selected_options.get(key) != str(value)
-        }
-        if device_overrides:
+        if device_selectors or has_provider_selector:
             matches = [
                 candidate
                 for candidate, options in candidate_options
-                if all(options.get(key) == value for key, value in device_overrides.items())
+                if all(options.get(key) == value for key, value in device_selectors.items())
             ]
-            if len(matches) != 1:
-                return None, provider_device
-            device = matches[0]
-        elif has_provider_selector and device not in candidates:
-            if len(candidates) != 1:
-                return None, provider_device
-            device = candidates[0]
+            if len(matches) == 1:
+                device = matches[0]
+                return _ProviderBinding(device, device.device_type.lower(), True)
+            if device not in matches:
+                return _ProviderBinding(None, provider_device)
 
-    luid = get_ep_device_luid(device.ort_handle)
-    device_kind = device.device_type.lower()
-    if device_kind not in ACCELERATOR_DEVICE_TYPES:
-        return (None, device_kind) if has_provider_selector else (None, None)
-    return luid, device_kind
+    return _ProviderBinding(device, device.device_type.lower())
+
+
+def _get_ep_device_binding(
+    ep_device: WinMLEPDevice | None,
+    provider_options: dict[str, str] | None = None,
+) -> tuple[str | None, str | None]:
+    """Return the effective LUID and device kind for a concrete EP binding."""
+    from ..sysinfo import get_ep_device_luid
+
+    binding = _get_provider_bound_device(ep_device, provider_options)
+    if binding.device is None:
+        return None, binding.device_kind
+    if binding.device_kind not in ACCELERATOR_DEVICE_TYPES:
+        has_provider_selector, _ = _get_provider_selected_device(ep_device, provider_options)
+        return (None, binding.device_kind) if has_provider_selector else (None, None)
+    return get_ep_device_luid(binding.device.ort_handle), binding.device_kind
 
 
 def _get_provider_selected_device(
@@ -426,11 +436,9 @@ def _get_monitor_binding(
         ep_device,
         provider_options,
     )
-    has_provider_selector, _ = _get_provider_selected_device(
-        ep_device,
-        provider_options,
-    )
-    if has_provider_selector and adapter_luid is None:
+    # A concrete EP binding is authoritative; missing metadata must not
+    # trigger heuristic discovery of a different adapter.
+    if ep_device is not None and adapter_luid is None:
         return "cpu", None, None
 
     monitor_device = adapter_device or requested_device
@@ -439,6 +447,74 @@ def _get_monitor_binding(
         adapter_luid,
         adapter_device if adapter_luid is not None else None,
     )
+
+
+def _validate_device_luid(
+    ctx: click.Context, param: click.Parameter, value: str | None
+) -> str | None:
+    if value is not None and not re.fullmatch(r"0x[0-9a-f]{8}_0x[0-9a-f]{8}", value, re.IGNORECASE):
+        raise click.BadParameter(
+            "expected 0xHHHHHHHH_0xLLLLLLLL; copy the adapter LUID from 'winml sys'.",
+            ctx=ctx,
+            param=param,
+        )
+    return value
+
+
+def _resolve_perf_ep_device(
+    target: EPDeviceTarget,
+    device_luid: str | None,
+    provider_options: dict[str, str] | None,
+) -> WinMLEPDevice:
+    """Bind one runtime device and surface ambiguous or conflicting selection."""
+    from ..session import WinMLEPRegistry
+    from ..sysinfo import get_ep_device_luid
+
+    registry = WinMLEPRegistry.instance()
+    selected = (
+        registry.auto_device(target, device_luid=device_luid)
+        if device_luid is not None
+        else registry.auto_device(target)
+    )
+    binding = _get_provider_bound_device(selected, provider_options)
+    if (
+        provider_options
+        and binding.device_kind is not None
+        and binding.device_kind != target.device
+    ):
+        raise ValueError(
+            f"--ep-options select device {binding.device_kind!r}, but the resolved device is "
+            f"{target.device!r}. Use --device {binding.device_kind} or remove the conflicting "
+            "provider options so build and runtime use the same device kind."
+        )
+    if device_luid is not None:
+        if binding.device is not selected.device:
+            raise ValueError(
+                "--ep-options conflict with --device-luid or do not identify the pinned "
+                "adapter unambiguously. Remove the device-selecting provider options."
+            )
+        return selected
+    if binding.device is not None and binding.device is not selected.device:
+        selected = replace(selected, device=binding.device)
+    if binding.selected_by_options:
+        return selected
+
+    # Multiple EP routes to one known adapter are not multiple adapters.
+    identities = {
+        get_ep_device_luid(device.ort_handle) or id(device)
+        for device in selected.ep.devices
+        if device.device_type.lower() == target.device
+    }
+    if len(identities) > 1:
+        logger.warning(
+            "Multiple devices match %s/%s; default ORT device: %s (LUID: %s). "
+            "Pass --device-luid <LUID> to select an adapter; run 'winml sys' to list LUIDs.",
+            target.ep,
+            target.device,
+            selected.device.hardware_name or "unnamed",
+            get_ep_device_luid(selected.device.ort_handle) or "unavailable",
+        )
+    return selected
 
 
 def _open_ep_monitor_or_exit(
@@ -502,6 +578,7 @@ class BenchmarkConfig:
     memory: bool = True
     ep: EPNameOrAlias | None = None
     ep_source: str | None = None  # parsed from '--ep <name>@<source>' syntax
+    device_luid: str | None = None
     ep_options: dict[str, str] | None = None
     compile_ep_options: dict[str, str] | None = None
     shape_config: dict | None = None
@@ -584,6 +661,7 @@ class BenchmarkResult:
                 "device": self.actual_device,
                 "ep": self.actual_ep,
                 "ep_source": self.config.ep_source,
+                "device_luid": self.config.device_luid,
                 "ep_options": self.config.ep_options,
                 "precision": self.config.precision,
                 # In duration mode the run isn't bounded by a fixed count, so
@@ -888,7 +966,7 @@ class PerfBenchmark:
             return
 
         with suppress_native_warnings(enabled=True):
-            from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
+            from ..session import EPDeviceTarget, resolve_device
 
         with suppress_native_warnings(enabled=True):
             # resolve_device() availability-checks even when --ep is explicit, so a
@@ -900,7 +978,9 @@ class PerfBenchmark:
                     source=self.config.ep_source,
                 )
             )
-            self._ep_device = WinMLEPRegistry.instance().auto_device(target)
+            self._ep_device = _resolve_perf_ep_device(
+                target, self.config.device_luid, self.config.ep_options
+            )
         self._resolved_device = target.device
         self._resolved_ep = cast("EPNameOrAlias", target.ep)
 
@@ -1292,48 +1372,15 @@ class PerfBenchmark:
             )
 
     def _resolve_adapter_luid(self) -> str | None:
-        """Resolve adapter LUID for VRAM queries."""
+        """Use only the bound adapter's LUID for VRAM queries."""
         if sys.platform != "win32":
             return None
 
-        assert self._model is not None
-        device = self._single.device or self._resolved_device or self.config.device
-        if device == "cpu":
-            return None
-
-        bound_luid, bound_device = _get_ep_device_binding(
+        bound_luid, _ = _get_ep_device_binding(
             self._ep_device,
             self.config.ep_options,
         )
-        if bound_luid is not None:
-            return bound_luid
-        has_provider_selector, _ = _get_provider_selected_device(
-            self._ep_device,
-            self.config.ep_options,
-        )
-        if has_provider_selector:
-            return None
-
-        try:
-            from ..sysinfo.pdh_adapters import resolve_adapter_luid
-
-            # ep_name is the full ORT EP name (a member of EPName at runtime);
-            # WinMLPreTrainedModel types it loosely as ``str | None``.
-            ep_name = cast("EPName | None", self._single.ep_name)
-            effective_device = bound_device or device
-            kinds = (
-                (effective_device,)
-                if effective_device in ACCELERATOR_DEVICE_TYPES
-                else ACCELERATOR_DEVICE_TYPES
-            )
-            for kind in kinds:
-                luid = resolve_adapter_luid(kind, ep_name=ep_name)
-                if luid:
-                    return luid
-            return None
-        except Exception:
-            logger.debug("Could not resolve adapter LUID", exc_info=True)
-            return None
+        return bound_luid
 
     def _run_benchmark(self) -> PerfStats:
         """Execute benchmark iterations with timing.
@@ -1406,11 +1453,8 @@ class PerfBenchmark:
                 "Running without hardware monitoring."
             )
 
-        # Track the device actually being benchmarked so the monitor polls
-        # GPU when --device gpu is specified, NPU when --device npu, etc.
-        # ep_name lets the monitor resolve the exact LUID via ORT's autoEP
-        # metadata so we follow the adapter the session actually binds to.
-        # Full ORT EP name; HWMonitor resolves the adapter LUID from it.
+        # Monitor the bound adapter's LUID; without one, disable adapter
+        # sampling rather than discovering a different GPU/NPU by EP name.
         ep_name = cast("EPName | None", self._single.ep_name)
         monitor_device = self._single.device or self.config.device or "auto"
         effective_monitor_device, adapter_luid, adapter_device = _get_monitor_binding(
@@ -1555,6 +1599,7 @@ def _perf_modules(
     device: str = "auto",
     ep: EPNameOrAlias | None = None,
     ep_source: str | None = None,
+    device_luid: str | None = None,
     ep_options: dict[str, str] | None = None,
     precision: str = "auto",
     allow_unsupported_nodes: bool = False,
@@ -1591,6 +1636,7 @@ def _perf_modules(
             derived from the resolved device so the analyzer targets one EP.
         ep_source: Optional EP source tag parsed from ``--ep <name>@<source>``,
             threaded into device resolution to pin a specific EP registration.
+        device_luid: Adapter LUID from ``winml sys`` to pin runtime inference.
         ep_options: Runtime EP provider options (e.g. QNN
             ``htp_performance_mode``) forwarded to each per-module session.
         precision: Precision mode passed through to the build stage.
@@ -1610,15 +1656,31 @@ def _perf_modules(
     from ..cache import get_cache_dir, get_cache_key, get_model_dir
     from ..config import SubmoduleClassNotFoundError, generate_hf_build_config
     from ..loader.task import get_task_abbrev
-    from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
+    from ..session import (
+        DeviceNotFound,
+        EPDeviceTarget,
+        UnknownListingPick,
+        WinMLEPNotDiscovered,
+        WinMLEPRegistrationFailed,
+        resolve_device,
+    )
     from .build import _instantiate_parent_model
 
     request_device = (device or "auto").lower()
     request_ep = ep
-    resolved_target = resolve_device(
-        EPDeviceTarget(ep=request_ep or "auto", device=request_device, source=ep_source)
-    )
-    resolved_ep_device = WinMLEPRegistry.instance().auto_device(resolved_target)
+    try:
+        resolved_target = resolve_device(
+            EPDeviceTarget(ep=request_ep or "auto", device=request_device, source=ep_source)
+        )
+        resolved_ep_device = _resolve_perf_ep_device(resolved_target, device_luid, ep_options)
+    except (
+        DeviceNotFound,
+        UnknownListingPick,
+        WinMLEPNotDiscovered,
+        WinMLEPRegistrationFailed,
+        ValueError,
+    ) as exc:
+        raise click.ClickException(f"Error resolving benchmark device: {exc}") from exc
     resolved_device = resolved_target.device
     ep = cast("EPName", resolved_target.ep)
 
@@ -2390,7 +2452,13 @@ def _warn_ignored_genai_flags(
 
 
 def _autobuild_genai_bundle(
-    ctx: click.Context, *, model: str, console: Console, stack: contextlib.ExitStack
+    ctx: click.Context,
+    *,
+    model: str,
+    ep: EPNameOrAlias | None,
+    device: str,
+    console: Console,
+    stack: contextlib.ExitStack,
 ) -> tuple[Path, bool]:
     """Build (or reuse) a genai bundle for a HuggingFace model id.
 
@@ -2398,12 +2466,12 @@ def _autobuild_genai_bundle(
     rather than a prebuilt bundle directory, emit a genai bundle and benchmark
     it. Cache handling matches the single-model path:
 
-    * a plain run reuses a previously built bundle keyed by the model id;
+    * a plain run reuses a bundle keyed by model id and any explicit EP/device;
     * ``--rebuild`` overwrites that cached bundle in place;
 
-    genai bundles target the NPU HTP via QNN, so the build pins ``ep=qnn`` /
-    ``device=npu`` regardless of the benchmark's ``--device`` (which still
-    selects the runtime EP).
+    An explicit runtime target also selects the transformer build target.
+    Without an override, keep the default QNN/NPU bundle and its legacy cache
+    location; prebuilt bundles keep their own per-stage routing.
 
     The imports are function-local so ``winml perf --help`` does not pay their
     cost and so a bundle-directory run never imports the build stack.
@@ -2415,11 +2483,27 @@ def _autobuild_genai_bundle(
     from ..cache import get_cache_dir, get_model_dir
     from ..loader import resolve_loader_config
     from ..models.winml import build_genai_bundle, resolve_genai_bundle
+    from ..session import EPDeviceTarget, ep_to_device, resolve_device, short_ep_name
+    from ..utils.constants import normalize_ep_name
 
     p = ctx.params
 
     cache_dir = get_cache_dir()
     bundle_dir = get_model_dir(model, cache_dir=cache_dir) / "genai-bundle"
+    build_ep, build_device = "qnn", "npu"
+    if ep is not None:
+        try:
+            target = resolve_device(
+                EPDeviceTarget(
+                    ep=ep,
+                    device=ep_to_device(ep) if device in ("config", "auto") else device,
+                )
+            )
+        except ValueError as exc:
+            raise click.UsageError(str(exc)) from exc
+        build_ep, build_device = short_ep_name(target.ep), target.device
+        # Do not reuse a bundle exported for a different execution provider.
+        bundle_dir = bundle_dir.with_name(f"genai-bundle-{build_ep}-{build_device}")
     build_cache_dir = cache_dir
     # --rebuild overwrites the cached bundle; a plain run reuses it. Checked
     # before any model resolution so a cache hit never touches the network.
@@ -2450,6 +2534,20 @@ def _autobuild_genai_bundle(
             f"'winml build -m {model} -o <dir> --device npu --ep qnn')."
         )
 
+    if not any(
+        normalize_ep_name(target.ep) == normalize_ep_name(build_ep)
+        and target.device == build_device
+        for target in recipe.supported_targets
+    ):
+        supported = ", ".join(
+            f"--ep {target.ep} --device {target.device}" for target in recipe.supported_targets
+        )
+        raise click.UsageError(
+            f"The genai bundle recipe for '{model_type}' does not support "
+            f"--ep {build_ep} --device {build_device} (supported: {supported}). "
+            "Pass a prebuilt bundle directory to override its runtime routing."
+        )
+
     precision = p["precision"] if cli_utils.is_cli_provided(ctx, "precision") else None
     bundle_dir.mkdir(parents=True, exist_ok=True)
     console.print(
@@ -2460,8 +2558,8 @@ def _autobuild_genai_bundle(
         model,
         bundle_dir,
         recipe,
-        ep="qnn",
-        device="npu",
+        ep=build_ep,
+        device=build_device,
         precision=precision,
         force_rebuild=force_rebuild,
         cache_dir=build_cache_dir,
@@ -2480,10 +2578,11 @@ def _run_genai_runtime(
     """
     import contextlib
 
+    from ..session import short_ep_name
     from ._perf_genai import (
         GenaiPerfConfig,
+        _resolve_genai_target,
         genai_output_path,
-        resolve_genai_ep,
         run_genai_perf,
     )
 
@@ -2498,6 +2597,25 @@ def _run_genai_runtime(
     # silently ignore (this return runs before the winml-path --submodel handling).
     if p.get("submodel"):
         raise click.UsageError("--submodel is not supported with --runtime ort-genai.")
+
+    # Resolve once, before auto-building, so export and inference share the EP.
+    # Omitted --device respects the bundle; an explicit --ep takes precedence
+    # over device-based EP selection.
+    device = p["device"].lower() if cli_utils.is_cli_provided(ctx, "device") else "config"
+    ep: EPNameOrAlias | None
+    if cli_utils.is_cli_provided(ctx, "ep"):
+        ep_part, _ep_source = p["ep"] if p["ep"] else (None, None)
+        ep = cast("EPNameOrAlias | None", ep_part)
+    else:
+        try:
+            target = _resolve_genai_target(device)
+        except ValueError as exc:
+            raise click.UsageError(str(exc)) from exc
+        if target is None and device != "config":
+            raise click.UsageError(f"No execution provider available for device '{device}'.")
+        ep = cast("EPNameOrAlias", short_ep_name(target.ep)) if target is not None else None
+        if target is not None:
+            device = target.device
 
     # Keep any bundle-lifetime resources alive across the benchmark.
     with contextlib.ExitStack() as stack:
@@ -2520,7 +2638,7 @@ def _run_genai_runtime(
             )
         else:
             bundle_dir, built_fresh = _autobuild_genai_bundle(
-                ctx, model=model, console=console, stack=stack
+                ctx, model=model, ep=ep, device=device, console=console, stack=stack
             )
             autobuilt_from = model
 
@@ -2533,10 +2651,6 @@ def _run_genai_runtime(
         iterations = p["iterations"] if cli_utils.is_cli_provided(ctx, "iterations") else 10
         warmup = p["warmup"] if cli_utils.is_cli_provided(ctx, "warmup") else 2
 
-        # genai defaults to "config" (respect the bundle's own per-stage routing).
-        # The shared --device default is "auto" (the ONNX default), so an omitted
-        # flag is treated as "config"; an explicit --device is a deliberate override.
-        device = p["device"].lower() if cli_utils.is_cli_provided(ctx, "device") else "config"
         if p.get("output"):
             output = p["output"]
         elif autobuilt_from is not None:
@@ -2546,18 +2660,6 @@ def _run_genai_runtime(
         else:
             output = genai_output_path(bundle_dir)
         cli_utils.guard_output(output, p["overwrite"])
-
-        # EP override precedence: an explicit ``--ep`` wins over the ``--device``
-        # resolution, which in turn wins over the default ("config" = respect the
-        # bundle's genai_config.json routing).  GenaiSession validates the value.
-        # ``--ep`` is parsed by EpAtSourceParamType into ``(ep, source)``; genai
-        # bundles are prebuilt so the source tag does not apply -- take the EP name.
-        ep: EPNameOrAlias | None
-        if cli_utils.is_cli_provided(ctx, "ep"):
-            ep_part, _ep_source = p["ep"] if p["ep"] else (None, None)
-            ep = cast("EPNameOrAlias | None", ep_part)
-        else:
-            ep = resolve_genai_ep(device)
 
         prompt = p["prompt"]
         prompt_file: Path | None = p.get("prompt_file")
@@ -2736,6 +2838,15 @@ def _validate_duration(
 )
 @cli_utils.precision_option()
 @click.option(
+    "--device-luid",
+    type=str,
+    default=None,
+    callback=_validate_device_luid,
+    help="Select a specific adapter within the resolved EP/device pair using its LUID "
+    "from 'winml sys' (0xHHHHHHHH_0xLLLLLLLL). Cannot be combined with "
+    "--ep-options device_id=VALUE. Not supported with --runtime ort-genai.",
+)
+@click.option(
     "--ep",
     "ep",
     type=EpAtSourceParamType(),
@@ -2859,6 +2970,7 @@ def perf(
     warmup: int,
     duration: float | None,
     device: str,
+    device_luid: str | None,
     precision: str,
     ep: tuple[str, str | None] | None,
     ep_options: tuple[str, ...],
@@ -2929,6 +3041,13 @@ def perf(
     if not model:
         raise click.UsageError("A model is required via -m/--model.")
 
+    ep_provider_options = cli_utils.parse_ep_options(ep_options)
+    if device_luid is not None and "device_id" in (ep_provider_options or {}):
+        raise click.UsageError(
+            "--device-luid cannot be combined with --ep-options device_id=...; "
+            "use only one adapter selector."
+        )
+
     # Merge top-level -v/-q with subcommand-level flags before any model
     # resolution that can touch Hugging Face Hub and emit warning records.
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
@@ -2993,10 +3112,6 @@ def perf(
             elif "execution_provider" in cc:
                 ep = (cc["execution_provider"], None)
 
-    # Runtime EP provider options (e.g. QNN htp_performance_mode) forwarded to
-    # the inference session for both HF model IDs and ONNX file inputs.
-    ep_provider_options = cli_utils.parse_ep_options(ep_options)
-
     json_mode = output_format == "json"
     console = SafeConsole(stderr=True) if json_mode else SafeConsole()
 
@@ -3004,6 +3119,8 @@ def perf(
     # GENAI RUNTIME: benchmark an onnxruntime-genai bundle folder
     # =========================================================================
     if runtime == "ort-genai":
+        if device_luid is not None:
+            raise click.UsageError("--device-luid is not supported with --runtime ort-genai.")
         if input_data is not None:
             raise click.UsageError(
                 "--input-data is not supported with --runtime ort-genai; "
@@ -3156,6 +3273,7 @@ def perf(
             # sessions target the requested provider (see #939).
             ep=ep_name,
             ep_source=ep_source_part,
+            device_luid=device_luid,
             ep_options=ep_provider_options,
             precision=precision.lower(),
             allow_unsupported_nodes=allow_unsupported_nodes,
@@ -3319,6 +3437,7 @@ def perf(
         # case-preserved; expand_ep_name lowercases short-name lookups
         ep=ep_name,
         ep_source=ep_source_part,
+        device_luid=device_luid,
         ep_options=ep_provider_options,
         compile_ep_options=compile_ep_options,
         shape_config=shape_config,

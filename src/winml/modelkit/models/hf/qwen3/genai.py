@@ -347,6 +347,7 @@ QWEN3_GENAI_BUNDLE_RECIPE = register_genai_bundle(
         supported_targets=(
             GenaiTarget(ep="qnn", device="npu"),  # Qualcomm Snapdragon NPU
             GenaiTarget(ep="vitisai", device="npu"),  # AMD Ryzen AI NPU
+            GenaiTarget(ep="cpu", device="cpu"),
         ),
         transformer_onnx_passes=(strip_gqa_default_attrs,),
         max_cache_len=2048,

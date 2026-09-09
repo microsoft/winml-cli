@@ -110,6 +110,7 @@ def test_to_dict_then_unregister_ep(
         "hardware_name",
         "vendor",
         "luid",
+        "high_performance_index",
         "facts",
         "device_facts",
     }

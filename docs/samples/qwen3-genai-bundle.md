@@ -23,8 +23,8 @@ the memory-bound companions stay on CPU.
 
 - winml-cli installed and `winml` on your PATH.
 - A network connection to download Qwen3 weights from HuggingFace on first run.
-- An NPU target with either the QNN (Qualcomm) or VitisAI (AMD) execution
-  provider available.
+- For NPU inference, a QNN (Qualcomm) or VitisAI (AMD) execution provider.
+  CPU inference does not require either NPU provider.
 
 ## Overall workflow
 
@@ -54,8 +54,8 @@ winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle --export-type optimized
 This builds (or reuses from cache) all four components and assembles them, writing
 `out/qwen3-bundle/genai_config.json` alongside the ONNX graphs and tokenizer.
 `--output-dir` is required — the bundle is a directory — and `--use-cache` is not
-supported for bundles. On a host without the NPU the resolved target has no recipe
-and the build fails fast. Pin the provider to select a target explicitly:
+supported for bundles. The recipe supports CPU, QNN/NPU, and VitisAI/NPU;
+other resolved targets fail fast. Pin the provider to select a target explicitly:
 
 ```bash
 # Qualcomm Snapdragon NPU
@@ -146,10 +146,22 @@ onnxruntime-genai does not expose it; the estimate is labeled in JSON.
       --compile-timeout 600 --max-new-tokens 20 --prompt "What is the capital of France?"
     ```
 
-    The model-ID auto-build shortcut targets the NPU HTP via QNN. To use VitisAI,
-    first build the bundle explicitly in Step 1 and then point `perf -m` at that
-    directory. `-o/--output` stays the results-JSON path, and `--rebuild` forces
-    a fresh bundle.
+    Without a device or EP override, the model-ID shortcut targets QNN/NPU.
+    An explicit `--device` or `--ep` also selects the transformer build target,
+    not just the inference target. For example, a CPU run does not require QNN:
+
+    ```bash
+    winml perf -m Qwen/Qwen3-0.6B --runtime ort-genai --device cpu --no-compile \
+      --warmup 2 --iterations 10 --max-new-tokens 20 \
+      --prompt "What is the capital of France?"
+    ```
+
+    Use `--ep vitisai --device npu --compile` for VitisAI. Auto-building rejects
+    targets not supported by the recipe; a prebuilt bundle can still be passed
+    to `perf` for a runtime override. Explicit targets have
+    separate bundle caches, so a CPU run never reuses a QNN build. CPU companions
+    retain their recipe precisions. `-o/--output` stays the results-JSON path,
+    and `--rebuild` forces a fresh bundle for the selected target.
 
 !!! warning "`--compile` is required on the NPU"
     The genai NPU path needs `--compile` (EPContext pre-compilation). The context

@@ -17,6 +17,7 @@ import argparse
 import importlib.util
 import json
 import sys
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -223,6 +224,202 @@ class TestKillProcessTree:
             ["taskkill", "/F", "/T", "/PID", "123"],
             capture_output=True,
         )
+
+
+class TestRunSubprocessTimeouts:
+    _HF_CACHE_ENV_VARS = (
+        "HF_HOME",
+        "HF_HUB_CACHE",
+        "HUGGINGFACE_HUB_CACHE",
+        "HF_DATASETS_CACHE",
+        "HF_XET_CACHE",
+        "XDG_CACHE_HOME",
+    )
+
+    @classmethod
+    def _cache_env(cls, run_eval, **overrides):
+        env = {
+            name: value
+            for name, value in run_eval.os.environ.items()
+            if name not in cls._HF_CACHE_ENV_VARS
+        }
+        env.update({name: str(value) for name, value in overrides.items()})
+        return patch.dict(run_eval.os.environ, env, clear=True)
+
+    @staticmethod
+    def _download_script(
+        incomplete: Path,
+        delays: list[float],
+        *,
+        before_download: float = 0.0,
+        after_download: float = 0.0,
+    ) -> str:
+        return "\n".join(
+            [
+                "import time",
+                "from pathlib import Path",
+                f"path = Path({str(incomplete)!r})",
+                f"time.sleep({before_download})",
+                "path.parent.mkdir(parents=True, exist_ok=True)",
+                "with path.open('wb') as stream:",
+                *[
+                    line
+                    for delay in delays
+                    for line in (
+                        "    stream.write(b'x')",
+                        "    stream.flush()",
+                        f"    time.sleep({delay})",
+                    )
+                ],
+                "path.unlink()",
+                f"time.sleep({after_download})",
+            ]
+        )
+
+    def test_execution_timeout_restarts_after_hf_download(
+        self, run_eval, tmp_path
+    ):
+        incomplete = tmp_path / "hub" / "models--acme--model" / "blobs" / "model.incomplete"
+        script = self._download_script(
+            incomplete,
+            [0.2] * 5,
+            before_download=0.35,
+            after_download=0.35,
+        )
+
+        with (
+            self._cache_env(run_eval, HF_HOME=tmp_path),
+            patch.object(run_eval, "_HF_DOWNLOAD_STALL_TIMEOUT", 1.0),
+        ):
+            result = run_eval._run_subprocess([sys.executable, "-c", script], timeout=0.5)
+
+        assert result["exit_code"] == 0
+        assert result["elapsed"] >= 1.6
+        assert result["timeout"] is False
+        assert result["hf_download_stalled"] is False
+
+    def test_execution_timeout_restarts_after_hf_download_with_slow_handle_scan(
+        self, run_eval, tmp_path
+    ):
+        incomplete = tmp_path / "hub" / "models--acme--model" / "blobs" / "model.incomplete"
+        script = self._download_script(
+            incomplete,
+            [0.2] * 5,
+            before_download=0.35,
+            after_download=0.35,
+        )
+        real_open_paths = run_eval._process_tree_open_paths
+
+        def slow_open_paths(pid):
+            time.sleep(0.7)
+            return real_open_paths(pid)
+
+        with (
+            self._cache_env(run_eval, HF_HOME=tmp_path),
+            patch.object(run_eval, "_HF_DOWNLOAD_STALL_TIMEOUT", 2.0),
+            patch.object(run_eval, "_process_tree_open_paths", side_effect=slow_open_paths),
+        ):
+            result = run_eval._run_subprocess([sys.executable, "-c", script], timeout=0.5)
+
+        assert result["exit_code"] == 0
+        assert result["timeout"] is False
+        assert result["hf_download_stalled"] is False
+
+    def test_stalled_hf_download_uses_independent_timeout(self, run_eval, tmp_path):
+        incomplete = tmp_path / "hub" / "models--acme--model" / "blobs" / "model.incomplete"
+        script = self._download_script(incomplete, [5.0])
+
+        with (
+            self._cache_env(run_eval, HF_HOME=tmp_path),
+            patch.object(run_eval, "_HF_DOWNLOAD_STALL_TIMEOUT", 0.5),
+        ):
+            result = run_eval._run_subprocess([sys.executable, "-c", script], timeout=5)
+
+        assert result["exit_code"] == -1
+        assert result["elapsed"] < 3
+        assert result["timeout"] is False
+        assert result["hf_download_stalled"] is True
+        assert "Hugging Face download stalled" in result["stderr"]
+        classifier = sys.modules["utils.classifier"]
+        assert classifier.classify_failure(result["stderr"], result["exit_code"]) is (
+            classifier.FailureType.HF_FETCH_FAIL
+        )
+        assert classifier.matches_hf_fetch_retry(result["stderr"]) is True
+
+    def test_unrelated_hf_download_does_not_suspend_execution_timeout(self, run_eval, tmp_path):
+        incomplete = tmp_path / "hub" / "models--acme--model" / "blobs" / "model.incomplete"
+        sibling_script = self._download_script(incomplete, [0.1] * 20)
+
+        with (
+            self._cache_env(run_eval, HF_HOME=tmp_path),
+            patch.object(run_eval, "_HF_DOWNLOAD_STALL_TIMEOUT", 1.0),
+        ):
+            sibling = run_eval.subprocess.Popen([sys.executable, "-c", sibling_script])
+            try:
+                deadline = time.perf_counter() + 2
+                while not incomplete.exists() and time.perf_counter() < deadline:
+                    time.sleep(0.01)
+                assert incomplete.exists()
+
+                result = run_eval._run_subprocess(
+                    [sys.executable, "-c", "import time; time.sleep(1.2)"],
+                    timeout=0.5,
+                )
+            finally:
+                sibling.kill()
+                sibling.wait(timeout=5)
+
+        assert result["exit_code"] == -1
+        assert result["timeout"] is True
+        assert result["hf_download_stalled"] is False
+
+    def test_execution_timeout_restarts_after_xdg_hf_download(self, run_eval, tmp_path):
+        incomplete = (
+            tmp_path / "huggingface" / "hub" / "models--acme--model" / "blobs" / "model.incomplete"
+        )
+        script = self._download_script(
+            incomplete,
+            [0.2] * 5,
+            before_download=0.35,
+            after_download=0.35,
+        )
+
+        with (
+            self._cache_env(run_eval, XDG_CACHE_HOME=tmp_path),
+            patch.object(run_eval, "_HF_DOWNLOAD_STALL_TIMEOUT", 1.0),
+        ):
+            result = run_eval._run_subprocess([sys.executable, "-c", script], timeout=0.5)
+
+        assert result["exit_code"] == 0
+        assert result["elapsed"] >= 1.6
+        assert result["timeout"] is False
+        assert result["hf_download_stalled"] is False
+
+    def test_stalled_xdg_hf_download_uses_independent_timeout(self, run_eval, tmp_path):
+        incomplete = (
+            tmp_path / "huggingface" / "hub" / "models--acme--model" / "blobs" / "model.incomplete"
+        )
+        script = self._download_script(incomplete, [5.0])
+
+        with (
+            self._cache_env(run_eval, XDG_CACHE_HOME=tmp_path),
+            patch.object(run_eval, "_HF_DOWNLOAD_STALL_TIMEOUT", 0.5),
+        ):
+            result = run_eval._run_subprocess([sys.executable, "-c", script], timeout=5)
+
+        assert result["exit_code"] == -1
+        assert result["timeout"] is False
+        assert result["hf_download_stalled"] is True
+
+    def test_execution_without_hf_download_uses_original_timeout(self, run_eval):
+        with patch.object(run_eval, "_HF_DOWNLOAD_STALL_TIMEOUT", 1.0):
+            result = run_eval._run_subprocess(
+                [sys.executable, "-c", "import time; time.sleep(5)"], timeout=0.5
+            )
+
+        assert result["exit_code"] == -1
+        assert result["timeout"] is True
+        assert result["hf_download_stalled"] is False
 
 
 def test_curated_target_models_preserve_existing_priorities(run_eval):
@@ -1716,6 +1913,27 @@ class TestBuildJobs:
         jobs = run_eval._build_jobs([entry], None, "cpu")
         assert len(jobs) == 1
         assert jobs[0].variant is None
+
+    def test_sorts_by_priority_then_model_name(self, run_eval):
+        entries = [
+            _entry("zeta/p0", "text-classification"),
+            _entry("Zulu/p2", "text-classification"),
+            _entry("beta/p1", "text-classification"),
+            _entry("Alpha/p2", "text-classification"),
+            _entry("alpha/p1", "text-classification"),
+        ]
+        for entry, priority in zip(entries, ["P0", "P2", "P1", "P2", "P1"], strict=True):
+            entry.priority = priority
+
+        jobs = run_eval._build_jobs(entries, None, "cpu")
+
+        assert [(job.entry.priority, job.entry.hf_id) for job in jobs] == [
+            ("P0", "zeta/p0"),
+            ("P1", "alpha/p1"),
+            ("P1", "beta/p1"),
+            ("P2", "Alpha/p2"),
+            ("P2", "Zulu/p2"),
+        ]
 
 
 class TestRunRecipeBuild:
