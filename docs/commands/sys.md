@@ -43,6 +43,19 @@ merges the WinML EP registry with ONNX Runtime's
 `--format json` is used the full report — including devices and EPs — is emitted as
 a single JSON object, making it easy to capture in CI pipelines.
 
+Within the GPU class, devices are ordered by ONNX Runtime hardware metadata
+`DxgiHighPerformanceIndex` numerically (0 first), with LUID as a stable
+tie-breaker. This is the Windows DXGI high-performance preference, not DXCore
+enumeration order. The preference is joined to native DXCore rows by LUID;
+EP metadata never adds or removes physical adapters. Missing or invalid ranks
+sort after ranked GPUs, in LUID order. If EP probing cannot supply ranks, all
+native GPUs fall back to LUID order.
+
+Unpinned runtime GPU selection uses the same ordering within the selected EP
+source's exposed devices. An EP that exposes only a subset of installed GPUs
+can therefore select a different GPU from the first system-wide row. An explicit
+`--device-luid` on `winml perf` overrides that preference.
+
 ## Examples
 
 ```bash

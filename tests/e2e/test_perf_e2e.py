@@ -669,6 +669,109 @@ class _PerfBenchmarkSuite:
 class TestPerfONNXDirect(_PerfBenchmarkSuite):
     """Benchmark a pre-exported ONNX file directly via WinMLSession."""
 
+    def test_dml_provider_binding_survives_session_creation(self, onnx_model_path: Path) -> None:
+        require_ep("dml", device="gpu")
+        from winml.modelkit.commands.perf import _get_ep_device_binding
+        from winml.modelkit.session import EPDeviceTarget, WinMLEPRegistry, WinMLSession
+        from winml.modelkit.sysinfo import get_ep_device_luid
+
+        selected = WinMLEPRegistry.instance().auto_device(EPDeviceTarget(ep="dml", device="gpu"))
+        for device in selected.ep.devices:
+            if device.device_type != "GPU":
+                continue
+            expected_luid = get_ep_device_luid(device.ort_handle)
+            options = dict(device.ort_handle.ep_options)
+            before = [
+                (get_ep_device_luid(d.ort_handle), dict(d.ort_handle.ep_options))
+                for d in selected.ep.devices
+            ]
+            assert _get_ep_device_binding(selected, options) == (expected_luid, "gpu")
+            session = WinMLSession(
+                onnx_path=onnx_model_path, ep_device=selected, provider_options=options
+            )
+            try:
+                after = [
+                    (get_ep_device_luid(d.ort_handle), dict(d.ort_handle.ep_options))
+                    for d in selected.ep.devices
+                ]
+                assert _get_ep_device_binding(selected, options) == (expected_luid, "gpu"), (
+                    before,
+                    after,
+                    options,
+                )
+            finally:
+                session.reset()
+
+    @pytest.mark.parametrize("selection_mode", ["luid", "provider-option"])
+    def test_dml_device_luid_selection(
+        self, tmp_path: Path, onnx_model_path: Path, selection_mode: str
+    ) -> None:
+        """LUID pins and provider options select the matching monitored DML adapter."""
+        require_ep("dml", device="gpu")
+        from winml.modelkit.session import EPDeviceTarget, WinMLEPRegistry
+        from winml.modelkit.sysinfo import enumerate_compute_adapters, get_ep_device_luid
+
+        selected = WinMLEPRegistry.instance().auto_device(EPDeviceTarget(ep="dml", device="gpu"))
+        advertised_luids = [
+            get_ep_device_luid(device.ort_handle)
+            for device in selected.ep.devices
+            if device.device_type == "GPU"
+        ]
+        assert advertised_luids and None not in advertised_luids, "DML must publish an adapter LUID"
+        luids = {luid for luid in advertised_luids if luid is not None}
+        native_luids = {adapter.luid for adapter in enumerate_compute_adapters()}
+        assert luids <= native_luids
+
+        for index, luid in enumerate(sorted(luids)):
+            output_file = tmp_path / f"gpu_{index}.json"
+            args = _build_perf_args(
+                model_arg=str(onnx_model_path),
+                output_file=output_file,
+                ep="dml",
+                device="gpu",
+                monitor=True,
+                duration_overwrite=1,
+            )
+            if selection_mode == "luid":
+                selection_args = ["--device-luid", luid]
+            else:
+                device = next(
+                    device
+                    for device in selected.ep.devices
+                    if get_ep_device_luid(device.ort_handle) == luid
+                )
+                device_id = device.ort_handle.ep_options["device_id"]
+                selection_args = ["--ep-options", f"device_id={device_id}"]
+            result = _run_winml_cli_subprocess(["perf", *args, *selection_args])
+            assert result.returncode == 0, result.stdout + result.stderr
+            diagnostics = result.stdout + result.stderr
+            data = json.loads(output_file.read_text())
+            assert data["benchmark_info"]["device_luid"] == (
+                luid if selection_mode == "luid" else None
+            )
+            assert data["hw_monitor"]["adapter_luid"] == luid, (
+                selection_args,
+                data["benchmark_info"],
+                data["hw_monitor"],
+                diagnostics,
+            )
+            assert data["hw_monitor"]["device_kind"] == "gpu"
+            assert "Multiple devices match" not in diagnostics
+
+        result = _run_winml_cli_subprocess(
+            [
+                "perf",
+                *_build_perf_args(
+                    model_arg=str(onnx_model_path),
+                    output_file=tmp_path / "default_gpu.json",
+                    ep="dml",
+                    device="gpu",
+                ),
+            ]
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert ("Multiple devices match" in result.stderr) == (len(luids) > 1)
+
     @pytest.fixture
     def model_arg(self, onnx_model_path: Path) -> str:
         return str(onnx_model_path)

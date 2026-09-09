@@ -22,6 +22,7 @@ $ winml perf [options]
 | `--iterations` | | `INTEGER` | `100` | Number of timed inference iterations used to compute statistics. |
 | `--warmup` | | `INTEGER` | `10` | Number of warm-up iterations run before timing begins; excluded from statistics. |
 | `--device` | `-d` | `auto\|cpu\|gpu\|npu` | `auto` | Device to run the benchmark on. `auto` selects the highest-priority available device. |
+| `--device-luid` | | `TEXT` | — | Pin a physical adapter within the resolved EP/device pair using its LUID from `winml sys` (`0xHHHHHHHH_0xLLLLLLLL`, case-insensitive). Requires the EP to expose that adapter's LUID. Not supported with `--runtime ort-genai`. |
 | `--precision` | | `TEXT` | `auto` | Precision mode applied during model build: `auto`, `fp32`, `fp16`, `int8`, `int16`, or compound forms such as `w8a16`. |
 | `--ep` | | `TEXT` | — | Force a specific execution provider (e.g., `qnn`, `dml`, `vitisai`, `openvino`, `cpu`). Overrides the device-to-provider mapping. |
 | `--ep-options` | | `KEY=VALUE` (multiple) | — | Runtime EP provider option forwarded to the inference session (e.g., `--ep-options htp_performance_mode=burst`). Repeatable. Applies to both HuggingFace model IDs and ONNX file inputs. When detail op-tracing automatically compiles a raw ONNX model, these options are also applied to that compilation. |
@@ -109,6 +110,52 @@ Benchmark with live hardware monitoring enabled:
 ```bash
 $ winml perf -m microsoft/resnet-50 --device npu --monitor
 ```
+
+Select one of multiple GPUs supported by the same EP:
+
+```bash
+$ winml sys
+$ winml perf -m model.onnx --ep dml --device gpu --device-luid 0x00000000_0x00012C8B --monitor
+```
+
+Replace the example LUID with the adapter's value from `winml sys`. LUIDs are
+local to the current Windows boot, not portable hardware IDs. The flag narrows
+the resolved EP/device pair (and optional `--ep name@source`); it does not change
+the EP/device auto-selection policy. It applies to ONNX, HuggingFace,
+composite, and per-module runtime inference, including memory and hardware
+monitoring. It does not pin the separate model-build compilation stage.
+
+`--device-luid` cannot be combined with `--ep-options device_id=...`, even if
+both identify the same adapter. This is rejected as a CLI usage error before
+model or device resolution. Other provider options, such as performance tuning,
+can still be used with `--device-luid`.
+
+If multiple adapters match and `--device-luid` is omitted, perf warns and uses
+the default ORT device unless `--ep-options` uniquely selects a concrete adapter.
+This explicit selection suppresses the warning even when that adapter has no
+LUID metadata. Non-selector options, or options whose adapter
+binding cannot be established, do not suppress the warning.
+When provider options resolve to another adapter of the same kind, that adapter
+is used for the runtime binding, device identity, and monitoring. Options that
+select a different device kind (for example, `--device npu --ep qnn` with
+`--ep-options backend_type=gpu`) are rejected before the build; use the matching
+`--device` instead so build and runtime agree.
+
+If the bound adapter has no LUID, perf uses CPU/RAM monitoring mode rather
+than guessing another GPU/NPU. Adapter-specific utilization and VRAM sampling
+are disabled in that case. Separately labelled aggregate GPU telemetry may
+remain available; it is not attributed to the selected adapter.
+
+The default GPU is selected by numeric `DxgiHighPerformanceIndex` from ORT
+hardware metadata (0 first), then by LUID to break ties. Missing or invalid
+indices sort after ranked GPUs, in LUID order. This is the same ordering used
+by `winml sys`, restricted to the selected EP source's exposed devices rather
+than all installed GPUs; it does not depend on ORT enumeration order.
+
+An unavailable LUID fails instead of falling back to another adapter. Provider
+options that redirect the binding away from the pinned adapter are rejected.
+The requested pin is saved in
+`benchmark_info.device_luid` in the single-model report.
 
 Pass runtime EP provider options to tune the session (repeatable):
 
