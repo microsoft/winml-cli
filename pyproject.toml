@@ -4,7 +4,7 @@ requires = [ "setuptools>=61", "wheel" ]
 
 [project]
 name = "winml-cli"
-version = "0.3.0"
+version = "0.3.1"
 description = "Accelerate Model Deployment on WinML"
 readme = "README.md"
 keywords = [ "onnx", "winml" ]
@@ -49,8 +49,8 @@ dependencies = [
   "onnxruntime-genai-winml==0.14.1 ; sys_platform == 'win32'",
   # Range, not an exact pin: the exact build `1.24.5.202604171637` is the PyPI
   # form of what WinML's wasdk metadata pins as `1.24.5.post202604171637` (PEP 440
-  # normalized) — an exact `==` can't reconcile the two. A bounded range keeps the
-  # 1.24.x series while resolving to the published wheel.
+  # normalized) — an exact `==` can't reconcile the two. Allow newer releases
+  # through 1.27 for OpenVINO operator profiling.
   "onnxruntime-windowsml>=1.24.5,<1.28 ; sys_platform == 'win32'",
   "onnxscript>=0.2",
   "opentelemetry-sdk>=1.39.1",
@@ -89,11 +89,9 @@ dependencies = [
 
 optional-dependencies.audio = [ "soundfile>=0.13" ]
 optional-dependencies.openvino = [ "openvino>=2023" ]
-optional-dependencies.qnn = [
-  # 2.1+ is a plugin-only wheel under ``onnxruntime_qnn``. Older releases
-  # also install the ``onnxruntime`` package and overwrite Windows ML files.
-  "onnxruntime-qnn>=2.1; python_version>='3.11'",
-]
+# QNN is acquired on demand through the architecture-aware Windows ML EP
+# Catalog. Keep the extra as a backwards-compatible installation target.
+optional-dependencies.qnn = []
 urls."Bug Tracker" = "https://github.com/microsoft/winml-cli/issues"
 urls.Documentation = "https://github.com/microsoft/winml-cli/blob/main/README.md"
 urls.Homepage = "https://github.com/microsoft/winml-cli"
@@ -122,13 +120,6 @@ scripts.winml = "winml.modelkit.cli:main"
 environments = [
   "sys_platform == 'linux' and platform_machine == 'x86_64'",
   "sys_platform == 'win32' and platform_machine == 'AMD64'",
-]
-# The QNN plugin declares standard ``onnxruntime`` as a runtime dependency,
-# but WinML CLI uses the API-compatible ``onnxruntime-windowsml`` build.
-# Installing both distributions corrupts their shared ``onnxruntime`` package
-# tree and makes the active CPU/DML runtime depend on installation order.
-exclude-dependencies = [
-  { package = { name = "onnxruntime-qnn" }, dependencies = [ "onnxruntime" ] },
 ]
 
 [[tool.uv.index]]

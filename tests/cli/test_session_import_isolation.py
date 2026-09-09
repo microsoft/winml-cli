@@ -236,7 +236,8 @@ def test_qnn_selection_reports_actionable_missing_backend() -> None:
         except RuntimeError as exc:
             message = str(exc)
             assert 'QNN is not available' in message
-            assert 'Install onnxruntime-qnn' in message
+            assert 'Windows ML EP Catalog' in message
+            assert 'compatible BYO plugin' in message
         else:
             raise AssertionError('missing QNN backend was accepted')
         """

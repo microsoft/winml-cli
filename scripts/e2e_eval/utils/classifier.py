@@ -45,6 +45,7 @@ _HF_FETCH_RETRY_PATTERNS = (
     "winerror 10060",
     "we couldn't connect to 'https://huggingface.co'",
     "thrown while requesting head https://huggingface.co",
+    "hugging face download stalled",
 )
 
 

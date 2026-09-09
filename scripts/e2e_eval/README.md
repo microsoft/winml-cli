@@ -120,7 +120,8 @@ uv run python scripts/e2e_eval/run_eval.py --update-baseline --eval-type accurac
 | `--group` | — | Filter by group (e.g. `Foundry Toolkit`) |
 | `--device` | `auto` | Target device |
 | `--ep` | — | Execution provider (e.g. `qnn`, `dml`, `openvino`); applied at perf/eval time |
-| `--timeout` | 600 | Per-subprocess timeout (seconds) |
+| `--timeout` | 600 | Per-subprocess execution timeout (seconds). Observable Hugging Face download time is excluded; the full timeout restarts when the download completes. |
+| `--hf-download-stall-timeout` | 600 | Fail as `HF_FETCH_FAIL` when a Hugging Face partial download has no size/mtime progress for this many seconds. |
 | `--clean-cache [TARGET ...]` | off | Clean caches after each job. `TARGET`: `winml`, `huggingface`, `others` (others = VitisAI cache + temp/cwd leaked scratch files). Use `--clean-cache` without TARGET to clear all (legacy behavior). |
 | `--update-baseline` | off | Offline mode: refresh `cache/baseline_cache.json` via the PyTorch baseline, then exit (no build/perf/eval) |
 | `--list` | off | List models and exit |

@@ -18,11 +18,31 @@ if TYPE_CHECKING:
 
 @contextlib.contextmanager
 def use_eager_attention_for_export(model: nn.Module) -> Iterator[None]:
-    """Temporarily prefer eager attention on HF-style module configs."""
+    """Temporarily prefer eager attention and normalize integral SDPA masks."""
+    import torch
+
     restored: list[tuple[int, Any, Any]] = []
     configs: dict[int, Any] = {}
     children: dict[int, set[int]] = {}
     seen_configs: set[int] = set()
+    original_sdpa = torch.nn.functional.scaled_dot_product_attention
+
+    def _coerce_integer_mask_sdpa(*args: Any, **kwargs: Any) -> Any:
+        use_positional = len(args) >= 4
+        attn_mask = args[3] if use_positional else kwargs.get("attn_mask")
+        if isinstance(attn_mask, torch.Tensor) and attn_mask.dtype in {
+            torch.int8,
+            torch.int16,
+            torch.int32,
+            torch.int64,
+            torch.uint8,
+        }:
+            cast_mask = attn_mask.to(dtype=torch.bool)
+            if use_positional:
+                args = (*args[:3], cast_mask, *args[4:])
+            else:
+                kwargs["attn_mask"] = cast_mask
+        return original_sdpa(*args, **kwargs)
 
     for module in model.modules():
         _collect_attention_configs(getattr(module, "config", None), configs, children, seen_configs)
@@ -34,10 +54,12 @@ def use_eager_attention_for_export(model: nn.Module) -> Iterator[None]:
     for config in configs.values():
         if config._attn_implementation != "eager":
             config._attn_implementation = "eager"
+    torch.nn.functional.scaled_dot_product_attention = _coerce_integer_mask_sdpa
 
     try:
         yield
     finally:
+        torch.nn.functional.scaled_dot_product_attention = original_sdpa
         for _config_id, config, previous in _parent_before_child(restored, children):
             config._attn_implementation = previous
 

@@ -103,6 +103,19 @@ class PositionalExportOrderModel(nn.Module):
         return torch.cat((wide, narrow), dim=1)
 
 
+class PositionalOnlyHierarchyModel(nn.Module):
+    """Model whose positional protocol differs from input insertion order."""
+
+    def get_export_args(self, inputs):
+        return inputs["narrow"], inputs["wide"]
+
+    def forward(self, *args):
+        narrow, wide = args
+        if narrow.shape[1] >= wide.shape[1]:
+            raise ValueError("positional export protocol was not honored")
+        return torch.cat((narrow, wide), dim=1)
+
+
 # =============================================================================
 # TestInputTensorSpecToTensor
 # =============================================================================
@@ -437,6 +450,22 @@ class TestExportPytorch:
             for tensor in onnx_model.graph.input
         }
         assert input_shapes == {"narrow": (1, 3), "wide": (1, 5)}
+
+    def test_hierarchy_trace_honors_get_export_args(self) -> None:
+        """Hierarchy tracing uses the same positional protocol as ONNX export."""
+        from winml.modelkit.export.htp import HTPExporter
+
+        model = PositionalOnlyHierarchyModel()
+        inputs = {
+            "wide": torch.ones(1, 5),
+            "narrow": torch.ones(1, 3),
+        }
+        exporter = HTPExporter()
+
+        exporter._trace_model_hierarchy(model, inputs)
+
+        assert exporter._hierarchy_builder is not None
+        assert exporter._hierarchy_builder.model_outputs.shape == (1, 8)
 
 
 class TestStaleExternalDataCleanup:

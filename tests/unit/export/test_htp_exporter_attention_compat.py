@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
+import pytest
 import torch
 import torch.nn as nn
 
@@ -19,8 +20,6 @@ from winml.modelkit.export.policy import ExportCompatibilityConfig
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
 
 class _AttentionConfig:
@@ -320,3 +319,44 @@ def test_htp_exporter_leaves_attention_unchanged_without_policy(
     assert captured == {"root": "sdpa", "child": "sdpa"}
     assert model.config._attn_implementation == "sdpa"
     assert model.proj.config._attn_implementation == "sdpa"
+
+
+@pytest.mark.parametrize("positional", [False, True])
+@pytest.mark.parametrize("dtype", [torch.int32, torch.int64, torch.bool, torch.float32])
+def test_export_context_normalizes_sdpa_masks(positional: bool, dtype: torch.dtype) -> None:
+    model = _NestedAttentionModel()
+    query = torch.randn(1, 2, 3, 4)
+    key = torch.randn_like(query)
+    value = torch.randn_like(query)
+    mask = torch.randint(0, 2, (1, 1, 3, 3)).to(dtype)
+    original_sdpa = torch.nn.functional.scaled_dot_product_attention
+    expected_mask = mask if dtype.is_floating_point else mask.to(torch.bool)
+    expected = original_sdpa(query, key, value, attn_mask=expected_mask)
+
+    with HTPExporter()._export_compatibility_context(model, _export_config(eager_attention=True)):
+        sdpa = torch.nn.functional.scaled_dot_product_attention
+        actual = (
+            sdpa(query, key, value, mask)
+            if positional
+            else sdpa(query, key, value, attn_mask=mask)
+        )
+        assert model.config._attn_implementation == "eager"
+
+    torch.testing.assert_close(actual, expected)
+    assert torch.nn.functional.scaled_dot_product_attention is original_sdpa
+    assert model.config._attn_implementation == "sdpa"
+
+
+def test_export_context_restores_sdpa_after_failure() -> None:
+    model = _NestedAttentionModel()
+    original_sdpa = torch.nn.functional.scaled_dot_product_attention
+
+    # Keep exception suppression explicit for CodeQL's control-flow analysis.
+    with pytest.raises(RuntimeError, match="export failed"):  # noqa: SIM117
+        with HTPExporter()._export_compatibility_context(
+            model, _export_config(eager_attention=True)
+        ):
+            raise RuntimeError("export failed")
+
+    assert torch.nn.functional.scaled_dot_product_attention is original_sdpa
+    assert model.config._attn_implementation == "sdpa"

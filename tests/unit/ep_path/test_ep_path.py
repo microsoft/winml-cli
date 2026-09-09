@@ -259,19 +259,8 @@ class TestResolveArchKey:
         assert _resolve_arch_key() == "x64_native"
 
 
-class TestQnnArchFolderMapProductionData:
-    """The QNN entry's arch_folder_map, read from _default_ep_sources() itself.
-
-    Prior to the arch_folder_map refactor, the exact function object under
-    test (_qnn_arch_resolver) was the one wired into production, so a wrong
-    mapping would fail the branch tests directly. Now the mapping is a plain
-    dict literal in _default_ep_sources() — nothing forces it to stay in
-    sync with what's tested unless a test reads THAT literal specifically
-    (not a hand-typed copy). A silently wrong mapping here (e.g. swapped
-    amd64/arm64ec) doesn't raise or fail loudly — it just makes wmk pick the
-    wrong DLL, which per this module's own docs hangs the QNN HTP EP
-    indefinitely on some SDK versions and runs ~1000x slower on others.
-    """
+class TestQnnPluginProductionData:
+    """The optional BYO QNN wheel selects a process-compatible DLL."""
 
     @staticmethod
     def _qnn_source() -> PyPISource:
@@ -290,9 +279,6 @@ class TestQnnArchFolderMapProductionData:
         }
 
     def test_arch_folder_map_covers_every_reachable_key(self) -> None:
-        # If _resolve_arch_key() ever gains a 4th reachable value, this
-        # fails loudly instead of silently falling through to "no known
-        # DLL layout for this machine" for real users on that combination.
         reachable_keys = {"x64_native", "x64_on_arm64", "arm64_native"}
         assert set(self._qnn_source().arch_folder_map) == reachable_keys
 
@@ -332,28 +318,27 @@ class TestPyPISource:
         )
         assert list(source.resolve()) == []
 
-    def test_arch_folder_map_is_invoked(self) -> None:
-        # The QNN entry uses an arch_folder_map; verify it's actually
-        # consulted by checking the resolved path includes a known arch
-        # directory, never the unsubstituted token.
-        source = PyPISource(
-            distribution="onnxruntime-qnn",
-            relative_dll="onnxruntime_qnn/libs/{arch}/onnxruntime_providers_qnn.dll",
-            eps=("QNNExecutionProvider",),
-            arch_folder_map={
-                "x64_native": "amd64",
-                "x64_on_arm64": "arm64ec",
-                "arm64_native": "arm64ec",
-            },
+    def test_arch_folder_map_is_invoked(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        expected = _touch(tmp_path / "plugin" / "amd64" / "provider.dll")
+        fake_distribution = SimpleNamespace(locate_file=lambda relative: tmp_path / relative)
+        monkeypatch.setattr(
+            "winml.modelkit.ep_path.metadata.distribution",
+            lambda _name: fake_distribution,
         )
-        results = list(source.resolve())
-        # Whether the file exists depends on the host arch + wheel
-        # contents. Either we got a valid path, or we got nothing
-        # (the arch's libs subdir was missing). What we DO require:
-        # if a path is yielded, it must NOT contain the unsubstituted
-        # token.
-        for entry in results:
-            assert "{arch}" not in str(entry.dll_path)
+        monkeypatch.setattr("winml.modelkit.ep_path.metadata.version", lambda _name: "1.0")
+        monkeypatch.setattr("winml.modelkit.ep_path._resolve_arch_key", lambda: "x64_native")
+
+        source = PyPISource(
+            distribution="plugin-package",
+            relative_dll="plugin/{arch}/provider.dll",
+            eps=("PluginExecutionProvider",),
+            arch_folder_map={"x64_native": "amd64"},
+        )
+
+        (entry,) = source.resolve()
+        assert entry.dll_path == expected
 
     def test_arch_folder_map_missing_key_yields_nothing(
         self, monkeypatch: pytest.MonkeyPatch

@@ -95,8 +95,26 @@ class WinMLDecoderWrapper(nn.Module, ABC):
         """Order dict inputs positionally to match the IOConfig's input order."""
         return tuple(inputs.values())
 
-    def forward(self, *args: torch.Tensor) -> tuple[torch.Tensor, ...]:
-        """Execute the three-step adapter.  Subclasses override ``_invoke_hf``."""
+    def forward(
+        self,
+        *args: torch.Tensor,
+        **kwargs: torch.Tensor,
+    ) -> tuple[torch.Tensor, ...]:
+        """Execute the three-step adapter. Subclasses override ``_invoke_hf``.
+
+        Accepts either positional args in ONNX input order or keyword args
+        keyed by ONNX input names.
+        """
+        if args and kwargs:
+            raise TypeError("Provide either positional args or keyword args, not both")
+
+        if kwargs:
+            input_order = list(self.onnx_config.inputs.keys())
+            missing = [name for name in input_order if name not in kwargs]
+            if missing:
+                raise TypeError(f"Missing decoder input(s): {missing}")
+            args = tuple(kwargs[name] for name in input_order)
+
         inputs = dict(zip(self.onnx_config.inputs.keys(), args, strict=True))
 
         # 1. Create cache aliased to ONNX past-KV inputs.

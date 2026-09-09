@@ -167,9 +167,43 @@ class TestBlipDecoderIO:
         mask = captured["attention_mask"]
         assert mask.shape == (1, 1, 2)
         assert mask.dtype == torch.int64
-        assert torch.equal(mask, torch.tensor([[[1, 0]]], dtype=torch.int64))
+        torch.testing.assert_close(mask, inputs["decoder_attention_mask"].unsqueeze(1))
 
-    def test_decoder_runs_with_real_model_and_binary_mask(self, blip_config) -> None:
+    def test_decoder_preserves_three_dimensional_attention_mask(self, monkeypatch) -> None:
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        import torch
+
+        from winml.modelkit.models.hf import blip as blip_module
+
+        wrapper = blip_module.BlipDecoderWrapper()
+        wrapper.model = MagicMock()
+        captured: dict[str, torch.Tensor] = {}
+
+        def decode(**kwargs):
+            captured["attention_mask"] = kwargs["attention_mask"]
+            return SimpleNamespace(logits=torch.zeros((1, 1, 4)))
+
+        wrapper.model.text_decoder.side_effect = decode
+        monkeypatch.setattr(blip_module, "EncoderDecoderCache", lambda *_args: object())
+        monkeypatch.setattr(blip_module, "DynamicCache", object)
+        inputs = {
+            "decoder_input_ids": torch.zeros((1, 1), dtype=torch.int32),
+            "decoder_attention_mask": torch.tensor([[[1, 0]]], dtype=torch.int64),
+            "encoder_hidden_states": torch.zeros((1, 3, 4)),
+            "cache_position": torch.zeros((1,), dtype=torch.int64),
+        }
+
+        wrapper._invoke_hf(object(), inputs)
+
+        mask = captured["attention_mask"]
+        assert mask.shape == (1, 1, 2)
+        assert mask.dtype == torch.int64
+        torch.testing.assert_close(mask, inputs["decoder_attention_mask"])
+
+    @pytest.mark.parametrize("mask_rank", [2, 3])
+    def test_decoder_runs_with_real_model_and_binary_mask(self, blip_config, mask_rank) -> None:
         import torch
         from transformers import BlipForConditionalGeneration
 
@@ -189,6 +223,8 @@ class TestBlipDecoderIO:
         inputs["cache_position"] = torch.tensor([1], dtype=torch.int64)
         inputs["decoder_attention_mask"].zero_()
         inputs["decoder_attention_mask"][:, :2] = 1
+        if mask_rank == 3:
+            inputs["decoder_attention_mask"] = inputs["decoder_attention_mask"].unsqueeze(1)
 
         with torch.inference_mode():
             logits, *present = wrapper(*wrapper.get_export_args(inputs))
