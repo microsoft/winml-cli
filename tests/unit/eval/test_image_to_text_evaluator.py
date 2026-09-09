@@ -7,9 +7,14 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from winml.modelkit.eval.image_to_text_evaluator import WinMLImageToTextEvaluator
+import pytest
+from PIL import Image
+from transformers.pipelines import ImageTextToTextPipeline, ImageToTextPipeline
+
+from winml.modelkit.eval import WinMLImageToTextEvaluator
 from winml.modelkit.inference.pipeline import _HF_PIPELINE_TASK_MAP
 
 
@@ -110,10 +115,46 @@ class TestCompute:
 
         result = ev.compute()
 
-        ev.pipe.assert_any_call("img1", text="")
+        ev.pipe.assert_any_call("img1")
         assert result["cer"] == 0.0
         assert result["n_samples"] == 2
         assert "cider" in result
+
+    @pytest.mark.parametrize("pipeline_class", [ImageToTextPipeline, ImageTextToTextPipeline])
+    def test_real_pipeline_call_contract(self, pipeline_class):
+        """Exercise real argument validation without loading model weights."""
+        pipe = object.__new__(pipeline_class)
+        pipe._num_workers = None
+        pipe._batch_size = None
+        pipe._preprocess_params = {}
+        pipe._forward_params = {}
+        pipe._postprocess_params = {}
+        pipe.call_count = 0
+        pipe.framework = "pt"
+        pipe.assistant_model = None
+        pipe.assistant_tokenizer = None
+        pipe.processor = SimpleNamespace(chat_template=None)
+
+        def predict(inputs, *_args):
+            if isinstance(inputs, dict):
+                assert inputs["text"] == ""
+                image = inputs["images"]
+            else:
+                image = inputs
+            return [{"generated_text": str(image.getpixel((0, 0)))}]
+
+        pipe.run_single = MagicMock(side_effect=predict)
+        ev = make_evaluator()
+        images = [Image.new("RGB", (2, 2), color=(index, 0, 0)) for index in range(2)]
+        ev.data = [{"image": image, "text": str(image.getpixel((0, 0)))} for image in images]
+        ev.pipe = pipe
+
+        result = ev.compute()
+
+        assert pipe.run_single.call_count == len(images)
+        assert result["n_samples"] == len(images)
+        assert result["cer"] == 0.0
+        assert "skipped" not in result
 
     def test_dict_output_shape(self):
         """Pipeline may also return a single dict (not a list)."""
@@ -167,6 +208,20 @@ class TestCompute:
         assert result["n_samples"] == 1
         assert result["cer"] == 0.0
         assert result.get("skipped") == 1
+
+    @pytest.mark.parametrize("error_class", [TypeError, RuntimeError])
+    def test_all_pipeline_exceptions_raise(self, error_class):
+        """A broken pipeline must not return successful empty metrics."""
+        ev = make_evaluator()
+        ev.data = [{"image": f"image-{index}", "text": str(index)} for index in range(2)]
+        error = error_class("pipeline failed")
+        ev.pipe = MagicMock(side_effect=error)
+
+        with pytest.raises(RuntimeError, match="produced no predictions: pipeline failed") as exc:
+            ev.compute()
+
+        assert exc.value.__cause__ is error
+        assert ev.pipe.call_count == len(ev.data)
 
     def test_uses_custom_columns(self):
         """Image and label columns from columns_mapping are honoured."""

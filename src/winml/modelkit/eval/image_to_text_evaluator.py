@@ -21,6 +21,7 @@ the reference text (str or list[str]).
 
 from __future__ import annotations
 
+import inspect
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -64,6 +65,9 @@ class WinMLImageToTextEvaluator(WinMLEvaluator):
 
         metric = TextSimilarityMetric()
         skipped = 0
+        last_error: Exception | None = None
+        # Multimodal pipelines require text; legacy image-only pipelines reject it.
+        call_kwargs = {"text": ""} if "text" in inspect.signature(self.pipe).parameters else {}
 
         for sample in tqdm(self.data, desc="Evaluating", unit="sample"):
             image = sample.get(self._image_col)
@@ -73,9 +77,10 @@ class WinMLImageToTextEvaluator(WinMLEvaluator):
                 continue
 
             try:
-                out = self.pipe(image, text="")
+                out = self.pipe(image, **call_kwargs)
             except Exception as e:
                 logger.warning("Pipeline call failed (skipping): %s", e)
+                last_error = e
                 skipped += 1
                 continue
 
@@ -91,6 +96,10 @@ class WinMLImageToTextEvaluator(WinMLEvaluator):
             metric.update(pred.strip(), references)
 
         result = metric.compute()
+        if result["n_samples"] == 0 and last_error is not None:
+            raise RuntimeError(
+                f"Image-to-text evaluation produced no predictions: {last_error}"
+            ) from last_error
         if skipped:
             result["skipped"] = skipped
         return result

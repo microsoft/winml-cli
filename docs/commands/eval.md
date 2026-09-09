@@ -54,6 +54,8 @@ Python callers can pass an existing model directly with `evaluate(config, pytorc
 
 PyTorch text-generation evaluation adapts the checkpoint to the existing causal-LM evaluator contract and reports perplexity without ONNX export. Pre-built ONNX files, composite `role=path` models, GenAI bundles, compare mode, references, and tensor input archives remain on their existing WinML paths. `--runtime pytorch` rejects those forms, along with ONNX build, export, EP, precision, quantization, optimization, analysis, and cache-related options.
 
+For `image-to-text`, evaluation supplies an empty text prompt only when the active pipeline explicitly accepts it. Individual pipeline failures are logged and counted as skipped samples, but if pipeline errors leave no evaluated predictions, evaluation fails with the underlying error instead of reporting null CER and CIDEr values.
+
 ## Examples
 
 Evaluate a HuggingFace model using the task-default dataset:
