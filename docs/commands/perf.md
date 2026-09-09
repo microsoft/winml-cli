@@ -19,7 +19,7 @@ $ winml perf [options]
 | `--model` | `-m` | `TEXT` | — | HuggingFace model ID or path to a local `.onnx` file. Required. With `--runtime ort-genai`, also accepts a prebuilt genai **bundle directory**, or a HuggingFace model ID that is auto-built into a bundle on demand. |
 | `--runtime` | | `winml-ort\|ort-genai` | `winml-ort` | Inference runtime. `winml-ort` benchmarks single-shot ONNX inference; `ort-genai` benchmarks an onnxruntime-genai bundle (LLM generation: time-to-first-token + decode tokens/sec). With `ort-genai`, a model ID that is not a bundle directory is auto-built into one (cached under `~/.cache/winml/`, targeting the NPU HTP via QNN) before benchmarking. GenAI cache controls are tracked in issue #1275. |
 | `--task` | | `TEXT` | auto-detected | Explicit task override (e.g., `image-classification`). Inferred from the model if omitted. |
-| `--iterations` | | `INTEGER` | `100` | Number of timed inference iterations used to compute statistics. |
+| `--iterations` | | `INTEGER` | `100` (`10` with `--op-tracing`) | Number of timed inference iterations used to compute statistics. Explicit values override the op-tracing default. |
 | `--warmup` | | `INTEGER` | `10` | Number of warm-up iterations run before timing begins; excluded from statistics. |
 | `--device` | `-d` | `auto\|cpu\|gpu\|npu` | `auto` | Device to run the benchmark on. `auto` selects the highest-priority available device. |
 | `--precision` | | `TEXT` | `auto` | Precision mode applied during model build: `auto`, `fp32`, `fp16`, `int8`, `int16`, or compound forms such as `w8a16`. |
@@ -156,6 +156,12 @@ and logs a warning.
 Op-tracing results are included in the main benchmark JSON under
 `hw_monitor.ep_proof`. The EP's profiling CSV or JSON remains available as the raw trace
 artifact; no separate `_op_trace.json` file is written.
+
+For all EPs and tracing levels, `--op-tracing` defaults to **10 measured
+iterations** when `--iterations` is omitted, reducing timing variability.
+`--warmup` remains 10 by default and is excluded from reported statistics, so
+the default tracing run performs 20 inferences in total. Explicit `--iterations`
+and `--warmup` values are honored.
 
 ### TensorRT RTX operator tracing
 

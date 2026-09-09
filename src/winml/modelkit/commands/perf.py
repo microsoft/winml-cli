@@ -2722,8 +2722,7 @@ def _validate_duration(
     help=(
         "Number of benchmark iterations. "
         "When --op-tracing is set without an explicit --iterations, "
-        "defaults to 1 (a single inference produces a usable per-op trace; "
-        "more iterations just inflate the CSV)."
+        "defaults to 10 to reduce per-operator timing variability."
     ),
 )
 @click.option(
@@ -2975,13 +2974,10 @@ def perf(
     if top_k is not None and top_k < 1:
         raise click.UsageError("--top-k must be >= 1.")
 
-    # Smart default: --op-tracing produces a usable per-op trace from a single
-    # inference; the default 100 iterations just inflates the profiling CSV
-    # without adding profiling value (operators are averaged across iterations).
-    # When the user did not explicitly pass --iterations alongside --op-tracing,
-    # collapse to 1.
+    # Retain multiple trace samples for timing stability without the full
+    # benchmark's trace volume. Explicit iteration counts always take precedence.
     if op_tracing and ctx.get_parameter_source("iterations") == click.core.ParameterSource.DEFAULT:
-        iterations = 1
+        iterations = 10
 
     # Apply build config defaults (CLI explicit options take precedence).
     # Read raw JSON so missing keys are distinguishable from dataclass defaults.
