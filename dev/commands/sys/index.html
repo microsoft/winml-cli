@@ -2741,6 +2741,17 @@ merges the WinML EP registry with ONNX Runtime's
 <code>get_available_providers()</code>. When
 <code>--format json</code> is used the full report — including devices and EPs — is emitted as
 a single JSON object, making it easy to capture in CI pipelines.</p>
+<p>Within the GPU class, devices are ordered by ONNX Runtime hardware metadata
+<code>DxgiHighPerformanceIndex</code> numerically (0 first), with LUID as a stable
+tie-breaker. This is the Windows DXGI high-performance preference, not DXCore
+enumeration order. The preference is joined to native DXCore rows by LUID;
+EP metadata never adds or removes physical adapters. Missing or invalid ranks
+sort after ranked GPUs, in LUID order. If EP probing cannot supply ranks, all
+native GPUs fall back to LUID order.</p>
+<p>Unpinned runtime GPU selection uses the same ordering within the selected EP
+source's exposed devices. An EP that exposes only a subset of installed GPUs
+can therefore select a different GPU from the first system-wide row. An explicit
+<code>--device-luid</code> on <code>winml perf</code> overrides that preference.</p>
 <h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h2>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Full human-readable system report</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>$<span class="w"> </span>winml<span class="w"> </span>sys
