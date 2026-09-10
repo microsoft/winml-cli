@@ -544,7 +544,7 @@ def resolve_task(
                 if custom is not None and custom.__name__ == model_class:
                     resolved = custom
                     if task is not None and candidate_task == task:
-                        surfaced = task
+                        surfaced = _resolve_task_modality(config, task)
                     break
         if resolved is None:
             try:
