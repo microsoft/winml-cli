@@ -170,6 +170,24 @@ def test_user_class_custom_wrapper_tries_normalized_task_after_name_mismatch(mod
     assert r.model_class.__name__ == "Sam2VisionEncoder"
 
 
+@pytest.mark.parametrize("model_type", ["sam2", "sam2_video"])
+def test_user_class_custom_wrapper_preserves_modality_for_canonical_task(model_type):
+    config = _cfg(model_type, ["Sam2Model"])
+    expected = resolve_task(
+        config,
+        task="mask-generation",
+        model_class="Sam2VisionEncoder",
+    )
+
+    resolution = resolve_task(
+        config,
+        task=expected.optimum_task,
+        model_class=expected.model_class.__name__,
+    )
+
+    assert resolution == expected
+
+
 def test_user_task_unsupported_raises_friendly_error():
     cfg = _cfg("bert", ["BertModel"])
     with pytest.raises(ValueError, match="not supported by TasksManager"):
@@ -237,9 +255,7 @@ def test_user_class_explicit_feature_extraction_is_modality_aware():
     surface image-feature-extraction (-> ImageDataset), not the modality-blind
     feature-extraction (-> TextDataset). optimum_task still collapses for the Optimum
     class lookup."""
-    r = resolve_task(
-        _cfg("vit", ["ViTModel"]), model_class="ViTModel", task="feature-extraction"
-    )
+    r = resolve_task(_cfg("vit", ["ViTModel"]), model_class="ViTModel", task="feature-extraction")
     assert r.source == TaskSource.USER_CLASS
     assert r.task == "image-feature-extraction"
     assert r.optimum_task == "feature-extraction"
