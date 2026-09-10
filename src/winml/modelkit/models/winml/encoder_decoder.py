@@ -161,13 +161,12 @@ class EncoderDecoderInputGenerator(DummyInputGenerator):  # type: ignore[misc]  
 # =============================================================================
 
 
-class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
-    """composite model with HF GenerationMixin support.
+class WinMLEncoderDecoderCore(WinMLCompositeModel):
+    """Shared encoder-decoder runtime independent of a generation policy.
 
     Expects sub-components ``"encoder"`` and ``"decoder"`` in
-    ``_SUB_MODEL_CONFIG``. Provides the full interface required by
-    ``GenerationMixin.generate()`` for encoder-decoder models with
-    static KV cache.
+    ``_SUB_MODEL_CONFIG``. Provides the interface required by Transformers
+    generation mixins for encoder-decoder models with static KV cache.
 
     Input/output names and shapes are read from ONNX I/O metadata — no
     model-specific names are assumed.
@@ -301,7 +300,7 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
         }
         GenerationMixin._validate_model_kwargs(cast("Any", self), remaining_kwargs)
 
-    def prepare_inputs_for_generation(  # type: ignore[override]  # GenerationMixin's base signature differs; static-cache flow
+    def prepare_inputs_for_generation(
         self,
         input_ids: torch.LongTensor,
         past_key_values: Cache | None = None,
@@ -512,3 +511,9 @@ class WinMLEncoderDecoderModel(WinMLCompositeModel, GenerationMixin):
             logits=outputs["logits"],
             past_key_values=cache,
         )
+
+
+class WinMLEncoderDecoderModel(  # type: ignore[misc]
+    WinMLEncoderDecoderCore, GenerationMixin
+):
+    """Encoder-decoder runtime using Transformers' generic generation policy."""
