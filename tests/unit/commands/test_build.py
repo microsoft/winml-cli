@@ -1791,6 +1791,258 @@ class TestBuildNoOptimizeFlag:
         assert "skip_optimize" not in extra
 
 
+class TestBuildPipelineStageControls:
+    """Exercise real CLI sinks and stage control, mocking only expensive payloads."""
+
+    @staticmethod
+    def _write_model(path: Path, graph_kind: str) -> None:
+        import onnx
+        from onnx import TensorProto, helper
+
+        input_type = output_type = TensorProto.FLOAT
+        initializers = []
+        if graph_kind == "raw":
+            nodes = [helper.make_node("Identity", ["x"], ["y"])]
+        elif graph_kind == "qdq":
+            initializers = [
+                helper.make_tensor("scale", TensorProto.FLOAT, [], [0.125]),
+                helper.make_tensor("zero", TensorProto.UINT8, [], [0]),
+            ]
+            nodes = [
+                helper.make_node("QuantizeLinear", ["x", "scale", "zero"], ["q"]),
+                helper.make_node("DequantizeLinear", ["q", "scale", "zero"], ["y"]),
+            ]
+        else:
+            assert graph_kind == "qoperator"
+            input_type, output_type = TensorProto.UINT8, TensorProto.INT32
+            initializers = [helper.make_tensor("weight", TensorProto.UINT8, [1, 1], [1])]
+            # No Q/DQ nodes: detection must recognize the integer operator itself.
+            nodes = [helper.make_node("MatMulInteger", ["x", "weight"], ["y"])]
+        graph = helper.make_graph(
+            nodes,
+            "stage-control-fixture",
+            [helper.make_tensor_value_info("x", input_type, [1, 1])],
+            [helper.make_tensor_value_info("y", output_type, [1, 1])],
+            initializer=initializers,
+        )
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+        onnx.checker.check_model(model)
+        onnx.save(model, path)
+
+    @staticmethod
+    def _config(input_kind: str, quant_mode: str, config_skip: bool = False) -> dict:
+        return {
+            "loader": {"task": "feature-extraction"},
+            "export": {"opset_version": 17} if input_kind == "hf" else None,
+            "optim": {},
+            "quant": {
+                "mode": quant_mode,
+                "samples": 1,
+                "task": "feature-extraction",
+                "model_id": "test-model",
+            },
+            "compile": {"execution_provider": "cpu", "enable_ep_context": False},
+            "auto": True,
+            "skip_optimize": config_skip,
+        }
+
+    @pytest.fixture
+    def payloads(self):
+        from winml.modelkit.analyze import AnalyzeResult, LintResult
+        from winml.modelkit.onnx import copy_onnx_model
+        from winml.modelkit.optim import WinMLOptimizationConfig
+
+        def export_payload(*, model, output_path, **kwargs):
+            copy_onnx_model(model, output_path)
+
+        def optimize_payload(*, model, output, **kwargs):
+            copy_onnx_model(model, output)
+
+        def convert_payload(*, model_path, output_path, **kwargs):
+            copy_onnx_model(model_path, output_path)
+            return MagicMock(success=True, output_path=output_path, errors=[])
+
+        optim = WinMLOptimizationConfig()
+        analysis = AnalyzeResult(
+            lint=LintResult(
+                errors=0,
+                warnings=0,
+                info=0,
+                passed=True,
+                error_patterns=[],
+                warning_patterns=[],
+                information=[],
+                optimization_config=optim,
+            ),
+            optimization_config=optim,
+        )
+        with (
+            patch("winml.modelkit.build.hf._load_model") as load,
+            patch("winml.modelkit.export.export_onnx", side_effect=export_payload) as export,
+            patch(
+                "winml.modelkit.build.common.optimize_onnx", side_effect=optimize_payload
+            ) as optimize,
+            patch("winml.modelkit.build.common.analyze_onnx", return_value=analysis) as analyze,
+            patch("winml.modelkit.quant.quantize_onnx", side_effect=convert_payload) as quantize,
+            patch("winml.modelkit.compiler.compile_onnx", side_effect=convert_payload) as compile_,
+            patch("winml.modelkit.utils.console.StageLive"),
+            patch(
+                "winml.modelkit.session.resolve_device",
+                return_value=EPDeviceTarget(ep="CPUExecutionProvider", device="cpu"),
+            ),
+        ):
+            yield {
+                "load": load,
+                "export": export,
+                "optimize": optimize,
+                "analyze": analyze,
+                "quantize": quantize,
+                "compile": compile_,
+            }
+
+    def _invoke_pipeline(
+        self,
+        tmp_path: Path,
+        payloads: dict,
+        input_kind: str,
+        quant_mode: str,
+        flags: tuple[str, ...],
+        *,
+        config_skip: bool = False,
+        graph_kind: str = "raw",
+    ) -> Path:
+        from winml.modelkit.onnx import is_quantized_onnx
+
+        model_path = tmp_path / "input.onnx"
+        self._write_model(model_path, graph_kind)
+        assert is_quantized_onnx(model_path) is (graph_kind != "raw")
+        payloads["load"].return_value = model_path
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps(self._config(input_kind, quant_mode, config_skip)))
+        output_dir = tmp_path / "out"
+        result = _invoke(
+            [
+                "-c",
+                str(config_path),
+                "-m",
+                "test-model" if input_kind == "hf" else str(model_path),
+                "-o",
+                str(output_dir),
+                "--ep",
+                "cpu",
+                "--export-type",
+                "generic",
+                *flags,
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        return output_dir
+
+    @pytest.mark.parametrize("input_kind", ["hf", "onnx"])
+    @pytest.mark.parametrize("quant_mode", ["fp16", "static"])
+    @pytest.mark.parametrize(
+        ("flags", "config_skip"),
+        [
+            pytest.param((), False, id="default"),
+            pytest.param(("--optimize",), False, id="explicit-optimize"),
+            pytest.param(("--no-optimize",), False, id="cli-skip"),
+            pytest.param((), True, id="config-skip"),
+            pytest.param(("--optimize",), True, id="config-skip-with-cli-optimize"),
+            pytest.param(
+                ("--no-optimize", "--max-optim-iterations", "5"),
+                False,
+                id="cli-skip-with-autoconf",
+            ),
+        ],
+    )
+    def test_raw_pipeline_preserves_optimization_and_quantization_controls(
+        self, tmp_path: Path, payloads, input_kind, quant_mode, flags, config_skip
+    ) -> None:
+        output_dir = self._invoke_pipeline(
+            tmp_path, payloads, input_kind, quant_mode, flags, config_skip=config_skip
+        )
+
+        skip = config_skip or "--no-optimize" in flags
+        assert payloads["optimize"].call_count == (0 if skip else 1)
+        assert payloads["analyze"].call_count == (0 if skip else 2)
+        assert payloads["export"].call_count == (1 if input_kind == "hf" else 0)
+        payloads["quantize"].assert_called_once()
+        assert payloads["quantize"].call_args.kwargs["config"].mode == quant_mode
+        payloads["compile"].assert_called_once()
+        assert (
+            payloads["compile"].call_args.kwargs["model_path"]
+            == payloads["quantize"].call_args.kwargs["output_path"]
+        )
+        saved = json.loads((output_dir / "winml_build_config.json").read_text())
+        assert saved["quant"]["mode"] == quant_mode
+        # Explicit bypass is not evidence of prequantization: do not force-stamp it.
+        assert saved.get("skip_optimize", False) is config_skip
+        optimized_name = "optimized.onnx" if input_kind == "hf" else "input_optimized.onnx"
+        assert (output_dir / optimized_name).is_file()
+        assert (output_dir / "model.onnx").is_file()
+
+    @pytest.mark.parametrize("graph_kind", ["qdq", "qoperator"])
+    @pytest.mark.parametrize("quant_mode", ["fp16", "static"])
+    @pytest.mark.parametrize(
+        ("flags", "config_skip"),
+        [((), False), (("--no-optimize",), False), ((), True)],
+        ids=["default", "cli-skip", "config-skip"],
+    )
+    def test_graph_proven_prequantization_suppresses_requantization(
+        self, tmp_path: Path, payloads, graph_kind, quant_mode, flags, config_skip
+    ) -> None:
+        output_dir = self._invoke_pipeline(
+            tmp_path,
+            payloads,
+            "onnx",
+            quant_mode,
+            flags,
+            config_skip=config_skip,
+            graph_kind=graph_kind,
+        )
+
+        for stage in ("export", "optimize", "analyze", "quantize"):
+            payloads[stage].assert_not_called()
+        payloads["compile"].assert_called_once()
+        saved = json.loads((output_dir / "winml_build_config.json").read_text())
+        assert saved["skip_optimize"] is True
+        assert saved["quant"] is None
+        assert (output_dir / "model.onnx").is_file()
+
+    @pytest.mark.parametrize("quant_mode", ["fp16", "static"])
+    @pytest.mark.parametrize("flags", [(), ("--no-optimize",)], ids=["default", "cli-skip"])
+    def test_composite_controls_reach_every_actual_hf_sink(
+        self, tmp_path: Path, payloads, quant_mode, flags
+    ) -> None:
+        from winml.modelkit.config import WinMLBuildConfig
+
+        components = dict.fromkeys(("part_a", "part_b"), "feature-extraction")
+
+        def component_config(_model_id, *, task, **kwargs):
+            data = self._config("hf", quant_mode)
+            data["loader"]["task"] = task
+            return WinMLBuildConfig.from_dict(data)
+
+        with (
+            patch(
+                "winml.modelkit.loader.resolution.resolve_composite_components",
+                return_value=components,
+            ),
+            patch("winml.modelkit.config.generate_build_config", side_effect=component_config),
+        ):
+            output_dir = self._invoke_pipeline(tmp_path, payloads, "hf", quant_mode, flags)
+
+        assert payloads["optimize"].call_count == (0 if flags else 2)
+        assert payloads["analyze"].call_count == (0 if flags else 4)
+        for stage in ("load", "export", "quantize", "compile"):
+            assert payloads[stage].call_count == len(components)
+        quant_configs = [call.kwargs["config"] for call in payloads["quantize"].call_args_list]
+        assert quant_configs[0] is not quant_configs[1]
+        assert all(config.mode == quant_mode for config in quant_configs)
+        for name in components:
+            assert (output_dir / f"{name}_model.onnx").is_file()
+
+
 # =============================================================================
 # _run_compile_stage UNIT TESTS
 # =============================================================================
