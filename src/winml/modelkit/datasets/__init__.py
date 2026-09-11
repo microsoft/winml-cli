@@ -24,6 +24,7 @@ from .keypoint_detection import KeypointDetectionDataset
 from .mask_generation import MaskGenerationDataset
 from .object_detection import DEFAULT_OBJECT_DETECTION_SIZE, ObjectDetectionDataset
 from .processor_utils import get_image_processor_config
+from .prompt_dataset import PromptDataset, PromptRecord
 from .random_dataset import RandomDataset
 from .text import TextDataset
 
