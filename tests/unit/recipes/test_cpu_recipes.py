@@ -42,13 +42,46 @@ recipes = [
         "opset_version": 17,
         "quant_mode": "fp16",
     },
+    {
+        "path": REPO_ROOT
+        / "examples"
+        / "recipes"
+        / "Gustking_wav2vec2-large-xlsr-deepfake-audio-classification"
+        / "cpu"
+        / "cpu"
+        / "audio-classification_fp32_config.json",
+        "loader_task": "audio-classification",
+        "loader_model_class": "AutoModelForAudioClassification",
+        "loader_model_type": "wav2vec2",
+        "opset_version": 17,
+        "quant_mode": None,
+    },
+    {
+        "path": REPO_ROOT
+        / "examples"
+        / "recipes"
+        / "Gustking_wav2vec2-large-xlsr-deepfake-audio-classification"
+        / "cpu"
+        / "cpu"
+        / "audio-classification_fp16_config.json",
+        "loader_task": "audio-classification",
+        "loader_model_class": "AutoModelForAudioClassification",
+        "loader_model_type": "wav2vec2",
+        "opset_version": 17,
+        "quant_mode": "fp16",
+    },
 ]
 
 
 @pytest.mark.parametrize(
     "rec",
     recipes,
-    ids=["audeering-wav2vec2-emotion-fp32", "audeering-wav2vec2-emotion-fp16"],
+    ids=[
+        "audeering-wav2vec2-emotion-fp32",
+        "audeering-wav2vec2-emotion-fp16",
+        "gustking-wav2vec2-deepfake-fp32",
+        "gustking-wav2vec2-deepfake-fp16",
+    ],
 )
 def test_cpu_recipes(rec):
     path: Path = rec["path"]
@@ -71,6 +104,13 @@ def test_cpu_recipes(rec):
     assert config.loader.task == rec["loader_task"]
     assert config.loader.model_class == rec["loader_model_class"]
     assert config.loader.model_type == rec["loader_model_type"]
+
+    if rec["loader_model_class"] == "AutoModelForAudioClassification":
+        assert config.export.input_tensors[0].name == "input_values"
+        assert config.export.input_tensors[0].shape == (1, 16000)
+        assert config.export.input_tensors[0].value_range == (-1, 1)
+        assert config.export.output_tensors[0].name == "logits"
+        assert config.export.compatibility.transformers_attention == "eager"
 
     if rec["quant_mode"] is None:
         assert config.quant is None
