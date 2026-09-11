@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypedDict, TypeVar
 
@@ -577,6 +578,47 @@ def device_option(
         default=default if not required else None,
         show_default=True,
         type=click.Choice(choices, case_sensitive=False),
+        help=help_text,
+    )
+
+
+_DEVICE_LUID_PATTERN = re.compile(
+    r"0x[0-9a-f]{8}_0x[0-9a-f]{8}",
+    re.IGNORECASE,
+)
+
+
+def device_luid_option(
+    option_name: str = "--device-luid",
+    optional_message: str | None = None,
+) -> Callable[[F], F]:
+    """Add a LUID-based adapter-selection option."""
+    help_text = (
+        "Select a specific adapter within the resolved EP/device pair using its "
+        "LUID from 'winml sys' (0xHHHHHHHH_0xLLLLLLLL)."
+    )
+    if optional_message:
+        help_text = f"{help_text} {optional_message}"
+
+    def validate(
+        ctx: click.Context,
+        param: click.Parameter,
+        value: str | None,
+    ) -> str | None:
+        if value is not None and _DEVICE_LUID_PATTERN.fullmatch(value) is None:
+            raise click.BadParameter(
+                "expected 0xHHHHHHHH_0xLLLLLLLL; "
+                "copy the adapter LUID from 'winml sys'.",
+                ctx=ctx,
+                param=param,
+            )
+        return value
+
+    return click.option(
+        option_name,
+        type=str,
+        default=None,
+        callback=validate,
         help=help_text,
     )
 

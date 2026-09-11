@@ -18,7 +18,6 @@ from __future__ import annotations
 import json
 import logging
 import math
-import re
 import sys
 import time
 from dataclasses import dataclass, field, replace
@@ -447,18 +446,6 @@ def _get_monitor_binding(
         adapter_luid,
         adapter_device if adapter_luid is not None else None,
     )
-
-
-def _validate_device_luid(
-    ctx: click.Context, param: click.Parameter, value: str | None
-) -> str | None:
-    if value is not None and not re.fullmatch(r"0x[0-9a-f]{8}_0x[0-9a-f]{8}", value, re.IGNORECASE):
-        raise click.BadParameter(
-            "expected 0xHHHHHHHH_0xLLLLLLLL; copy the adapter LUID from 'winml sys'.",
-            ctx=ctx,
-            param=param,
-        )
-    return value
 
 
 def _resolve_perf_ep_device(
@@ -2837,14 +2824,11 @@ def _validate_duration(
     optional_message="'config' (ort-genai only) respects the bundle's genai_config.json routing.",
 )
 @cli_utils.precision_option()
-@click.option(
-    "--device-luid",
-    type=str,
-    default=None,
-    callback=_validate_device_luid,
-    help="Select a specific adapter within the resolved EP/device pair using its LUID "
-    "from 'winml sys' (0xHHHHHHHH_0xLLLLLLLL). Cannot be combined with "
-    "--ep-options device_id=VALUE. Not supported with --runtime ort-genai.",
+@cli_utils.device_luid_option(
+    optional_message=(
+        "Cannot be combined with --ep-options device_id=VALUE. "
+        "Not supported with --runtime ort-genai."
+    )
 )
 @click.option(
     "--ep",

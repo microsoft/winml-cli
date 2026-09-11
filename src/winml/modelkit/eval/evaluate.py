@@ -391,7 +391,12 @@ def load_model(
     # when either is 'auto'.
     device = (config.device or "auto").lower()
     target = resolve_device(EPDeviceTarget(ep=config.ep or "auto", device=device))
-    ep_device = WinMLEPRegistry.instance().auto_device(target)
+    registry = WinMLEPRegistry.instance()
+    ep_device = (
+        registry.auto_device(target, device_luid=config.device_luid)
+        if config.device_luid is not None
+        else registry.auto_device(target)
+    )
 
     from onnxruntime.capi.onnxruntime_pybind11_state import RuntimeException
 
@@ -461,7 +466,11 @@ def load_model(
             config._auto_device_selected or config.device is None or config.device.lower() == "auto"
         )
         auto_ep = config.ep is None or config.ep.lower() == "auto"
-        if not (auto_device and auto_ep) or target.device.lower() == "cpu":
+        if (
+            config.device_luid is not None
+            or not (auto_device and auto_ep)
+            or target.device.lower() == "cpu"
+        ):
             raise
         logger.warning(
             "Automatically selected %s on %s could not initialize an ORT session: %s. "
