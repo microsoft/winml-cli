@@ -21,6 +21,18 @@
           -1,
           1
         ]
+      },
+      {
+        "name": "attention_mask",
+        "dtype": "int64",
+        "shape": [
+          1,
+          16000
+        ],
+        "value_range": [
+          0,
+          2
+        ]
       }
     ],
     "output_tensors": [
@@ -57,6 +69,24 @@
   "loader": {
     "task": "automatic-speech-recognition",
     "model_class": "AutoModelForCTC",
-    "model_type": "wav2vec2"
+    "model_type": "wav2vec2",
+    "target_lang": "eng"
+  },
+  "eval": {
+    "task": "automatic-speech-recognition",
+    "dataset": {
+      "path": "google/fleurs",
+      "name": "en_us",
+      "split": "validation",
+      "samples": 2,
+      "shuffle": false,
+      "seed": 42,
+      "streaming": false,
+      "revision": "70bb2e84b976b7e960aa89f1c648e09c59f894dd",
+      "columns_mapping": {
+        "input_column": "audio",
+        "label_column": "transcription"
+      }
+    }
   }
 }

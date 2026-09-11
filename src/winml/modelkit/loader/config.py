@@ -47,6 +47,7 @@ class WinMLLoaderConfig:
             Requires trust_remote_code=True for security.
         trust_remote_code: Whether to trust remote/custom code.
             Required when using user_script.
+        target_lang: Language adapter to load before exporting an MMS CTC model.
 
     Example:
         # Standard usage with auto-detection
@@ -73,6 +74,7 @@ class WinMLLoaderConfig:
     module_path: str | None = None
     user_script: str | None = None
     trust_remote_code: bool = False
+    target_lang: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary.
@@ -93,6 +95,8 @@ class WinMLLoaderConfig:
             result["user_script"] = self.user_script
         if self.trust_remote_code:
             result["trust_remote_code"] = self.trust_remote_code
+        if self.target_lang is not None:
+            result["target_lang"] = self.target_lang
         return result
 
     @classmethod
@@ -112,6 +116,7 @@ class WinMLLoaderConfig:
             module_path=data.get("module_path"),
             user_script=data.get("user_script"),
             trust_remote_code=data.get("trust_remote_code", False),
+            target_lang=data.get("target_lang"),
         )
 
 
@@ -267,6 +272,12 @@ def resolve_loader_config(
         model_class=resolved_class.__name__,
         model_type=resolved_model_type,
         trust_remote_code=trust_remote_code,
+        target_lang=(
+            getattr(resolved_hf_config, "target_lang", None)
+            if resolved_task == "automatic-speech-recognition"
+            and getattr(resolved_hf_config, "adapter_attn_dim", None)
+            else None
+        ),
     )
 
     return loader_config, resolved_hf_config, resolved_class, resolution
