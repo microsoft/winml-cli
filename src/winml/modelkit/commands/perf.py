@@ -234,6 +234,21 @@ def _resolve_ep_monitor(
     device_norm = (device or "").lower()
 
     if op_tracing:
+        if ep_norm == "nvtensorrtrtx":
+            from ..session.monitor import NvTensorRTRTXMonitor
+
+            if op_tracing != "basic":
+                raise RuntimeError("TensorRT RTX op-tracing currently supports only level 'basic'.")
+            if device_norm not in ("gpu", "auto", ""):
+                raise RuntimeError("TensorRT RTX op-tracing requires --device gpu.")
+            if not NvTensorRTRTXMonitor.is_available():
+                raise RuntimeError(
+                    "Op-tracing --ep nv_tensorrt_rtx requested but TensorRT RTX is not "
+                    "available on this system. Install it through Windows ML EP Catalog "
+                    "or a compatible BYO plugin."
+                )
+            return NvTensorRTRTXMonitor(output_dir=output_dir)
+
         if ep_norm == "openvino":
             from ..session.monitor.openvino_monitor import OpenVinoMonitor
 
@@ -260,7 +275,8 @@ def _resolve_ep_monitor(
         ):
             raise RuntimeError(
                 f"Op-tracing not available for EP {ep!r} on device {device!r}. "
-                "Supported EPs: qnn, openvino (basic on cpu/npu)."
+                "Supported EPs: qnn, openvino (basic on cpu/npu), "
+                "nv_tensorrt_rtx (basic on gpu)."
             )
 
         from ..session.monitor.qnn_monitor import QNNMonitor
@@ -291,7 +307,8 @@ def _resolve_ep_monitor(
 
         raise RuntimeError(
             f"Op-tracing not available for EP {ep!r} on device {device!r}. "
-            "Supported EPs: qnn, openvino (basic on cpu/npu)."
+            "Supported EPs: qnn, openvino (basic on cpu/npu), "
+            "nv_tensorrt_rtx (basic on gpu)."
         )
 
     # Proof-of-execution monitors (no op-tracing)
@@ -2807,8 +2824,7 @@ def _validate_duration(
     help=(
         "Number of benchmark iterations. "
         "When --op-tracing is set without an explicit --iterations, "
-        "defaults to 1 (a single inference produces a usable per-op trace; "
-        "more iterations just inflate the CSV)."
+        "defaults to 10 to reduce per-operator timing variability."
     ),
 )
 @click.option(
@@ -3077,13 +3093,10 @@ def perf(
     if top_k is not None and top_k < 1:
         raise click.UsageError("--top-k must be >= 1.")
 
-    # Smart default: --op-tracing produces a usable per-op trace from a single
-    # inference; the default 100 iterations just inflates the profiling CSV
-    # without adding profiling value (operators are averaged across iterations).
-    # When the user did not explicitly pass --iterations alongside --op-tracing,
-    # collapse to 1.
+    # Retain multiple trace samples for timing stability without the full
+    # benchmark's trace volume. Explicit iteration counts always take precedence.
     if op_tracing and ctx.get_parameter_source("iterations") == click.core.ParameterSource.DEFAULT:
-        iterations = 1
+        iterations = 10
 
     # Apply build config defaults (CLI explicit options take precedence).
     # Read raw JSON so missing keys are distinguishable from dataclass defaults.

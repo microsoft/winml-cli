@@ -49,6 +49,7 @@ if TYPE_CHECKING:
         GenerationConfig,
         GenerationTiming,
     )
+    from .monitor import NvTensorRTRTXMonitor
     from .monitor.ep_monitor import EPMonitor, NullEPMonitor, WinMLEPMonitor
     from .monitor.hw_monitor import HWMonitor
     from .monitor.openvino_monitor import OpenVinoMonitor
@@ -107,6 +108,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "HWMonitor": (".monitor.hw_monitor", "HWMonitor"),
     "OpenVinoMonitor": (".monitor.openvino_monitor", "OpenVinoMonitor"),
     "QNNMonitor": (".monitor.qnn_monitor", "QNNMonitor"),
+    "NvTensorRTRTXMonitor": (".monitor", "NvTensorRTRTXMonitor"),
     "VitisAIMonitor": (".monitor.vitisai_monitor", "VitisAIMonitor"),
     "WinMLQairtSession": (".qairt.qairt_session", "WinMLQairtSession"),
     "InferenceError": (".session", "InferenceError"),
@@ -141,6 +143,7 @@ __all__ = [
     "HWMonitor",
     "InferenceError",
     "NullEPMonitor",
+    "NvTensorRTRTXMonitor",
     "OpenVinoMonitor",
     "PerfContext",
     "PerfStats",
