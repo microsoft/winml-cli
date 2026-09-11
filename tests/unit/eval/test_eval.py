@@ -347,6 +347,30 @@ class TestGetEvaluatorClass:
 class TestEvaluate:
     """Tests for evaluate() entry point."""
 
+    def test_pytorch_runtime_rejects_device_luid(self):
+        """evaluate() rejects adapter selection that PyTorch cannot honor."""
+        import importlib
+        import sys
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        config = WinMLEvaluationConfig(
+            runtime="pytorch",
+            model_id="test/model",
+            task="image-classification",
+            device="gpu",
+            device_luid="0x00000000_0x00000001",
+            dataset=DatasetConfig(path="imagenet-1k"),
+        )
+
+        with pytest.raises(
+            ValueError,
+            match=r"PyTorch runtime cannot use WinML-only configuration: device_luid",
+        ):
+            eval_mod.evaluate(config)
+
     def test_invalid_mode_raises(self):
         """evaluate() rejects unknown mode values with a clear error."""
         import importlib

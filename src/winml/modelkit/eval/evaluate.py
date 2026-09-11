@@ -135,6 +135,8 @@ def _validate_pytorch_runtime_config(config: WinMLEvaluationConfig) -> None:
         incompatible.append("reference_path")
     if config.ep is not None:
         incompatible.append("ep")
+    if config.device_luid is not None:
+        incompatible.append("device_luid")
     if config.precision != "auto":
         incompatible.append("precision")
     if not config.quant:
