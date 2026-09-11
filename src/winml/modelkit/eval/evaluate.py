@@ -84,6 +84,8 @@ _EVALUATOR_REGISTRY: dict[str, str] = {
         "winml.modelkit.eval.image_feature_extraction_evaluator:WinMLImageFeatureExtractionEvaluator",
     "image-to-text":
         "winml.modelkit.eval.image_to_text_evaluator:WinMLImageToTextEvaluator",
+    "translation":
+        "winml.modelkit.eval.translation_evaluator:WinMLTranslationEvaluator",
     "fill-mask":
         "winml.modelkit.eval.fill_mask_evaluator:WinMLFillMaskEvaluator",
     "zero-shot-classification":
