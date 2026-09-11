@@ -18,6 +18,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
+from winml.modelkit.config import WinMLBuildConfig
 from winml.modelkit.session import EPDeviceTarget
 
 
@@ -522,6 +523,79 @@ class TestBuildFlagPassthrough:
         result = _invoke([*self._base_args(cfg, tmp_path), "--no-optimize"])
         assert result.exit_code == 0, result.output
         assert mock_run_single_build.call_args.kwargs["extra_kwargs"].get("skip_optimize") is True
+
+    @pytest.mark.parametrize("pipeline_name", ["_build_hf_pipeline", "_build_onnx_pipeline"])
+    def test_pipeline_threads_no_optimize_to_stage(
+        self,
+        pipeline_name: str,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The Rich CLI pipeline must deliver ``skip_optimize`` to its stage sink."""
+        import winml.modelkit.commands.build as build_module
+
+        config = WinMLBuildConfig.from_dict(
+            {
+                "loader": {"task": "image-classification", "model_type": "resnet"},
+                "export": {"opset_version": 17},
+                "optim": {},
+                "quant": None,
+                "compile": None,
+            }
+        )
+        input_model = tmp_path / "input.onnx"
+        input_model.write_bytes(b"onnx")
+        observed: dict[str, bool] = {}
+
+        def fake_optimize_stage(**kwargs):
+            observed["skip_optimize"] = kwargs["skip_optimize"]
+            kwargs["optimized_path"].write_bytes(b"onnx")
+            return kwargs["optimized_path"], 0.0
+
+        monkeypatch.setattr(build_module, "_run_optimize_stage", fake_optimize_stage)
+        monkeypatch.setattr(
+            build_module, "_run_quantize_stage", lambda **kwargs: kwargs["current_path"]
+        )
+        monkeypatch.setattr(
+            build_module, "_run_compile_stage", lambda **kwargs: kwargs["current_path"]
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.onnx.copy_onnx_model",
+            lambda source, destination: Path(destination).write_bytes(Path(source).read_bytes()),
+        )
+
+        common_kwargs = {
+            "config": config,
+            "output_dir": tmp_path / "output",
+            "rebuild": True,
+            "ep": "cpu",
+            "device": "cpu",
+            "extra_kwargs": {"skip_optimize": True},
+        }
+        if pipeline_name == "_build_hf_pipeline":
+            monkeypatch.setattr(
+                "winml.modelkit.build.hf._load_model", lambda *args, **kwargs: object()
+            )
+            monkeypatch.setattr(
+                "winml.modelkit.export.export_onnx",
+                lambda *, output_path, **kwargs: Path(output_path).write_bytes(b"onnx"),
+            )
+            build_module._build_hf_pipeline(
+                **common_kwargs,
+                model_id="test/model",
+                cache_key=None,
+            )
+        else:
+            monkeypatch.setattr(
+                "winml.modelkit.build.common.ensure_pre_quantized_stamped",
+                lambda *args, **kwargs: None,
+            )
+            build_module._build_onnx_pipeline(
+                **common_kwargs,
+                onnx_path=input_model,
+            )
+
+        assert observed["skip_optimize"] is True
 
     def test_no_analyze_zeros_max_iterations(
         self, tmp_path: Path, mock_run_single_build: MagicMock

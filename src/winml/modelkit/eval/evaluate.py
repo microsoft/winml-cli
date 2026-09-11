@@ -60,6 +60,8 @@ def _select_model_loader(config: WinMLEvaluationConfig) -> _ModelLoaderKind:
 # default formatter layout) yields >100-char lines that trip E501.
 # fmt: off
 _EVALUATOR_REGISTRY: dict[str, str] = {
+    "automatic-speech-recognition":
+        "winml.modelkit.eval.automatic_speech_recognition_evaluator:WinMLAutomaticSpeechRecognitionEvaluator",
     "image-classification":
         "winml.modelkit.eval.base_evaluator:WinMLEvaluator",
     "text-classification":
@@ -177,6 +179,21 @@ _FE_DEFAULT = {
 }
 
 _DEFAULT_DATASETS: dict[str, dict] = {
+    "automatic-speech-recognition": {
+        "path": "openslr/librispeech_asr",
+        "name": "clean",
+        "split": "validation",
+        "revision": "71cacbfb7e2354c4226d01e70d77d5fca3d04ba1",
+        "shuffle": False,
+        "columns_mapping": {
+            "input_column": "audio",
+            "label_column": "text",
+            "max_audio_seconds": "30",
+            "max_new_tokens": "32",
+            "language": "english",
+            "generation_task": "transcribe",
+        },
+    },
     "image-classification": {
         "path": "timm/mini-imagenet",
         "split": "test",
