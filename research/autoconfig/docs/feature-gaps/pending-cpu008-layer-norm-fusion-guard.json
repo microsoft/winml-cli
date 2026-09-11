@@ -1,0 +1,46 @@
+{
+  "issue_number": null,
+  "github_url": null,
+  "title": "winml optimize: guard layer_norm_fusion against CNN-ViT hybrid LayerNorm patterns",
+  "status": "PENDING",
+  "labels": ["bug", "cpu", "graph-optimizer", "P2"],
+  "filed_date": null,
+  "category": "optimize",
+  "source_findings": ["cpu-008"],
+  "affected_eps": ["cpu"],
+  "affected_arch": ["mobilevit", "cnn_vit_hybrid"],
+  "summary": "layer_norm_fusion causes catastrophic regression (-997%) on MobileViT CPU. The CNN encoder's LayerNorm is applied to different tensor shapes than standard Transformer LayerNorm — the fusion pattern mismatch results in incorrect kernel selection and extreme slowdown.",
+  "root_cause": "MobileViT uses LayerNorm inside its CNN unfold blocks on patch-level feature tensors (e.g., [B, N_patches, C]). Standard layer_norm_fusion targets [B, seq, hidden] Transformer LN. The fusion incorrectly matches MobileViT LN due to shape similarity, but the fused kernel paths produce much slower execution on the CNN-LN tensor layout.",
+  "measured_impact": [
+    {
+      "model": "apple/mobilevit-small",
+      "ep": "cpu",
+      "hypothesis": "h6 (layer_norm_fusion)",
+      "baseline_ms": 73.0,
+      "result_ms": 803.0,
+      "gain_pct": -997.8,
+      "verdict": "DISCARD",
+      "note": "11x slowdown. Most severe regression observed in the entire CPU catalog sweep.",
+      "protocol": "3x300 iters",
+      "date": "2026-06-18"
+    },
+    {
+      "model": "apple/mobilevit-small",
+      "ep": "cpu",
+      "hypothesis": "h9 (matmul_transpose_fusion)",
+      "baseline_ms": 73.0,
+      "gain_pct": -165.0,
+      "verdict": "DISCARD",
+      "note": "Also regresses badly — consistent with CNN-ViT hybrid pattern mismatch theme.",
+      "date": "2026-06-18"
+    }
+  ],
+  "fix_needed": {
+    "file": "analyze_insight.py",
+    "description": "Detect Gemm→Reshape→Transpose unfold blocks (same as #921 discriminator). If present, add layer_norm_fusion and matmul_transpose_fusion to CPU skip_set.",
+    "note": "Same discriminator as issue #921 — models with CNN-ViT hybrid fingerprint should have both highdimRTR (NPU/GPU) AND layer_norm_fusion (CPU) in their skip_set."
+  },
+  "discriminator": "Gemm→Reshape→Transpose count > 0 AND ep == 'cpu' → skip layer_norm_fusion, matmul_transpose_fusion",
+  "related_issues": [921],
+  "notes": "This is the CPU analog of issue #921. The Gemm-unfold fingerprint is the common discriminator for both. A single detection in analyze_insight.py can feed both skip_sets."
+}

@@ -1,0 +1,46 @@
+{
+  "issue_number": null,
+  "github_url": null,
+  "title": "winml optimize: add FusedConv detection and unfuse path for QNN EP",
+  "status": "PENDING",
+  "labels": ["bug", "qnn", "graph-optimizer", "P1"],
+  "filed_date": null,
+  "category": "optimize",
+  "source_findings": ["npu-006"],
+  "affected_eps": ["qnn_npu", "qnn_gpu"],
+  "affected_arch": ["resnet", "cnn_dense", "convnext"],
+  "summary": "Conv fusions (conv-bn + conv-add + conv-activation) produce FusedConv nodes that QNN EP cannot dispatch, causing CPU fallback and catastrophic regression (up to 4900%). winml optimize should detect FusedConv nodes when targeting QNN EP and either block the fusion or unfuse them post-build.",
+  "root_cause": "ORT graph optimizer's conv fusion pass combines Conv+BatchNorm+Add+Activation into a single FusedConv node. QNN EP's op support list does not include FusedConv — it falls back to CPU EP for these nodes, which defeats the purpose of QNN execution. The full pack (all 3 fusions together) is catastrophic; individual fusions (conv_add alone) are neutral-to-safe.",
+  "measured_impact": [
+    {
+      "model": "microsoft/resnet-18",
+      "ep": "qnn_npu",
+      "hypothesis": "h4 (full conv fusion pack)",
+      "baseline_ms": 7.23,
+      "result_ms": 361.5,
+      "gain_pct": -4899.0,
+      "verdict": "DISCARD",
+      "note": "4900% regression — pure CPU fallback due to FusedConv unsupported by QNN EP.",
+      "protocol": "3x500 iters",
+      "date": "2026-06 (prior sweep)"
+    },
+    {
+      "model": "microsoft/resnet-18",
+      "ep": "qnn_npu",
+      "hypothesis": "h10 (conv_add_fusion only)",
+      "baseline_ms": 7.23,
+      "gain_pct": 0.93,
+      "verdict": "NEUTRAL",
+      "note": "conv_add alone is SAFE — only the full 3-fusion pack creates FusedConv.",
+      "date": "2026-06-17"
+    }
+  ],
+  "fix_needed": {
+    "description": "Option A (preferred): In winml build pipeline, after applying conv fusions, scan graph for FusedConv nodes. If EP is QNN (NPU or GPU), unfuse them back to Conv+BN+Add+Activation before compilation.",
+    "alternative": "Option B: Block conv_bn_fusion + conv_activation_fusion flags when EP=QNN. Allow conv_add_fusion alone (confirmed safe).",
+    "detection": "ORT graph: node.op_type == 'FusedConv' — these nodes should never reach QNN EP compilation."
+  },
+  "discriminator": "Conv% of total ops > 20% AND ep in ('qnn_npu', 'qnn_gpu') → warn before applying full conv fusion pack",
+  "related_issues": [],
+  "notes": "npu-006 refinement (2026-06-17): conv_add_fusion alone is neutral (+0.93%) and safe. Only the combination (conv-bn + conv-add + conv-activation) creates FusedConv. The catalog sweep h4/h5 guard already warns based on Conv% threshold."
+}

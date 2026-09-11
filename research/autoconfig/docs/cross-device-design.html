@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>autoconfig Skill — Cross-Device / Cross-EP Auto-Config Design</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #f4f6f9;
+    padding: 32px 24px;
+    color: #1a1a2e;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  /* ── Header ── */
+  h1 { font-size: 20px; font-weight: 700; color: #1a1a2e; margin-bottom: 4px; }
+  .subtitle { font-size: 12px; color: #666; margin-bottom: 6px; }
+  .tag {
+    display: inline-block; border-radius: 4px; padding: 2px 8px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.5px; margin-right: 6px; margin-bottom: 24px;
+  }
+  .tag-design  { background: #e8eaf6; color: #3949ab; }
+  .tag-status  { background: #fff3e0; color: #e65100; }
+  .tag-core    { background: #e0f2f1; color: #00695c; }
+
+  /* ── Section headers ── */
+  h2 {
+    font-size: 13px; font-weight: 700; color: #1a1a2e;
+    text-transform: uppercase; letter-spacing: 0.8px;
+    margin: 32px 0 14px;
+    padding-bottom: 6px;
+    border-bottom: 2px solid #e0e4ef;
+  }
+  h3 { font-size: 13px; font-weight: 700; color: #3949ab; margin: 18px 0 8px; }
+
+  /* ── Cards ── */
+  .card-grid { display: grid; gap: 12px; }
+  .card-grid-2 { grid-template-columns: 1fr 1fr; }
+  .card-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .card-grid-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+
+  .card {
+    background: #fff; border-radius: 10px;
+    padding: 16px 18px;
+    border: 1px solid #e0e4ef;
+  }
+  .card.red    { border-left: 4px solid #ef5350; }
+  .card.orange { border-left: 4px solid #ff9800; }
+  .card.green  { border-left: 4px solid #43a047; }
+  .card.blue   { border-left: 4px solid #1976d2; }
+  .card.purple { border-left: 4px solid #7b1fa2; }
+  .card.teal   { border-left: 4px solid #00897b; }
+  .card.grey   { border-left: 4px solid #90a4ae; }
+
+  .card-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 6px; }
+  .card.red    .card-title { color: #c62828; }
+  .card.orange .card-title { color: #e65100; }
+  .card.green  .card-title { color: #2e7d32; }
+  .card.blue   .card-title { color: #0d47a1; }
+  .card.purple .card-title { color: #6a1b9a; }
+  .card.teal   .card-title { color: #00695c; }
+  .card.grey   .card-title { color: #546e7a; }
+
+  .card p { font-size: 12px; color: #444; margin-bottom: 6px; }
+  .card p:last-child { margin-bottom: 0; }
+  .card ul { margin: 4px 0 0 16px; font-size: 12px; color: #444; }
+  .card li { margin-bottom: 3px; }
+
+  /* ── Tables ── */
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { background: #e8eaf6; color: #3949ab; font-weight: 700; text-align: left; padding: 8px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+  td { padding: 8px 12px; border-bottom: 1px solid #e0e4ef; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tr:nth-child(even) td { background: #f9fafc; }
+
+  .sev-high { color: #c62828; font-weight: 700; }
+  .sev-med  { color: #e65100; font-weight: 700; }
+  .sev-low  { color: #2e7d32; font-weight: 700; }
+  .yes { color: #2e7d32; font-weight: 700; }
+  .no  { color: #c62828; font-weight: 700; }
+  .maybe { color: #e65100; font-weight: 700; }
+
+  /* ── Code blocks ── */
+  pre {
+    background: #1e1e2e; color: #cdd6f4;
+    border-radius: 8px; padding: 14px 16px;
+    font-size: 11.5px; line-height: 1.6;
+    overflow-x: auto; margin-top: 8px;
+  }
+  code { font-family: "Cascadia Code", "Fira Code", "Consolas", monospace; }
+  .inline-code { background: #eef0f8; color: #3949ab; border-radius: 4px; padding: 1px 5px; font-size: 11.5px; }
+  .c-kw { color: #cba6f7; }
+  .c-fn { color: #89b4fa; }
+  .c-st { color: #a6e3a1; }
+  .c-cm { color: #6c7086; font-style: italic; }
+  .c-nu { color: #fab387; }
+  .c-tp { color: #f5c2e7; }
+
+  /* ── Flow / fleet diagram ── */
+  .flow { display: flex; align-items: center; gap: 0; flex-wrap: wrap; margin-top: 10px; }
+  .flow-box {
+    background: #fff; border: 1px solid #c5cae9; border-radius: 8px;
+    padding: 10px 14px; font-size: 11px; text-align: center; min-width: 120px;
+  }
+  .flow-box strong { display: block; font-size: 11px; color: #1a1a2e; }
+  .flow-box span { font-size: 10px; color: #666; display: block; margin-top: 2px; }
+  .flow-box.new { border-color: #42a5f5; background: #e3f2fd; }
+  .flow-box.new strong { color: #0d47a1; }
+  .flow-arrow { font-size: 18px; color: #9fa8da; padding: 0 6px; }
+
+  .worker {
+    border-radius: 8px; padding: 10px 12px; font-size: 11px; text-align: center;
+    border: 1px solid #cfd8dc; background: #fff; min-width: 132px;
+  }
+  .worker strong { display: block; font-size: 11px; }
+  .worker span { font-size: 10px; color: #666; display: block; margin-top: 2px; }
+  .worker.npu  { border-top: 3px solid #ab47bc; }
+  .worker.gpu  { border-top: 3px solid #42a5f5; }
+  .worker.cpu  { border-top: 3px solid #90a4ae; }
+
+  /* ── Priority / pill labels ── */
+  .p0 { background: #ffebee; color: #c62828; font-weight: 700; border-radius: 4px; padding: 2px 6px; font-size: 10px; }
+  .p1 { background: #fff8e1; color: #e65100; font-weight: 700; border-radius: 4px; padding: 2px 6px; font-size: 10px; }
+  .p2 { background: #e8f5e9; color: #2e7d32; font-weight: 700; border-radius: 4px; padding: 2px 6px; font-size: 10px; }
+
+  .pill { display: inline-block; border-radius: 20px; padding: 1px 8px; font-size: 10px; font-weight: 700; letter-spacing: 0.3px; }
+  .pill-new   { background: #e3f2fd; color: #1565c0; }
+  .pill-exist { background: #e8f5e9; color: #2e7d32; }
+  .pill-mod   { background: #fff3e0; color: #e65100; }
+
+  .check { color: #43a047; font-weight: 700; }
+  .cross { color: #e53935; font-weight: 700; }
+
+  .note {
+    background: #fff9c4; border-left: 3px solid #f9a825;
+    border-radius: 0 8px 8px 0; padding: 10px 14px;
+    font-size: 12px; color: #555; margin-top: 12px;
+  }
+  .note strong { color: #f57f17; }
+  .note.teal { background: #e0f2f1; border-left-color: #00897b; }
+  .note.teal strong { color: #00695c; }
+
+  /* ── Scenario block ── */
+  .scenario {
+    background: #fff; border-radius: 10px; border: 1px solid #e0e4ef;
+    border-left: 4px solid #00897b; padding: 18px 20px; margin-top: 14px;
+  }
+  .scenario-q {
+    font-size: 14px; font-weight: 700; color: #00695c; margin-bottom: 4px;
+  }
+  .scenario-tag { font-size: 10px; font-weight: 700; color: #00897b; text-transform: uppercase; letter-spacing: 0.6px; }
+  .scenario h4 { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #455a64; margin: 12px 0 5px; }
+  .scenario p, .scenario li { font-size: 12px; color: #444; }
+  .scenario ul { margin: 0 0 0 16px; }
+  .scenario li { margin-bottom: 4px; }
+
+  /* ── Tabs ── */
+  .tabs { display: flex; gap: 4px; margin-bottom: 8px; border-bottom: 2px solid #e0e4ef; max-width: 1000px; flex-wrap: wrap; }
+  .tab-btn {
+    appearance: none; border: none; background: none; cursor: pointer;
+    font-family: inherit; font-size: 12px; font-weight: 700;
+    color: #888; padding: 9px 16px; border-radius: 8px 8px 0 0;
+    border-bottom: 2px solid transparent; margin-bottom: -2px; letter-spacing: 0.3px;
+  }
+  .tab-btn:hover { color: #00695c; background: #e0f2f1; }
+  .tab-btn.active { color: #00695c; border-bottom-color: #00897b; background: #fff; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  .tab-panel > h2:first-child { margin-top: 18px; }
+
+  @media (max-width: 760px) {
+    .card-grid-2, .card-grid-3, .card-grid-4 { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<h1>autoconfig Skill — Cross-Device / Cross-EP Auto-Config Design</h1>
+<p class="subtitle">Turning the single-machine sweep into a fleet-wide, multi-objective tuner — orchestrated through <code>winml serve</code></p>
+<span class="tag tag-design">DESIGN</span>
+<span class="tag tag-core">CORE IDEA: winml serve Phase 0 = the fleet worker (no new mode)</span>
+<span class="tag tag-status">PROPOSAL → V3 ROADMAP</span>
+
+<div class="tabs">
+  <button class="tab-btn active" data-tab="arch">1 · Problem &amp; Architecture</button>
+  <button class="tab-btn" data-tab="objective">2 · Objective &amp; Portability</button>
+  <button class="tab-btn" data-tab="scenarios">3 · User Scenarios</button>
+  <button class="tab-btn" data-tab="plan">4 · Plan &amp; Conclusions</button>
+</div>
+
+<!-- ═══════════════════ TAB 1: ARCHITECTURE ═══════════════════ -->
+<div class="tab-panel active" data-tab="arch">
+
+<h2>1 · The Gap — Single-Device Search Can't Answer Fleet Questions</h2>
+
+<p style="margin-bottom:14px; color:#444; max-width:980px;">
+Every sweep today (<code>catalog_qnn_sweep.py</code>, <code>catalog_gpu_sweep.py</code>, <code>catalog_cpu_sweep.py</code>)
+runs on <strong>one machine</strong> and optimizes for <strong>one (EP, device)</strong> pair. But a WinApp developer ships to
+<strong>millions of heterogeneous Windows devices</strong>. The champion config found on a Snapdragon X Elite NPU has
+<em>unknown</em> behavior on an Intel Lunar Lake NPU, an AMD Ryzen&nbsp;AI XDNA part, or a CPU-only budget laptop.</p>
+
+<table>
+  <thead><tr><th>Limitation Today</th><th>Why It Hurts</th><th>Severity</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>One device per sweep</strong></td>
+      <td>Champion config is only validated where the sweep ran; portability is a guess.</td>
+      <td><span class="sev-high">CRITICAL</span></td>
+    </tr>
+    <tr>
+      <td><strong>No joint objective</strong></td>
+      <td>Running N independent sweeps yields N local optima — never a config that is <em>jointly</em> good across the fleet.</td>
+      <td><span class="sev-high">HIGH</span></td>
+    </tr>
+    <tr>
+      <td><strong>Can't co-locate hardware</strong></td>
+      <td>You cannot put a Qualcomm NPU, Intel NPU, and AMD NPU in one box. The search must reach across machines.</td>
+      <td><span class="sev-high">HIGH</span></td>
+    </tr>
+    <tr>
+      <td><strong>Serial wall-clock</strong></td>
+      <td>A 14-hypothesis sweep is ~6–8 h on one device; the same matrix across a 3-device fleet is 3× longer, not parallel.</td>
+      <td><span class="sev-med">MEDIUM</span></td>
+    </tr>
+    <tr>
+      <td><strong>KB has no device axis</strong></td>
+      <td><code>ep_knowledge/*.json</code> findings are implicitly "true on X Elite". No way to express "true across 3 NPU SKUs".</td>
+      <td><span class="sev-med">MEDIUM</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>2 · Core Idea — <code>winml serve</code> (Phase 0) <em>is already</em> the tune worker</h2>
+
+<p style="margin-bottom:12px; color:#444; max-width:980px;">
+<code>winml serve</code> (in <code>commands/serve.py</code>, currently in <code>_DISABLED_COMMANDS</code> — implemented, not yet shipped)
+has a <strong>Phase 0 mode</strong> that exposes <em>every winml command as an HTTP endpoint</em> — including <code>build</code>,
+<code>perf</code>, <code>eval</code>, and <code>sys</code>. Bound to <code>--host 0.0.0.0</code> it is reachable across machines.
+That is the whole worker: <strong>no new flag, no new RPC protocol</strong>. Each physical device in a lab/fleet just runs
+<code>winml serve --host 0.0.0.0</code>; a central <strong>orchestrator</strong> — a thin layer over the existing sweep loop —
+acts as an HTTP client, treating the fleet as one distributed benchmark backend.</p>
+
+<div class="note teal" style="max-width:1000px; margin-bottom:14px;">
+  <strong>Earlier drafts proposed a dedicated <code>winml serve --tune</code> mode. It was dropped</strong> — Phase 0 already
+  exposes build/perf/eval/sys over HTTP, <code>--idle-timeout 0</code> already keeps the session warm during a sweep, and
+  <code>--host 0.0.0.0</code> already opens the network. A <code>--tune</code> flag added surface area without adding capability.
+</div>
+
+<div class="card-grid card-grid-2" style="margin-bottom:14px;">
+  <div class="card red">
+    <div class="card-title">❌ Today: local CLI calls</div>
+    <p>The sweep calls <code>winml build</code> + <code>winml perf</code> as local subprocesses. The (EP, device) is whatever box you launched on.</p>
+    <pre><code><span class="c-cm"># single host, single EP</span>
+b = <span class="c-fn">run_perf_session</span>(baseline)  <span class="c-cm"># local</span>
+h = <span class="c-fn">run_perf_session</span>(hyp)       <span class="c-cm"># local</span></code></pre>
+  </div>
+  <div class="card teal">
+    <div class="card-title">✅ Proposed: fan out to serve workers</div>
+    <p>The orchestrator dispatches the <strong>same</strong> job to every device that owns a relevant EP — in parallel — and collects a result vector keyed by device.</p>
+    <pre><code><span class="c-cm"># N hosts, N EPs, one round-trip</span>
+results = <span class="c-fn">fleet.bench</span>(baseline, hyp,
+            devices=[<span class="c-st">"npu-a"</span>,<span class="c-st">"npu-b"</span>,<span class="c-st">"npu-c"</span>])
+<span class="c-cm"># → {device: gain_vector}</span></code></pre>
+  </div>
+</div>
+
+<h3>Fleet topology</h3>
+<div style="background:#fff; border:1px solid #e0e4ef; border-radius:10px; padding:18px; max-width:1000px;">
+  <div class="flow" style="justify-content:center;">
+    <div class="flow-box new">
+      <strong>autoconfig orchestrator</strong>
+      <span>job scheduler · result aggregator<br>multi-device objective</span>
+    </div>
+  </div>
+  <div style="text-align:center; font-size:20px; color:#9fa8da; margin:6px 0;">↓ &nbsp; HTTP client calls to Phase 0 endpoints: <code>/build</code> · <code>/perf</code> · <code>/eval</code> · <code>/sys</code> &nbsp; ↓</div>
+  <div class="flow" style="justify-content:center; gap:12px;">
+    <div class="worker npu"><strong>winml serve --host 0.0.0.0</strong><span>Snapdragon X Elite<br>QNN · Hexagon HTP NPU</span></div>
+    <div class="worker npu"><strong>winml serve --host 0.0.0.0</strong><span>Intel Lunar Lake<br>OpenVINO · NPU</span></div>
+    <div class="worker npu"><strong>winml serve --host 0.0.0.0</strong><span>AMD Ryzen AI<br>Vitis AI · XDNA NPU</span></div>
+    <div class="worker gpu"><strong>winml serve --host 0.0.0.0</strong><span>discrete / iGPU<br>DML · GPU</span></div>
+    <div class="worker cpu"><strong>winml serve --host 0.0.0.0</strong><span>budget laptop<br>CPU only · 8 GB</span></div>
+  </div>
+  <p style="text-align:center; font-size:11px; color:#888; margin-top:10px;">
+    Each worker runs the <strong>Paired A/B protocol locally</strong> (so DVFS/thermal drift cancels <em>per device</em>) and returns only result JSON — never raw weights on the hot path.
+  </p>
+</div>
+
+<div class="note teal" style="max-width:1000px;">
+  <strong>Why this is cheap to build:</strong> the worker already exists (Phase 0 HTTP wrapper), and the orchestrator reuses
+  everything from <code>self-evolution-design.html</code> — Paired A/B bench, adaptive <code>n_sessions</code>, the confidence
+  ladder, champion-config output. The only genuinely new pieces are <em>(a)</em> the fleet client + scheduler,
+  <em>(b)</em> the multi-device objective function, and <em>(c)</em> a device axis on the KB. Networking is plumbing; the
+  intellectual work is the objective and the portability taxonomy (Tab&nbsp;2).
+</div>
+
+<h2>3 · Distributed Bench Protocol — Reuse Phase 0 Endpoints</h2>
+
+<p style="margin-bottom:10px; color:#444; max-width:980px;">
+No new protocol is invented. Phase 0 already maps each winml command to an HTTP endpoint; the orchestrator just calls them
+remotely instead of as local subprocesses. The mapping below is <strong>existing commands over the existing wrapper</strong> —
+the only orchestrator-side convention is that the worker runs the <strong>Paired A/B loop locally</strong> so thermal/DVFS cancels per device.</p>
+
+<table>
+  <thead><tr><th>Phase 0 endpoint</th><th>Backing command</th><th>Used for</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr><td><code>GET /sys</code></td><td><span class="pill pill-exist">winml sys</span></td><td>Hardware fingerprint: EP list, NPU SKU, driver versions, RAM, ISA</td><td>Orchestrator builds the device matrix from these.</td></tr>
+    <tr><td><code>POST /build</code></td><td><span class="pill pill-exist">winml build</span></td><td>Compile a candidate config (opset, EP flags, graph passes, precision)</td><td>Artifact stays on the worker; orchestrator references it by output dir.</td></tr>
+    <tr><td><code>POST /perf</code></td><td><span class="pill pill-exist">winml perf</span></td><td>Latency distribution: p50/p90/p99, CV, CPU-fallback%</td><td>Orchestrator drives the A/B pairing by sequencing calls; thermal cancels locally.</td></tr>
+    <tr><td><code>POST /eval</code></td><td><span class="pill pill-exist">winml eval</span></td><td>accuracy, top-1/top-5 delta, cosine vs FP baseline</td><td>Mandatory before any cross-device recommendation.</td></tr>
+  </tbody>
+</table>
+
+<div class="note teal" style="max-width:1000px;">
+  <strong>Two small gaps worth noting</strong> (neither needs a new mode): <em>(1)</em> Phase 0 today exposes commands one call at a time —
+  a <em>config-hash artifact cache</em> on the worker (compile once, perf many) would be a nice server-side optimization but is not required for correctness;
+  <em>(2)</em> the Paired A/B <em>sequencing</em> lives in the orchestrator, which means it must trust the worker not to interleave other jobs mid-pair —
+  enforced by scheduling discipline (one bench job per worker at a time), not by a flag.
+</div>
+
+<div class="note" style="max-width:1000px;">
+  <strong>Weight transfer is off the hot path.</strong> The model is pushed to each worker <em>once</em> (or pulled from a shared
+  catalog URL); thereafter only config specs and result JSON cross the wire.
+</div>
+
+</div><!-- end arch -->
+
+<!-- ═══════════════════ TAB 2: OBJECTIVE & PORTABILITY ═══════════════════ -->
+<div class="tab-panel" data-tab="objective">
+
+<h2>4 · The Hard Part — Multi-Device Objective</h2>
+
+<p style="margin-bottom:12px; color:#444; max-width:980px;">
+Single-device search optimizes a scalar (latency). A fleet produces a <strong>metric vector per device</strong>
+— so "best" is no longer a single number. The orchestrator scores each candidate config <code>c</code> against
+the device set <code>D</code>, then selects by the aggregation strategy the user asked for.</p>
+
+<pre><code><span class="c-cm"># per device d, candidate config c → metric tuple</span>
+m(c, d) = (latency_p50_ms, accuracy_delta, peak_mem_mb, cpu_fallback_pct, portability_class)
+
+<span class="c-kw">def</span> <span class="c-fn">score</span>(c, D, strategy, constraints):
+    rows = [<span class="c-fn">fleet_metric</span>(c, d) <span class="c-kw">for</span> d <span class="c-kw">in</span> D]
+    <span class="c-cm"># hard gates first — any device violating a constraint disqualifies c</span>
+    <span class="c-kw">if</span> <span class="c-kw">any</span>(<span class="c-fn">violates</span>(r, constraints[d]) <span class="c-kw">for</span> r, d <span class="c-kw">in</span> <span class="c-fn">zip</span>(rows, D)):
+        <span class="c-kw">return</span> <span class="c-tp">DISQUALIFIED</span>
+    <span class="c-kw">if</span> strategy == <span class="c-st">"worst_case"</span>:                 <span class="c-cm"># Scenario A: best for N NPUs</span>
+        <span class="c-kw">return</span> <span class="c-fn">max</span>(r.latency_p50 <span class="c-kw">for</span> r <span class="c-kw">in</span> rows)   <span class="c-cm"># minimize the slowest device</span>
+    <span class="c-kw">if</span> strategy == <span class="c-st">"weighted"</span>:                   <span class="c-cm"># Scenario B: balance tiers</span>
+        <span class="c-kw">return</span> <span class="c-fn">sum</span>(w[d] * <span class="c-fn">norm</span>(r) <span class="c-kw">for</span> r, d <span class="c-kw">in</span> <span class="c-fn">zip</span>(rows, D))</code></pre>
+
+<div class="card-grid card-grid-3" style="margin-top:14px;">
+  <div class="card teal">
+    <div class="card-title">Worst-case (minimax)</div>
+    <p>Minimize the <strong>slowest</strong> device's latency. Guarantees a floor for every device in the set. Used for "best for N NPUs".</p>
+  </div>
+  <div class="card blue">
+    <div class="card-title">Weighted-sum</div>
+    <p>Tier weights (e.g. low-end 0.7 / high-end 0.3) with hard per-device constraints. Used for the balanced high/low scenario.</p>
+  </div>
+  <div class="card purple">
+    <div class="card-title">Pareto frontier</div>
+    <p>Return the non-dominated set over {perf, accuracy, mem} plus the <strong>knee point</strong>, so the agent can explain tradeoffs rather than hide them.</p>
+  </div>
+</div>
+
+<h2>5 · Config Portability Taxonomy</h2>
+
+<p style="margin-bottom:12px; color:#444; max-width:980px;">
+"One config for 3 NPUs" is ambiguous until you classify <em>what</em> is portable. Graph-level decisions travel; compiled
+vendor binaries do not. The orchestrator tags every champion with a portability class.</p>
+
+<table>
+  <thead><tr><th>Class</th><th>What's shared</th><th>Travels across…</th><th>Example</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><span class="pill pill-exist">PORTABLE</span></td>
+      <td>opset, graph passes, precision — pure ONNX-level decisions</td>
+      <td><span class="yes">any device + any EP</span></td>
+      <td>opset 21 NHWC-bypass (npu-001); w8a16 quantization</td>
+    </tr>
+    <tr>
+      <td><span class="pill pill-mod">EP-PORTABLE</span></td>
+      <td>Same EP family + flags; recompiled per device</td>
+      <td><span class="maybe">same EP vendor, different SKU</span></td>
+      <td>QNN HTP flags shared across two Hexagon SKUs</td>
+    </tr>
+    <tr>
+      <td><span class="pill pill-new">DEVICE-LOCKED</span></td>
+      <td>Compiled context binary / vendor blob</td>
+      <td><span class="no">one device + driver only</span></td>
+      <td>QNN context binary; OpenVINO compiled blob</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note" style="max-width:1000px;">
+  <strong>Key consequence:</strong> for a heterogeneous-vendor NPU set (Qualcomm + Intel + AMD), a literal "single config" can only
+  be <span class="pill pill-exist">PORTABLE</span> — i.e. shared <em>graph-level</em> choices (opset, passes, precision) plus a
+  <strong>per-device EP selection</strong>. The orchestrator searches the portable dimensions <em>jointly</em> and locks the EP per device.
+  The deliverable is therefore <em>"one shared config + N compiled artifacts"</em>, not one binary.
+</div>
+
+<h2>6 · Cross-Device KB — Adding the Device Axis</h2>
+
+<p style="margin-bottom:10px; color:#444; max-width:980px;">
+The confidence ladder from <code>self-evolution-design.html</code> generalizes findings along the <em>architecture</em> axis
+(2+ models → arch rule). The fleet adds an orthogonal <strong>device</strong> axis: a finding confirmed on 3 NPU SKUs is a
+<em>device-general</em> rule.</p>
+
+<table>
+  <thead><tr><th>Field (new)</th><th>Meaning</th><th>Promotion gate</th></tr></thead>
+  <tbody>
+    <tr><td><code>device_scope</code></td><td>List of (EP, SKU, driver) where the finding holds</td><td>Recorded per confirming worker</td></tr>
+    <tr><td><code>device_general</code></td><td>Holds across ≥3 SKUs of the same EP class</td><td>≥3 <code>device_scope</code> entries, same verdict sign</td></tr>
+    <tr><td><code>cross_ep</code></td><td>Holds across ≥2 EP vendors (truly portable)</td><td>Confirmed on ≥2 distinct EP families</td></tr>
+  </tbody>
+</table>
+
+<div class="note teal" style="max-width:1000px;">
+  <strong>Payoff:</strong> once a rule is <code>cross_ep</code>, the orchestrator can <em>predict</em> it on an unseen device and
+  skip that hypothesis on new fleet members — the device-axis analogue of the L5 predictive tier. The fleet is what lets a
+  finding earn that scope in the first place.
+</div>
+
+</div><!-- end objective -->
+
+<!-- ═══════════════════ TAB 3: SCENARIOS ═══════════════════ -->
+<div class="tab-panel" data-tab="scenarios">
+
+<h2>7 · Marked User Scenarios</h2>
+<p style="margin-bottom:6px; color:#444; max-width:980px;">The two scenarios this design must serve directly. Both reduce to the same engine — they differ only in the <strong>strategy</strong> and <strong>constraints</strong> passed to <code>score()</code>.</p>
+
+<!-- Scenario A -->
+<div class="scenario">
+  <div class="scenario-tag">Scenario A · worst-case / minimax</div>
+  <div class="scenario-q">"Find me a config best for 3 NPUs."</div>
+
+  <h4>Fleet</h4>
+  <p>3 NPU workers — e.g. Snapdragon X Elite (QNN/Hexagon), Intel Lunar Lake (OpenVINO/NPU), AMD Ryzen AI (Vitis/XDNA) — each running <code>winml serve --host 0.0.0.0</code>.</p>
+
+  <h4>Objective</h4>
+  <ul>
+    <li><strong>strategy = worst_case</strong>: minimize the <em>slowest</em> NPU's p50 latency, so every device gets an acceptable floor.</li>
+    <li><strong>hard gate</strong>: <code>accuracy_delta ≤ ε</code> and <code>cpu_fallback% ≈ 0</code> on each NPU (a config that CPU-falls-back on one vendor is disqualified — cf. npu-006 conv-fusion hazard).</li>
+  </ul>
+
+  <h4>How it runs</h4>
+  <ul>
+    <li>Orchestrator searches the <span class="pill pill-exist">PORTABLE</span> dimensions (opset, graph passes, precision) <strong>jointly</strong>; locks the best EP per NPU vendor.</li>
+    <li>Each candidate is fanned out to all 3 workers; the minimax score is the slowest of the 3.</li>
+    <li>Portability verdict surfaced: shared graph config travels, but each NPU keeps its own compiled artifact (<span class="pill pill-new">DEVICE-LOCKED</span> binary).</li>
+  </ul>
+
+  <h4>Output</h4>
+  <pre><code>champion (shared, PORTABLE):  opset=21, passes=[layout_bypass], precision=w8a16
+per-device EP:   { snapdragon: QNN-HTP, lunar_lake: OpenVINO-NPU, ryzen_ai: Vitis-XDNA }
+worst-case p50:  14.9 ms   (slowest = ryzen_ai)
+per-device p50:  { snapdragon: 11.2, lunar_lake: 13.4, ryzen_ai: 14.9 } ms
+accuracy_delta:  all ≤ 0.4%   ✔ gate passed
+artifacts:       3 compiled bundles (one per NPU)</code></pre>
+</div>
+
+<!-- Scenario B -->
+<div class="scenario" style="border-left-color:#1976d2;">
+  <div class="scenario-tag" style="color:#1565c0;">Scenario B · constrained weighted-sum</div>
+  <div class="scenario-q" style="color:#0d47a1;">"Find me a config that balances high-end and low-end machines — perf / accuracy / memory requirements are xxx."</div>
+
+  <h4>Fleet (spans tiers)</h4>
+  <p><strong>High-end:</strong> NPU + GPU, 32 GB. &nbsp;<strong>Low-end:</strong> CPU-only, 8 GB. Both running <code>winml serve --host 0.0.0.0</code>.</p>
+
+  <h4>Constraints (the "xxx" — supplied by the developer)</h4>
+  <table style="margin-top:4px;">
+    <thead><tr><th>Requirement</th><th>Low-end (binding)</th><th>High-end</th></tr></thead>
+    <tbody>
+      <tr><td>perf (p50)</td><td><code>≤ 30 ms</code></td><td><code>≤ 10 ms</code></td></tr>
+      <tr><td>accuracy_delta</td><td><code>≤ 1%</code></td><td><code>≤ 1%</code></td></tr>
+      <tr><td>peak memory</td><td><code>≤ 2 GB</code></td><td><code>≤ 8 GB</code></td></tr>
+    </tbody>
+  </table>
+
+  <h4>How it runs</h4>
+  <ul>
+    <li><strong>strategy = weighted</strong> with tier weights; the low-end device is usually the <em>binding</em> constraint.</li>
+    <li>Constrained multi-objective: satisfy every hard gate on the low-end box first, then maximize high-end perf within the feasible set.</li>
+    <li>The orchestrator may discover that <strong>no single config</strong> satisfies both — in which case it returns a <strong>tier-conditional config map</strong> (one config per tier) with the EP fallback chain, not a forced compromise.</li>
+  </ul>
+
+  <h4>Output — two shapes, agent picks the honest one</h4>
+  <div class="card-grid card-grid-2" style="margin-top:6px;">
+    <div class="card green">
+      <div class="card-title">Single balanced config (if feasible)</div>
+      <pre><code>config: opset=21, w8a16, layout_bypass
+low-end CPU:  p50 27 ms · mem 1.6 GB · Δacc 0.6%  ✔
+high-end NPU: p50  8 ms · mem 2.1 GB · Δacc 0.6%  ✔
+binding:  low-end perf (27/30 ms)</code></pre>
+    </div>
+    <div class="card orange">
+      <div class="card-title">Tier-conditional map (if not)</div>
+      <pre><code>low-end:  { ep: CPU,  precision: w8a16, opset: 21 }
+high-end: { ep: QNN,  precision: fp16,  opset: 21 }
+fallback chain:  QNN → DML → CPU
+note: no single config meets the 2 GB cap
+      on low-end at fp16 — split required.</code></pre>
+    </div>
+  </div>
+  <p style="margin-top:8px; font-size:12px; color:#444;">The tier-conditional path connects directly to the <strong>Cross-Device Confidence Agent</strong> in <code>agent-design.md §3.3</code> — same EP-fallback-chain concept, now produced from real fleet measurements instead of reasoning.</p>
+</div>
+
+<div class="note teal" style="max-width:1000px;">
+  <strong>One engine, two questions.</strong> Scenario A is <code>strategy=worst_case</code> over a homogeneous-role (all-NPU) set;
+  Scenario B is <code>strategy=weighted</code> + hard constraints over a heterogeneous-tier set. Nothing in the search loop,
+  bench protocol, or KB changes between them — only the objective arguments.
+</div>
+
+<h2>8 · Skill Outcome — Possible Results &amp; Trade-offs</h2>
+
+<p style="margin-bottom:10px; color:#444; max-width:1000px;">
+The skill does <strong>not</strong> silently pick one answer shape. It runs the fleet, then presents <em>all</em> outcomes that
+satisfy the hard constraints, with the trade-offs spelled out — <strong>the user makes the final call.</strong> "Best" is a
+judgement (simplicity vs peak perf vs maintenance cost) that only the developer can make.</p>
+
+<table>
+  <thead><tr>
+    <th>Outcome shape</th><th>What you ship</th><th>Pros</th><th>Cons</th><th>Best when</th>
+  </tr></thead>
+  <tbody>
+    <tr>
+      <td><span class="pill pill-exist">Single portable config</span></td>
+      <td>1 shared graph config (opset/passes/precision) + per-device EP + N compiled artifacts</td>
+      <td class="yes">One source of truth; one config to reason about; portable across the set</td>
+      <td class="no">Compromise perf on every device; still N binaries to build/store</td>
+      <td>Homogeneous-role fleet (e.g. all NPUs); you want simplicity over peak perf</td>
+    </tr>
+    <tr>
+      <td><span class="pill pill-exist">Single balanced config</span></td>
+      <td>1 config that meets every hard constraint across all tiers</td>
+      <td class="yes">Simplest possible — one config, possibly one artifact path if EP shared</td>
+      <td class="no">Often optimal on <em>no</em> device; may be <strong>infeasible</strong> under tight constraints</td>
+      <td>Tiers share an EP and constraints are loose enough to leave slack</td>
+    </tr>
+    <tr>
+      <td><span class="pill pill-mod">Tier-conditional map</span></td>
+      <td>One config per tier + EP fallback chain (QNN → DML → CPU)</td>
+      <td class="yes">Each tier near-optimal; honest when no single config can satisfy all</td>
+      <td class="maybe">More configs to maintain/test; runtime needs device→tier routing logic</td>
+      <td>Wide tier spread (NPU↔CPU) and/or tight perf/memory budgets</td>
+    </tr>
+    <tr>
+      <td><span class="pill pill-new">Pareto frontier set</span></td>
+      <td>The non-dominated set over {perf, accuracy, mem} + the knee point</td>
+      <td class="yes">Full visibility into every trade-off; nothing hidden</td>
+      <td class="maybe">No single answer — the user must choose; more to digest</td>
+      <td>Priorities are unclear up front; you want to explore before committing</td>
+    </tr>
+    <tr>
+      <td><span class="pill pill-new">Per-device champion</span></td>
+      <td>Independent best config for each device (N configs, no sharing)</td>
+      <td class="yes">Max achievable perf on every single device</td>
+      <td class="no">Worst portability; N configs + N artifacts to manage; no shared story</td>
+      <td>You already ship per-SKU builds, so maintenance cost is already paid</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note" style="max-width:1000px;">
+  <strong>The skill's job is to make the trade-off legible, not to decide it.</strong> Every row above comes with measured
+  per-device numbers (latency, accuracy delta, peak mem, portability class) so the developer chooses with evidence — e.g.
+  <em>"the single portable config is 18% slower on the fast NPU but saves me a second build pipeline — I'll take it."</em>
+</div>
+
+</div><!-- end scenarios -->
+
+<!-- ═══════════════════ TAB 4: PLAN & CONCLUSIONS ═══════════════════ -->
+<div class="tab-panel" data-tab="plan">
+
+<h2>9 · Implementation Plan</h2>
+
+<table>
+  <thead><tr><th>Priority</th><th>Component</th><th>File(s)</th><th>Status</th><th>Key change</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><span class="p0">P0</span></td>
+      <td>Enable <code>winml serve</code> Phase 0</td>
+      <td><code>cli.py</code> <span class="pill pill-mod">MOD</span></td>
+      <td><span class="cross">TODO</span></td>
+      <td>Remove <code>serve</code> from <code>_DISABLED_COMMANDS</code>; verify build/perf/eval/sys endpoints reachable over <code>0.0.0.0</code></td>
+    </tr>
+    <tr>
+      <td><span class="p0">P0</span></td>
+      <td>Fleet client + scheduler</td>
+      <td><code>fleet.py</code> <span class="pill pill-new">NEW</span></td>
+      <td><span class="cross">TODO</span></td>
+      <td>Register workers from <code>/sys</code>, fan out jobs, collect result vectors</td>
+    </tr>
+    <tr>
+      <td><span class="p0">P0</span></td>
+      <td>Multi-device objective</td>
+      <td><code>fleet_objective.py</code> <span class="pill pill-new">NEW</span></td>
+      <td><span class="cross">TODO</span></td>
+      <td><code>score(c, D, strategy, constraints)</code> → worst_case / weighted / Pareto</td>
+    </tr>
+    <tr>
+      <td><span class="p1">P1</span></td>
+      <td>Reuse Paired A/B per worker</td>
+      <td><code>sweep_utils.py</code> <span class="pill pill-exist">REUSE</span></td>
+      <td><span class="cross">TODO</span></td>
+      <td>Worker runs existing Paired A/B locally; orchestrator only aggregates</td>
+    </tr>
+    <tr>
+      <td><span class="p1">P1</span></td>
+      <td>Portability classifier</td>
+      <td><code>fleet_objective.py</code> <span class="pill pill-new">NEW</span></td>
+      <td><span class="cross">TODO</span></td>
+      <td>Tag champion PORTABLE / EP-PORTABLE / DEVICE-LOCKED; emit per-device artifacts</td>
+    </tr>
+    <tr>
+      <td><span class="p1">P1</span></td>
+      <td>Device axis in KB</td>
+      <td><code>ep_knowledge/*.json</code> <span class="pill pill-mod">MOD</span></td>
+      <td><span class="cross">TODO</span></td>
+      <td>Add <code>device_scope · device_general · cross_ep</code>; promote_findings reads them</td>
+    </tr>
+    <tr>
+      <td><span class="p2">P2</span></td>
+      <td>Tier-conditional config map output</td>
+      <td><code>fleet.py</code> <span class="pill pill-new">NEW</span></td>
+      <td><span class="cross">TODO</span></td>
+      <td>When no single config is feasible, emit per-tier map + EP fallback chain</td>
+    </tr>
+    <tr>
+      <td><span class="p2">P2</span></td>
+      <td>Cross-device prediction</td>
+      <td><code>analyze_insight.py</code> <span class="pill pill-mod">MOD</span></td>
+      <td><span class="cross">TODO</span></td>
+      <td>Use <code>cross_ep</code> rules to skip hypotheses on new fleet members</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>10 · Conclusions</h2>
+
+<div class="card-grid card-grid-2">
+  <div class="card teal">
+    <div class="card-title">✅ winml serve makes this a small build</div>
+    <p>The worker already exists (Phase 0 HTTP wrapper) and the orchestrator reuses Paired A/B, adaptive sampling, the confidence ladder, and champion output. The only new code is a fleet client plus an objective function.</p>
+  </div>
+  <div class="card orange">
+    <div class="card-title">⚠ The hard part is the objective, not the network</div>
+    <p>Networking is plumbing. The real design work is the multi-device objective (minimax vs weighted vs Pareto) and the portability taxonomy that decides what "one config" even means across vendors.</p>
+  </div>
+  <div class="card blue">
+    <div class="card-title">📦 Two honest deliverable shapes</div>
+    <p>A fleet answer is either <strong>one shared (portable) config + N compiled artifacts</strong>, or a <strong>tier-conditional config map</strong> with an EP fallback chain. Forcing a single binary across vendors is dishonest — the system must be allowed to return a map.</p>
+  </div>
+  <div class="card purple">
+    <div class="card-title">🧠 The fleet is what grows the KB's device axis</div>
+    <p>Only a multi-device fleet can promote a finding from "true on X Elite" to <code>cross_ep</code>. That scope, in turn, lets the system <em>predict</em> behavior on unseen devices — closing the loop with the Cross-Device Confidence Agent.</p>
+  </div>
+</div>
+
+<div class="note teal" style="max-width:1000px; margin-top:16px;">
+  <strong>Bottom line:</strong> <code>winml serve</code> (Phase 0) + a fleet orchestrator + a multi-device objective converts autoconfig
+  from a single-device tuner into a fleet tuner that answers the two questions developers actually ask — <em>"best for N NPUs"</em>
+  and <em>"balance my high-end and low-end fleet under perf/accuracy/memory budgets"</em> — with measured, auditable, per-device evidence.
+</div>
+
+<h3>Honest limitations</h3>
+<ul style="margin:8px 0 0 18px; font-size:12px; color:#444; max-width:1000px;">
+  <li><strong>DVFS is still per-device.</strong> Thermal noise doesn't disappear; each worker must still run the full Paired A/B protocol locally, so wall-clock is bounded by the slowest/noisiest device.</li>
+  <li><strong>Heterogeneous-vendor "single config" is a graph-level config, not a binary.</strong> Compiled NPU blobs are <span class="pill pill-new">DEVICE-LOCKED</span> by construction.</li>
+  <li><strong>Fleet provisioning is real cost.</strong> The value of cross-device search scales with how representative the fleet is of the shipping device population — a 3-device fleet generalizes better than 1, but is not the world.</li>
+  <li><strong>Driver/EP version drift</strong> across workers can confound results; <code>/sys</code> fingerprints must be recorded with every finding so the KB stays honest.</li>
+</ul>
+
+</div><!-- end plan -->
+
+<br><br>
+<div style="font-size:10px; color:#aaa; text-align:right;">Generated 2026-06-18 · research/autoconfig/docs/cross-device-design.html</div>
+
+<script>
+  document.querySelectorAll('.tab-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var tab = btn.dataset.tab;
+      document.querySelectorAll('.tab-btn').forEach(function (b) {
+        b.classList.toggle('active', b === btn);
+      });
+      document.querySelectorAll('.tab-panel').forEach(function (p) {
+        p.classList.toggle('active', p.dataset.tab === tab);
+      });
+    });
+  });
+</script>
+
+</body>
+</html>

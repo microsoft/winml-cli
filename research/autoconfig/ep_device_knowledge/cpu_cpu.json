@@ -1,0 +1,401 @@
+{
+  "_meta": {
+    "ep": "cpu",
+    "device": "cpu",
+    "hardware": "Snapdragon X Elite CRD (Oryon CPU)",
+    "ort_version": "1.x (check winml version at experiment time)",
+    "model": "facebook/convnext-tiny-224 (ALL findings from this model only)",
+    "last_updated": "2026-06-18",
+    "epistemics_warning": "⚠️ All findings from rigorous 3-run ablation. However, still 1 model, 1 device. CPU behavior can differ significantly between x86 and ARM (Oryon). Check architecture before applying rules.",
+    "models_tested": [
+      "facebook/convnext-tiny-224 (original ablation)",
+      "microsoft/resnet-18 (catalog_cpu_sweep 2026-06-18)",
+      "apple/mobilevit-small (catalog_cpu_sweep 2026-06-18)",
+      "facebook/dinov2-small (catalog_cpu_sweep 2026-06-18)",
+      "deepset/roberta-base-squad2 (sweep in progress)",
+      "deepset/tinyroberta-squad2 (sweep in progress)",
+      "BAAI/bge-small-en-v1.5 (sweep in progress)",
+      "sentence-transformers/all-MiniLM-L6-v2 (sweep in progress)"
+    ]
+  },
+  "sweep_config": {
+    "results_dir": "catalog-cpu-sweep",
+    "quant": false,
+    "compile": false,
+    "screen": {
+      "warmup": 10,
+      "iters": 200,
+      "cv_max": 0.1,
+      "thermal_aware": false
+    },
+    "full": {
+      "warmup": 10,
+      "iters": 300,
+      "sessions": 3,
+      "cool_down_s": 2
+    },
+    "confirm_sessions": 2,
+    "min_improvement_pct": 5.0,
+    "effect_size_gate": false,
+    "effect_size_cv_mult": 2.0,
+    "accuracy_eval": false,
+    "eval_samples": 50,
+    "paired_ab_available": false,
+    "baseline_priority": [
+      "h0"
+    ],
+    "timeouts": {
+      "config_s": 300,
+      "build_s": 600,
+      "bench_s": 480,
+      "eval_s": 360,
+      "model_s": null
+    }
+  },
+  "hypotheses": [
+    {
+      "id": "h0",
+      "label": "baseline (opset 17, autoconf defaults)",
+      "opset": null,
+      "optim": null
+    },
+    {
+      "id": "h1",
+      "label": "opset 17 explicit",
+      "opset": 17,
+      "optim": null
+    },
+    {
+      "id": "h2",
+      "label": "opset 19 (cpu-001 risk - transformer test)",
+      "opset": 19,
+      "optim": null
+    },
+    {
+      "id": "h3",
+      "label": "opset 21 (cpu-001 risk - transformer test)",
+      "opset": 21,
+      "optim": null
+    },
+    {
+      "id": "h4",
+      "label": "opset 17 + attention_fusion",
+      "opset": 17,
+      "optim": {
+        "attention_fusion": true
+      }
+    },
+    {
+      "id": "h5",
+      "label": "opset 17 + skip_layer_norm_fusion",
+      "opset": 17,
+      "optim": {
+        "skip_layer_norm_fusion": true
+      }
+    },
+    {
+      "id": "h6",
+      "label": "opset 17 + layer_norm_fusion",
+      "opset": 17,
+      "optim": {
+        "layer_norm_fusion": true
+      }
+    },
+    {
+      "id": "h7",
+      "label": "opset 17 + bias_softmax_fusion",
+      "opset": 17,
+      "optim": {
+        "bias_softmax_fusion": true
+      }
+    },
+    {
+      "id": "h8",
+      "label": "opset 17 + matmul_add_fusion (cpu-002 guarded)",
+      "opset": 17,
+      "optim": {
+        "matmul_add_fusion": true
+      },
+      "guard": {
+        "type": "skip_if_gemm",
+        "finding": "cpu-002"
+      }
+    },
+    {
+      "id": "h9",
+      "label": "opset 17 + matmul_transpose_fusion",
+      "opset": 17,
+      "optim": {
+        "matmul_transpose_fusion": true
+      }
+    },
+    {
+      "id": "h10",
+      "label": "opset 17 + attention + skip_layer_norm + layer_norm",
+      "opset": 17,
+      "optim": {
+        "attention_fusion": true,
+        "skip_layer_norm_fusion": true,
+        "layer_norm_fusion": true
+      }
+    },
+    {
+      "id": "h11",
+      "label": "opset 17 + nchwc_transformer (Conv-heavy models)",
+      "opset": 17,
+      "optim": {
+        "nchwc_transformer": true
+      }
+    },
+    {
+      "id": "h12",
+      "label": "opset 17 + transpose_optimizer",
+      "opset": 17,
+      "optim": {
+        "transpose_optimizer": true
+      }
+    },
+    {
+      "id": "h13",
+      "label": "opset 17 + gelu_fusion explicit",
+      "opset": 17,
+      "optim": {
+        "gelu_fusion": true
+      }
+    },
+    {
+      "id": "h14",
+      "label": "no optimization (analyzer auto-optimization disabled, --no-analyze)",
+      "opset": null,
+      "optim": null,
+      "build_flags": [
+        "--no-analyze"
+      ]
+    }
+  ],
+  "models": [
+    {
+      "id": "microsoft/resnet-18",
+      "task": "image-classification",
+      "model_type": "resnet"
+    },
+    {
+      "id": "apple/mobilevit-small",
+      "task": "image-classification",
+      "model_type": "mobilevit"
+    },
+    {
+      "id": "facebook/dinov2-small",
+      "task": "image-feature-extraction",
+      "model_type": "dinov2"
+    },
+    {
+      "id": "distilbert/distilbert-base-uncased-finetuned-sst-2-english",
+      "task": "text-classification",
+      "model_type": "distilbert"
+    },
+    {
+      "id": "sentence-transformers/all-MiniLM-L6-v2",
+      "task": "sentence-similarity",
+      "model_type": "bert"
+    },
+    {
+      "id": "deepset/roberta-base-squad2",
+      "task": "question-answering",
+      "model_type": "roberta"
+    },
+    {
+      "id": "microsoft/rad-dino",
+      "task": "image-feature-extraction",
+      "model_type": "dinov2"
+    },
+    {
+      "id": "deepset/tinyroberta-squad2",
+      "task": "question-answering",
+      "model_type": "roberta"
+    },
+    {
+      "id": "BAAI/bge-small-en-v1.5",
+      "task": "sentence-similarity",
+      "model_type": "bert"
+    }
+  ],
+  "cross_checks": [
+    {
+      "id": "cpu-001",
+      "type": "regression_probe",
+      "hypotheses": [
+        "h2",
+        "h3"
+      ],
+      "gain_threshold_pct": -50.0,
+      "label": "opset 19/21 regression on Transpose-dense models"
+    }
+  ],
+  "findings": [
+    {
+      "id": "cpu-001",
+      "title": "opset 19+ causes 3-10x slowdown on models with Transpose-heavy graphs (ConvNext + DINOv2 confirmed) — NOT ConvNext-specific",
+      "observation": "ConvNext: opset17=43.7ms, opset19=160ms (3.7x), opset21=170ms (3.9x). DINOv2-small catalog_cpu_sweep 2026-06-18: baseline (auto-config)=112.6ms, opset19=1106ms (9.8x CPU001_REGRESSION), opset21=1095ms (9.7x). CRITICAL: cpu-001 is NOT ConvNext-specific. DINOv2 is a pure-ViT model with no ConvNext architecture overlap. ResNet-18: opset17=237ms, opset19=231ms (+2.4% neutral), opset21=226ms (+4.5% neutral) — ResNet NOT affected. MobileViT: opset19=-9.1%, opset21=-7.4% (mild slowdown, not catastrophic). Pattern: models with dense Transpose usage (DINOv2, ConvNext) hit cpu-001; models with sparse Transpose (ResNet) do not.",
+      "mechanism_confirmed": false,
+      "mechanism_hypothesis": "Original hypothesis: ORT C++ Transpose Optimizer has a kMaxSupportedOpset gate (optimizer_api.h). If model opset > kMaxSupportedOpset, Transpose Optimizer is skipped silently. ConvNext has 42 Transpose nodes — without optimization, each executes as a full memory-layout copy. HOWEVER: the non-monotonic recovery at opset 22 (85ms vs 160-170ms at opset 19-21) is inconsistent with a simple binary gate. If the gate fires for opset > N, opset 22 should behave identically to opset 19. The actual mechanism is more complex. Additionally, ORT 1.24.x has kMaxSupportedOpset >= 23 confirmed (separate NHWC gate) — the Transpose Optimizer gate threshold may differ but is unverified.",
+      "action_for_autoconfig": "For CPU EP: default to opset 17. The empirical data (1 model, consistent across opsets) is unambiguous — opset 17 is the best option. Do NOT try opset 19+. The mechanism reason is uncertain but the practical conclusion is solid.",
+      "confidence": "high on empirical observation (consistent data across opsets for 1 model). Low on mechanism — the gate hypothesis does not fully explain the non-monotonic opset 22 partial recovery.",
+      "falsified_by": null,
+      "scope": "Models with dense Transpose graphs (ConvNext + DINOv2 confirmed). ResNet-18 is NOT affected. MobileViT mildly affected. BERT/RoBERTa unknown (sweep in progress 2026-06-18).",
+      "ort_kMaxSupportedOpset_by_version": {
+        "note": "These values are for the NHWC layout_transformation gate, NOT the Transpose Optimizer gate. The two constants may differ within the same ORT release.",
+        "v1.14.x": 18,
+        "v1.16.x": 19,
+        "v1.17.x": 20,
+        "v1.18.x": 21,
+        "v1.24.x": ">= 23 (confirmed for NHWC gate; Transpose Optimizer gate unknown)",
+        "main_HEAD": 26
+      },
+      "do_not_generalize_to": "QNN NPU EP or DML EP — kMaxSupportedOpset is a CPU-only ORT optimizer gate. These EPs have their own kernel dispatch unaffected by this.",
+      "validated_regressions": [
+        "facebook/convnext-tiny-224: opset19 3.7x, opset21 3.9x",
+        "facebook/dinov2-small: opset19 9.8x, opset21 9.7x (CPU001_REGRESSION)"
+      ],
+      "validated_neutral": [
+        "microsoft/resnet-18: opset19 +2.4% neutral, opset21 +4.5% neutral",
+        "apple/mobilevit-small: opset19 -9.1%, opset21 -7.4% (mild, not catastrophic)"
+      ],
+      "pending": "BERT/RoBERTa/MiniLM (sweep in progress 2026-06-18 — expected: neutral based on few Transpose nodes)",
+      "last_updated": "2026-06-18"
+    },
+    {
+      "id": "cpu-002",
+      "title": "matmul_add_fusion is a CONFIRMED REGRESSION on ConvNext CPU (+38ms, ~87%)",
+      "observation": "matmul_add_fusion: p50=81.7ms, runs=[63.0, 70.8, 111.2ms]. Baseline p50=43.7ms. All 3 runs far above highest baseline run (45.4ms).",
+      "mechanism_confirmed": false,
+      "mechanism_hypothesis": "ORT baseline already converts MatMul+Add→Gemm (37 Gemm in model.onnx). Applying matmul_add_fusion on top may create redundant kernel dispatch or conflicting operator mapping. Requires profiling to confirm.",
+      "action_for_autoconfig": "Do NOT apply matmul_add_fusion for CPU EP on models where baseline already uses Gemm (check model.onnx for Gemm nodes before applying this pass).",
+      "confidence": "high — 3 independent runs, all far above baseline; direction is unambiguous",
+      "falsified_by": null,
+      "scope": "ConvNext and models where ORT L2 baseline already fuses MatMul+Add→Gemm",
+      "do_not_generalize_to": "Models where baseline does NOT have Gemm (the pass may legitimately help there)"
+    },
+    {
+      "id": "cpu-003",
+      "title": "transpose_optimizer is neutral on ConvNext CPU (NOT +270ms as previously reported)",
+      "observation": "winml perf (warmup=10, iter=50): 42.3 / 52.3 / 41.8ms — overlapping baseline. Earlier winml eval-based measurement showed +270ms — this was a measurement artifact.",
+      "mechanism_confirmed": true,
+      "mechanism_hypothesis": "winml eval includes HF preprocessing + model load + no warmup. The +270ms was preprocessing overhead, not inference regression. Pure inference measurement (winml perf) shows no effect.",
+      "action_for_autoconfig": "transpose_optimizer is neutral for ConvNext CPU — neither helpful nor harmful. Can be omitted from search space.",
+      "confidence": "high — measurement methodology confirmed; tool comparison validated",
+      "falsified_by": "Earlier winml eval measurement — RETRACTED. Use winml perf for all latency comparisons.",
+      "scope": "ConvNext CPU",
+      "measurement_lesson": "Always use winml perf (warmup=10, iter=50) for latency experiments. Never use winml eval latency to compare configs."
+    },
+    {
+      "id": "cpu-004",
+      "title": "nchwc_transformer is neutral on ConvNext CPU",
+      "observation": "nchwc: 43.4 / 48.0 / 44.7ms — overlapping baseline (42.5–45.4ms). No improvement.",
+      "mechanism_confirmed": false,
+      "mechanism_hypothesis": "NCHWc SIMD layout benefits Conv-heavy models. ConvNext has 22 Conv nodes but 57.7% of kernel time is Gemm. The bottleneck is not memory layout but compute throughput — NCHWc doesn't help.",
+      "action_for_autoconfig": "nchwc_transformer is low-priority for ConvNext-class models. Profile first — if Conv% > 40%, try nchwc. If Gemm% > 50%, skip.",
+      "confidence": "medium — 3 runs, neutral result; mechanism is a hypothesis",
+      "falsified_by": null,
+      "scope": "ConvNext CPU (Gemm-dominated, not Conv-dominated)"
+    },
+    {
+      "id": "cpu-005",
+      "title": "Baseline (no extra flags) is the optimal config for ConvNext CPU",
+      "observation": "No flag in 22-experiment ablation improved p50 beyond noise. Baseline p50=43.7ms is the floor.",
+      "mechanism_confirmed": false,
+      "mechanism_hypothesis": "ORT L2 baseline already applies gelu_fusion and MatMul→Gemm before any user flags. The effective optimization space is narrow for ConvNext on CPU. Compute bottleneck (Gemm=57.7%) is not addressable via graph passes.",
+      "action_for_autoconfig": "For CPU EP on ConvNext-class models: skip optimization pass sweep. Go directly to quantization experiments.",
+      "confidence": "high — 22 experiments, no improvement found",
+      "falsified_by": null,
+      "scope": "ConvNext-class vision models on CPU",
+      "do_not_generalize_to": "BERT/Transformer models where attention_fusion + skip_layer_norm can significantly help"
+    },
+    {
+      "id": "cpu-006",
+      "title": "CPU EP opset 21 is 3.9x SLOWER — opposite of QNN NPU behavior",
+      "observation": "CPU opset 21: p50=170ms. CPU opset 17: p50=43.7ms. QNN NPU opset 21 (DINOv2): p50=26ms (~24% FASTER than opset 17 at 34ms). Note: the NPU and CPU experiments used DIFFERENT models (CPU=ConvNext, NPU=DINOv2) — the comparison is directional only, not quantitative.",
+      "mechanism_confirmed": false,
+      "mechanism_hypothesis": "CPU regression from Transpose Optimizer bypass (see cpu-001 — mechanism uncertain). QNN NPU speedup from unknown cause (original Transpose bypass hypothesis invalidated; Transpose counts identical in opset17/21 graphs). The key insight is that CPU and QNN NPU respond oppositely to opset changes, regardless of the root cause.",
+      "action_for_autoconfig": "EP ISOLATION: CPU opset findings MUST NOT influence QNN NPU search space, and vice versa. Always validate per EP independently.",
+      "confidence": "high on empirical observation. Low on mechanism for both directions.",
+      "falsified_by": null,
+      "scope": "ALL — this is a meta-rule about EP isolation, not model-specific"
+    },
+    {
+      "id": "cpu-007",
+      "title": "matmul_transpose_fusion gives +92% speedup on ResNet-18 CPU EP (237ms -> 17.8ms)",
+      "confidence": "high — KEEP_CONFIRMED (all 5 sessions passed Phase C)",
+      "scope": "Conv-dominant models with MatMul+Transpose sequences. ResNet-18 confirmed. DINOv2 tested but ALL fusion flags regressed (cpu-001 interference). MobileViT partial.",
+      "observation": "catalog_cpu_sweep 2026-06-18: ResNet-18 h9 (opset17+matmul_transpose_fusion): median_p50=17.797ms vs baseline 237.472ms = +92.51% KEEP_CONFIRMED. Also: h12 (transpose_optimizer) +84.46% KEEP_CONFIRMED, h13 (gelu_fusion) +88.89% KEEP_CONFIRMED, h10 (bundle) +91.54% KEEP_CONFIRMED, h6 (layer_norm_fusion) +10.43% KEEP_CONFIRMED. All 5 phase-C sessions passed.",
+      "mechanism_hypothesis": "ResNet-18 on CPU at default config has 237ms latency (extremely slow for a tiny model). matmul_transpose_fusion folds MatMul+Transpose into a transposed GEMM call, enabling BLAS-level fused execution. ORT CPU provider has a highly optimized transposed-matmul path. The baseline 237ms suggests the default config exports with a suboptimal graph (possibly unfused MatMul+Transpose pairs that prevent BLAS dispatch).",
+      "mechanism_confirmed": false,
+      "baseline_note": "ResNet-18 baseline=237ms on CPU is extremely slow (17.8ms after optimization = 13x speedup). This suggests the default auto-config for ResNet-18 on CPU is severely suboptimal. The baseline uses auto-config which may not be correctly detecting the model architecture for CPU optimization.",
+      "affected_models": [
+        "microsoft/resnet-18 (+92.51% KEEP_CONFIRMED)"
+      ],
+      "autoconfig_action": "For ResNet-18 class models on CPU: apply matmul_transpose_fusion (h9) + transpose_optimizer (h12) + gelu_fusion (h13) bundle. Test h10 bundle for single combined build.",
+      "added": "2026-06-18",
+      "source": "catalog_cpu_sweep.py h0-h13 sweep"
+    },
+    {
+      "id": "cpu-008",
+      "title": "layer_norm_fusion causes catastrophic -997% regression on MobileViT CPU EP (73ms -> 803ms)",
+      "confidence": "high — 3-session consistent",
+      "scope": "CNN-ViT hybrid models where layer_norm_fusion mismatches the LN implementation. MobileViT confirmed. Pure transformer (BERT/ViT) expected safe.",
+      "observation": "catalog_cpu_sweep 2026-06-18: MobileViT h6 (opset17+layer_norm_fusion): median_p50=803.217ms vs baseline 73.166ms = -997.8% DISCARD. 3-session consistent. For comparison: bias_softmax_fusion (h7) = 64.137ms (+12.34% MARGINAL_UNCONFIRMED). layer_norm_fusion, skip_layer_norm_fusion, attention_fusion, matmul_transpose_fusion all severely regress MobileViT on CPU.",
+      "mechanism_hypothesis": "MobileViT uses a hybrid CNN-ViT architecture where LayerNorm is placed after Conv2D outputs. layer_norm_fusion expects pure transformer LN sequences (MLP-style). Fusing the wrong LN pattern creates a combined op that the CPU runtime cannot dispatch to an optimized kernel path, forcing fallback to element-wise operations.",
+      "mechanism_confirmed": false,
+      "affected_models": [
+        "apple/mobilevit-small (-997% layer_norm, -165% matmul_transpose, -164% attention bundle)"
+      ],
+      "autoconfig_action": "Block layer_norm_fusion for CNN-ViT hybrid models. Also block matmul_transpose_fusion and attention_fusion for MobileViT-class models on CPU. analyze_insight.py should detect CNN-ViT hybrid architecture and skip these fusions.",
+      "added": "2026-06-18",
+      "source": "catalog_cpu_sweep.py h0-h13 sweep"
+    },
+    {
+      "id": "cpu-009",
+      "title": "cpu-001 opset regression fires on DINOv2 pure-ViT: ~10x slowdown at opset19/21 on CPU EP",
+      "confidence": "high — CPU001_REGRESSION verdict confirmed (pattern matches ConvNext)",
+      "scope": "Pure-ViT models with dense Transpose graphs on CPU EP. DINOv2-small confirmed. BERT/NLP expected neutral (sparse Transpose). ResNet-18 confirmed neutral.",
+      "observation": "catalog_cpu_sweep 2026-06-18: DINOv2-small h2 (opset19): 1106ms vs baseline 112ms (-882% CPU001_REGRESSION). h3 (opset21): 1095ms (-873%). h4 attention_fusion: 1083ms (-862%). h7 bias_softmax_fusion: 1121ms (-896%). The baseline (auto-config, opset not forced) = 112ms. Any forced opset or attention-style fusion causes catastrophic regression. Also: h1 opset17-explicit = 762ms (-577%) — even forcing opset17 explicitly regresses DINOv2 vs auto-config baseline.",
+      "mechanism_note": "DINOv2 has 169 Reshape nodes in opset21 vs 121 in opset17. Dense Transpose (49 nodes). cpu-001 mechanism (Transpose Optimizer bypass) applies here as strongly as ConvNext. The auto-config baseline (h0) at 112ms is already the optimized path; ANY deviation from auto-config triggers regression.",
+      "autoconfig_action": "For DINOv2/ViT-class on CPU EP: use auto-config default opset ONLY. Do not force any opset. Do not apply attention_fusion or bias_softmax_fusion (all regress DINOv2 on CPU). CPU EP for DINOv2 is constrained to baseline config only.",
+      "added": "2026-06-18",
+      "source": "catalog_cpu_sweep.py h0-h13 sweep"
+    }
+  ],
+  "search_space_rules": {
+    "opset": {
+      "recommended_order": [
+        17
+      ],
+      "skip": [
+        "19, 20, 21, 22 — kMaxSupportedOpset regression (cpu-001). Only safe to try if ORT version's kMaxSupportedOpset >= target."
+      ],
+      "dialectical_note": "⚠️ This rule is ORT-version dependent. Check kMaxSupportedOpset for the shipping ORT build before skipping higher opsets."
+    },
+    "quantization": {
+      "recommended": "w8a8 (CPU benefits most from small model size)",
+      "dialectical_note": "⚠️ W8A8 on CPU not yet validated for ConvNext. General guidance — run accuracy gate."
+    },
+    "compile": {
+      "always_run": false,
+      "skip": true,
+      "dialectical_note": "⚠️ winml compile targets QNN EPContext. Not applicable to CPU EP."
+    },
+    "graph_passes": {
+      "recommended": "autoconf defaults only",
+      "skip": [
+        "matmul_add_fusion if model already has Gemm (cpu-002)",
+        "nchwc_transformer if Gemm% > 50% in profile (cpu-004)"
+      ],
+      "dialectical_note": "⚠️ Skip rules are Gemm-bottleneck specific. Conv-heavy models may still benefit from nchwc_transformer."
+    }
+  },
+  "meta_lessons": {
+    "measurement_discipline": "Always use winml perf (warmup=10, iter=50) for latency. Never use winml eval latency. See cpu-003.",
+    "ep_isolation": "CPU findings (especially opset regression) DO NOT transfer to QNN NPU or DML. Each EP has its own optimizer path. See cpu-006.",
+    "baseline_check": "Before applying any fusion flag, check model.onnx for existing fused ops. If Gemm already present, matmul_add_fusion is likely a no-op or regression."
+  }
+}

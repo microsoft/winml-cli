@@ -1,0 +1,535 @@
+{
+  "model_id": "monologg/koelectra-small-v2-distilled-korquad-384",
+  "task": "question-answering",
+  "model_type": "electra",
+  "timestamp": "2026-06-25T14:53:57",
+  "ep": "qnn",
+  "device": "gpu",
+  "hypotheses": {
+    "h0": {
+      "status": "OK_HIGH_CV",
+      "label": "baseline FP32 (no quant, no compile)",
+      "opset": 17,
+      "optim": {},
+      "op_signature": {
+        "total_operators": 379,
+        "operator_counts": {
+          "Gather": 2,
+          "Add": 38,
+          "LayerNormalization": 25,
+          "Reshape": 124,
+          "Gemm": 74,
+          "Transpose": 48,
+          "MatMul": 24,
+          "Div": 12,
+          "Unsqueeze": 2,
+          "Cast": 1,
+          "Sub": 1,
+          "Mul": 1,
+          "Softmax": 12,
+          "Gelu": 12,
+          "Split": 1,
+          "Squeeze": 2
+        },
+        "opset": 17
+      },
+      "graph_changed": null,
+      "screen": {
+        "p50_ms": 33.997,
+        "cv": 0.2533,
+        "stable": false
+      },
+      "full": {
+        "p50s_ms": [
+          35.54,
+          36.586,
+          33.253
+        ],
+        "median_p50_ms": 35.54
+      },
+      "verdict": "BASELINE"
+    },
+    "h1": {
+      "status": "PREBUILD_NOOP_SKIP",
+      "verdict": "NO_OP",
+      "label": "opset 17 explicit",
+      "opset": 17,
+      "optim": {},
+      "build_flags": [],
+      "graph_changed": false,
+      "noop_note": "pre-build config-identity skip: explicit opset=17 == baseline opset with no optim or build flags — config is identical to baseline (harness-002)"
+    },
+    "h2": {
+      "status": "OK_HIGH_CV",
+      "label": "opset 19",
+      "opset": 19,
+      "optim": {},
+      "op_signature": {
+        "total_operators": 427,
+        "operator_counts": {
+          "Gather": 2,
+          "Add": 38,
+          "LayerNormalization": 25,
+          "Reshape": 172,
+          "Gemm": 74,
+          "Transpose": 48,
+          "MatMul": 24,
+          "Div": 12,
+          "Unsqueeze": 2,
+          "Cast": 1,
+          "Sub": 1,
+          "Mul": 1,
+          "Softmax": 12,
+          "Gelu": 12,
+          "Split": 1,
+          "Squeeze": 2
+        },
+        "opset": 19
+      },
+      "graph_changed": true,
+      "screen": {
+        "p50_ms": 32.905,
+        "cv": 0.2261,
+        "stable": false
+      },
+      "full": {
+        "p50s_ms": [
+          32.781,
+          39.162,
+          35.77
+        ],
+        "median_p50_ms": 35.77
+      },
+      "gain_vs_baseline_pct": -0.65,
+      "verdict": "DISCARD"
+    },
+    "h3": {
+      "status": "OK_HIGH_CV",
+      "label": "opset 21 (tests gpu-006)",
+      "opset": 21,
+      "optim": {},
+      "op_signature": {
+        "total_operators": 427,
+        "operator_counts": {
+          "Gather": 2,
+          "Add": 38,
+          "LayerNormalization": 25,
+          "Reshape": 172,
+          "Gemm": 74,
+          "Transpose": 48,
+          "MatMul": 24,
+          "Div": 12,
+          "Unsqueeze": 2,
+          "Cast": 1,
+          "Sub": 1,
+          "Mul": 1,
+          "Softmax": 12,
+          "Gelu": 12,
+          "Split": 1,
+          "Squeeze": 2
+        },
+        "opset": 21
+      },
+      "graph_changed": true,
+      "screen": {
+        "p50_ms": 36.18,
+        "cv": 0.3714,
+        "stable": false
+      },
+      "full": {
+        "p50s_ms": [
+          45.6,
+          36.692,
+          36.318
+        ],
+        "median_p50_ms": 36.692
+      },
+      "gain_vs_baseline_pct": -3.24,
+      "verdict": "DISCARD"
+    },
+    "h4": {
+      "status": "NOOP_SKIPPED",
+      "verdict": "NO_OP",
+      "label": "opset 17 + matmul_transpose_fusion",
+      "opset": 17,
+      "optim": {
+        "matmul_transpose_fusion": true
+      },
+      "build_flags": [],
+      "op_signature": {
+        "total_operators": 379,
+        "operator_counts": {
+          "Gather": 2,
+          "Add": 38,
+          "LayerNormalization": 25,
+          "Reshape": 124,
+          "Gemm": 74,
+          "Transpose": 48,
+          "MatMul": 24,
+          "Div": 12,
+          "Unsqueeze": 2,
+          "Cast": 1,
+          "Sub": 1,
+          "Mul": 1,
+          "Softmax": 12,
+          "Gelu": 12,
+          "Split": 1,
+          "Squeeze": 2
+        },
+        "opset": 17
+      },
+      "graph_changed": false,
+      "noop_note": "graph identical to baseline (opset + op counts unchanged) — flag did not fire; bench skipped, baseline perf assumed",
+      "full_ref": "h0",
+      "assumed_median_p50_ms": 35.54
+    },
+    "h5": {
+      "status": "NOOP_SKIPPED",
+      "verdict": "NO_OP",
+      "label": "opset 17 + attention_fusion",
+      "opset": 17,
+      "optim": {
+        "attention_fusion": true
+      },
+      "build_flags": [],
+      "op_signature": {
+        "total_operators": 379,
+        "operator_counts": {
+          "Gather": 2,
+          "Add": 38,
+          "LayerNormalization": 25,
+          "Reshape": 124,
+          "Gemm": 74,
+          "Transpose": 48,
+          "MatMul": 24,
+          "Div": 12,
+          "Unsqueeze": 2,
+          "Cast": 1,
+          "Sub": 1,
+          "Mul": 1,
+          "Softmax": 12,
+          "Gelu": 12,
+          "Split": 1,
+          "Squeeze": 2
+        },
+        "opset": 17
+      },
+      "graph_changed": false,
+      "noop_note": "graph identical to baseline (opset + op counts unchanged) — flag did not fire; bench skipped, baseline perf assumed",
+      "full_ref": "h0",
+      "assumed_median_p50_ms": 35.54
+    },
+    "h6": {
+      "status": "NOOP_SKIPPED",
+      "verdict": "NO_OP",
+      "label": "opset 17 + bias_softmax_fusion",
+      "opset": 17,
+      "optim": {
+        "bias_softmax_fusion": true
+      },
+      "build_flags": [],
+      "op_signature": {
+        "total_operators": 379,
+        "operator_counts": {
+          "Gather": 2,
+          "Add": 38,
+          "LayerNormalization": 25,
+          "Reshape": 124,
+          "Gemm": 74,
+          "Transpose": 48,
+          "MatMul": 24,
+          "Div": 12,
+          "Unsqueeze": 2,
+          "Cast": 1,
+          "Sub": 1,
+          "Mul": 1,
+          "Softmax": 12,
+          "Gelu": 12,
+          "Split": 1,
+          "Squeeze": 2
+        },
+        "opset": 17
+      },
+      "graph_changed": false,
+      "noop_note": "graph identical to baseline (opset + op counts unchanged) — flag did not fire; bench skipped, baseline perf assumed",
+      "full_ref": "h0",
+      "assumed_median_p50_ms": 35.54
+    },
+    "h7": {
+      "status": "NOOP_SKIPPED",
+      "verdict": "NO_OP",
+      "label": "opset 17 + layer_norm_fusion",
+      "opset": 17,
+      "optim": {
+        "layer_norm_fusion": true
+      },
+      "build_flags": [],
+      "op_signature": {
+        "total_operators": 379,
+        "operator_counts": {
+          "Gather": 2,
+          "Add": 38,
+          "LayerNormalization": 25,
+          "Reshape": 124,
+          "Gemm": 74,
+          "Transpose": 48,
+          "MatMul": 24,
+          "Div": 12,
+          "Unsqueeze": 2,
+          "Cast": 1,
+          "Sub": 1,
+          "Mul": 1,
+          "Softmax": 12,
+          "Gelu": 12,
+          "Split": 1,
+          "Squeeze": 2
+        },
+        "opset": 17
+      },
+      "graph_changed": false,
+      "noop_note": "graph identical to baseline (opset + op counts unchanged) — flag did not fire; bench skipped, baseline perf assumed",
+      "full_ref": "h0",
+      "assumed_median_p50_ms": 35.54
+    },
+    "h8": {
+      "status": "OK_HIGH_CV",
+      "label": "opset 17 + skip_layer_norm_fusion",
+      "opset": 17,
+      "optim": {
+        "skip_layer_norm_fusion": true
+      },
+      "op_signature": {
+        "total_operators": 354,
+        "operator_counts": {
+          "Gather": 2,
+          "Add": 13,
+          "SkipLayerNormalization": 25,
+          "Reshape": 124,
+          "Gemm": 74,
+          "Transpose": 48,
+          "Unsqueeze": 2,
+          "Cast": 1,
+          "Sub": 1,
+          "Mul": 1,
+          "MatMul": 24,
+          "Div": 12,
+          "Softmax": 12,
+          "Gelu": 12,
+          "Split": 1,
+          "Squeeze": 2
+        },
+        "opset": 17
+      },
+      "graph_changed": true,
+      "screen": {
+        "p50_ms": 148.342,
+        "cv": 0.7245,
+        "stable": false
+      },
+      "full": {
+        "p50s_ms": [
+          114.859,
+          102.127,
+          131.624
+        ],
+        "median_p50_ms": 114.859
+      },
+      "gain_vs_baseline_pct": -223.18,
+      "verdict": "DISCARD"
+    },
+    "h9": {
+      "status": "NOOP_SKIPPED",
+      "verdict": "NO_OP",
+      "label": "opset 21 + matmul_transpose + attention_fusion",
+      "opset": 21,
+      "optim": {
+        "matmul_transpose_fusion": true,
+        "attention_fusion": true
+      },
+      "build_flags": [],
+      "op_signature": {
+        "total_operators": 427,
+        "operator_counts": {
+          "Gather": 2,
+          "Add": 38,
+          "LayerNormalization": 25,
+          "Reshape": 172,
+          "Gemm": 74,
+          "Transpose": 48,
+          "MatMul": 24,
+          "Div": 12,
+          "Unsqueeze": 2,
+          "Cast": 1,
+          "Sub": 1,
+          "Mul": 1,
+          "Softmax": 12,
+          "Gelu": 12,
+          "Split": 1,
+          "Squeeze": 2
+        },
+        "opset": 21
+      },
+      "graph_changed": false,
+      "noop_note": "graph identical to h3 (opset + op counts match) — flag did not fire; bench skipped, prior perf reused",
+      "full_ref": "h3",
+      "assumed_median_p50_ms": 36.692
+    },
+    "h10": {
+      "status": "NOOP_SKIPPED",
+      "verdict": "NO_OP",
+      "label": "opset 17 + ln + skip_ln + matmul_transpose",
+      "opset": 17,
+      "optim": {
+        "layer_norm_fusion": true,
+        "skip_layer_norm_fusion": true,
+        "matmul_transpose_fusion": true
+      },
+      "build_flags": [],
+      "op_signature": {
+        "total_operators": 354,
+        "operator_counts": {
+          "Gather": 2,
+          "Add": 13,
+          "SkipLayerNormalization": 25,
+          "Reshape": 124,
+          "Gemm": 74,
+          "Transpose": 48,
+          "Unsqueeze": 2,
+          "Cast": 1,
+          "Sub": 1,
+          "Mul": 1,
+          "MatMul": 24,
+          "Div": 12,
+          "Softmax": 12,
+          "Gelu": 12,
+          "Split": 1,
+          "Squeeze": 2
+        },
+        "opset": 17
+      },
+      "graph_changed": false,
+      "noop_note": "graph identical to h8 (opset + op counts match) — flag did not fire; bench skipped, prior perf reused",
+      "full_ref": "h8",
+      "assumed_median_p50_ms": 114.859
+    },
+    "h11": {
+      "status": "NOOP_SKIPPED",
+      "verdict": "NO_OP",
+      "label": "opset 17 + gelu_fusion explicit",
+      "opset": 17,
+      "optim": {
+        "gelu_fusion": true
+      },
+      "build_flags": [],
+      "op_signature": {
+        "total_operators": 379,
+        "operator_counts": {
+          "Gather": 2,
+          "Add": 38,
+          "LayerNormalization": 25,
+          "Reshape": 124,
+          "Gemm": 74,
+          "Transpose": 48,
+          "Unsqueeze": 2,
+          "Cast": 1,
+          "Sub": 1,
+          "Mul": 1,
+          "MatMul": 24,
+          "Div": 12,
+          "Softmax": 12,
+          "Gelu": 12,
+          "Split": 1,
+          "Squeeze": 2
+        },
+        "opset": 17
+      },
+      "graph_changed": false,
+      "noop_note": "graph identical to baseline (opset + op counts unchanged) — flag did not fire; bench skipped, baseline perf assumed",
+      "full_ref": "h0",
+      "assumed_median_p50_ms": 35.54
+    },
+    "h12": {
+      "status": "NOOP_SKIPPED",
+      "verdict": "NO_OP",
+      "label": "opset 17 + transpose_optimizer",
+      "opset": 17,
+      "optim": {
+        "transpose_optimizer": true
+      },
+      "build_flags": [],
+      "op_signature": {
+        "total_operators": 379,
+        "operator_counts": {
+          "Gather": 2,
+          "Add": 38,
+          "LayerNormalization": 25,
+          "Reshape": 124,
+          "Gemm": 74,
+          "Transpose": 48,
+          "MatMul": 24,
+          "Div": 12,
+          "Unsqueeze": 2,
+          "Cast": 1,
+          "Sub": 1,
+          "Mul": 1,
+          "Softmax": 12,
+          "Gelu": 12,
+          "Split": 1,
+          "Squeeze": 2
+        },
+        "opset": 17
+      },
+      "graph_changed": false,
+      "noop_note": "graph identical to baseline (opset + op counts unchanged) — flag did not fire; bench skipped, baseline perf assumed",
+      "full_ref": "h0",
+      "assumed_median_p50_ms": 35.54
+    },
+    "h13": {
+      "status": "OK_HIGH_CV",
+      "label": "no optimization (analyzer auto-optimization disabled, --no-analyze)",
+      "opset": 17,
+      "optim": {},
+      "op_signature": null,
+      "graph_changed": null,
+      "screen": {
+        "p50_ms": 35.419,
+        "cv": 0.4836,
+        "stable": false
+      },
+      "full": {
+        "p50s_ms": [
+          33.298,
+          34.528,
+          36.515
+        ],
+        "median_p50_ms": 34.528
+      },
+      "gain_vs_baseline_pct": 2.85,
+      "verdict": "MARGINAL"
+    }
+  },
+  "baseline_opset": 17,
+  "baseline_p50_ms": 35.54,
+  "best_hypothesis": "h13",
+  "best_p50_ms": 34.528,
+  "best_gain_pct": 2.85,
+  "conv_pct": null,
+  "best_gain_verdict": "BASELINE_IS_BEST",
+  "errors": [],
+  "feature_gaps": [],
+  "noop_hypotheses": [
+    "h4",
+    "h5",
+    "h6",
+    "h7",
+    "h9",
+    "h10",
+    "h11",
+    "h12"
+  ],
+  "prebuild_noop_hypotheses": [
+    "h1"
+  ],
+  "gpu-006_generalized": "N/A (h1 not OK)",
+  "gpu-006_ranges_non_overlapping": null
+}
