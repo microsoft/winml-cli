@@ -185,6 +185,29 @@ _QUESTION_ANSWERING_SCHEMA = TaskSchema(
     ),
 )
 
+_VISUAL_QUESTION_ANSWERING_SCHEMA = TaskSchema(
+    columns=(
+        SchemaItem(
+            "input_column",
+            "input image (PIL.Image)",
+            default="image",
+            remap_hint="<your_image_column>",
+        ),
+        SchemaItem(
+            "question_column",
+            "question text",
+            default="question",
+            remap_hint="<your_question_column>",
+        ),
+        SchemaItem(
+            "label_column",
+            "VQAv2 annotator answers (normally ten answer strings)",
+            default="answers",
+            remap_hint="<your_answers_column>",
+        ),
+    ),
+)
+
 _FEATURE_EXTRACTION_SCHEMA = TaskSchema(
     columns=(
         SchemaItem(
@@ -457,6 +480,7 @@ TASK_SCHEMAS: dict[str, TaskSchema] = {
     "object-detection": _OBJECT_DETECTION_SCHEMA,
     "image-segmentation": _IMAGE_SEGMENTATION_SCHEMA,
     "question-answering": _QUESTION_ANSWERING_SCHEMA,
+    "visual-question-answering": _VISUAL_QUESTION_ANSWERING_SCHEMA,
     "feature-extraction": _FEATURE_EXTRACTION_SCHEMA,
     "sentence-similarity": _FEATURE_EXTRACTION_SCHEMA,
     "image-feature-extraction": _IMAGE_FEATURE_EXTRACTION_SCHEMA,
