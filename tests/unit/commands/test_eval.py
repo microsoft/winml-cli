@@ -438,6 +438,29 @@ class TestEvalHelp:
         assert result.exit_code == 0, result.output
         assert "--input-data" in result.output
 
+    def test_help_mentions_device_luid(self, runner: CliRunner):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        result = runner.invoke(eval_cmd, ["--help"])
+
+        assert result.exit_code == 0, result.output
+        assert "--device-luid" in result.output
+
+    @pytest.mark.parametrize(
+        "value",
+        ["garbage", "0", "0x1_0x2", "0x00000000_0x0000000G"],
+    )
+    def test_invalid_device_luid_is_rejected(self, runner: CliRunner, value: str):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        result = runner.invoke(
+            eval_cmd,
+            ["-m", "microsoft/resnet-50", "--device-luid", value],
+        )
+
+        assert result.exit_code == 2
+        assert "expected 0xHHHHHHHH_0xLLLLLLLL" in result.output
+
     def test_help_mentions_reference(self, runner: CliRunner):
         from winml.modelkit.commands.eval import eval as eval_cmd
 
@@ -446,6 +469,7 @@ class TestEvalHelp:
         assert result.exit_code == 0, result.output
         assert "--reference" in result.output
         assert "--reference-device" in result.output
+        assert "--reference-device-luid" in result.output
         assert "--reference-ep" in result.output
 
     def test_help_mentions_cache_controls(self, runner: CliRunner):
@@ -527,7 +551,11 @@ class TestReferenceModeGuard:
 
     @pytest.mark.parametrize(
         ("option", "value"),
-        [("--reference-device", "gpu"), ("--reference-ep", "dml")],
+        [
+            ("--reference-device", "gpu"),
+            ("--reference-device-luid", "0x00000000_0x00000001"),
+            ("--reference-ep", "dml"),
+        ],
     )
     def test_reference_environment_requires_reference(
         self,
