@@ -120,6 +120,7 @@ uv run python scripts/e2e_eval/run_eval.py --update-baseline --eval-type accurac
 | `--group` | — | Filter by group (e.g. `Foundry Toolkit`) |
 | `--device` | `auto` | Target device |
 | `--ep` | — | Execution provider (e.g. `qnn`, `dml`, `openvino`); applied at perf/eval time |
+| `--pin-single-dml-gpu` | off | CI RDP workaround: resolve the sole DXCore GPU after build and pass its current LUID to winml perf. Requires --ep dml --device gpu --eval-type perf; errors on ambiguous/missing hardware. Does not change pytest suites, build selection, or product defaults. |
 | `--timeout` | 600 | Per-subprocess execution timeout (seconds). Observable Hugging Face download time is excluded; the full timeout restarts when the download completes. |
 | `--hf-download-stall-timeout` | 600 | Fail as `HF_FETCH_FAIL` when a Hugging Face partial download has no size/mtime progress for this many seconds. |
 | `--clean-cache [TARGET ...]` | off | Clean caches after each job. `TARGET`: `winml`, `huggingface`, `others` (others = VitisAI cache + temp/cwd leaked scratch files). Use `--clean-cache` without TARGET to clear all (legacy behavior). |
@@ -407,3 +408,30 @@ scripts/e2e_eval/
     └── reporter.py            # Result construction & per-job result IO
 ```
 
+
+### Shared RDP agent DML trial
+
+The E2E pipeline enables `--pin-single-dml-gpu` only for `dml_gpu` Eval steps
+on agents listed in `dmlPinnedAgents` (initially `NPU-OV2`). Set the list to
+`[]` to disable it. The runner resolves the current LUID after building each
+model, so a reboot does not leave a hardcoded adapter ID. Selection errors
+fail the Eval step; there is no fallback to the unpinned device.
+
+This isolates inference from selection of a stale RDP adapter. It does not
+guarantee an in-flight DML session survives an RDP/driver reset.
+
+On the same opted-in agents, the perf pytest step sets
+`WINML_E2E_PIN_SINGLE_DML_GPU=1`. GPU perf invocations explicitly select the sole
+physical GPU, including OpenVINO GPU and device-only GPU tests, while preserving
+the requested or normally resolved EP. Both `test_dml_device_luid_selection` cases
+still run inference:
+one uses `--device-luid`, the other uses `--ep-options device_id=...` independently.
+They verify the result and monitor binding and record the full ORT LUID list
+and physical test scope in JUnit properties. Missing physical GPUs, missing
+DML LUIDs, and unrelated extra devices still fail. Only same-hardware duplicate
+routes are outside the opted-in test scope; no test is skipped or marked xfail.
+Default-selection and strict all-adapter assertions remain unchanged when the
+flag is unset. The shipped CLI never reads this test-only flag.
+
+The adapter-selector tests use the existing GPU ONNX fixture and `--skip-build`.
+This exercises runtime selection directly; build/compile remains covered by its own tests.

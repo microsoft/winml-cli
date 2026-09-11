@@ -2121,6 +2121,33 @@ def _run_structured_perf(
         return proc
 
 
+def _single_physical_dml_gpu_luid() -> str:
+    """Resolve the sole physical GPU for an explicitly opted-in CI perf run."""
+    from winml.modelkit.session import EPDeviceTarget, WinMLEPRegistry
+    from winml.modelkit.sysinfo import enumerate_compute_adapters, get_ep_device_luid
+
+    native_gpus = {
+        adapter.luid: adapter
+        for adapter in enumerate_compute_adapters()
+        if adapter.device_type == "GPU"
+    }
+    if len(native_gpus) != 1:
+        raise RuntimeError(
+            f"DML CI pin requires exactly one DXCore GPU; found {list(native_gpus)}"
+        )
+    luid, adapter = next(iter(native_gpus.items()))
+    selected = WinMLEPRegistry.instance().auto_device(EPDeviceTarget(ep="dml", device="gpu"))
+    advertised = {
+        get_ep_device_luid(device.ort_handle)
+        for device in selected.ep.devices
+        if device.device_type == "GPU"
+    }
+    if luid not in advertised:
+        raise RuntimeError(f"Physical GPU {luid} is not advertised by DML: {advertised}")
+    safe_print(f"DML CI pin: {adapter.name} (LUID: {luid}); ORT LUIDs: {advertised}")
+    return luid
+
+
 def run_model(
     entry: ModelEntry,
     device: str,
@@ -2129,6 +2156,7 @@ def run_model(
     ep: str | None = None,
     op_tracing: str | None = None,
     model_dir: Path | None = None,
+    pin_single_dml_gpu: bool = False,
 ) -> dict:
     """Execute winml perf for one or more ONNX models. Returns merged result dict.
 
@@ -2142,6 +2170,11 @@ def run_model(
     ``model_dir`` as ``op_trace.json`` (suffixed with the sub-model label for
     composite models).
     """
+    if pin_single_dml_gpu and (
+        device != "gpu" or _effective_ep(ep, device) != "DmlExecutionProvider"
+    ):
+        raise ValueError("--pin-single-dml-gpu requires --ep dml --device gpu")
+    device_luid = _single_physical_dml_gpu_luid() if pin_single_dml_gpu else None
     trace = bool(op_tracing) and model_dir is not None
 
     if not onnx_paths:
@@ -2169,6 +2202,8 @@ def run_model(
         if trace:
             args += ["--op-tracing", op_tracing]
         args += entry.perf_args
+        if device_luid:
+            args += ["--device-luid", device_luid]
 
         proc = _run_structured_perf(args, timeout, model_dir, copy_op_trace=trace)
         proc["device"] = device
@@ -2204,6 +2239,8 @@ def run_model(
         if trace:
             args += ["--op-tracing", op_tracing]
         args += entry.perf_args
+        if device_luid:
+            args += ["--device-luid", device_luid]
 
         proc = _run_structured_perf(
             args,
@@ -3069,6 +3106,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="auto", help="Target device (default: auto)")
     parser.add_argument("--ep", default=None, help="Execution provider (e.g. qnn, dml, ov)")
     parser.add_argument(
+        "--pin-single-dml-gpu",
+        action="store_true",
+        help=(
+            "CI workaround for RDP duplicate adapters: pin perf to the sole DXCore GPU. "
+            "Requires --ep dml --device gpu --eval-type perf."
+        ),
+    )
+    parser.add_argument(
         "--update-baseline",
         dest="update_baseline",
         action="store_true",
@@ -3252,7 +3297,19 @@ def parse_args() -> argparse.Namespace:
             "Implies --continue for passing jobs."
         ),
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.pin_single_dml_gpu and (
+        args.device != "gpu"
+        or args.eval_type != "perf"
+        or args.build_only
+        or args.update_baseline
+        or _effective_ep(args.ep, args.device) != "DmlExecutionProvider"
+    ):
+        parser.error(
+            "--pin-single-dml-gpu requires --ep dml --device gpu --eval-type perf "
+            "(not build/baseline-only)"
+        )
+    return args
 
 
 # ---------------------------------------------------------------------------
@@ -3649,6 +3706,7 @@ def main() -> None:
                     ep=args.ep,
                     op_tracing=op_tracing,
                     model_dir=model_dir,
+                    pin_single_dml_gpu=args.pin_single_dml_gpu,
                 )
             else:
                 # "both": perf runs first; accuracy only when perf passes.

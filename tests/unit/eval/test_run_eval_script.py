@@ -2495,3 +2495,86 @@ class TestClearDiskCaches:
         run_eval._clear_disk_caches()
 
         assert not winml.exists()
+
+
+class TestSingleDmlGpuPin:
+    @pytest.mark.parametrize("native_count", [0, 2])
+    def test_ambiguous_inventory_fails_without_selecting_an_adapter(self, run_eval, native_count):
+        native = [MagicMock(device_type="GPU", luid=str(i)) for i in range(native_count)]
+        with (
+            patch("winml.modelkit.sysinfo.enumerate_compute_adapters", return_value=native),
+            patch("winml.modelkit.session.WinMLEPRegistry.instance") as registry,
+            pytest.raises(RuntimeError, match="exactly one DXCore GPU"),
+        ):
+            run_eval._single_physical_dml_gpu_luid()
+        registry.assert_not_called()
+
+    @pytest.mark.parametrize("advertised", [["stale"], ["stale", "physical"]])
+    def test_uses_only_physical_gpu_and_requires_dml_support(self, run_eval, advertised):
+        native = [MagicMock(device_type="GPU", luid="physical", name="GPU")]
+        devices = [MagicMock(device_type="GPU", ort_handle=luid) for luid in advertised]
+        with (
+            patch("winml.modelkit.sysinfo.enumerate_compute_adapters", return_value=native),
+            patch("winml.modelkit.session.WinMLEPRegistry.instance") as registry,
+            patch("winml.modelkit.sysinfo.get_ep_device_luid", side_effect=lambda handle: handle),
+        ):
+            registry.return_value.auto_device.return_value.ep.devices = devices
+            if "physical" in advertised:
+                assert run_eval._single_physical_dml_gpu_luid() == "physical"
+            else:
+                with pytest.raises(RuntimeError, match="not advertised by DML"):
+                    run_eval._single_physical_dml_gpu_luid()
+
+    @pytest.mark.parametrize("pin", [False, True])
+    @pytest.mark.parametrize("paths", [None, {"": "model.onnx"}, {"a": "a.onnx", "b": "b.onnx"}])
+    def test_pin_reaches_every_perf_subprocess_only_when_enabled(
+        self, run_eval, tmp_path, pin, paths
+    ):
+        proc = {
+            "stdout": "",
+            "stderr": "",
+            "exit_code": 0,
+            "elapsed": 0,
+            "timeout": False,
+            "command": "winml perf",
+            "result": _perf_result(),
+        }
+        with (
+            patch.object(
+                run_eval, "_single_physical_dml_gpu_luid", return_value="physical"
+            ) as resolve,
+            patch.object(run_eval, "_run_structured_perf", return_value=proc) as perf,
+        ):
+            result = run_eval.run_model(
+                _entry(),
+                "gpu",
+                30,
+                paths,
+                ep="dml",
+                model_dir=tmp_path,
+                pin_single_dml_gpu=pin,
+            )
+        assert result["exit_code"] == 0
+        assert resolve.call_count == int(pin)
+        assert perf.call_count == (len(paths) if paths else 1)
+        for call in perf.call_args_list:
+            argv = call.args[0]
+            assert ("--device-luid" in argv) is pin
+            if pin:
+                assert argv[argv.index("--device-luid") + 1] == "physical"
+
+    @pytest.mark.parametrize(
+        "extra", [[], ["--eval-type", "both"], ["--ep", "cpu"], ["--build-only"]]
+    )
+    def test_cli_rejects_unsupported_pin_modes(self, run_eval, extra):
+        argv = ["run_eval", "--pin-single-dml-gpu"]
+        if extra:
+            argv += ["--ep", "dml", "--device", "gpu", *extra]
+        with patch.object(sys, "argv", argv), pytest.raises(SystemExit) as exc:
+            run_eval.parse_args()
+        assert exc.value.code == 2
+
+    def test_cli_accepts_explicit_dml_perf_pin(self, run_eval):
+        argv = ["run_eval", "--pin-single-dml-gpu", "--ep", "dml", "--device", "gpu"]
+        with patch.object(sys, "argv", argv):
+            assert run_eval.parse_args().pin_single_dml_gpu is True
