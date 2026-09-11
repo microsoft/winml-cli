@@ -127,27 +127,27 @@ class HWMonitor:
         return self._pdh.peak_utilization_pct
 
     @property
-    def peak_memory_mb(self) -> float:
+    def peak_memory_mb(self) -> float | None:
         """Peak device memory (local preferred, shared fallback) in MB."""
         return self._pdh.peak_memory_mb
 
     @property
-    def peak_memory_local_mb(self) -> float:
+    def peak_memory_local_mb(self) -> float | None:
         """Peak dedicated device memory in MB."""
         return self._pdh.peak_memory_local_mb
 
     @property
-    def peak_memory_shared_mb(self) -> float:
+    def peak_memory_shared_mb(self) -> float | None:
         """Peak shared system memory used by device in MB."""
         return self._pdh.peak_memory_shared_mb
 
     @property
-    def mean_memory_local_mb(self) -> float:
+    def mean_memory_local_mb(self) -> float | None:
         """Mean dedicated device memory in MB."""
         return self._pdh.mean_memory_local_mb
 
     @property
-    def mean_memory_shared_mb(self) -> float:
+    def mean_memory_shared_mb(self) -> float | None:
         """Mean shared system memory used by device in MB."""
         return self._pdh.mean_memory_shared_mb
 
@@ -183,17 +183,17 @@ class HWMonitor:
     # --- RAM metrics ---
 
     @property
-    def ram_used_mb(self) -> float:
+    def ram_used_mb(self) -> float | None:
         """Latest committed RAM in MB."""
         return self._pdh.ram_used_mb
 
     @property
-    def peak_ram_used_mb(self) -> float:
+    def peak_ram_used_mb(self) -> float | None:
         """Peak committed RAM in MB during monitoring period."""
         return self._pdh.peak_ram_used_mb
 
     @property
-    def mean_ram_used_mb(self) -> float:
+    def mean_ram_used_mb(self) -> float | None:
         """Mean committed RAM in MB during monitoring period."""
         return self._pdh.mean_ram_used_mb
 
@@ -235,9 +235,17 @@ class HWMonitor:
                 "sample_count": self._pdh.cpu_sample_count,
             },
             "ram": {
-                "mean_mb": round(self._pdh.mean_ram_used_mb, 2),
-                "used_mb": round(self._pdh.ram_used_mb, 2),
-                "peak_mb": round(self._pdh.peak_ram_used_mb, 2),
+                "mean_mb": round(self._pdh.mean_ram_used_mb, 2)
+                if self._pdh.mean_ram_used_mb is not None
+                else None,
+                "used_mb": round(self._pdh.ram_used_mb, 2)
+                if self._pdh.ram_used_mb is not None
+                else None,
+                "peak_mb": round(self._pdh.peak_ram_used_mb, 2)
+                if self._pdh.peak_ram_used_mb is not None
+                else None,
+                "status": "valid" if self._pdh.ram_used_mb is not None else "unavailable",
+                "reason": "no_valid_ram_samples" if self._pdh.ram_used_mb is None else None,
             },
             "gpu": {
                 "mean_pct": round(self._pdh.mean_gpu_pct, 2),
@@ -246,10 +254,28 @@ class HWMonitor:
                 "luids": self._pdh.gpu_luids,
             },
             "device_memory": {
-                "local_mean_mb": round(self._pdh.mean_memory_local_mb, 2),
-                "shared_mean_mb": round(self._pdh.mean_memory_shared_mb, 2),
-                "local_peak_mb": round(self._pdh.peak_memory_local_mb, 2),
-                "shared_peak_mb": round(self._pdh.peak_memory_shared_mb, 2),
+                "local_mean_mb": round(self._pdh.mean_memory_local_mb, 2)
+                if self._pdh.mean_memory_local_mb is not None
+                else None,
+                "shared_mean_mb": round(self._pdh.mean_memory_shared_mb, 2)
+                if self._pdh.mean_memory_shared_mb is not None
+                else None,
+                "local_peak_mb": round(self._pdh.peak_memory_local_mb, 2)
+                if self._pdh.peak_memory_local_mb is not None
+                else None,
+                "shared_peak_mb": round(self._pdh.peak_memory_shared_mb, 2)
+                if self._pdh.peak_memory_shared_mb is not None
+                else None,
+                "local_status": "valid"
+                if self._pdh.peak_memory_local_mb is not None
+                else "unavailable",
+                "shared_status": "valid"
+                if self._pdh.peak_memory_shared_mb is not None
+                else "unavailable",
+                "reason": "no_valid_memory_samples"
+                if self._pdh.peak_memory_local_mb is None or self._pdh.peak_memory_shared_mb is None
+                else None,
+                "source": "PDH process memory; sampled inference-window peak",
             },
             "running_time_ns": self._pdh.running_time_delta_ns,
         }

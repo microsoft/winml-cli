@@ -1969,7 +1969,7 @@ class TestClassicMemoryProfile:
         rss_values = iter([100.0, 150.0, 180.0])
         vram_values = iter([(10.0, 20.0), (30.0, 50.0), (40.0, 70.0)])
 
-        monkeypatch.setattr(benchmark, "_resolve_adapter_luid", lambda: "luid")
+        monkeypatch.setattr(perf_module, "_get_ep_device_binding", lambda *args: ("luid", "npu"))
         monkeypatch.setattr(benchmark, "_run_benchmark", lambda: stats)
         monkeypatch.setattr(
             benchmark,
@@ -1980,14 +1980,23 @@ class TestClassicMemoryProfile:
                 {"pixel_values": MagicMock(shape=(1, 3, 224, 224))},
             ),
         )
-        monkeypatch.setattr(
-            "winml.modelkit.session.monitor.memory_tracker.get_rss_mb",
-            lambda: next(rss_values),
+        from winml.modelkit.session.monitor import memory_tracker
+
+        process = MagicMock()
+        process.create_time.return_value = 123.0
+        process.memory_info.side_effect = lambda: SimpleNamespace(
+            rss=int(next(rss_values) * 1048576)
         )
-        monkeypatch.setattr(
-            "winml.modelkit.session.monitor.memory_tracker.get_vram_mb",
-            lambda _adapter_luid: next(vram_values),
-        )
+        monkeypatch.setattr(memory_tracker.psutil, "Process", lambda *_: process)
+
+        def sample_vram(_luid):
+            local, shared = next(vram_values)
+            return {
+                key: memory_tracker.metric(int(value * 1048576), "test")
+                for key, value in (("local", local), ("shared", shared))
+            }
+
+        monkeypatch.setattr(memory_tracker, "sample_vram", sample_vram)
         monkeypatch.setattr("winml.modelkit.commands.perf._print_model_info", lambda *_, **__: None)
 
         result = benchmark._run_single()
@@ -2014,6 +2023,15 @@ class TestClassicMemoryProfile:
             "vram_shared_inference_delta_mb": 20.0,
             "vram_local_total_delta_mb": 30.0,
             "vram_shared_total_delta_mb": 50.0,
+            **{
+                f"{key}_{suffix}_mb": None
+                for key in ("rss", "vram_local", "vram_shared")
+                for suffix in (
+                    "before_model_load",
+                    "model_factory_delta",
+                    "total_from_before_model_load_delta",
+                )
+            },
         }
 
 
