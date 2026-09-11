@@ -105,6 +105,145 @@ class TestResolveCleanCacheTargets:
         assert run_eval._resolve_clean_cache_targets(raw_targets) == expected
 
 
+class TestEvalTargetAvailability:
+    @pytest.mark.parametrize(
+        ("ep", "device"),
+        [
+            ("cpu", "cpu"),
+            ("openvino", "gpu"),
+            ("QNNExecutionProvider", "npu"),
+            ("nv_tensorrt_rtx", "gpu"),
+            ("migraphx", "gpu"),
+        ],
+    )
+    def test_available_target_uses_runtime_binding(self, run_eval, ep, device):
+        from winml.modelkit.session import EPDeviceTarget, WinMLEPRegistry, expand_ep_name
+
+        with patch.object(WinMLEPRegistry, "instance") as registry:
+            registry.return_value.available_eps.return_value = {expand_ep_name(ep)}
+            assert run_eval._is_eval_target_available(ep, device)
+
+        registry.return_value.auto_device.assert_called_once_with(
+            EPDeviceTarget(ep=ep, device=device)
+        )
+
+    def test_undiscovered_ep_skips_without_acquiring_packages(self, run_eval, capsys):
+        from winml.modelkit.session import WinMLEPRegistry, expand_ep_name
+
+        with patch.object(WinMLEPRegistry, "instance") as registry:
+            registry.return_value.available_eps.return_value = {expand_ep_name("cpu")}
+            assert not run_eval._is_eval_target_available("openvino", "npu")
+
+        registry.return_value.auto_device.assert_not_called()
+        output = capsys.readouterr().out
+        assert "[SKIP]" in output
+        assert "No locally installed EP" in output
+
+    @pytest.mark.parametrize(
+        "error_name", ["DeviceNotFound", "WinMLEPNotDiscovered", "WinMLEPRegistrationFailed"]
+    )
+    def test_unavailable_target_reports_skip(self, run_eval, capsys, error_name):
+        from winml.modelkit import session
+
+        error = getattr(session, error_name)("target unavailable")
+        with patch.object(session.WinMLEPRegistry, "instance") as registry:
+            registry.return_value.available_eps.return_value = {session.expand_ep_name("openvino")}
+            registry.return_value.auto_device.side_effect = error
+            assert not run_eval._is_eval_target_available("openvino", "npu")
+
+        output = capsys.readouterr().out
+        assert "[SKIP]" in output
+        assert "openvino/npu" in output
+        assert "target unavailable" in output
+
+    def test_unexpected_probe_error_is_not_silently_skipped(self, run_eval):
+        from winml.modelkit.session import WinMLEPRegistry
+
+        with (
+            patch.object(WinMLEPRegistry, "instance", side_effect=RuntimeError("probe failed")),
+            pytest.raises(RuntimeError, match="probe failed"),
+        ):
+            run_eval._is_eval_target_available("openvino", "gpu")
+
+    @pytest.mark.parametrize(("ep", "device"), [("unknown_ep", "gpu"), ("openvino", "tpu")])
+    def test_invalid_target_is_not_silently_skipped(self, run_eval, ep, device):
+        from winml.modelkit.session import WinMLEPRegistry
+
+        with (
+            patch.object(WinMLEPRegistry, "instance") as registry,
+            pytest.raises(ValueError),
+        ):
+            run_eval._is_eval_target_available(ep, device)
+
+        registry.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("ep", "device"),
+        [(None, "gpu"), ("auto", "npu"), ("qnn", "auto"), ("qnn", None)],
+    )
+    def test_automatic_axes_keep_existing_policy(self, run_eval, ep, device):
+        from winml.modelkit.session import WinMLEPRegistry
+
+        with patch.object(WinMLEPRegistry, "instance") as registry:
+            assert run_eval._is_eval_target_available(ep, device)
+
+        registry.assert_not_called()
+
+    @pytest.mark.parametrize("release", [False, True])
+    def test_main_skips_before_loading_models_or_creating_output(self, run_eval, tmp_path, release):
+        output_dir = tmp_path / "results"
+        argv = [
+            "run_eval.py", "--ep", "openvino", "--device", "npu",
+            "--output-dir", str(output_dir),
+        ]
+        if release:
+            argv.append("--release")
+        with (
+            patch.object(sys, "argv", argv),
+            patch.object(run_eval, "_is_eval_target_available", return_value=False) as available,
+            patch.object(run_eval, "load_registry") as load_registry,
+            patch.object(run_eval, "load_release_registry") as load_release_registry,
+            patch.object(run_eval, "save_environment_info") as save_environment,
+        ):
+            assert run_eval.main() is None
+
+        available.assert_called_once_with("openvino", "npu")
+        load_registry.assert_not_called()
+        load_release_registry.assert_not_called()
+        save_environment.assert_not_called()
+        assert not output_dir.exists()
+
+    def test_available_target_continues_to_model_selection(self, run_eval):
+        with (
+            patch.object(sys, "argv", ["run_eval.py", "--ep", "cpu", "--device", "cpu"]),
+            patch.object(run_eval, "_is_eval_target_available", return_value=True) as available,
+            patch.object(run_eval, "load_registry", return_value=[]) as load_registry,
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            run_eval.main()
+
+        available.assert_called_once_with("cpu", "cpu")
+        load_registry.assert_called_once()
+        assert exc_info.value.code == 1
+
+    @pytest.mark.parametrize("mode", ["--list", "--list-json", "--build-only", "--update-baseline"])
+    def test_auxiliary_modes_do_not_probe_hardware(self, run_eval, tmp_path, mode):
+        argv = ["run_eval.py", "--ep", "openvino", "--device", "npu", mode]
+        if mode == "--list-json":
+            argv.append(str(tmp_path / "list.json"))
+        with (
+            patch.object(sys, "argv", argv),
+            patch.object(run_eval, "_is_eval_target_available", return_value=False) as available,
+            patch.object(run_eval, "load_registry", return_value=[]) as load_registry,
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            run_eval.main()
+
+        available.assert_not_called()
+        load_registry.assert_called_once()
+        assert exc_info.value.code == 1
+
+
 class TestFailureClassifier:
     @pytest.fixture(scope="class")
     def classifier(self, run_eval):

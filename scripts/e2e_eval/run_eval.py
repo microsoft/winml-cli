@@ -11,6 +11,11 @@ Only a matching recipe is used; otherwise the build uses ``winml config``.
 ``default`` omits the precision flag without expanding NPU variants. Without
 ``--release``, the existing P0-P3 selection and recipe expansion below apply.
 
+Explicit ``--ep`` / ``--device`` pairs are checked against locally discovered
+runtime devices before loading models. Unavailable targets print ``[SKIP]``
+and exit successfully without installing EPs. Listing, build-only, and baseline
+update modes do not require the target hardware.
+
 Batch-builds models and runs winml perf, then (when perf passes) winml eval,
 writing one unified eval_result.json per (model, task, precision). Recipes drive
 the build on every device (they carry the accuracy eval/dataset config), but
@@ -171,6 +176,34 @@ def _resolve_eval_target(ep: str | None, device: str | None) -> tuple[str, str]:
 
     target = resolve_device(EPDeviceTarget(ep=ep or "auto", device=device or "auto"))
     return target.ep, target.device
+
+
+def _is_eval_target_available(ep: str | None, device: str | None) -> bool:
+    """Check an explicit EP/device pair against the host's runtime inventory."""
+    if not ep or ep.lower() == "auto" or not device or device.lower() == "auto":
+        return True
+
+    from winml.modelkit.session import (
+        DeviceNotFound,
+        EPDeviceTarget,
+        WinMLEPNotDiscovered,
+        WinMLEPRegistrationFailed,
+        WinMLEPRegistry,
+        expand_ep_name,
+    )
+
+    target = EPDeviceTarget(ep=ep, device=device)
+    try:
+        registry = WinMLEPRegistry.instance()
+        if expand_ep_name(target.ep) not in registry.available_eps():
+            raise WinMLEPNotDiscovered(f"No locally installed EP found for {target.ep}.")
+        registry.auto_device(target)
+    except (DeviceNotFound, WinMLEPNotDiscovered, WinMLEPRegistrationFailed) as exc:
+        safe_print(
+            f"[SKIP] {target.ep}/{target.device} is not available on this machine: {exc}"
+        )
+        return False
+    return True
 
 
 def _validate_recipe_copy_target(ep: str | None, device: str | None) -> None:
@@ -3347,6 +3380,12 @@ def main() -> None:
     _HF_DOWNLOAD_STALL_TIMEOUT = float(args.hf_download_stall_timeout)
     clean_cache_targets = _resolve_clean_cache_targets(args.clean_cache)
     args.clean_cache_targets = clean_cache_targets
+
+    if (
+        not (args.list or args.list_json or args.update_baseline or args.build_only)
+        and not _is_eval_target_available(args.ep, args.device)
+    ):
+        return
 
     # 1. Load registry
     release_mode = args.release
