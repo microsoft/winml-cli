@@ -3349,6 +3349,71 @@ class TestConvertToFP16:
             initializer.data_type == TensorProto.FLOAT16 for initializer in model.graph.initializer
         )
 
+    def test_exact_node_exclusion_preserves_only_the_selected_cast(self) -> None:
+        x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1])
+        token_ids = helper.make_tensor_value_info("token_ids", TensorProto.INT32, [1])
+        selected_output = helper.make_tensor_value_info("selected_out", TensorProto.FLOAT, [1])
+        neighbor_output = helper.make_tensor_value_info("neighbor_out", TensorProto.FLOAT, [1])
+        embeddings_output = helper.make_tensor_value_info("embeddings_out", TensorProto.FLOAT, [1])
+        selected = helper.make_node(
+            "Cast",
+            ["x"],
+            ["selected_out"],
+            name="InsertedPrecisionFreeCast_selected",
+            to=TensorProto.FLOAT,
+        )
+        neighbor = helper.make_node(
+            "Cast",
+            ["x"],
+            ["neighbor_out"],
+            name="InsertedPrecisionFreeCast_neighbor",
+            to=TensorProto.FLOAT,
+        )
+        embeddings_cast = helper.make_node(
+            "Cast",
+            ["token_ids"],
+            ["embeddings_out"],
+            name="InsertedPrecisionFreeCast_/deberta/embeddings/Cast_output_0",
+            to=TensorProto.FLOAT,
+        )
+        model = helper.make_model(
+            helper.make_graph(
+                [selected, neighbor, embeddings_cast],
+                "named_cast_boundaries",
+                [x, token_ids],
+                [selected_output, neighbor_output, embeddings_output],
+            ),
+            opset_imports=[helper.make_opsetid("", 17)],
+        )
+
+        result = convert_to_fp16(
+            model,
+            keep_io_types=False,
+            node_block_list=["InsertedPrecisionFreeCast_selected"],
+        )
+        cast_targets = {
+            node.name: next(attribute.i for attribute in node.attribute if attribute.name == "to")
+            for node in result.graph.node
+            if node.op_type == "Cast" and node.name.startswith("InsertedPrecisionFreeCast_")
+        }
+
+        assert cast_targets["InsertedPrecisionFreeCast_selected"] == TensorProto.FLOAT
+        assert cast_targets["InsertedPrecisionFreeCast_neighbor"] == TensorProto.FLOAT16
+        assert (
+            cast_targets["InsertedPrecisionFreeCast_/deberta/embeddings/Cast_output_0"]
+            == TensorProto.FLOAT16
+        )
+        checker.check_model(result)
+        shape_inference.infer_shapes(result, check_type=True, strict_mode=True)
+        ort.InferenceSession(result.SerializeToString(), providers=["CPUExecutionProvider"])
+
+    def test_unknown_node_exclusion_has_no_heuristic_effect(self) -> None:
+        original = _build_simple_fp32_model()
+        expected = convert_to_fp16(ModelProto.FromString(original.SerializeToString()))
+        actual = convert_to_fp16(original, node_block_list=["unknown_model_specific_prefix"])
+
+        assert actual.SerializeToString() == expected.SerializeToString()
+
     def test_scalar_float_tensor_attribute_is_rejected(self) -> None:
         """ORT cannot convert scalar FLOAT storage in tensor attributes."""
         model = _build_scalar_float_attribute_model()

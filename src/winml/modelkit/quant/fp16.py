@@ -2874,6 +2874,7 @@ def convert_to_fp16(
     *,
     keep_io_types: bool = True,
     op_block_list: list[str] | None = None,
+    node_block_list: list[str] | None = None,
 ) -> ModelProto:
     """Convert an ONNX model from FP32 to FP16 precision.
 
@@ -3014,6 +3015,7 @@ def convert_to_fp16(
             conversion_model,
             keep_io_types=keep_io_types,
             op_block_list=op_block_list,
+            node_block_list=node_block_list,
         )
     except EncodeError:
         logger.warning(
@@ -3026,6 +3028,7 @@ def convert_to_fp16(
             keep_io_types=keep_io_types,
             disable_shape_infer=True,
             op_block_list=op_block_list,
+            node_block_list=node_block_list,
         )
 
     converted_graphs = _ort_traversed_graphs(converted, op_block_list)
