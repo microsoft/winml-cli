@@ -177,6 +177,37 @@ _FEATURE_MODALITY_BY_MAIN_INPUT: dict[str, str] = {
     "pixel_values": "image-feature-extraction",
 }
 
+_NLI_LABEL_SET: frozenset[str] = frozenset({"contradiction", "entailment", "neutral"})
+
+
+def _is_nli_sequence_classifier(config: PretrainedConfig) -> bool:
+    """Return ``True`` when config metadata indicates an NLI sequence classifier.
+
+    Detection is architecture- and metadata-driven:
+    - architecture advertises a ``*ForSequenceClassification`` head
+    - ``id2label`` contains the NLI triad (case-insensitive)
+
+    This avoids checkpoint-name special casing and preserves normal sequence
+    classifiers that use a different label space.
+    """
+    architectures = getattr(config, "architectures", None)
+    if not isinstance(architectures, list) or not architectures:
+        return False
+    if not any(
+        isinstance(name, str) and name.endswith("ForSequenceClassification")
+        for name in architectures
+    ):
+        return False
+
+    id2label = getattr(config, "id2label", None)
+    if not isinstance(id2label, dict) or not id2label:
+        return False
+
+    normalized_labels = {
+        str(value).strip().lower() for value in id2label.values() if isinstance(value, str)
+    }
+    return _NLI_LABEL_SET.issubset(normalized_labels)
+
 
 def _resolve_task_modality(config: PretrainedConfig, task: str) -> str:
     """Upgrade a modality-blind ``feature-extraction`` to its modality-aware variant.
@@ -191,6 +222,8 @@ def _resolve_task_modality(config: PretrainedConfig, task: str) -> str:
     Offline; a no-op for non-``feature-extraction`` tasks, for modalities with no
     downstream yet, and when the architecture class cannot be resolved.
     """
+    if task == "text-classification" and _is_nli_sequence_classifier(config):
+        return "zero-shot-classification"
     if task != "feature-extraction":
         return task
     try:

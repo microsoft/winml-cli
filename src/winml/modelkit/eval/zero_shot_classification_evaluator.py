@@ -20,13 +20,20 @@ positionally for both predictions and references.
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Any, cast
 
 from tqdm import tqdm
-from transformers.pipelines.zero_shot_classification import ZeroShotClassificationPipeline
 
 from ..utils.eval_utils import DatasetValidationError
 from .base_evaluator import WinMLEvaluator
+
+
+try:
+    from transformers.pipelines.zero_shot_classification import ZeroShotClassificationPipeline
+except Exception:  # pragma: no cover - import fallback for constrained environments
+    class ZeroShotClassificationPipeline:  # type: ignore[no-redef]
+        """Fallback zero-shot pipeline type when transformers is unavailable."""
 
 
 if TYPE_CHECKING:
@@ -69,6 +76,7 @@ class WinMLZeroShotClassificationEvaluator(WinMLEvaluator):
         task = "zero-shot-classification"
         self._input_col = mapping.get("input_column", get_default(task, "input_column"))
         self._label_col = mapping.get("label_column", get_default(task, "label_column"))
+        self._input_pair_col = mapping.get("input_pair_column")
         self._candidate_labels_override = mapping.get("candidate_labels")
         self._hypothesis_template = mapping.get("hypothesis_template")
         super().__init__(config, model)
@@ -76,6 +84,9 @@ class WinMLZeroShotClassificationEvaluator(WinMLEvaluator):
     def prepare_pipeline(self) -> Pipeline:
         """Create pipeline with fixed-length tokenization for ONNX."""
         from transformers import pipeline
+
+        if self._input_pair_col:
+            return self._prepare_nli_pipeline()
 
         max_length = self._fixed_seq_length()
 
@@ -111,6 +122,41 @@ class WinMLZeroShotClassificationEvaluator(WinMLEvaluator):
 
         return cast("Pipeline", pipe)
 
+    def _prepare_nli_pipeline(self) -> Pipeline:
+        """Create sequence-classification pipeline for text-pair NLI eval."""
+        from transformers import pipeline
+
+        max_length = self._fixed_seq_length()
+
+        pipeline_kwargs: dict[str, Any] = {}
+        if self.config.trust_remote_code:
+            pipeline_kwargs["trust_remote_code"] = True
+        pipe = cast(
+            "Pipeline",
+            pipeline(
+                "text-classification",
+                model=self.model,
+                tokenizer=self.config.model_id,
+                device=self.config.pipeline_device,
+                **pipeline_kwargs,
+            ),
+        )
+
+        if pipe.tokenizer is not None and max_length is not None:
+            pipe.tokenizer.model_max_length = max_length
+            pipe._preprocess_params.setdefault("padding", "max_length")
+            pipe._preprocess_params.setdefault("max_length", max_length)
+            pipe._preprocess_params.setdefault("truncation", True)
+
+            io_config = getattr(self.model, "io_config", None) or {}
+            input_names = io_config.get("input_names", [])
+            if input_names:
+                filtered = [n for n in pipe.tokenizer.model_input_names if n in input_names]
+                if filtered:
+                    pipe.tokenizer.model_input_names = filtered
+
+        return pipe
+
     def align_labels(
         self,
         dataset: Dataset,
@@ -123,12 +169,61 @@ class WinMLZeroShotClassificationEvaluator(WinMLEvaluator):
         ground-truth labels used for accuracy.
         """
         col_names = set(dataset.column_names)
-        for col in (self._input_col, self._label_col):
+        required_cols = [self._input_col, self._label_col]
+        if self._input_pair_col:
+            required_cols.append(self._input_pair_col)
+        for col in required_cols:
             if col not in col_names:
                 raise DatasetValidationError(
                     f"Column '{col}' not found in dataset: {sorted(col_names)}",
                 )
         return dataset
+
+    @staticmethod
+    def _normalize_nli_label(label: str) -> str | None:
+        """Map label text to one of entailment/contradiction/neutral."""
+        token = re.sub(r"[^a-z]+", "_", label.strip().lower()).strip("_")
+        if token in {"entailment", "contradiction", "neutral"}:
+            return token
+        return None
+
+    def _resolve_reference_label(
+        self,
+        sample: dict[str, Any],
+        class_names: list[str] | None,
+    ) -> str:
+        """Convert dataset label value to canonical NLI class name."""
+        label_col = self._label_col
+        if label_col is None:
+            raise DatasetValidationError("label column is not configured for evaluation.")
+        raw = sample[label_col]
+        name = class_names[int(raw)] if class_names is not None else str(raw)
+        normalized = self._normalize_nli_label(name)
+        if normalized is None:
+            raise DatasetValidationError(
+                f"Reference label '{name}' is not one of entailment/contradiction/neutral.",
+            )
+        return normalized
+
+    def _resolve_prediction_label(self, result: Any) -> str:
+        """Pick top model label from pipeline output and canonicalize it."""
+        candidates = result
+        if isinstance(candidates, list) and candidates and isinstance(candidates[0], list):
+            candidates = candidates[0]
+        if isinstance(candidates, dict):
+            candidates = [candidates]
+        if not isinstance(candidates, list) or not candidates:
+            raise ValueError("Unexpected pipeline output for NLI zero-shot evaluation.")
+
+        best = max(candidates, key=lambda item: float(item.get("score", 0.0)))
+        raw_label = str(best.get("label", ""))
+        normalized = self._normalize_nli_label(raw_label)
+        if normalized is None:
+            raise ValueError(
+                "NLI zero-shot evaluation requires model labels to include "
+                "entailment/contradiction/neutral.",
+            )
+        return normalized
 
     def _resolve_candidate_labels(self, dataset: Dataset) -> list[str]:
         """Return candidate labels from user override or dataset ``ClassLabel``."""
@@ -151,6 +246,21 @@ class WinMLZeroShotClassificationEvaluator(WinMLEvaluator):
         """Compute accuracy and macro-F1 over all samples."""
         from .metrics import ClassificationMetric
 
+        if self._input_pair_col:
+            class_names = getattr(self.data.features.get(self._label_col), "names", None)
+            labels = ["entailment", "contradiction", "neutral"]
+            pair_predictions: list[str] = []
+            pair_references: list[str] = []
+            for sample in tqdm(self.data, desc="Evaluating zero-shot (NLI pairs)"):
+                result = self.pipe(
+                    sample[self._input_col],
+                    text_pair=sample[self._input_pair_col],
+                    top_k=None,
+                )
+                pair_predictions.append(self._resolve_prediction_label(result))
+                pair_references.append(self._resolve_reference_label(sample, class_names))
+            return ClassificationMetric().compute(pair_predictions, pair_references, labels)
+
         candidate_labels = self._resolve_candidate_labels(self.data)
         class_names = getattr(self.data.features.get(self._label_col), "names", None)
 
@@ -169,12 +279,16 @@ class WinMLZeroShotClassificationEvaluator(WinMLEvaluator):
         if self._hypothesis_template is not None:
             pipe_kwargs["hypothesis_template"] = self._hypothesis_template
 
-        predictions: list[str] = []
-        references: list[str] = []
+        candidate_predictions: list[str] = []
+        candidate_references: list[str] = []
         for sample in tqdm(self.data, desc="Evaluating zero-shot (accuracy)"):
             result = self.pipe(sample[self._input_col], **pipe_kwargs)
-            predictions.append(result["labels"][0])
+            candidate_predictions.append(result["labels"][0])
             raw = sample[self._label_col]
-            references.append(class_names[int(raw)] if class_names else str(raw))
+            candidate_references.append(class_names[int(raw)] if class_names else str(raw))
 
-        return ClassificationMetric().compute(predictions, references, candidate_labels)
+        return ClassificationMetric().compute(
+            candidate_predictions,
+            candidate_references,
+            candidate_labels,
+        )
