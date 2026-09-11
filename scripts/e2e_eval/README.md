@@ -51,6 +51,62 @@ uv run python scripts/e2e_eval/build_registry.py --dry-run
 
 ### `run_eval.py` — Run Evaluation (recipe-driven perf + accuracy)
 
+**Release evaluation is opt-in with `--release`.** Without it, the runner keeps
+the existing registry, single-model, build-only and baseline behavior, with
+`--priority` defaulting to `P0 P1 P2 P3`. In release mode it reads
+[testsets/models_release_validation.json](testsets/models_release_validation.json), the machine-readable
+projection of [testsets/models_release_validation.md](testsets/models_release_validation.md).
+It runs one job per selected model/task using the precision for the resolved
+`--ep` and `--device`, not the Markdown reference precision. It uses an exact
+precision-matching recipe when available, otherwise a single config/build job.
+This also applies to `--no-recipes`; release never expands extra variants.
+
+`--release` rejects explicitly supplied `--priority`, `--hf-model`, `--registry`,
+`--task`, `--group` and `--model-type`: the manifest defines the complete case set.
+It also rejects `--build-only` and `--update-baseline`; those modes keep their
+existing workflows without `--release`. Default argument values are not conflicts,
+and ordinary-mode combinations remain unchanged. `release` is not a priority
+value; model priority metadata remains P0-P3.
+
+Execution controls such as `--ep`, `--device`, `--eval-type`, `--output-dir`,
+`--continue`, `--retry-failed`, timeouts and cache cleanup remain available, as
+do `--list` and `--list-json`. Recipes and `--no-recipes` still choose the build
+source, but cannot expand the manifest's selected precisions.
+
+Each manifest entry contains `hf_id`, `task`, `priority` and a `targets` map keyed
+by `machine/EP_device`. A target stores only `precision`. Historical evidence
+links remain in the sibling Markdown report for audit and are not opened by the
+runner, so the sibling artifacts repo is not required to load the release list.
+Registry metadata still supplies dataset and perf/eval overrides.
+`default` means omit the precision flag and leave resolution to WinML, not FP32.
+Precision locking constrains job selection and build arguments. The consistency
+check compares reported build metadata; it does not inspect ONNX tensor dtypes
+or independently prove that an artifact has the requested numerical precision.
+Historical PASS evidence does not guarantee a new run with changed software or
+configuration will pass.
+
+Targets such as OpenVINO GPU have one matching manifest key. For a shared EP
+such as DML GPU or MLAS CPU, use a consecutive `<machine>/<EP>_<device>` pair
+from the manifest in `--output-dir`, for example
+`nvidia/DmlExecutionProvider_GPU/2026-09-10`. The path is normalized before
+matching, and unrelated ancestor machine names do not select a target.
+Missing or multiple matching pairs cause an error instead of guessing.
+The output folder does not override `--ep/--device`; name it consistently to
+avoid filing OpenVINO results under DML.
+
+```bash
+# Preview the release plan without downloading/building models
+uv run --project . python scripts/e2e_eval/run_eval.py --release --ep openvino --device gpu --list
+
+# Resume/retry release evaluation
+uv run --project . python scripts/e2e_eval/run_eval.py --release --ep openvino --device gpu --eval-type both --output-dir ../ModelKitArtifacts/site/e2e_model_coverage_result/intel/OpenVINOExecutionProvider_GPU/2026-09-10 --continue --timeout 1000 --retry-failed HF_FETCH_FAIL --clean-cache winml
+
+# Disambiguate a shared EP through its output path
+uv run python scripts/e2e_eval/run_eval.py --release --ep dml --device gpu --output-dir eval_results/intel/DmlExecutionProvider_GPU --list
+```
+
+Without `--release`, the existing recipe expansion applies:
+
 For each filtered model the runner builds the model, runs `winml perf`, and — when
 perf passes — runs `winml eval`. **Recipes drive the build on every device (they
 carry the accuracy eval/dataset config), but quantized precision variants are
@@ -110,12 +166,13 @@ uv run python scripts/e2e_eval/run_eval.py --update-baseline --eval-type accurac
 | `--registry` | `testsets/models_all.json` | Model registry file |
 | `--hf-model` | — | Single model (overrides registry) |
 | `--output-dir` | `eval_results/{date}` | Output directory |
-| `--recipes-dir` | `examples/recipes` | Authored recipe configs, selected from `<model>/<ep>/<device>` with legacy `<model>` fallback. NPU builds every precision variant (`winml config` `w8a8`+`w8a16` fallback when a model has none); CPU/GPU (and unquantized-track EPs like VitisAI) build only non-quantized variants, else a `winml config` fallback |
-| `--no-recipes` | off | Ignore recipes; build every model via `winml config` (on NPU still expands the `w8a8`+`w8a16` fallback) |
+| `--recipes-dir` | `examples/recipes` | Release: use only the matching target precision recipe. P0-P3: target-directory recipe expansion as described above |
+| `--no-recipes` | off | Release: one config/build per selected precision. P0-P3: legacy config fallback (including NPU expansion) |
 | `--copy-recipes-from EP DEVICE` | — | Copy missing configs from each model's source target into `--ep/--device` before building; existing target configs are never overwritten |
 | `--eval-type` | `perf` | `perf`, `accuracy`, or `both` (perf-gated accuracy) |
 | `--task` | — | Filter by HF task |
-| `--priority` | `P0 P1 P2` | Filter: one or more of `P0`, `P1`, `P2`, `P3` (e.g. `--priority P0 P1`). Pass `P3` explicitly to include P3 models. |
+| `--priority` | `P0 P1 P2 P3` | Filter: one or more of `P0`, `P1`, `P2`, `P3` (e.g. `--priority P0 P1`) |
+| `--release` | off | Use the fixed release manifest and target precisions; rejects explicit model selectors, `--build-only` and `--update-baseline` |
 | `--model-type` | — | Filter by model_type (e.g. `bert`) |
 | `--group` | — | Filter by group (e.g. `Foundry Toolkit`) |
 | `--device` | `auto` | Target device |
@@ -125,6 +182,7 @@ uv run python scripts/e2e_eval/run_eval.py --update-baseline --eval-type accurac
 | `--clean-cache [TARGET ...]` | off | Clean caches after each job. `TARGET`: `winml`, `huggingface`, `others` (others = VitisAI cache + temp/cwd leaked scratch files). Use `--clean-cache` without TARGET to clear all (legacy behavior). |
 | `--update-baseline` | off | Offline mode: refresh `cache/baseline_cache.json` via the PyTorch baseline, then exit (no build/perf/eval) |
 | `--list` | off | List models and exit |
+| `--list-json PATH` | — | Write filtered models and exit; release includes `precision` (null for default) and `release_target`. Continue/retry checks use the selected precision's result directory |
 | `--verbose` | off | Print stderr for failed models |
 | `--continue` | off | Skip jobs with existing results (but backfill accuracy onto perf-only results when `--eval-type` wants it) |
 | `--retry-failed [TYPE ...]` | — | Re-run failed jobs (implies `--continue`); unknown types are rejected as argument errors. Retry criteria are not mutually exclusive: `HF_FETCH_FAIL` also checks failed perf and accuracy logs for `WinError 10060`, `we couldn't connect to 'https://huggingface.co'`, or `thrown while requesting HEAD https://huggingface.co`, even when the primary perf classification is another type or accuracy is `FAIL`. |

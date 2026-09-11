@@ -1112,6 +1112,57 @@ class TestBuildForJobPrecision:
         assert all("--precision" not in cmd for cmd in captured)
         assert build_result["precision"] is None
 
+    @pytest.mark.parametrize("precision", [None, "fp16", "fp32", "w8a16", "w8a8"])
+    @pytest.mark.parametrize("ep", ["qnn", "vitisai"])
+    def test_release_fallback_keeps_requested_precision(self, run_eval, tmp_path, precision, ep):
+        entry = _entry("release-test/model", "text-classification")
+        entry.precision = precision
+        job = run_eval.EvalJob(entry, None, precision_locked=True)
+        args = argparse.Namespace(ep=ep, device="npu", timeout=300)
+        captured = []
+
+        def fake_subprocess(command, timeout):
+            captured.append(command)
+            if "config" in command:
+                (tmp_path / "build_config.json").write_text(
+                    json.dumps({"quant": None}), encoding="utf-8"
+                )
+            return {
+                "exit_code": 0,
+                "stdout": "",
+                "stderr": "",
+                "elapsed": 0.1,
+                "command": " ".join(command),
+            }
+
+        with (
+            patch.object(run_eval, "_run_subprocess", side_effect=fake_subprocess),
+            patch.object(run_eval, "_extract_onnx_path", return_value=str(tmp_path / "model.onnx")),
+        ):
+            result, _, _ = run_eval._build_for_job(job, args, tmp_path)
+
+        assert len(captured) == 2
+        for command in captured:
+            if precision is None:
+                assert "--precision" not in command
+            else:
+                assert command[command.index("--precision") + 1] == precision
+                assert "--no-quant" not in command
+        assert result["precision"] == precision
+
+    def test_release_rejects_inconsistent_precision_metadata(self, run_eval, tmp_path):
+        entry = _entry("release-test/model", "text-classification")
+        entry.precision = "fp16"
+        job = run_eval.EvalJob(entry, None, precision_locked=True)
+        args = argparse.Namespace(ep="openvino", device="gpu", timeout=300)
+        with (
+            patch.object(
+                run_eval, "_run_build", return_value={"success": True, "precision": "fp32"}
+            ),
+            pytest.raises(ValueError, match="precision mismatch"),
+        ):
+            run_eval._build_for_job(job, args, tmp_path)
+
 
 class TestMergeBackfillResult:
     """``_merge_backfill_result`` splices accuracy into an existing result.
@@ -1805,6 +1856,45 @@ class TestBuildJobs:
                 json.dumps({"eval": {"task": task, "dataset": {"path": "x"}}}), encoding="utf-8"
             )
 
+    @pytest.mark.parametrize("precision", [None, "fp16", "fp32", "w8a16", "w8a8"])
+    @pytest.mark.parametrize(
+        "device,ep", [("gpu", "qnn"), ("cpu", "mlas"), ("npu", "vitisai"), ("npu", "qnn")]
+    )
+    def test_release_runs_only_one_selected_recipe(self, run_eval, tmp_path, precision, device, ep):
+        entry = _entry("release-test/model", "text-classification")
+        entry.precision = precision
+        self._make_single_recipe(
+            tmp_path, "release-test_model", entry.task, ["fp16", "fp32", "w8a16", "w8a8"]
+        )
+        jobs = run_eval._build_jobs([entry], tmp_path, device, ep=ep, release=True)
+        assert len(jobs) == 1
+        assert jobs[0].precision == precision
+        assert jobs[0].precision_locked is True
+        if precision is None:
+            assert jobs[0].variant is None
+        else:
+            assert jobs[0].variant.precision == precision
+
+    @pytest.mark.parametrize("precision", [None, "fp32", "w8a8"])
+    def test_release_missing_recipe_does_not_expand_or_substitute(
+        self, run_eval, tmp_path, precision
+    ):
+        entry = _entry("release-test/model", "text-classification")
+        entry.precision = precision
+        self._make_single_recipe(tmp_path, "release-test_model", entry.task, ["fp16", "w8a16"])
+        jobs = run_eval._build_jobs([entry], tmp_path, "npu", ep="qnn", release=True)
+        assert len(jobs) == 1
+        assert jobs[0].precision == precision
+        assert jobs[0].variant is None
+
+    def test_release_without_recipes_still_honors_precision(self, run_eval):
+        entry = _entry("release-test/model", "text-classification")
+        entry.precision = "w8a8"
+        jobs = run_eval._build_jobs([entry], None, "gpu", ep="qnn", release=True)
+        assert len(jobs) == 1
+        assert jobs[0].precision == entry.precision
+        assert jobs[0].precision_locked is True
+
     def test_npu_recipe_expands_to_one_job_per_precision(self, run_eval, tmp_path):
         self._make_single_recipe(
             tmp_path, "microsoft_resnet-50", "image-classification", ["fp16", "w8a16"]
@@ -2267,6 +2357,549 @@ class TestRunAccuracyPhaseSchema:
         _, kwargs = mock_eval.call_args
         assert kwargs["recipe_config"] == tmp_path / "r.json"
         assert kwargs["trust_remote_code"] is True
+
+
+class TestReleaseRegistry:
+    @pytest.fixture
+    def release_table(self, run_eval, tmp_path):
+        columns = [
+            "intel/OpenVINOExecutionProvider_GPU",
+            "intel/DmlExecutionProvider_GPU",
+            "amd/DmlExecutionProvider_GPU",
+            "nvidia/DmlExecutionProvider_GPU",
+            "nvidia/TRTRTXARMExecutionProvider_GPU",
+            "nvidia/TRTRTXExecutionProvider_GPU",
+            "intel/MLASExecutionProvider_CPU",
+            "amd/MLASExecutionProvider_CPU",
+            "nvidia/MLASExecutionProvider_CPU",
+            "amd/MIGraphExecutionProvider_GPU",
+        ]
+        precisions = ["default", "fp16", "fp32", "w8a16", "w8a8"]
+        entries = [
+            run_eval.ModelEntry(
+                hf_id=f"release-test/model-{index}",
+                task=f"task-{index}",
+                model_type=f"type-{index}",
+                group="test-release",
+                priority=list(run_eval._PRIORITY_RANK)[index % len(run_eval._PRIORITY_RANK)],
+                precision="fp32",
+                dataset_config={"dataset_path": f"dataset-{index}"},
+                perf_args=["--warmup", str(index)],
+            )
+            for index in range(len(precisions))
+        ]
+        by_column = {
+            column: [
+                precisions[(index + offset) % len(precisions)] for index in range(len(entries))
+            ]
+            for offset, column in enumerate(columns)
+        }
+        rows = []
+        for index, entry in enumerate(entries):
+            rows.append(
+                {
+                    "hf_id": entry.hf_id,
+                    "task": entry.task,
+                    "priority": entry.priority,
+                    "targets": {
+                        column: {"precision": by_column[column][index]} for column in columns
+                    },
+                }
+            )
+        path = tmp_path / "models_release_validation.json"
+        path.write_text(json.dumps({"schema_version": 1, "models": rows}), encoding="utf-8")
+        return path, entries, by_column
+
+    @pytest.mark.parametrize("ep", ["OPENVINO", "openvino", "OpenVINOExecutionProvider"])
+    def test_target_precision_and_registry_metadata(self, run_eval, release_table, ep):
+        path, registry, by_column = release_table
+        loader = sys.modules["utils.registry"].load_release_registry
+        entries, column = loader(path, registry, ep=ep, device="gpu")
+        expected = [None if value == "default" else value for value in by_column[column]]
+        assert [entry.precision for entry in entries] == expected
+        assert [(entry.hf_id, entry.task) for entry in entries] == [
+            (entry.hf_id, entry.task) for entry in registry
+        ]
+        for actual, original in zip(entries, registry, strict=True):
+            assert actual is not original
+            assert actual.dataset_config == original.dataset_config
+            assert actual.perf_args == original.perf_args
+            assert original.precision == "fp32"
+
+    @pytest.mark.parametrize(
+        ("ep", "device", "machine", "expected_column"),
+        [
+            ("nv_tensorrt_rtx", "gpu", None, "nvidia/TRTRTXExecutionProvider_GPU"),
+            ("nvtensorrtrtx", "gpu", None, "nvidia/TRTRTXExecutionProvider_GPU"),
+            (
+                "NvTensorRTRTXExecutionProvider",
+                "GPU",
+                None,
+                "nvidia/TRTRTXExecutionProvider_GPU",
+            ),
+            (
+                "NVTENSORRTRTXEXECUTIONPROVIDER",
+                "gpu",
+                None,
+                "nvidia/TRTRTXExecutionProvider_GPU",
+            ),
+            ("TRTRTXExecutionProvider", "gpu", None, "nvidia/TRTRTXExecutionProvider_GPU"),
+            ("cpu", "cpu", "intel", "intel/MLASExecutionProvider_CPU"),
+            ("CPUExecutionProvider", "CPU", "amd", "amd/MLASExecutionProvider_CPU"),
+            ("migraphx", "gpu", None, "amd/MIGraphExecutionProvider_GPU"),
+            ("MIGraphXExecutionProvider", "gpu", None, "amd/MIGraphExecutionProvider_GPU"),
+        ],
+    )
+    def test_runtime_names_match_historical_targets(
+        self, run_eval, release_table, ep, device, machine, expected_column
+    ):
+        path, registry, by_column = release_table
+        entries, column = sys.modules["utils.registry"].load_release_registry(
+            path, registry, ep=ep, device=device, machine=machine
+        )
+        assert column == expected_column
+        assert [entry.precision or "default" for entry in entries] == by_column[column]
+
+    def test_tensorrt_does_not_fall_back_to_arm_target(self, run_eval, release_table):
+        path, registry, _ = release_table
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        for model in manifest["models"]:
+            del model["targets"]["nvidia/TRTRTXExecutionProvider_GPU"]
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        with pytest.raises(ValueError, match="no target"):
+            run_eval.load_release_registry(path, registry, ep="nv_tensorrt_rtx", device="gpu")
+
+    def test_legacy_alias_matching_still_requires_correct_device(self, run_eval, release_table):
+        path, registry, _ = release_table
+        with pytest.raises(ValueError, match="no target"):
+            run_eval.load_release_registry(path, registry, ep="nv_tensorrt_rtx", device="npu")
+
+    @pytest.mark.parametrize(("ep", "device"), [("dml", "gpu"), ("cpu", "cpu")])
+    def test_ambiguous_machine_requires_selection(self, run_eval, release_table, ep, device):
+        path, registry, _ = release_table
+        with pytest.raises(ValueError, match="output-dir"):
+            sys.modules["utils.registry"].load_release_registry(
+                path, registry, ep=ep, device=device
+            )
+
+    @pytest.mark.parametrize("explicit", [True, False])
+    def test_machine_selection(self, run_eval, release_table, tmp_path, explicit):
+        path, registry, by_column = release_table
+        entries, column = sys.modules["utils.registry"].load_release_registry(
+            path,
+            registry,
+            ep="dml",
+            device="gpu",
+            machine="AMD" if explicit else None,
+            output_dir=tmp_path / "amd" / "DmlExecutionProvider_GPU" / "results",
+        )
+        assert column == "amd/DmlExecutionProvider_GPU"
+        assert [entry.precision or "default" for entry in entries] == by_column[column]
+
+    @pytest.mark.parametrize(
+        ("ep", "device", "folder"),
+        [("dml", "gpu", "DmlExecutionProvider_GPU"), ("cpu", "cpu", "MLASExecutionProvider_CPU")],
+    )
+    def test_machine_path_is_normalized_and_target_scoped(
+        self, run_eval, release_table, tmp_path, ep, device, folder
+    ):
+        path, registry, by_column = release_table
+        output = tmp_path / "intel" / "archive" / "amd" / ".." / "NVIDIA" / folder / "results"
+        entries, column = run_eval.load_release_registry(
+            path, registry, ep=ep, device=device, output_dir=output
+        )
+        assert column == f"nvidia/{folder}"
+        assert [entry.precision or "default" for entry in entries] == by_column[column]
+
+    @pytest.mark.parametrize(
+        "parts",
+        [
+            ("intel", "archive", "results"),
+            ("intel", "archive", "DmlExecutionProvider_GPU"),
+            ("intel", "MLASExecutionProvider_CPU", "results"),
+            ("intel", "DmlExecutionProvider_GPU", "amd", "DmlExecutionProvider_GPU"),
+        ],
+    )
+    def test_machine_path_rejects_unrelated_or_ambiguous_components(
+        self, run_eval, release_table, tmp_path, parts
+    ):
+        path, registry, _ = release_table
+        with pytest.raises(ValueError, match="output-dir"):
+            run_eval.load_release_registry(
+                path, registry, ep="dml", device="gpu", output_dir=tmp_path.joinpath(*parts)
+            )
+
+    def test_cli_ep_wins_over_output_directory_name(self, run_eval, release_table, tmp_path):
+        path, registry, _ = release_table
+        _, column = sys.modules["utils.registry"].load_release_registry(
+            path,
+            registry,
+            ep="openvino",
+            device="gpu",
+            output_dir=tmp_path / "intel" / "DmlExecutionProvider_GPU" / "results",
+        )
+        assert column == "intel/OpenVINOExecutionProvider_GPU"
+
+    def test_missing_target_is_an_error(self, run_eval, release_table):
+        path, registry, _ = release_table
+        with pytest.raises(ValueError, match="no target"):
+            sys.modules["utils.registry"].load_release_registry(
+                path, registry, ep="qnn", device="npu"
+            )
+
+    def test_unknown_ep_alias_is_not_silently_accepted(self, run_eval, release_table):
+        path, registry, _ = release_table
+        with pytest.raises(ValueError, match="no target"):
+            sys.modules["utils.registry"].load_release_registry(
+                path, registry, ep="ov", device="gpu"
+            )
+
+    def test_missing_registry_entry_keeps_table_model_task(self, run_eval, release_table):
+        path, registry, _ = release_table
+        entries, _ = sys.modules["utils.registry"].load_release_registry(
+            path, [], ep="openvino", device="gpu"
+        )
+        assert [(entry.hf_id, entry.task) for entry in entries] == [
+            (entry.hf_id, entry.task) for entry in registry
+        ]
+
+    @pytest.mark.parametrize("problem", ["duplicate", "precision", "targets", "version", "empty"])
+    def test_invalid_manifest_is_rejected(self, run_eval, release_table, problem):
+        path, registry, _ = release_table
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if problem == "duplicate":
+            data["models"].append(data["models"][-1])
+        elif problem == "precision":
+            next(iter(data["models"][-1]["targets"].values()))["precision"] = "not-a-precision"
+        elif problem == "targets":
+            data["models"][-1]["targets"].popitem()
+        elif problem == "version":
+            data["schema_version"] += 1
+        else:
+            data["models"] = []
+        path.write_text(json.dumps(data), encoding="utf-8")
+        with pytest.raises(ValueError):
+            sys.modules["utils.registry"].load_release_registry(
+                path, registry, ep="openvino", device="gpu"
+            )
+
+    @pytest.mark.parametrize("json_output", [True, False])
+    @pytest.mark.parametrize(
+        ("ep", "column"),
+        [
+            ("openvino", "intel/OpenVINOExecutionProvider_GPU"),
+            ("nv_tensorrt_rtx", "nvidia/TRTRTXExecutionProvider_GPU"),
+        ],
+    )
+    def test_explicit_release_list_uses_manifest(
+        self, run_eval, release_table, tmp_path, capsys, json_output, ep, column
+    ):
+        path, registry, by_column = release_table
+        listing = tmp_path / "list.json"
+        argv = ["run_eval.py", "--release", "--ep", ep, "--device", "gpu"]
+        argv += ["--list-json", str(listing)] if json_output else ["--list"]
+        with (
+            patch.object(sys, "argv", argv),
+            patch.object(run_eval, "_RELEASE_MANIFEST", path),
+            patch.object(run_eval, "load_registry", return_value=registry),
+            patch.object(run_eval, "register_from_registry"),
+            patch.object(run_eval, "_run_build") as build,
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            run_eval.main()
+        assert exc_info.value.code == 0
+        build.assert_not_called()
+        if json_output:
+            values = json.loads(listing.read_text(encoding="utf-8"))
+            assert {row["hf_id"] for row in values} == {entry.hf_id for entry in registry}
+            expected = dict(
+                zip([entry.hf_id for entry in registry], by_column[column], strict=True)
+            )
+            for row in values:
+                assert (row["precision"] or "default") == expected[row["hf_id"]]
+                assert row["release_target"] == column
+        else:
+            output = capsys.readouterr().out
+            assert column in output
+            for entry, precision in zip(registry, by_column[column], strict=True):
+                assert entry.hf_id in output
+                assert f"[precision={precision}]" in output
+
+    @pytest.mark.parametrize("registered", [True, False])
+    def test_single_model_preserves_legacy_selection(
+        self, run_eval, release_table, tmp_path, registered
+    ):
+        _, registry, _ = release_table
+        listing = tmp_path / "filtered.json"
+        custom_registry = tmp_path / "custom.json"
+        hf_id = registry[-1].hf_id if registered else "release-test/not-selected"
+        task = registry[-1].task if registered else "text-classification"
+        argv = [
+            "run_eval.py",
+            "--registry",
+            str(custom_registry),
+            "--hf-model",
+            hf_id,
+            "--task",
+            task,
+            "--list-json",
+            str(listing),
+        ]
+        with (
+            patch.object(sys, "argv", argv),
+            patch.object(run_eval, "load_registry", return_value=registry) as loader,
+            patch.object(run_eval, "load_release_registry") as release_loader,
+            patch.object(run_eval, "register_from_registry"),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            run_eval.main()
+        assert exc_info.value.code == 0
+        loader.assert_called_once_with(custom_registry)
+        release_loader.assert_not_called()
+        values = json.loads(listing.read_text(encoding="utf-8"))
+        assert [(row["hf_id"], row["task"]) for row in values] == [(hf_id, task)]
+        assert all("release_target" not in row and "precision" not in row for row in values)
+
+    @pytest.mark.parametrize(
+        ("mode", "handler_name"),
+        [("--build-only", "_run_build_only"), ("--update-baseline", "_run_update_baseline")],
+    )
+    def test_auxiliary_modes_preserve_automatic_target(
+        self, run_eval, release_table, mode, handler_name
+    ):
+        _, registry, _ = release_table
+        with (
+            patch.object(sys, "argv", ["run_eval.py", mode]),
+            patch.object(run_eval, "load_registry", return_value=registry),
+            patch.object(run_eval, "load_release_registry") as release_loader,
+            patch.object(run_eval, "_resolve_eval_target") as resolve_target,
+            patch.object(run_eval, "register_from_registry"),
+            patch.object(run_eval, handler_name) as handler,
+        ):
+            run_eval.main()
+        release_loader.assert_not_called()
+        resolve_target.assert_not_called()
+        handler.assert_called_once()
+        entries, args = handler.call_args.args
+        assert {entry.hf_id for entry in entries} == {entry.hf_id for entry in registry}
+        assert args.ep is None
+        assert args.device == "auto"
+
+    @pytest.mark.parametrize("explicit", [False, True])
+    def test_priority_filtering_preserves_legacy_registry(
+        self, run_eval, release_table, tmp_path, explicit
+    ):
+        _, registry, _ = release_table
+        listing = tmp_path / "legacy.json"
+        custom_registry = tmp_path / "custom.json"
+        priorities = list(run_eval._PRIORITY_RANK)
+        if explicit:
+            priorities = priorities[:2]
+        argv = ["run_eval.py", "--registry", str(custom_registry), "--list-json", str(listing)]
+        if explicit:
+            argv += ["--priority", *priorities]
+        with (
+            patch.object(sys, "argv", argv),
+            patch.object(run_eval, "load_registry", return_value=registry) as loader,
+            patch.object(run_eval, "load_release_registry") as release_loader,
+            patch.object(run_eval, "register_from_registry"),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            run_eval.main()
+        assert exc_info.value.code == 0
+        loader.assert_called_once_with(custom_registry)
+        release_loader.assert_not_called()
+        values = json.loads(listing.read_text(encoding="utf-8"))
+        assert {row["hf_id"] for row in values} == {
+            entry.hf_id for entry in registry if entry.priority in priorities
+        }
+
+    def test_release_list_continue_uses_precision_suffix(self, run_eval, release_table, tmp_path):
+        path, registry, by_column = release_table
+        column = "intel/OpenVINOExecutionProvider_GPU"
+        labels = by_column[column]
+        entry = registry[labels.index("fp16")]
+        output = tmp_path / "results"
+        result_path = (
+            run_eval.model_result_dir(output, entry.hf_id, entry.task, "fp16") / "eval_result.json"
+        )
+        result_path.parent.mkdir(parents=True)
+        result_path.write_text(json.dumps({"perf": {"passed": True}}), encoding="utf-8")
+        listing = tmp_path / "pending.json"
+        argv = [
+            "run_eval.py",
+            "--release",
+            "--ep",
+            "openvino",
+            "--device",
+            "gpu",
+            "--output-dir",
+            str(output),
+            "--continue",
+            "--list-json",
+            str(listing),
+        ]
+        with (
+            patch.object(sys, "argv", argv),
+            patch.object(run_eval, "_RELEASE_MANIFEST", path),
+            patch.object(run_eval, "load_registry", return_value=registry),
+            patch.object(run_eval, "register_from_registry"),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            run_eval.main()
+        assert exc_info.value.code == 0
+        values = json.loads(listing.read_text(encoding="utf-8"))
+        assert {row["hf_id"] for row in values} == {item.hf_id for item in registry} - {entry.hf_id}
+
+
+def test_checked_in_release_json_matches_markdown_and_job_plans(run_eval):
+    testsets = Path(run_eval.__file__).parent / "testsets"
+    manifest_path = testsets / "models_release_validation.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    rows = [
+        [cell.strip() for cell in line.strip("|").split("|")]
+        for line in manifest_path.with_suffix(".md").read_text(encoding="utf-8").splitlines()
+        if line.startswith("|")
+    ]
+    headers, _, *data = rows
+    assert len(data) == len(manifest["models"])
+    targets = list(manifest["models"][0]["targets"])
+    assert set(headers[11:]) == set(targets)
+    assert len({model["hf_id"] for model in manifest["models"]}) == len(data)
+    for cells, model in zip(data, manifest["models"], strict=True):
+        assert cells[headers.index("Model")].startswith(f"[{model['hf_id']}](")
+        assert cells[headers.index("Task")] == model["task"]
+        assert cells[headers.index("Priority")] == model["priority"]
+        for target, values in model["targets"].items():
+            assert set(values) == {"precision"}
+            cell = cells[headers.index(target)]
+            label, _link = cell[1:-1].split("](", 1)
+            assert label == values["precision"]
+
+    registry = run_eval.load_registry(testsets / "models_all.json")
+    recipes = testsets.parents[2] / "examples" / "recipes"
+    for target in targets:
+        machine, ep_device = target.split("/", 1)
+        ep, device = ep_device.rsplit("_", 1)
+        entries, matched = run_eval.load_release_registry(
+            manifest_path, registry, ep=ep, device=device.lower(), machine=machine
+        )
+        assert matched == target
+        expected = {
+            (model["hf_id"], model["task"]): model["targets"][target]["precision"]
+            for model in manifest["models"]
+        }
+        jobs = run_eval._build_jobs(entries, recipes, device.lower(), ep=ep, release=True)
+        assert len(jobs) == len(expected)
+        assert {
+            (job.entry.hf_id, job.entry.task): job.precision or "default" for job in jobs
+        } == expected
+        assert all(job.precision_locked for job in jobs)
+
+
+class TestReleaseArgumentParsing:
+    @pytest.mark.parametrize("values", [[], ["--release"]])
+    def test_priority_defaults_are_unchanged(self, run_eval, values):
+        with patch.object(sys, "argv", ["run_eval.py", *values]):
+            args = run_eval.parse_args()
+        assert args.priority == list(run_eval._PRIORITY_RANK)
+        assert args.release is bool(values)
+
+    def test_explicit_priorities_remain_combinable(self, run_eval):
+        priorities = list(run_eval._PRIORITY_RANK)
+        with patch.object(sys, "argv", ["run_eval.py", "--priority", *priorities]):
+            assert run_eval.parse_args().priority == priorities
+
+    def test_repeated_priorities_keep_last_value(self, run_eval):
+        with patch.object(sys, "argv", ["run_eval.py", "--priority", "P0", "--priority", "P1"]):
+            assert run_eval.parse_args().priority == ["P1"]
+
+    def test_legacy_selection_options_remain_combinable(self, run_eval):
+        argv = [
+            "run_eval.py",
+            "--priority",
+            "P0",
+            "--hf-model",
+            "release-test/model",
+            "--registry",
+            "custom.json",
+            "--task",
+            "text-classification",
+            "--group",
+            "test",
+            "--model-type",
+            "bert",
+        ]
+        with patch.object(sys, "argv", argv):
+            args = run_eval.parse_args()
+        assert args.release is False
+        assert args.priority == ["P0"]
+        assert args.hf_model == "release-test/model"
+        assert args.registry == Path("custom.json")
+
+    @pytest.mark.parametrize(
+        "values",
+        [
+            ["--priority", "P0", "P1", "P2", "P3"],
+            ["--priority=P0"],
+            ["--pri", "P0"],
+            ["--hf-model", "release-test/model"],
+            ["--registry", "custom.json"],
+            ["--task", "text-classification"],
+            ["--group", "test"],
+            ["--model-type", "bert"],
+            ["--build-only"],
+            ["--update-baseline"],
+        ],
+    )
+    @pytest.mark.parametrize("release_first", [True, False])
+    def test_release_rejects_explicit_conflicts(self, run_eval, capsys, values, release_first):
+        options = ["--release", *values] if release_first else [*values, "--release"]
+        with (
+            patch.object(sys, "argv", ["run_eval.py", *options]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            run_eval.parse_args()
+        assert exc_info.value.code == 2
+        assert "--release cannot be combined" in capsys.readouterr().err
+
+    def test_release_accepts_execution_controls(self, run_eval, tmp_path):
+        argv = [
+            "run_eval.py",
+            "--release",
+            "--ep",
+            "dml",
+            "--device",
+            "gpu",
+            "--eval-type",
+            "both",
+            "--output-dir",
+            str(tmp_path / "nvidia"),
+            "--continue",
+            "--retry-failed",
+            "HF_FETCH_FAIL",
+            "--timeout",
+            "1200",
+            "--hf-download-stall-timeout",
+            "900",
+            "--clean-cache",
+            "winml",
+            "--list",
+        ]
+        with patch.object(sys, "argv", argv):
+            args = run_eval.parse_args()
+        assert args.release is True
+        assert args.continue_run is True
+        assert args.retry_failed == ["HF_FETCH_FAIL"]
+        assert args.timeout == 1200
+
+    def test_release_is_not_a_priority(self, run_eval):
+        with (
+            patch.object(sys, "argv", ["run_eval.py", "--priority", "release"]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            run_eval.parse_args()
+        assert exc_info.value.code == 2
 
 
 class TestRetryFailedArgumentParsing:

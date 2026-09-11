@@ -1,0 +1,2755 @@
+{
+  "schema_version": 1,
+  "models": [
+    {
+      "hf_id": "depth-anything/Depth-Anything-V2-Small-hf",
+      "task": "depth-estimation",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "Intel/dpt-hybrid-midas",
+      "task": "depth-estimation",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "BAAI/bge-small-en-v1.5",
+      "task": "feature-extraction",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+      "task": "feature-extraction",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "openai/clip-vit-base-patch32",
+      "task": "feature-extraction",
+      "priority": "P0",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+      "task": "feature-extraction",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "default"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        }
+      }
+    },
+    {
+      "hf_id": "sentence-transformers/multi-qa-mpnet-base-dot-v1",
+      "task": "feature-extraction",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "google-bert/bert-base-uncased",
+      "task": "fill-mask",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "FacebookAI/xlm-roberta-base",
+      "task": "fill-mask",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "w8a16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "FacebookAI/roberta-base",
+      "task": "fill-mask",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "distilbert/distilbert-base-uncased",
+      "task": "fill-mask",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "timm/mobilenetv3_small_100.lamb_in1k",
+      "task": "image-classification",
+      "priority": "P1",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "default"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        }
+      }
+    },
+    {
+      "hf_id": "google/vit-base-patch16-224",
+      "task": "image-classification",
+      "priority": "P0",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "microsoft/resnet-50",
+      "task": "image-classification",
+      "priority": "P0",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "microsoft/swinv2-tiny-patch4-window16-256",
+      "task": "image-classification",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "facebook/convnext-tiny-224",
+      "task": "image-classification",
+      "priority": "P0",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "microsoft/beit-base-patch16-224-pt22k-ft22k",
+      "task": "image-classification",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "default"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        }
+      }
+    },
+    {
+      "hf_id": "facebook/dinov2-base",
+      "task": "image-feature-extraction",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "google/vit-base-patch16-224-in21k",
+      "task": "image-feature-extraction",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "facebook/dino-vitb16",
+      "task": "image-feature-extraction",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "nvidia/segformer-b2-finetuned-ade-512-512",
+      "task": "image-segmentation",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "mattmdjaga/segformer_b2_clothes",
+      "task": "image-segmentation",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "Salesforce/blip-image-captioning-base",
+      "task": "image-to-text",
+      "priority": "P0",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "microsoft/trocr-base-printed",
+      "task": "image-to-text",
+      "priority": "P1",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "facebook/nougat-base",
+      "task": "image-to-text",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "default"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "w8a8"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        }
+      }
+    },
+    {
+      "hf_id": "google-bert/bert-base-multilingual-cased",
+      "task": "masked-lm",
+      "priority": "P0",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "default"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        }
+      }
+    },
+    {
+      "hf_id": "microsoft/table-transformer-structure-recognition",
+      "task": "object-detection",
+      "priority": "P1",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "default"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        }
+      }
+    },
+    {
+      "hf_id": "hustvl/yolos-small",
+      "task": "object-detection",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "default"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        }
+      }
+    },
+    {
+      "hf_id": "facebook/detr-resnet-50",
+      "task": "object-detection",
+      "priority": "P0",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "default"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        }
+      }
+    },
+    {
+      "hf_id": "ahotrod/electra_large_discriminator_squad2_512",
+      "task": "question-answering",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "tau/splinter-base",
+      "task": "question-answering",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "default"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "default"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        }
+      }
+    },
+    {
+      "hf_id": "timpal0l/mdeberta-v3-base-squad2",
+      "task": "question-answering",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "default"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        }
+      }
+    },
+    {
+      "hf_id": "sentence-transformers/all-MiniLM-L6-v2",
+      "task": "sentence-similarity",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "BAAI/bge-m3",
+      "task": "sentence-similarity",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "w8a16"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "w8a16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "w8a16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "w8a16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "w8a16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "w8a16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "w8a16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "w8a16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "w8a16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "w8a16"
+        }
+      }
+    },
+    {
+      "hf_id": "sentence-transformers/all-mpnet-base-v2",
+      "task": "sentence-similarity",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "google/flan-t5-base",
+      "task": "summarization",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "default"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        }
+      }
+    },
+    {
+      "hf_id": "google/pegasus-xsum",
+      "task": "summarization",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "default"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        }
+      }
+    },
+    {
+      "hf_id": "cross-encoder/ms-marco-MiniLM-L6-v2",
+      "task": "text-classification",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "default"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp32"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        }
+      }
+    },
+    {
+      "hf_id": "BAAI/bge-reranker-v2-m3",
+      "task": "text-classification",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "default"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        }
+      }
+    },
+    {
+      "hf_id": "distilbert/distilbert-base-uncased-finetuned-sst-2-english",
+      "task": "text-classification",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "cardiffnlp/twitter-roberta-base-sentiment-latest",
+      "task": "text-classification",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "dbmdz/bert-large-cased-finetuned-conll03-english",
+      "task": "token-classification",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "w11wo/indonesian-roberta-base-posp-tagger",
+      "task": "token-classification",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "kredor/punctuate-all",
+      "task": "token-classification",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "default"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        }
+      }
+    },
+    {
+      "hf_id": "google-t5/t5-small",
+      "task": "translation",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "default"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        }
+      }
+    },
+    {
+      "hf_id": "lxyuan/distilbert-base-multilingual-cased-sentiments-student",
+      "task": "zero-shot-classification",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "default"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        }
+      }
+    },
+    {
+      "hf_id": "cross-encoder/nli-deberta-v3-small",
+      "task": "zero-shot-classification",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "default"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        }
+      }
+    },
+    {
+      "hf_id": "openai/clip-vit-large-patch14",
+      "task": "zero-shot-image-classification",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "w8a16"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "fp16"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "fp16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "fp16"
+        }
+      }
+    },
+    {
+      "hf_id": "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
+      "task": "zero-shot-image-classification",
+      "priority": "P0",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "default"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        }
+      }
+    },
+    {
+      "hf_id": "google/siglip-base-patch16-224",
+      "task": "zero-shot-image-classification",
+      "priority": "P2",
+      "targets": {
+        "amd/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MIGraphExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "amd/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "amd/VitisAIExecutionProvider_NPU": {
+          "precision": "default"
+        },
+        "intel/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "intel/OpenVINOExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXARMExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "nvidia/TRTRTXExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/MLASExecutionProvider_CPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_GPU": {
+          "precision": "default"
+        },
+        "qnn/QNNExecutionProvider_NPU": {
+          "precision": "w8a16"
+        },
+        "nvidia/DmlExecutionProvider_GPU": {
+          "precision": "default"
+        }
+      }
+    }
+  ]
+}
