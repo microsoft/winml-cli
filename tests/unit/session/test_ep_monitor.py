@@ -297,8 +297,8 @@ class TestPdhModule:
         # per Compute_* engine on the adapter, plus the shared memory pair.
         assert any(n.startswith("util_Compute") for n in names)
         assert any(n.startswith("running_time_Compute") for n in names)
-        assert "memory_local_bytes" in names
-        assert "memory_shared_bytes" in names
+        # Idle processes may have no GPU Process Memory instance yet.
+        assert ("memory_local_bytes" in names) == ("memory_shared_bytes" in names)
         query.close()
 
 
@@ -384,7 +384,7 @@ class TestPdhPoller:
 
         assert isinstance(poller.mean_utilization_pct, float)
         assert isinstance(poller.peak_utilization_pct, float)
-        assert isinstance(poller.peak_memory_mb, float)
+        assert poller.peak_memory_mb is None or isinstance(poller.peak_memory_mb, float)
 
     def test_collects_samples_over_time(self):
         from winml.modelkit.session.monitor._pdh import PdhPoller
@@ -524,9 +524,9 @@ class TestHWMonitor:
 
         assert isinstance(hw.mean_utilization_pct, float)
         assert isinstance(hw.peak_utilization_pct, float)
-        assert isinstance(hw.peak_memory_mb, float)
-        assert isinstance(hw.mean_memory_local_mb, float)
-        assert isinstance(hw.mean_memory_shared_mb, float)
+        assert hw.peak_memory_mb is None or isinstance(hw.peak_memory_mb, float)
+        assert hw.mean_memory_local_mb is None or isinstance(hw.mean_memory_local_mb, float)
+        assert hw.mean_memory_shared_mb is None or isinstance(hw.mean_memory_shared_mb, float)
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
     def test_to_dict_structure(self):
@@ -698,7 +698,7 @@ class TestPdhPollerGracefulDegradation:
 
         assert poller.mean_utilization_pct == 0.0
         assert poller.peak_utilization_pct == 0.0
-        assert poller.peak_memory_mb == 0.0
+        assert poller.peak_memory_mb is None
         assert poller.adapter_luid is None
         assert poller.running_time_delta_ns == 0
         assert poller.is_active is False
@@ -861,9 +861,7 @@ class TestResolveAdapterLuid:
             (),
             {
                 "get_ep_devices": lambda: [fake_device("111"), fake_device("222")],
-                "OrtHardwareDeviceType": type(
-                    "Types", (), {"NPU": "NPU_TYPE", "GPU": "GPU_TYPE"}
-                ),
+                "OrtHardwareDeviceType": type("Types", (), {"NPU": "NPU_TYPE", "GPU": "GPU_TYPE"}),
             },
         )
         fake_pdh = {"0x00000000_0x0000006F": object()}
@@ -873,9 +871,7 @@ class TestResolveAdapterLuid:
             patch.object(pdh_adapters, "enumerate_adapters", return_value=fake_pdh),
             patch.object(pdh_adapters, "discover_gpu_luid") as fallback,
         ):
-            luid = pdh_adapters.resolve_adapter_luid(
-                "gpu", ep_name="DmlExecutionProvider"
-            )
+            luid = pdh_adapters.resolve_adapter_luid("gpu", ep_name="DmlExecutionProvider")
 
         assert luid is None
         fallback.assert_not_called()

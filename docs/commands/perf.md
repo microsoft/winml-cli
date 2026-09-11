@@ -77,6 +77,50 @@ target validation.
 
 ## Examples
 
+### Memory measurement contract
+
+With --memory, the legacy baseline stays **after the model factory, before
+input generation and explicit session.compile()**, as on main. Existing
+baseline/load/inference/total delta fields and the maximum-of-three checkpoint
+peak keep that boundary. Eager model loading before this baseline is excluded.
+
+Single-model runs also take an earlier, separately named before_model_load
+snapshot after device resolution and before the model factory. For each of
+rss, vram_local and vram_shared, additive fields are:
+
+- *_before_model_load_mb: earlier absolute snapshot.
+- *_model_factory_delta_mb: legacy baseline minus earlier snapshot.
+- *_total_from_before_model_load_delta_mb: inference end minus earlier snapshot.
+
+The new total includes model factory/build and input/session overhead. It is
+not weights-only memory or a continuous peak. Preloaded composite components
+have no observation before loading: all added fields are null with an explicit
+reason. They must not inherit the parent's aggregate baseline.
+
+Legacy *_mb fields use MiB. memory_measurement schema_version 2 retains the
+legacy baseline definition and adds the earlier boundary definition, PID,
+process creation time, selected LUID and timestamped byte/status/source records.
+Private commit is separate from RSS. The legacy checkpoint peak excludes the
+new earlier snapshot, even if that snapshot is larger. Signed deltas can be negative.
+
+Unavailable readings and dependent deltas are null, never zero. If the earlier
+GPU process instance is absent, only metrics needing that point are unavailable;
+a valid legacy baseline and its deltas remain usable. CPU GPU memory is
+not_applicable. Performance success does not certify memory.
+
+GPU memory uses main's effective EP-device binding, including --device-luid and
+provider selectors resolved through the advertised device options. Unresolved
+selectors are reported unavailable rather than matched to the first GPU.
+PDH records are scoped to the current PID and all enumerated physical memory
+nodes for that adapter. Local/shared are driver accounting categories: UMA local
+memory can be system RAM. Do not add process RSS and GPU shared memory.
+
+The --monitor summary uses null/N/A when RAM or device memory has no valid
+samples. Its sampled inference-window peaks have a different time boundary from
+the three phase checkpoints. Historical collectors and the external Raw CGC
+runner are not upgraded by this CLI change; those results require provenance
+labels or a rerun with a compatible collector.
+
 Basic benchmark on the best available device:
 
 ```bash

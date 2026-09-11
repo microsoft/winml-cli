@@ -107,9 +107,9 @@ The metrics collected depend on the target device:
 | Device memory shared (peak MB) | — | ✓ | ✓ |
 | Engine running time (ns) | — | ✓ | ✓ |
 
-- **CPU**: Only system-level metrics (CPU %, RAM) are shown in terminal output. In JSON, `device_memory` and `running_time_ns` are still present but will be zero.
-- **GPU**: Reports GPU engine utilisation plus dedicated VRAM (`local_peak_mb`) and shared system memory (`shared_peak_mb`) allocated by the GPU driver.
-- **NPU**: Same structure as GPU. NPU adapters register as Windows GPU Engine devices, so utilisation and memory are read via the same PDH counters. `local_peak_mb` represents dedicated adapter memory; `shared_peak_mb` is system memory shared with the NPU.
+- **CPU**: Only system-level metrics (CPU %, RAM) are shown in terminal output. In JSON, device-memory values are null when no samples exist; running_time_ns remains zero.
+- **GPU**: Reports GPU engine utilisation plus local GPU memory (`local_peak_mb`; system memory on UMA) and shared system memory (`shared_peak_mb`) allocated by the GPU driver.
+- **NPU**: Same structure as GPU. NPU adapters register as Windows GPU Engine devices, so utilisation and memory are read via the same PDH counters. `local_peak_mb` represents local driver accounting, not necessarily dedicated VRAM; `shared_peak_mb` is system memory shared with the NPU.
 
 ### Terminal output
 
@@ -140,7 +140,7 @@ In JSON output (`-f json`), these metrics appear under the `hw_monitor` key:
   "cpu": { "mean_pct": 15.8, "peak_pct": 16.71, "sample_count": 2 },
   "ram": { "used_mb": 640.21, "peak_mb": 640.21 },
   "gpu": { "mean_pct": 0.0, "peak_pct": 0.0, "sample_count": 0, "luids": [] },
-  "device_memory": { "local_peak_mb": 0.0, "shared_peak_mb": 0.0 },
+  "device_memory": { "local_peak_mb": null, "shared_peak_mb": null, "local_status": "unavailable", "shared_status": "unavailable", "reason": "no_valid_memory_samples" },
   "running_time_ns": 0
 }
 ```
