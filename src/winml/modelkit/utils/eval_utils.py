@@ -57,6 +57,30 @@ _IMAGE_CLASSIFICATION_SCHEMA = TaskSchema(
     ),
 )
 
+_AUDIO_CLASSIFICATION_SCHEMA = TaskSchema(
+    columns=(
+        SchemaItem(
+            "input_column",
+            "encoded audio bytes/path or decoded waveform with sampling rate",
+            default="audio",
+            remap_hint="<your_audio_column>",
+        ),
+        SchemaItem(
+            "label_column",
+            "scalar ClassLabel or sequence of exact class labels",
+            default="label",
+            remap_hint="<your_label_column>",
+        ),
+    ),
+    params=(
+        SchemaItem(
+            "label_name_column",
+            "parallel exact label names for sequence-valued identifiers (optional)",
+            remap_hint="<your_label_name_column>",
+        ),
+    ),
+)
+
 _TEXT_CLASSIFICATION_SCHEMA = TaskSchema(
     columns=(
         SchemaItem(
@@ -449,6 +473,7 @@ _TEXT_GENERATION_SCHEMA = TaskSchema(
 )
 
 TASK_SCHEMAS: dict[str, TaskSchema] = {
+    "audio-classification": _AUDIO_CLASSIFICATION_SCHEMA,
     "image-classification": _IMAGE_CLASSIFICATION_SCHEMA,
     "text-classification": _TEXT_CLASSIFICATION_SCHEMA,
     "sequence-classification": _TEXT_CLASSIFICATION_SCHEMA,
