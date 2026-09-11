@@ -2287,10 +2287,7 @@ class TestReleaseRegistry:
                 "task": entry.task,
                 "priority": entry.priority,
                 "targets": {
-                    column: {
-                        "precision": by_column[column][index],
-                        "eval_result": f"missing-artifacts/{index}/eval_result.json",
-                    }
+                    column: {"precision": by_column[column][index]}
                     for column in columns
                 },
             })
@@ -2560,8 +2557,6 @@ class TestReleaseRegistry:
 
 
 def test_checked_in_release_json_matches_markdown_and_job_plans(run_eval):
-    from urllib.parse import unquote
-
     testsets = Path(run_eval.__file__).parent / "testsets"
     manifest_path = testsets / "models_release_validation.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -2580,11 +2575,10 @@ def test_checked_in_release_json_matches_markdown_and_job_plans(run_eval):
         assert cells[headers.index("Task")] == model["task"]
         assert cells[headers.index("Priority")] == model["priority"]
         for target, values in model["targets"].items():
+            assert set(values) == {"precision"}
             cell = cells[headers.index(target)]
-            label, link = cell[1:-1].split("](", 1)
+            label, _link = cell[1:-1].split("](", 1)
             assert label == values["precision"]
-            assert unquote(link) == values["eval_result"]
-            assert not Path(values["eval_result"]).is_absolute()
 
     registry = run_eval.load_registry(testsets / "models_all.json")
     recipes = testsets.parents[2] / "examples" / "recipes"

@@ -67,10 +67,10 @@ the release set. For a model outside that set, use an explicit P0-P3 priority
 with `--hf-model`.
 
 Each manifest entry contains `hf_id`, `task`, `priority` and a `targets` map keyed
-by `machine/EP_device`. A target stores `precision` and `eval_result`, a path
-relative to the manifest. Historical evidence files are for audit and are not
-opened by the runner, so the sibling artifacts repo is not required to load the
-release list. Registry metadata still supplies dataset and perf/eval overrides.
+by `machine/EP_device`. A target stores only `precision`. Historical evidence
+links remain in the sibling Markdown report for audit and are not opened by the
+runner, so the sibling artifacts repo is not required to load the release list.
+Registry metadata still supplies dataset and perf/eval overrides.
 `default` means omit the precision flag and leave resolution to WinML, not FP32.
 Historical PASS evidence does not guarantee a new run with changed software or
 configuration will pass.
