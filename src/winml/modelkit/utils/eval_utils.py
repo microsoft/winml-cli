@@ -139,6 +139,66 @@ _OBJECT_DETECTION_SCHEMA = TaskSchema(
     ),
 )
 
+_ZERO_SHOT_OBJECT_DETECTION_SCHEMA = TaskSchema(
+    columns=(
+        SchemaItem(
+            "input_column",
+            "input image (PIL.Image)",
+            default="image",
+            remap_hint="<your_image_column>",
+        ),
+        SchemaItem(
+            "annotation_column",
+            "annotation dict containing bbox + category fields",
+            default="objects",
+            remap_hint="<your_annotation_column>",
+        ),
+    ),
+    params=(
+        SchemaItem(
+            "bbox_key",
+            "absolute xywh bounding boxes inside the annotation dict",
+            default="bbox",
+            remap_hint="<bbox_field>",
+        ),
+        SchemaItem(
+            "category_key",
+            "category IDs backed by authoritative category names",
+            default="category",
+            remap_hint="<category_field>",
+        ),
+        SchemaItem(
+            "image_id_column",
+            "stable image ID used to break deterministic selection ties",
+            default="image_id",
+            remap_hint="<your_image_id_column>",
+        ),
+        SchemaItem(
+            "prompt_template",
+            "text-query template containing exactly one {} replacement field",
+            default="a photo of a {}",
+            remap_hint="<template with one {} field>",
+        ),
+        SchemaItem(
+            "max_queries",
+            "maximum category queries to evaluate (set via --max-queries; null = full vocabulary)",
+            default="16",
+        ),
+        SchemaItem(
+            "box_format",
+            "ground-truth bounding box layout",
+            default="xywh",
+            remap_hint="<xywh|xyxy>",
+        ),
+        SchemaItem(
+            "box_coords",
+            "ground-truth bounding box coordinate system",
+            default="absolute",
+            remap_hint="<absolute|normalized>",
+        ),
+    ),
+)
+
 _IMAGE_SEGMENTATION_SCHEMA = TaskSchema(
     columns=(
         SchemaItem(
@@ -455,6 +515,7 @@ TASK_SCHEMAS: dict[str, TaskSchema] = {
     "next-sentence-prediction": _TEXT_CLASSIFICATION_SCHEMA,
     "token-classification": _TOKEN_CLASSIFICATION_SCHEMA,
     "object-detection": _OBJECT_DETECTION_SCHEMA,
+    "zero-shot-object-detection": _ZERO_SHOT_OBJECT_DETECTION_SCHEMA,
     "image-segmentation": _IMAGE_SEGMENTATION_SCHEMA,
     "question-answering": _QUESTION_ANSWERING_SCHEMA,
     "feature-extraction": _FEATURE_EXTRACTION_SCHEMA,

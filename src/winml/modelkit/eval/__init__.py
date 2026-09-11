@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     from .token_classification_evaluator import WinMLTokenClassificationEvaluator
     from .zero_shot_classification_evaluator import WinMLZeroShotClassificationEvaluator
     from .zero_shot_image_classification_evaluator import WinMLZeroShotImageClassificationEvaluator
+    from .zero_shot_object_detection_evaluator import WinMLZeroShotObjectDetectionEvaluator
 
 
 _LAZY_ATTRS: dict[str, str] = {
@@ -78,6 +79,9 @@ _LAZY_ATTRS: dict[str, str] = {
     ),
     "WinMLZeroShotImageClassificationEvaluator": (
         ".zero_shot_image_classification_evaluator:WinMLZeroShotImageClassificationEvaluator"
+    ),
+    "WinMLZeroShotObjectDetectionEvaluator": (
+        ".zero_shot_object_detection_evaluator:WinMLZeroShotObjectDetectionEvaluator"
     ),
     "TensorSimilarityEvaluator": ".tensor_similarity_evaluator:TensorSimilarityEvaluator",
     # Metrics (defer numpy / scipy / torch / torchmetrics until first use)
@@ -142,6 +146,7 @@ __all__ = [
     "WinMLTokenClassificationEvaluator",
     "WinMLZeroShotClassificationEvaluator",
     "WinMLZeroShotImageClassificationEvaluator",
+    "WinMLZeroShotObjectDetectionEvaluator",
     "evaluate",
     "get_evaluator_class",
 ]
