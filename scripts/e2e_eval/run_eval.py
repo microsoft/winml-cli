@@ -65,6 +65,7 @@ import logging
 import math
 import os
 import platform
+import queue
 import re
 import shutil
 import subprocess
@@ -118,6 +119,7 @@ _DEFAULT_PRECISION_NPU = "w8a16"
 _DEFAULT_HF_DOWNLOAD_STALL_TIMEOUT = 600
 _HF_DOWNLOAD_STALL_TIMEOUT = float(_DEFAULT_HF_DOWNLOAD_STALL_TIMEOUT)
 _SUBPROCESS_POLL_INTERVAL = 0.25
+_HF_DOWNLOAD_MONITOR_TIMEOUT = 5.0
 _PRIORITY_RANK = {f"P{index}": index for index in range(4)}
 _RETRY_FAILED_TYPES = (
     *(failure_type.value for failure_type in FailureType),
@@ -804,6 +806,12 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
     last_poll = start
     download_tracker = _HfDownloadTracker(env, start)
     download_was_active = False
+    download_poll_results: queue.SimpleQueue[bool] = queue.SimpleQueue()
+    download_poll_thread: threading.Thread | None = None
+    download_poll_started = start
+    download_state_known = False
+    last_download_active = False
+    download_monitor_stalled = False
 
     popen_kwargs: dict = {
         "stdout": subprocess.PIPE,
@@ -837,22 +845,59 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
     stdout_thread.start()
     stderr_thread.start()
 
+    def _poll_downloads(poll_time: float) -> None:
+        try:
+            active = download_tracker.poll(poll_time)
+        except Exception:
+            active = False
+        download_poll_results.put(active)
+
+    def _download_state(now: float) -> tuple[bool, bool]:
+        nonlocal download_monitor_stalled
+        nonlocal download_poll_started
+        nonlocal download_poll_thread
+        nonlocal download_state_known
+        nonlocal last_download_active
+
+        if download_poll_thread is not None and not download_poll_thread.is_alive():
+            download_poll_thread.join()
+            try:
+                last_download_active = download_poll_results.get_nowait()
+                download_state_known = True
+            except queue.Empty:
+                last_download_active = False
+                download_state_known = True
+            download_poll_thread = None
+
+        if (
+            download_poll_thread is not None
+            and now - download_poll_started >= _HF_DOWNLOAD_MONITOR_TIMEOUT
+        ):
+            download_monitor_stalled = True
+            last_download_active = False
+            download_state_known = True
+
+        if download_poll_thread is None and not download_monitor_stalled:
+            download_poll_started = now
+            download_poll_thread = threading.Thread(
+                target=_poll_downloads,
+                args=(now,),
+                daemon=True,
+            )
+            download_poll_thread.start()
+
+        return last_download_active, download_state_known
+
     try:
         while True:
             remaining = max(0.01, timeout - execution_elapsed)
             try:
                 proc.wait(timeout=min(_SUBPROCESS_POLL_INTERVAL, remaining))
-                now = time.perf_counter()
-                download_active = download_tracker.poll(now)
-                if download_was_active and not download_active:
-                    execution_elapsed = 0.0
-                elif not download_active:
-                    execution_elapsed += now - last_poll
                 exit_code = proc.returncode
                 break
             except subprocess.TimeoutExpired:
                 now = time.perf_counter()
-                download_active = download_tracker.poll(now)
+                download_active, download_state_known = _download_state(now)
                 if download_active:
                     download_was_active = True
                     if now - download_tracker.last_progress >= _HF_DOWNLOAD_STALL_TIMEOUT:
@@ -863,7 +908,7 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
                         download_was_active = False
                     else:
                         execution_elapsed += now - last_poll
-                    if execution_elapsed >= timeout:
+                    if execution_elapsed >= timeout and download_state_known:
                         timed_out = True
                 last_poll = now
 

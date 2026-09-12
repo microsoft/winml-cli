@@ -560,6 +560,24 @@ class TestRunSubprocessTimeouts:
         assert result["timeout"] is True
         assert result["hf_download_stalled"] is False
 
+    def test_blocked_download_monitor_cannot_disable_execution_timeout(self, run_eval):
+        def blocked_open_paths(_pid):
+            time.sleep(1.0)
+            return set()
+
+        with (
+            patch.object(run_eval, "_HF_DOWNLOAD_MONITOR_TIMEOUT", 0.2),
+            patch.object(run_eval, "_process_tree_open_paths", side_effect=blocked_open_paths),
+        ):
+            result = run_eval._run_subprocess(
+                [sys.executable, "-c", "import time; time.sleep(5)"], timeout=0.2
+            )
+
+        assert result["exit_code"] == -1
+        assert result["elapsed"] < 0.8
+        assert result["timeout"] is True
+        assert result["hf_download_stalled"] is False
+
 
 def test_curated_target_models_preserve_existing_priorities(run_eval):
     testsets_dir = (
