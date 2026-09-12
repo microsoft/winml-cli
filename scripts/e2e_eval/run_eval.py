@@ -5,6 +5,17 @@
 
 """E2E evaluation runner — unified, recipe-driven perf + accuracy.
 
+``--release`` reads ``testsets/models_release_validation.json`` and builds one
+job per selected model/task at the target EP's recorded precision.
+Only a matching recipe is used; otherwise the build uses ``winml config``.
+``default`` omits the precision flag without expanding NPU variants. Without
+``--release``, the existing P0-P3 selection and recipe expansion below apply.
+
+Explicit ``--ep`` / ``--device`` pairs are checked against locally discovered
+runtime devices before loading models. Unavailable targets print ``[SKIP]``
+and exit successfully without installing EPs. Listing, build-only, and baseline
+update modes do not require the target hardware.
+
 Batch-builds models and runs winml perf, then (when perf passes) winml eval,
 writing one unified eval_result.json per (model, task, precision). Recipes drive
 the build on every device (they carry the accuracy eval/dataset config), but
@@ -24,6 +35,9 @@ scripts from these eval_result.json files. Use ``--update-baseline`` to refresh
 the offline baseline cache the site grades against.
 
 Usage:
+    # Explicit release set at the target EP's chosen precision
+    python scripts/e2e_eval/run_eval.py --release --ep openvino --device gpu --eval-type both
+
     # Perf only (default), recipe-driven across precision variants
     python scripts/e2e_eval/run_eval.py --priority P0
 
@@ -51,6 +65,7 @@ import logging
 import math
 import os
 import platform
+import queue
 import re
 import shutil
 import subprocess
@@ -73,6 +88,7 @@ from utils.registry import (
     ModelEntry,
     filter_registry,
     load_registry,
+    load_release_registry,
     make_adhoc_entry,
     op_tracing_target_key,
 )
@@ -95,13 +111,15 @@ logger = logging.getLogger(__name__)
 WINML_CLI = [sys.executable, "-m", "winml.modelkit.cli"]
 BASELINE_SCRIPT = Path(__file__).parent / "run_pytorch_baseline.py"
 BASELINE_CACHE_PATH = Path(__file__).parent / "cache" / "baseline_cache.json"
+_RELEASE_MANIFEST = Path(__file__).parent / "testsets" / "models_release_validation.json"
 EVAL_DATASETS_CACHE = Path.home() / ".cache" / "winml" / "eval_datasets"
 TIMEOUT_SKIP_LIST_PATH = Path(__file__).parent / "cache" / "timeout_skip_list.json"
 _DEFAULT_SAMPLES = 1000
 _DEFAULT_PRECISION_NPU = "w8a16"
-_DEFAULT_HF_DOWNLOAD_STALL_TIMEOUT = 600
+_DEFAULT_HF_DOWNLOAD_STALL_TIMEOUT = 120
 _HF_DOWNLOAD_STALL_TIMEOUT = float(_DEFAULT_HF_DOWNLOAD_STALL_TIMEOUT)
 _SUBPROCESS_POLL_INTERVAL = 0.25
+_HF_DOWNLOAD_MONITOR_TIMEOUT = 5.0
 _PRIORITY_RANK = {f"P{index}": index for index in range(4)}
 _RETRY_FAILED_TYPES = (
     *(failure_type.value for failure_type in FailureType),
@@ -160,6 +178,34 @@ def _resolve_eval_target(ep: str | None, device: str | None) -> tuple[str, str]:
 
     target = resolve_device(EPDeviceTarget(ep=ep or "auto", device=device or "auto"))
     return target.ep, target.device
+
+
+def _is_eval_target_available(ep: str | None, device: str | None) -> bool:
+    """Check an explicit EP/device pair against the host's runtime inventory."""
+    if not ep or ep.lower() == "auto" or not device or device.lower() == "auto":
+        return True
+
+    from winml.modelkit.session import (
+        DeviceNotFound,
+        EPDeviceTarget,
+        WinMLEPNotDiscovered,
+        WinMLEPRegistrationFailed,
+        WinMLEPRegistry,
+        expand_ep_name,
+    )
+
+    target = EPDeviceTarget(ep=ep, device=device)
+    try:
+        registry = WinMLEPRegistry.instance()
+        if expand_ep_name(target.ep) not in registry.available_eps():
+            raise WinMLEPNotDiscovered(f"No locally installed EP found for {target.ep}.")
+        registry.auto_device(target)
+    except (DeviceNotFound, WinMLEPNotDiscovered, WinMLEPRegistrationFailed) as exc:
+        safe_print(
+            f"[SKIP] {target.ep}/{target.device} is not available on this machine: {exc}"
+        )
+        return False
+    return True
 
 
 def _validate_recipe_copy_target(ep: str | None, device: str | None) -> None:
@@ -495,6 +541,11 @@ def safe_print(text: str) -> None:
         print(text.encode("ascii", errors="replace").decode("ascii"))
 
 
+def _progress_prefix(index: int, total: int, now: datetime | None = None) -> str:
+    timestamp = (now or datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
+    return f"[{timestamp}] [{index}/{total}]"
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -752,6 +803,7 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
         **os.environ,
         "PYTHONIOENCODING": "utf-8",
         "HF_HUB_DOWNLOAD_TIMEOUT": str(int(_HF_DOWNLOAD_STALL_TIMEOUT)),
+        "HF_HUB_ETAG_TIMEOUT": str(int(_HF_DOWNLOAD_STALL_TIMEOUT)),
     }
     start = time.perf_counter()
     timed_out = False
@@ -760,6 +812,12 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
     last_poll = start
     download_tracker = _HfDownloadTracker(env, start)
     download_was_active = False
+    download_poll_results: queue.SimpleQueue[bool] = queue.SimpleQueue()
+    download_poll_thread: threading.Thread | None = None
+    download_poll_started = start
+    download_state_known = False
+    last_download_active = False
+    download_monitor_stalled = False
 
     popen_kwargs: dict = {
         "stdout": subprocess.PIPE,
@@ -793,22 +851,59 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
     stdout_thread.start()
     stderr_thread.start()
 
+    def _poll_downloads(poll_time: float) -> None:
+        try:
+            active = download_tracker.poll(poll_time)
+        except Exception:
+            active = False
+        download_poll_results.put(active)
+
+    def _download_state(now: float) -> tuple[bool, bool]:
+        nonlocal download_monitor_stalled
+        nonlocal download_poll_started
+        nonlocal download_poll_thread
+        nonlocal download_state_known
+        nonlocal last_download_active
+
+        if download_poll_thread is not None and not download_poll_thread.is_alive():
+            download_poll_thread.join()
+            try:
+                last_download_active = download_poll_results.get_nowait()
+                download_state_known = True
+            except queue.Empty:
+                last_download_active = False
+                download_state_known = True
+            download_poll_thread = None
+
+        if (
+            download_poll_thread is not None
+            and now - download_poll_started >= _HF_DOWNLOAD_MONITOR_TIMEOUT
+        ):
+            download_monitor_stalled = True
+            last_download_active = False
+            download_state_known = True
+
+        if download_poll_thread is None and not download_monitor_stalled:
+            download_poll_started = now
+            download_poll_thread = threading.Thread(
+                target=_poll_downloads,
+                args=(now,),
+                daemon=True,
+            )
+            download_poll_thread.start()
+
+        return last_download_active, download_state_known
+
     try:
         while True:
             remaining = max(0.01, timeout - execution_elapsed)
             try:
                 proc.wait(timeout=min(_SUBPROCESS_POLL_INTERVAL, remaining))
-                now = time.perf_counter()
-                download_active = download_tracker.poll(now)
-                if download_was_active and not download_active:
-                    execution_elapsed = 0.0
-                elif not download_active:
-                    execution_elapsed += now - last_poll
                 exit_code = proc.returncode
                 break
             except subprocess.TimeoutExpired:
                 now = time.perf_counter()
-                download_active = download_tracker.poll(now)
+                download_active, download_state_known = _download_state(now)
                 if download_active:
                     download_was_active = True
                     if now - download_tracker.last_progress >= _HF_DOWNLOAD_STALL_TIMEOUT:
@@ -819,7 +914,7 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
                         download_was_active = False
                     else:
                         execution_elapsed += now - last_poll
-                    if execution_elapsed >= timeout:
+                    if execution_elapsed >= timeout and download_state_known:
                         timed_out = True
                 last_poll = now
 
@@ -901,6 +996,7 @@ def _run_build(
     model_dir: Path,
     ep: str | None = None,
     build_only: bool = False,
+    honor_precision: bool = False,
 ) -> dict:
     """Run winml config + winml build for one model. Returns build result dict.
 
@@ -922,6 +1018,9 @@ def _run_build(
     dict reports that effective precision back under ``precision`` (read from
     the generated config when the caller passed none), so the recorded
     eval_result never claims "no precision" for a quantized build.
+
+    ``honor_precision`` keeps an explicit release precision even on EPs whose
+    legacy evaluation track normally passes ``--no-quant``.
     """
     composite_onnx = getattr(entry, "composite_onnx", None)
     if isinstance(composite_onnx, dict) and composite_onnx:
@@ -978,7 +1077,8 @@ def _run_build(
     # written with quant=None up-front; otherwise on NPU the config command
     # would still apply its default precision (w8a16) and we'd be relying on
     # --no-quant at build time alone to override it.
-    if _should_skip_winml_quant(ep, device):
+    skip_quant = _should_skip_winml_quant(ep, device) and not (honor_precision and precision)
+    if skip_quant:
         config_args += ["--no-quant"]
 
     config_proc = _run_subprocess(config_args, timeout)
@@ -1037,7 +1137,7 @@ def _run_build(
         # Mirror the --no-quant passed to winml config above so the build
         # stage also skips QDQ regardless of what the config carries (defence
         # in depth; see _should_skip_winml_quant for the rationale).
-        if _should_skip_winml_quant(ep, device):
+        if skip_quant:
             build_args += ["--no-quant"]
 
         build_proc = _run_subprocess(build_args, timeout)
@@ -1799,7 +1899,9 @@ def _run_build_only(entries: list[ModelEntry], args: argparse.Namespace) -> None
         shared_dir = model_dir / "_shared"
         canonical_hash: str | None = None
 
-        safe_print(f"\n[{i}/{len(entries)}] {label}  ({entry.priority}, {entry.group})")
+        safe_print(
+            f"\n{_progress_prefix(i, len(entries))} {label}  ({entry.priority}, {entry.group})"
+        )
 
         for combo_label, ep, device in combos:
             build_dir = model_dir / combo_label if combo_label else model_dir
@@ -2573,10 +2675,12 @@ def _run_update_baseline(entries: list[ModelEntry], args: argparse.Namespace) ->
         ds_config = get_dataset_config(entry.hf_id, entry.task) or {}
         cached = _lookup_baseline_cache(entry.hf_id, entry.task, ds_config)
         if cached is not None and not args.retry_failed:
-            safe_print(f"[{i}/{len(entries)}] {label}  (cached {cached['metric']})")
+            safe_print(
+                f"{_progress_prefix(i, len(entries))} {label}  (cached {cached['metric']})"
+            )
             continue
 
-        safe_print(f"[{i}/{len(entries)}] {label}  running baseline ...")
+        safe_print(f"{_progress_prefix(i, len(entries))} {label}  running baseline ...")
         _build_dataset(ds_config, args.timeout)
         baseline = _run_pytorch_baseline(entry, args.device, args.timeout)
         if baseline["status"] == "PASS":
@@ -2829,11 +2933,16 @@ class EvalJob:
     one job per NPU quantization scheme (see :data:`_NPU_FALLBACK_PRECISIONS`);
     it stays ``None`` for the single default-precision fallback. Each job
     produces one ``eval_result.json``.
+
+    ``precision_locked`` marks release jobs: the requested precision must not be
+    replaced by the harness's legacy defaults or skip-quant policy.
+    It constrains job selection and CLI flags, not the produced ONNX tensor dtypes.
     """
 
     entry: ModelEntry
     variant: RecipeVariant | None
     fallback_precision: str | None = None
+    precision_locked: bool = False
 
     @property
     def precision(self) -> str | None:
@@ -2870,9 +2979,18 @@ def _is_quantized_precision(precision: str) -> bool:
 
 
 def _build_jobs(
-    entries: list[ModelEntry], recipes_dir: Path | None, device: str, ep: str | None = None
+    entries: list[ModelEntry],
+    recipes_dir: Path | None,
+    device: str,
+    ep: str | None = None,
+    *,
+    release: bool = False,
 ) -> list[EvalJob]:
     """Expand entries into jobs. Recipes apply on every device; quant is NPU-only.
+
+    With ``release=True``, create exactly one precision-locked job per entry,
+    including a single fallback for ``default``. This mode can use a quantized
+    GPU recipe when the manifest selected it; legacy expansion is bypassed.
 
     Automatic EP/device axes are resolved through the runtime target policy
     before recipe lookup so target-specific directories always use concrete
@@ -2918,6 +3036,12 @@ def _build_jobs(
             if recipes_dir is not None
             else []
         )
+        if release:
+            matching = next(
+                (variant for variant in variants if variant.precision == entry.precision), None
+            )
+            jobs.append(EvalJob(entry, matching, precision_locked=True))
+            continue
         if not npu or skip_quant:
             # Off-NPU and skip-quant EPs still use recipes for their eval
             # config, but drop quantized variants -- quantization here is only
@@ -2951,6 +3075,7 @@ def _build_for_job(
     otherwise the ``winml config`` fallback is used. ``recipe_meta`` is the
     eval/dataset config for ``winml eval -c`` (None for the fallback) and
     ``trust`` is whether the recipe's dataset needs ``--trust-remote-code``.
+    Release precision checks compare build metadata, not the ONNX artifact's dtypes.
     """
     if job.variant is not None:
         build_result = _run_recipe_build(
@@ -2965,13 +3090,26 @@ def _build_for_job(
         build_result = _run_build(
             job.entry,
             args.device,
-            _resolve_precision(args.device, explicit_precision, ep=args.ep),
+            explicit_precision
+            if job.precision_locked
+            else _resolve_precision(args.device, explicit_precision, ep=args.ep),
             args.timeout,
             model_dir,
             ep=args.ep,
+            **({"honor_precision": True} if job.precision_locked else {}),
         )
         recipe_meta = None
         trust = False
+    if (
+        job.precision_locked
+        and job.precision is not None
+        and build_result["success"]
+        and build_result.get("precision") != job.precision
+    ):
+        raise ValueError(
+            f"Release precision mismatch for {job.entry.hf_id}/{job.entry.task}: "
+            f"requested {job.precision}, built {build_result.get('precision')}"
+        )
     return build_result, recipe_meta, trust
 
 
@@ -3063,6 +3201,11 @@ def parse_args() -> argparse.Namespace:
             "Filter by priority. Pass one or more, e.g. --priority P0 P1. "
             "Default: P0 P1 P2 P3."
         ),
+    )
+    parser.add_argument(
+        "--release",
+        action="store_true",
+        help="Evaluate the fixed release manifest at each model's selected target precision.",
     )
     parser.add_argument("--model-type", help="Filter by model_type")
     parser.add_argument("--group", help="Filter by group")
@@ -3184,7 +3327,7 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Hugging Face download inactivity timeout in seconds; active download "
             "time is excluded and --timeout restarts after download completion "
-            "(default: 600)"
+            f"(default: {_DEFAULT_HF_DOWNLOAD_STALL_TIMEOUT})"
         ),
     )
     parser.add_argument(
@@ -3252,7 +3395,29 @@ def parse_args() -> argparse.Namespace:
             "Implies --continue for passing jobs."
         ),
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.release:
+        conflict_names = (
+            "priority",
+            "hf_model",
+            "registry",
+            "task",
+            "group",
+            "model_type",
+            "build_only",
+            "update_baseline",
+        )
+        explicit_args = parser.parse_args(
+            namespace=argparse.Namespace(**dict.fromkeys(conflict_names))
+        )
+        conflicts = [
+            f"--{name.replace('_', '-')}"
+            for name in conflict_names
+            if getattr(explicit_args, name) is not None
+        ]
+        if conflicts:
+            parser.error(f"--release cannot be combined with {', '.join(conflicts)}")
+    return args
 
 
 # ---------------------------------------------------------------------------
@@ -3271,8 +3436,25 @@ def main() -> None:
     clean_cache_targets = _resolve_clean_cache_targets(args.clean_cache)
     args.clean_cache_targets = clean_cache_targets
 
+    if (
+        not (args.list or args.list_json or args.update_baseline or args.build_only)
+        and not _is_eval_target_available(args.ep, args.device)
+    ):
+        return
+
     # 1. Load registry
-    if args.hf_model:
+    release_mode = args.release
+    if release_mode:
+        args.ep, args.device = _resolve_eval_target(args.ep, args.device)
+        entries, args.release_target = load_release_registry(
+            _RELEASE_MANIFEST,
+            load_registry(args.registry),
+            ep=args.ep,
+            device=args.device,
+            output_dir=args.output_dir,
+        )
+        safe_print(f"Release: {_RELEASE_MANIFEST} | Target: {args.release_target}")
+    elif args.hf_model:
         # Try to find the model in the registry (preserves dataset_config, etc.)
         matched_entry: ModelEntry | None = None
         try:
@@ -3327,8 +3509,9 @@ def main() -> None:
         for e in entries:
             ds = get_dataset_config(e.hf_id, e.task)
             skip_acc = "" if args.eval_type == "perf" else "  [task_default]" if ds is None else ""
+            precision_label = f"  [precision={e.precision or 'default'}]" if release_mode else ""
             safe_print(
-                f"  [{e.priority}] {e.hf_id} / {e.task}  ({e.model_type}, {e.group}){skip_acc}"
+                f"  [{e.priority}] {e.hf_id} / {e.task}  ({e.model_type}, {e.group}){precision_label}{skip_acc}"
             )
         sys.exit(0)
 
@@ -3345,7 +3528,12 @@ def main() -> None:
             filtered: list[ModelEntry] = []
             skipped_count = 0
             for e in entries:
-                result_path = model_result_dir(output_dir, e.hf_id, e.task) / "eval_result.json"
+                result_path = (
+                    model_result_dir(
+                        output_dir, e.hf_id, e.task, e.precision if release_mode else None
+                    )
+                    / "eval_result.json"
+                )
                 if args.continue_run and result_path.exists():
                     try:
                         existing = load_result_json(result_path)
@@ -3371,6 +3559,11 @@ def main() -> None:
                 "model_type": e.model_type,
                 "group": e.group,
                 "priority": e.priority,
+                **(
+                    {"precision": e.precision, "release_target": args.release_target}
+                    if release_mode
+                    else {}
+                ),
             }
             for e in entries
         ]
@@ -3443,7 +3636,7 @@ def main() -> None:
             f"Recipe copy: {copied_count} configs from {source_ep}/{source_device} "
             f"to {args.ep}/{args.device}"
         )
-    jobs = _build_jobs(entries, recipes_dir, args.device, ep=args.ep)
+    jobs = _build_jobs(entries, recipes_dir, args.device, ep=args.ep, release=release_mode)
     total_jobs = len(jobs)
 
     safe_print(f"E2E Evaluation: {len(entries)} models -> {total_jobs} jobs -> {output_dir}")
@@ -3452,7 +3645,11 @@ def main() -> None:
         f"Device: {args.device} | EP: {ep_label} | Timeout: {args.timeout}s | Eval: {args.eval_type}"
     )
     safe_print(f"Disk free: {_get_disk_free_gb():.1f} GB")
-    if recipes_dir is not None and args.device == "npu":
+    if release_mode:
+        safe_print(
+            "Release jobs: one precision per model from the manifest; matching recipe or winml config fallback"
+        )
+    elif recipes_dir is not None and args.device == "npu":
         safe_print(
             f"Recipes: {recipes_dir}  "
             f"(NPU; winml config {'+'.join(_NPU_FALLBACK_PRECISIONS)} fallback when a model has none)"
@@ -3522,7 +3719,9 @@ def main() -> None:
         )
         if timeout_rule is not None:
             reason = timeout_rule.get("reason") or "timeout"
-            safe_print(f"\n[{i}/{total_jobs}] {label}  (SKIP - TIMEOUT: {reason})")
+            safe_print(
+                f"\n{_progress_prefix(i, total_jobs)} {label}  (SKIP - TIMEOUT: {reason})"
+            )
             model_dir.mkdir(parents=True, exist_ok=True)
             timeout_result = build_eval_result(
                 entry=entry,
@@ -3560,7 +3759,8 @@ def main() -> None:
                     perf_tag = "PASS" if perf.get("passed") else f"FAIL/{perf_cls}"
                     acc_tag = f"  acc={accuracy_status(acc)}" if acc is not None else ""
                     safe_print(
-                        f"\n[{i}/{total_jobs}] {label}  (SKIP - {perf_tag}{acc_tag}, cached)"
+                        f"\n{_progress_prefix(i, total_jobs)} {label}  "
+                        f"(SKIP - {perf_tag}{acc_tag}, cached)"
                     )
                     continue
 
@@ -3568,19 +3768,28 @@ def main() -> None:
                     # Perf already recorded (and passed); only (re)build + run
                     # accuracy, then merge it into the existing result.
                     backfill_existing = existing
-                    safe_print(f"\n[{i}/{total_jobs}] {label}  (BACKFILL accuracy - perf cached)")
+                    safe_print(
+                        f"\n{_progress_prefix(i, total_jobs)} {label}  "
+                        "(BACKFILL accuracy - perf cached)"
+                    )
                 else:
                     retry_label = classify_result(existing) or (
                         accuracy_status(existing.get("accuracy"))
                         if existing.get("accuracy")
                         else "?"
                     )
-                    safe_print(f"\n[{i}/{total_jobs}] {label}  (RETRY - was {retry_label})")
+                    safe_print(
+                        f"\n{_progress_prefix(i, total_jobs)} {label}  "
+                        f"(RETRY - was {retry_label})"
+                    )
             except (json.JSONDecodeError, KeyError):
                 pass  # Corrupted result file — re-run
 
         if backfill_existing is None:
-            safe_print(f"\n[{i}/{total_jobs}] {label}  ({entry.priority}, {entry.group})")
+            safe_print(
+                f"\n{_progress_prefix(i, total_jobs)} {label}  "
+                f"({entry.priority}, {entry.group})"
+            )
 
         try:
             perf_proc: dict | None = None
