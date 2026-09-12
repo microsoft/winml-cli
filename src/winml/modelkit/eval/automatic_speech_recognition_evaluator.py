@@ -20,6 +20,7 @@ from .base_evaluator import WinMLEvaluator
 
 if TYPE_CHECKING:
     from datasets import Dataset
+    from transformers.pipelines.base import Pipeline
 
     from .config import DatasetConfig, WinMLEvaluationConfig
 
@@ -110,9 +111,9 @@ class WinMLAutomaticSpeechRecognitionEvaluator(WinMLEvaluator):
                 f"could not expose raw audio column {self._audio_column!r}: {error}"
             ) from error
 
-    def prepare_pipeline(self) -> None:
+    def prepare_pipeline(self) -> Pipeline | None:  # type: ignore[override]
         """ASR uses the processor and model directly to keep decoding paths explicit."""
-        return
+        return None
 
     def align_labels(self, dataset: Dataset, ds_config: DatasetConfig) -> Dataset:
         """Free-text transcripts need no class-label alignment."""
