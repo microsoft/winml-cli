@@ -129,6 +129,7 @@ KNOWN_TASKS: frozenset[str] = frozenset(_TASK_REGISTRY)
 COMPOSITE_TASKS: frozenset[str] = frozenset(
     {
         "image-to-text",
+        "automatic-speech-recognition",
         "summarization",
         "table-question-answering",
         "text-generation",
