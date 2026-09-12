@@ -18,10 +18,17 @@ import importlib.util
 import json
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+
+def test_progress_prefix_includes_local_timestamp(run_eval):
+    now = datetime(2026, 9, 13, 2, 25, 10)
+
+    assert run_eval._progress_prefix(27, 50, now) == "[2026-09-13 02:25:10] [27/50]"
 
 
 def _load_run_eval():
@@ -559,6 +566,19 @@ class TestRunSubprocessTimeouts:
         assert result["exit_code"] == -1
         assert result["timeout"] is True
         assert result["hf_download_stalled"] is False
+
+    def test_hf_http_timeouts_match_stall_timeout(self, run_eval):
+        script = (
+            "import os; "
+            "print(os.environ['HF_HUB_DOWNLOAD_TIMEOUT']); "
+            "print(os.environ['HF_HUB_ETAG_TIMEOUT'])"
+        )
+
+        with patch.object(run_eval, "_HF_DOWNLOAD_STALL_TIMEOUT", 120.0):
+            result = run_eval._run_subprocess([sys.executable, "-c", script], timeout=5)
+
+        assert result["exit_code"] == 0
+        assert result["stdout"].splitlines() == ["120", "120"]
 
     def test_blocked_download_monitor_cannot_disable_execution_timeout(self, run_eval):
         def blocked_open_paths(_pid):

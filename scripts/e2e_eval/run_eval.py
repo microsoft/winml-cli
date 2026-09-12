@@ -116,7 +116,7 @@ EVAL_DATASETS_CACHE = Path.home() / ".cache" / "winml" / "eval_datasets"
 TIMEOUT_SKIP_LIST_PATH = Path(__file__).parent / "cache" / "timeout_skip_list.json"
 _DEFAULT_SAMPLES = 1000
 _DEFAULT_PRECISION_NPU = "w8a16"
-_DEFAULT_HF_DOWNLOAD_STALL_TIMEOUT = 600
+_DEFAULT_HF_DOWNLOAD_STALL_TIMEOUT = 120
 _HF_DOWNLOAD_STALL_TIMEOUT = float(_DEFAULT_HF_DOWNLOAD_STALL_TIMEOUT)
 _SUBPROCESS_POLL_INTERVAL = 0.25
 _HF_DOWNLOAD_MONITOR_TIMEOUT = 5.0
@@ -541,6 +541,11 @@ def safe_print(text: str) -> None:
         print(text.encode("ascii", errors="replace").decode("ascii"))
 
 
+def _progress_prefix(index: int, total: int, now: datetime | None = None) -> str:
+    timestamp = (now or datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
+    return f"[{timestamp}] [{index}/{total}]"
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -798,6 +803,7 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
         **os.environ,
         "PYTHONIOENCODING": "utf-8",
         "HF_HUB_DOWNLOAD_TIMEOUT": str(int(_HF_DOWNLOAD_STALL_TIMEOUT)),
+        "HF_HUB_ETAG_TIMEOUT": str(int(_HF_DOWNLOAD_STALL_TIMEOUT)),
     }
     start = time.perf_counter()
     timed_out = False
@@ -1893,7 +1899,9 @@ def _run_build_only(entries: list[ModelEntry], args: argparse.Namespace) -> None
         shared_dir = model_dir / "_shared"
         canonical_hash: str | None = None
 
-        safe_print(f"\n[{i}/{len(entries)}] {label}  ({entry.priority}, {entry.group})")
+        safe_print(
+            f"\n{_progress_prefix(i, len(entries))} {label}  ({entry.priority}, {entry.group})"
+        )
 
         for combo_label, ep, device in combos:
             build_dir = model_dir / combo_label if combo_label else model_dir
@@ -2667,10 +2675,12 @@ def _run_update_baseline(entries: list[ModelEntry], args: argparse.Namespace) ->
         ds_config = get_dataset_config(entry.hf_id, entry.task) or {}
         cached = _lookup_baseline_cache(entry.hf_id, entry.task, ds_config)
         if cached is not None and not args.retry_failed:
-            safe_print(f"[{i}/{len(entries)}] {label}  (cached {cached['metric']})")
+            safe_print(
+                f"{_progress_prefix(i, len(entries))} {label}  (cached {cached['metric']})"
+            )
             continue
 
-        safe_print(f"[{i}/{len(entries)}] {label}  running baseline ...")
+        safe_print(f"{_progress_prefix(i, len(entries))} {label}  running baseline ...")
         _build_dataset(ds_config, args.timeout)
         baseline = _run_pytorch_baseline(entry, args.device, args.timeout)
         if baseline["status"] == "PASS":
@@ -3317,7 +3327,7 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Hugging Face download inactivity timeout in seconds; active download "
             "time is excluded and --timeout restarts after download completion "
-            "(default: 600)"
+            f"(default: {_DEFAULT_HF_DOWNLOAD_STALL_TIMEOUT})"
         ),
     )
     parser.add_argument(
@@ -3709,7 +3719,9 @@ def main() -> None:
         )
         if timeout_rule is not None:
             reason = timeout_rule.get("reason") or "timeout"
-            safe_print(f"\n[{i}/{total_jobs}] {label}  (SKIP - TIMEOUT: {reason})")
+            safe_print(
+                f"\n{_progress_prefix(i, total_jobs)} {label}  (SKIP - TIMEOUT: {reason})"
+            )
             model_dir.mkdir(parents=True, exist_ok=True)
             timeout_result = build_eval_result(
                 entry=entry,
@@ -3747,7 +3759,8 @@ def main() -> None:
                     perf_tag = "PASS" if perf.get("passed") else f"FAIL/{perf_cls}"
                     acc_tag = f"  acc={accuracy_status(acc)}" if acc is not None else ""
                     safe_print(
-                        f"\n[{i}/{total_jobs}] {label}  (SKIP - {perf_tag}{acc_tag}, cached)"
+                        f"\n{_progress_prefix(i, total_jobs)} {label}  "
+                        f"(SKIP - {perf_tag}{acc_tag}, cached)"
                     )
                     continue
 
@@ -3755,19 +3768,28 @@ def main() -> None:
                     # Perf already recorded (and passed); only (re)build + run
                     # accuracy, then merge it into the existing result.
                     backfill_existing = existing
-                    safe_print(f"\n[{i}/{total_jobs}] {label}  (BACKFILL accuracy - perf cached)")
+                    safe_print(
+                        f"\n{_progress_prefix(i, total_jobs)} {label}  "
+                        "(BACKFILL accuracy - perf cached)"
+                    )
                 else:
                     retry_label = classify_result(existing) or (
                         accuracy_status(existing.get("accuracy"))
                         if existing.get("accuracy")
                         else "?"
                     )
-                    safe_print(f"\n[{i}/{total_jobs}] {label}  (RETRY - was {retry_label})")
+                    safe_print(
+                        f"\n{_progress_prefix(i, total_jobs)} {label}  "
+                        f"(RETRY - was {retry_label})"
+                    )
             except (json.JSONDecodeError, KeyError):
                 pass  # Corrupted result file — re-run
 
         if backfill_existing is None:
-            safe_print(f"\n[{i}/{total_jobs}] {label}  ({entry.priority}, {entry.group})")
+            safe_print(
+                f"\n{_progress_prefix(i, total_jobs)} {label}  "
+                f"({entry.priority}, {entry.group})"
+            )
 
         try:
             perf_proc: dict | None = None
