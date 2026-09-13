@@ -178,7 +178,7 @@ uv run python scripts/e2e_eval/run_eval.py --update-baseline --eval-type accurac
 | `--device` | `auto` | Target device |
 | `--ep` | — | Execution provider (e.g. `qnn`, `dml`, `openvino`); applied at perf/eval time |
 | `--timeout` | 600 | Per-subprocess execution timeout (seconds). Observable Hugging Face download time is excluded; the full timeout restarts when the download completes. |
-| `--hf-download-stall-timeout` | 600 | Fail as `HF_FETCH_FAIL` when a Hugging Face partial download has no size/mtime progress for this many seconds. |
+| `--hf-download-stall-timeout` | 120 | Fail as `HF_FETCH_FAIL` when a Hugging Face partial download has no size/mtime progress for this many seconds. Also sets Hugging Face Hub download and metadata request timeouts. |
 | `--clean-cache [TARGET ...]` | off | Clean caches after each job. `TARGET`: `winml`, `huggingface`, `others` (others = VitisAI cache + temp/cwd leaked scratch files). Use `--clean-cache` without TARGET to clear all (legacy behavior). |
 | `--update-baseline` | off | Offline mode: refresh `cache/baseline_cache.json` via the PyTorch baseline, then exit (no build/perf/eval) |
 | `--list` | off | List models and exit |
@@ -187,6 +187,18 @@ uv run python scripts/e2e_eval/run_eval.py --update-baseline --eval-type accurac
 | `--continue` | off | Skip jobs with existing results (but backfill accuracy onto perf-only results when `--eval-type` wants it) |
 | `--retry-failed [TYPE ...]` | — | Re-run failed jobs (implies `--continue`); unknown types are rejected as argument errors. Retry criteria are not mutually exclusive: `HF_FETCH_FAIL` also checks failed perf and accuracy logs for `WinError 10060`, `we couldn't connect to 'https://huggingface.co'`, or `thrown while requesting HEAD https://huggingface.co`, even when the primary perf classification is another type or accuracy is `FAIL`. |
 | `--build-only` | off | Build with `--no-compile`, writing each stage's ONNX (no EP needed). Loops the EP matrix when `--ep`/`--device` omitted |
+
+Subprocess stdout/stderr are captured in temporary files and collected on exit,
+not streamed live to the console. Capture does not need reader threads or wait
+for pipe EOF, so full pipes and inherited output handles cannot stall the runner.
+Download ownership and cache progress are sampled in a separate helper process.
+If it stops reporting for five seconds or exits, it is stopped and execution
+timeout enforcement continues without trusting stale download observations.
+Timeouts print the reason and subprocess PID before process-tree cleanup.
+
+The Hugging Face HTTP settings are per-request limits, not a two-minute wall-clock
+limit across retries. Requests that never create an observable partial download
+remain subject to the subprocess execution timeout.
 
 ### `run_llm_eval.py` — Run GenAI Context Sweep
 

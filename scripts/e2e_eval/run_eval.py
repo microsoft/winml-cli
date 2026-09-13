@@ -65,13 +65,11 @@ import logging
 import math
 import os
 import platform
-import queue
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
@@ -661,10 +659,13 @@ def _kill_process_tree(pid: int) -> None:
 
     # Fallback: taskkill on Windows, killpg on Unix
     if platform.system() == "Windows":
-        subprocess.run(  # noqa: S603
-            ["taskkill", "/F", "/T", "/PID", str(pid)],  # noqa: S607
-            capture_output=True,
-        )
+        with contextlib.suppress(OSError, subprocess.TimeoutExpired):
+            subprocess.run(  # noqa: S603
+                ["taskkill", "/F", "/T", "/PID", str(pid)],  # noqa: S607
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            )
     else:
         import signal
 
@@ -756,7 +757,7 @@ class _HfDownloadTracker:
 
     def __init__(self, env: dict[str, str], now: float) -> None:
         self._env = env
-        self._previous = _snapshot_hf_downloads(env)
+        self._previous: dict[Path, tuple[int, int]] = {}
         self._active_paths: set[Path] = set()
         self._pid: int | None = None
         self.last_progress = now
@@ -782,6 +783,65 @@ class _HfDownloadTracker:
         return bool(self._active_paths)
 
 
+_HF_DOWNLOAD_MONITOR_CODE = "\n".join(
+    (
+        "import sys",
+        "from pathlib import Path",
+        "sys.path.insert(0, sys.argv[1])",
+        "from run_eval import _monitor_hf_downloads",
+        "_monitor_hf_downloads(int(sys.argv[2]), Path(sys.argv[3]))",
+    )
+)
+
+
+def _monitor_hf_downloads(pid: int, progress_path: Path) -> None:
+    """Publish download observations outside the timeout-enforcing interpreter."""
+    import psutil
+
+    tracker = _HfDownloadTracker(dict(os.environ), time.perf_counter())
+    tracker.bind(pid)
+    pending_path = progress_path.with_suffix(".tmp")
+    while psutil.pid_exists(pid):
+        active = tracker.poll(time.perf_counter())
+        snapshot = {
+            "observed_at": time.perf_counter(),
+            "active": active,
+            "last_progress": tracker.last_progress,
+        }
+        try:
+            pending_path.write_text(json.dumps(snapshot), encoding="utf-8")
+            pending_path.replace(progress_path)
+        except OSError:
+            pass
+        time.sleep(_SUBPROCESS_POLL_INTERVAL)
+
+
+def _start_hf_download_monitor(
+    pid: int, env: dict[str, str], progress_path: Path
+) -> subprocess.Popen:
+    kwargs: dict = {
+        "env": env,
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+    }
+    if platform.system() == "Windows":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    else:
+        kwargs["start_new_session"] = True
+    return subprocess.Popen(  # noqa: S603
+        [
+            sys.executable,
+            "-c",
+            _HF_DOWNLOAD_MONITOR_CODE,
+            str(Path(__file__).parent),
+            str(pid),
+            str(progress_path),
+        ],
+        **kwargs,
+    )
+
+
 def _run_subprocess(args: list[str], timeout: int) -> dict:
     """Run a subprocess with execution and HF-download-stall timeouts.
 
@@ -792,12 +852,10 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
     ``_HF_DOWNLOAD_STALL_TIMEOUT`` seconds, the process is terminated as an HF
     fetch failure.
 
-    Windows fix: On Windows, child processes can inherit pipe handles, causing
-    pipe reads to block indefinitely even after ``taskkill`` kills the process
-    tree. We work around this by:
-    1. Using ``CREATE_NO_WINDOW`` to prevent console inheritance issues.
-    2. Reading stdout/stderr in background threads.
-    3. Polling process state independently of pipe EOF.
+    Output goes directly to temporary files so thread startup, full pipes and
+    inherited pipe handles cannot block the timeout loop or output cleanup.
+    Download scans run in a separate process; missing or stale observations
+    disable download suspension after ``_HF_DOWNLOAD_MONITOR_TIMEOUT`` seconds.
     """
     env = {
         **os.environ,
@@ -810,151 +868,117 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
     hf_download_stalled = False
     execution_elapsed = 0.0
     last_poll = start
-    download_tracker = _HfDownloadTracker(env, start)
     download_was_active = False
-    download_poll_results: queue.SimpleQueue[bool] = queue.SimpleQueue()
-    download_poll_thread: threading.Thread | None = None
-    download_poll_started = start
+    last_download_progress = start
+    last_download_observation = start
     download_state_known = False
-    last_download_active = False
     download_monitor_stalled = False
 
-    popen_kwargs: dict = {
-        "stdout": subprocess.PIPE,
-        "stderr": subprocess.PIPE,
-        "env": env,
-    }
-    if platform.system() == "Windows":
-        popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-    else:
-        popen_kwargs["start_new_session"] = True
-    proc = subprocess.Popen(args, **popen_kwargs)  # noqa: S603
-    download_tracker.bind(proc.pid)
-
-    # Read pipes in background threads so communicate() timeout works even
-    # when grandchild processes keep pipe handles alive (Windows issue).
-    stdout_chunks: list[bytes] = []
-    stderr_chunks: list[bytes] = []
-
-    def _reader(pipe, dest: list[bytes]) -> None:
+    with (
+        tempfile.TemporaryFile() as stdout_file,
+        tempfile.TemporaryFile() as stderr_file,
+        tempfile.TemporaryDirectory(prefix="winml-eval-monitor-") as monitor_dir,
+    ):
+        progress_path = Path(monitor_dir) / "progress.json"
+        popen_kwargs: dict = {
+            "stdout": stdout_file,
+            "stderr": stderr_file,
+            "env": env,
+        }
+        if platform.system() == "Windows":
+            popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        else:
+            popen_kwargs["start_new_session"] = True
+        proc = subprocess.Popen(args, **popen_kwargs)  # noqa: S603
+        monitor: subprocess.Popen | None = None
         try:
+            try:
+                monitor = _start_hf_download_monitor(proc.pid, env, progress_path)
+            except OSError:
+                download_monitor_stalled = True
+                download_state_known = True
+                logger.warning("Download monitor unavailable; enforcing execution timeout.")
+
             while True:
-                chunk = pipe.read(8192)
-                if not chunk:
+                remaining = max(0.01, timeout - execution_elapsed)
+                try:
+                    proc.wait(timeout=min(_SUBPROCESS_POLL_INTERVAL, remaining))
+                    exit_code = proc.returncode
                     break
-                dest.append(chunk)
-        except (OSError, ValueError):
-            pass  # Pipe closed or broken; stop reading
+                except subprocess.TimeoutExpired:
+                    now = time.perf_counter()
+                    download_active = False
+                    if not download_monitor_stalled:
+                        try:
+                            snapshot = json.loads(progress_path.read_text(encoding="utf-8"))
+                        except (OSError, json.JSONDecodeError):
+                            snapshot = None
+                        if snapshot is not None:
+                            last_download_observation = snapshot["observed_at"]
+                            last_download_progress = snapshot["last_progress"]
+                            download_active = snapshot["active"]
+                            download_state_known = True
+                        if (
+                            now - last_download_observation >= _HF_DOWNLOAD_MONITOR_TIMEOUT
+                            or (monitor is not None and monitor.poll() is not None)
+                        ):
+                            download_monitor_stalled = True
+                            download_active = False
+                            download_state_known = True
+                            if monitor is not None:
+                                with contextlib.suppress(OSError):
+                                    monitor.kill()
+                            logger.warning(
+                                "Download monitor unavailable or stale; enforcing execution timeout."
+                            )
 
-    stdout_thread = threading.Thread(target=_reader, args=(proc.stdout, stdout_chunks), daemon=True)
-    stderr_thread = threading.Thread(target=_reader, args=(proc.stderr, stderr_chunks), daemon=True)
-    stdout_thread.start()
-    stderr_thread.start()
-
-    def _poll_downloads(poll_time: float) -> None:
-        try:
-            active = download_tracker.poll(poll_time)
-        except Exception:
-            active = False
-        download_poll_results.put(active)
-
-    def _download_state(now: float) -> tuple[bool, bool]:
-        nonlocal download_monitor_stalled
-        nonlocal download_poll_started
-        nonlocal download_poll_thread
-        nonlocal download_state_known
-        nonlocal last_download_active
-
-        if download_poll_thread is not None and not download_poll_thread.is_alive():
-            download_poll_thread.join()
-            try:
-                last_download_active = download_poll_results.get_nowait()
-                download_state_known = True
-            except queue.Empty:
-                last_download_active = False
-                download_state_known = True
-            download_poll_thread = None
-
-        if (
-            download_poll_thread is not None
-            and now - download_poll_started >= _HF_DOWNLOAD_MONITOR_TIMEOUT
-        ):
-            download_monitor_stalled = True
-            last_download_active = False
-            download_state_known = True
-
-        if download_poll_thread is None and not download_monitor_stalled:
-            download_poll_started = now
-            download_poll_thread = threading.Thread(
-                target=_poll_downloads,
-                args=(now,),
-                daemon=True,
-            )
-            download_poll_thread.start()
-
-        return last_download_active, download_state_known
-
-    try:
-        while True:
-            remaining = max(0.01, timeout - execution_elapsed)
-            try:
-                proc.wait(timeout=min(_SUBPROCESS_POLL_INTERVAL, remaining))
-                exit_code = proc.returncode
-                break
-            except subprocess.TimeoutExpired:
-                now = time.perf_counter()
-                download_active, download_state_known = _download_state(now)
-                if download_active:
-                    download_was_active = True
-                    if now - download_tracker.last_progress >= _HF_DOWNLOAD_STALL_TIMEOUT:
-                        hf_download_stalled = True
-                else:
-                    if download_was_active:
-                        execution_elapsed = 0.0
-                        download_was_active = False
+                    if download_active:
+                        download_was_active = True
+                        if now - last_download_progress >= _HF_DOWNLOAD_STALL_TIMEOUT:
+                            hf_download_stalled = True
                     else:
-                        execution_elapsed += now - last_poll
-                    if execution_elapsed >= timeout and download_state_known:
-                        timed_out = True
-                last_poll = now
+                        if download_was_active:
+                            execution_elapsed = 0.0
+                            download_was_active = False
+                        else:
+                            execution_elapsed += now - last_poll
+                        if execution_elapsed >= timeout and download_state_known:
+                            timed_out = True
+                    last_poll = now
 
-                if not timed_out and not hf_download_stalled:
-                    continue
+                    if not timed_out and not hf_download_stalled:
+                        continue
 
+                    reason = (
+                        "Hugging Face download stalled"
+                        if hf_download_stalled
+                        else f"execution timeout ({timeout:g}s)"
+                    )
+                    safe_print(f"  [timeout] {reason}; terminating PID {proc.pid}")
+                    exit_code = -1
+                    break
+        except KeyboardInterrupt:
+            safe_print("\n  [Ctrl+C] Killing subprocess...")
+            raise
+        finally:
+            if proc.poll() is None:
                 _kill_process_tree(proc.pid)
                 with contextlib.suppress(OSError):
                     proc.kill()
-                exit_code = -1
-                break
+            with contextlib.suppress(OSError, subprocess.TimeoutExpired):
+                proc.wait(timeout=5)
+            if monitor is not None:
+                with contextlib.suppress(OSError):
+                    monitor.kill()
+                with contextlib.suppress(OSError, subprocess.TimeoutExpired):
+                    monitor.wait(timeout=1)
 
-        # Give reader threads a moment to finish draining
-        stdout_thread.join(timeout=10)
-        stderr_thread.join(timeout=10)
-    except KeyboardInterrupt:
-        safe_print("\n  [Ctrl+C] Killing subprocess...")
-        _kill_process_tree(proc.pid)
-        with contextlib.suppress(OSError):
-            proc.kill()
-        stdout_thread.join(timeout=5)
-        stderr_thread.join(timeout=5)
-        raise
-    finally:
-        # Force-close pipes to unblock any stuck reader threads
-        for pipe in (proc.stdout, proc.stderr):
-            if pipe:
-                try:
-                    pipe.close()
-                except OSError:
-                    pass  # Pipe already closed
-        # Final attempt: if reader threads are still alive after pipe close,
-        # don't block forever — just proceed with whatever was collected.
-        if stdout_thread.is_alive():
-            stdout_thread.join(timeout=2)
-        if stderr_thread.is_alive():
-            stderr_thread.join(timeout=2)
-
-    stdout = b"".join(stdout_chunks).decode("utf-8", errors="replace")
-    stderr = b"".join(stderr_chunks).decode("utf-8", errors="replace")
+        stdout_size = os.fstat(stdout_file.fileno()).st_size
+        stderr_size = os.fstat(stderr_file.fileno()).st_size
+        stdout_file.seek(0)
+        stderr_file.seek(0)
+        stdout = stdout_file.read(stdout_size).decode("utf-8", errors="replace")
+        stderr = stderr_file.read(stderr_size).decode("utf-8", errors="replace")
     if hf_download_stalled:
         stderr += (
             "\nError while downloading from https://huggingface.co: "

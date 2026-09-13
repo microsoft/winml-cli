@@ -17,6 +17,7 @@ import argparse
 import importlib.util
 import json
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -368,8 +369,27 @@ class TestKillProcessTree:
 
         subprocess_run.assert_called_once_with(
             ["taskkill", "/F", "/T", "/PID", "123"],
-            capture_output=True,
+            stdout=run_eval.subprocess.DEVNULL,
+            stderr=run_eval.subprocess.DEVNULL,
+            timeout=5,
         )
+
+    def test_platform_kill_timeout_does_not_block_cleanup(self, run_eval):
+        import psutil
+
+        parent = MagicMock()
+        parent.children.side_effect = psutil.NoSuchProcess(pid=123)
+
+        with (
+            patch.object(psutil, "Process", return_value=parent),
+            patch.object(run_eval.platform, "system", return_value="Windows"),
+            patch.object(
+                run_eval.subprocess,
+                "run",
+                side_effect=run_eval.subprocess.TimeoutExpired("taskkill", 5),
+            ),
+        ):
+            run_eval._kill_process_tree(123)
 
 
 class TestRunSubprocessTimeouts:
@@ -391,6 +411,19 @@ class TestRunSubprocessTimeouts:
         }
         env.update({name: str(value) for name, value in overrides.items()})
         return patch.dict(run_eval.os.environ, env, clear=True)
+
+    @staticmethod
+    def _monitor_script(setup: str) -> str:
+        return "\n".join(
+            [
+                "import sys, time",
+                "from pathlib import Path",
+                "sys.path.insert(0, sys.argv[1])",
+                "import run_eval",
+                setup,
+                "run_eval._monitor_hf_downloads(int(sys.argv[2]), Path(sys.argv[3]))",
+            ]
+        )
 
     @staticmethod
     def _download_script(
@@ -448,26 +481,50 @@ class TestRunSubprocessTimeouts:
         self, run_eval, tmp_path
     ):
         incomplete = tmp_path / "hub" / "models--acme--model" / "blobs" / "model.incomplete"
-        script = self._download_script(
-            incomplete,
-            [0.2] * 5,
-            before_download=0.35,
-            after_download=0.35,
+        observed_path = tmp_path / "download-observed"
+        script = "\n".join(
+            [
+                "import time",
+                "from pathlib import Path",
+                f"path = Path({str(incomplete)!r})",
+                f"observed = Path({str(observed_path)!r})",
+                "path.parent.mkdir(parents=True, exist_ok=True)",
+                "deadline = time.perf_counter() + 5",
+                "with path.open('wb') as stream:",
+                "    while not observed.exists():",
+                "        if time.perf_counter() >= deadline:",
+                "            raise RuntimeError('monitor did not observe the download')",
+                "        stream.write(b'x')",
+                "        stream.flush()",
+                "        time.sleep(0.1)",
+                "path.unlink()",
+                "time.sleep(0.35)",
+            ]
         )
-        real_open_paths = run_eval._process_tree_open_paths
-
-        def slow_open_paths(pid):
-            time.sleep(0.7)
-            return real_open_paths(pid)
+        monitor_script = self._monitor_script(
+            "real_open_paths = run_eval._process_tree_open_paths\n"
+            "def slow_open_paths(pid):\n"
+            "    time.sleep(0.7)\n"
+            "    return real_open_paths(pid)\n"
+            "run_eval._process_tree_open_paths = slow_open_paths\n"
+            "original_poll = run_eval._HfDownloadTracker.poll\n"
+            "def observed_poll(tracker, now):\n"
+            "    active = original_poll(tracker, now)\n"
+            "    if active:\n"
+            f"        Path({str(observed_path)!r}).touch()\n"
+            "    return active\n"
+            "run_eval._HfDownloadTracker.poll = observed_poll"
+        )
 
         with (
             self._cache_env(run_eval, HF_HOME=tmp_path),
             patch.object(run_eval, "_HF_DOWNLOAD_STALL_TIMEOUT", 2.0),
-            patch.object(run_eval, "_process_tree_open_paths", side_effect=slow_open_paths),
+            patch.object(run_eval, "_HF_DOWNLOAD_MONITOR_CODE", monitor_script),
         ):
             result = run_eval._run_subprocess([sys.executable, "-c", script], timeout=0.5)
 
         assert result["exit_code"] == 0
+        assert observed_path.exists()
         assert result["timeout"] is False
         assert result["hf_download_stalled"] is False
 
@@ -580,14 +637,31 @@ class TestRunSubprocessTimeouts:
         assert result["exit_code"] == 0
         assert result["stdout"].splitlines() == ["120", "120"]
 
-    def test_blocked_download_monitor_cannot_disable_execution_timeout(self, run_eval):
-        def blocked_open_paths(_pid):
-            time.sleep(1.0)
-            return set()
+    @pytest.mark.parametrize(
+        "blocked_function", ["_process_tree_open_paths", "_snapshot_hf_downloads"]
+    )
+    def test_blocked_download_monitor_cannot_disable_execution_timeout(
+        self, run_eval, tmp_path, blocked_function
+    ):
+        monitor_script = self._monitor_script(
+            "def blocked_scan(*args):\n"
+            "    time.sleep(30)\n"
+            "    return set()\n"
+            f"run_eval.{blocked_function} = blocked_scan"
+        )
+        monitors = []
+        original_start = run_eval._start_hf_download_monitor
+
+        def start_monitor(*args):
+            monitor = original_start(*args)
+            monitors.append(monitor)
+            return monitor
 
         with (
+            self._cache_env(run_eval, HF_HOME=tmp_path),
             patch.object(run_eval, "_HF_DOWNLOAD_MONITOR_TIMEOUT", 0.2),
-            patch.object(run_eval, "_process_tree_open_paths", side_effect=blocked_open_paths),
+            patch.object(run_eval, "_HF_DOWNLOAD_MONITOR_CODE", monitor_script),
+            patch.object(run_eval, "_start_hf_download_monitor", side_effect=start_monitor),
         ):
             result = run_eval._run_subprocess(
                 [sys.executable, "-c", "import time; time.sleep(5)"], timeout=0.2
@@ -597,6 +671,146 @@ class TestRunSubprocessTimeouts:
         assert result["elapsed"] < 0.8
         assert result["timeout"] is True
         assert result["hf_download_stalled"] is False
+        assert len(monitors) == 1
+        assert monitors[0].poll() is not None
+
+    def test_stale_active_download_monitor_cannot_suspend_timeout_forever(self, run_eval, tmp_path):
+        monitor_script = "\n".join(
+            [
+                "import json, sys, time",
+                "from pathlib import Path",
+                "now = time.perf_counter()",
+                "state = {'observed_at': now, 'active': True, 'last_progress': now}",
+                "Path(sys.argv[3]).write_text(json.dumps(state), encoding='utf-8')",
+                "time.sleep(30)",
+            ]
+        )
+
+        with (
+            self._cache_env(run_eval, HF_HOME=tmp_path),
+            patch.object(run_eval, "_HF_DOWNLOAD_MONITOR_TIMEOUT", 0.5),
+            patch.object(run_eval, "_HF_DOWNLOAD_STALL_TIMEOUT", 5.0),
+            patch.object(run_eval, "_HF_DOWNLOAD_MONITOR_CODE", monitor_script),
+        ):
+            result = run_eval._run_subprocess(
+                [sys.executable, "-c", "import time; time.sleep(5)"], timeout=0.5
+            )
+
+        assert result["timeout"] is True
+        assert result["hf_download_stalled"] is False
+        assert result["elapsed"] < 2.0
+
+    def test_monitor_start_failure_keeps_execution_timeout(self, run_eval, tmp_path):
+        with (
+            self._cache_env(run_eval, HF_HOME=tmp_path),
+            patch.object(
+                run_eval, "_start_hf_download_monitor", side_effect=OSError("unavailable")
+            ),
+        ):
+            result = run_eval._run_subprocess(
+                [sys.executable, "-c", "import time; time.sleep(5)"], timeout=0.2
+            )
+
+        assert result["timeout"] is True
+        assert result["elapsed"] < 1.0
+
+    def test_monitor_retries_temporarily_locked_state_file(self, run_eval, tmp_path):
+        import psutil
+
+        progress_path = tmp_path / "progress.json"
+        tracker = MagicMock()
+        tracker.poll.return_value = True
+        tracker.last_progress = time.perf_counter()
+        original_replace = Path.replace
+        attempts = []
+
+        def replace_when_unlocked(source, target):
+            attempts.append(source)
+            if len(attempts) == 1:
+                raise PermissionError("state file is being read")
+            return original_replace(source, target)
+
+        with (
+            patch.object(run_eval, "_HfDownloadTracker", return_value=tracker),
+            patch.object(psutil, "pid_exists", side_effect=[True, True, False]),
+            patch.object(Path, "replace", replace_when_unlocked),
+            patch.object(run_eval.time, "sleep"),
+        ):
+            run_eval._monitor_hf_downloads(123, progress_path)
+
+        snapshot = json.loads(progress_path.read_text(encoding="utf-8"))
+        assert snapshot["active"] is True
+        assert snapshot["last_progress"] == tracker.last_progress
+        assert tracker.poll.call_count == 2
+
+    def test_thread_start_cannot_block_subprocess_timeout(self, run_eval, tmp_path):
+        original_start = threading.Thread.start
+
+        def delayed_start(thread):
+            threading.Event().wait(1.0)
+            return original_start(thread)
+
+        with (
+            self._cache_env(run_eval, HF_HOME=tmp_path),
+            patch.object(threading.Thread, "start", delayed_start),
+            patch.object(run_eval, "_HF_DOWNLOAD_MONITOR_TIMEOUT", 0.1),
+        ):
+            result = run_eval._run_subprocess(
+                [
+                    sys.executable,
+                    "-c",
+                    "import sys, time; sys.stderr.write('x' * 262144); "
+                    "sys.stderr.flush(); time.sleep(5)",
+                ],
+                timeout=0.2,
+            )
+
+        assert result["exit_code"] == -1
+        assert result["timeout"] is True
+        assert result["elapsed"] < 1.0
+
+    def test_large_stdout_and_stderr_are_captured_without_reader_threads(self, run_eval, tmp_path):
+        output_size = 262144
+        script = (
+            "import sys; "
+            f"sys.stdout.buffer.write(b'o' * {output_size} + b'\\xff'); "
+            f"sys.stderr.buffer.write(b'e' * {output_size} + b'\\xfe')"
+        )
+
+        with (
+            self._cache_env(run_eval, HF_HOME=tmp_path),
+            patch.object(threading.Thread, "start", side_effect=AssertionError("thread startup")),
+        ):
+            result = run_eval._run_subprocess([sys.executable, "-c", script], timeout=5)
+
+        assert result["exit_code"] == 0
+        assert result["stdout"] == (b"o" * output_size + b"\xff").decode("utf-8", errors="replace")
+        assert result["stderr"] == (b"e" * output_size + b"\xfe").decode("utf-8", errors="replace")
+
+    def test_inherited_output_handles_do_not_delay_collection(self, run_eval, tmp_path):
+        descendant_pid_path = tmp_path / "descendant.pid"
+        script = "\n".join(
+            [
+                "import subprocess, sys",
+                "from pathlib import Path",
+                "child = subprocess.Popen(",
+                "    [sys.executable, '-c', 'import time; time.sleep(30)'],",
+                "    stdout=sys.stdout, stderr=sys.stderr,",
+                ")",
+                f"Path({str(descendant_pid_path)!r}).write_text(str(child.pid))",
+                "print('parent completed', flush=True)",
+            ]
+        )
+        try:
+            with self._cache_env(run_eval, HF_HOME=tmp_path):
+                result = run_eval._run_subprocess([sys.executable, "-c", script], timeout=5)
+
+            assert result["exit_code"] == 0
+            assert result["stdout"].strip() == "parent completed"
+            assert result["elapsed"] < 2.0
+        finally:
+            if descendant_pid_path.exists():
+                run_eval._kill_process_tree(int(descendant_pid_path.read_text()))
 
 
 def test_curated_target_models_preserve_existing_priorities(run_eval):
