@@ -1,0 +1,167 @@
+{
+  "_meta": {
+    "family": "mpnet",
+    "hf_model_type": "mpnet",
+    "models_tested": [
+      "dell-research-harvard/lt-wikidata-comp-en @ feature-extraction @ fp16/w8a16 @ CPUExecutionProvider",
+      "dell-research-harvard/lt-wikidata-comp-en @ sentence-similarity @ fp16/w8a16 @ CPUExecutionProvider"
+    ],
+    "last_updated": "2026-08-25",
+    "epistemics_warning": "Observational findings, not ground truth. Re-validate on new checkpoints / ORT versions / EPs before relying on a finding to skip work; this file currently covers one LinkTransformer sentence-transformers MPNet embedder plus the existing sentence-transformers multi-qa-mpnet-base-dot-v1 template."
+  },
+  "findings": [
+    {
+      "id": "mpnet-001",
+      "title": "MPNet encoder-only tasks are Optimum VENDOR-ONLY in winml; sentence-transformers MPNet embedders need recipe clones, not per-architecture code",
+      "observation": "For dell-research-harvard/lt-wikidata-comp-en, config model_type=mpnet and architectures=[MPNetModel] (encoder-only, hidden_size=768, 12 layers, vocab_size=30527, max_position_embeddings=514). The planner's Optimum probe found mpnet feature-extraction and sentence-similarity fully VENDOR-ONLY, and the baseline auto-config build on origin/main passed, proving winml needs no per-arch mpnet code for this checkpoint. The contribution therefore shipped four catalog recipes under examples/recipes/dell-research-harvard_lt-wikidata-comp-en/ by cloning the existing examples/recipes/sentence-transformers_multi-qa-mpnet-base-dot-v1 feature-extraction + sentence-similarity fp16/w8a16 templates; models_all.json was not touched.",
+      "scope": {
+        "validated_on": [
+          "dell-research-harvard/lt-wikidata-comp-en @ feature-extraction_fp16 @ CPUExecutionProvider",
+          "dell-research-harvard/lt-wikidata-comp-en @ sentence-similarity_fp16 @ CPUExecutionProvider",
+          "dell-research-harvard/lt-wikidata-comp-en @ feature-extraction_w8a16 @ CPUExecutionProvider",
+          "dell-research-harvard/lt-wikidata-comp-en @ sentence-similarity_w8a16 @ CPUExecutionProvider"
+        ],
+        "falsified_on": [
+          "dell-research-harvard/lt-wikidata-comp-en @ current main e28b128f5c2 @ Optimum probe: mpnet is WINML-ONLY for feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, and token-classification"
+        ],
+        "not_yet_tested_on": [
+          "mpnet fill-mask / text-classification / token-classification / question-answering / multiple-choice recipes in this catalog",
+          "actual GPU/NPU runtime execution for this checkpoint"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L1",
+      "recipe_template": "examples/recipes/sentence-transformers_multi-qa-mpnet-base-dot-v1/<task>_<precision>_config.json",
+      "gotchas": [
+        "Optimum VENDOR-ONLY means no src/winml/modelkit/models/hf/mpnet.py change is needed when baseline auto-config already builds; do not add per-arch code for a stock MPNetModel backbone.",
+        "For sentence-transformers MPNet embedders, clone both tasks normally present in the template: feature-extraction and sentence-similarity."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Confirmed by VENDOR-ONLY Optimum coverage plus origin/main auto-config build pass. Falsify with an mpnet checkpoint whose architecture/head requires custom code or whose baseline build fails without a winml override.",
+      "last_updated": "2026-07-14"
+    },
+    {
+      "id": "mpnet-002",
+      "title": "Sentence-transformers / LinkTransformer MPNet recipe shape: raw MPNetModel last_hidden_state, downstream pooling outside the ONNX graph",
+      "observation": "dell-research-harvard/lt-wikidata-comp-en is a LinkTransformer checkpoint fine-tuned from sentence-transformers/multi-qa-mpnet-base-dot-v1 for Wikidata company entity/record linkage. Its repository uses the sentence-transformers module structure (Transformer + Pooling) and this checkpoint's pooling mode is CLS-token pooling. winml exports the raw MPNetModel backbone output last_hidden_state; the sentence-transformers pooling head is downstream consumer logic and does not change the recipe. The cloned recipes use input_ids and attention_mask as int32 tensors shaped [1,512] (input_ids range 0..30527, attention_mask range 0..2) and output last_hidden_state. fp16 recipes keep quant=null; w8a16 recipes use QDQ static quantization with weight uint8 / activation uint16 and must set quant.model_id to the target checkpoint so calibration samples come from dell-research-harvard/lt-wikidata-comp-en rather than the base template model.",
+      "scope": {
+        "validated_on": [
+          "dell-research-harvard/lt-wikidata-comp-en @ feature-extraction_fp16 @ CPUExecutionProvider",
+          "dell-research-harvard/lt-wikidata-comp-en @ sentence-similarity_fp16 @ CPUExecutionProvider",
+          "dell-research-harvard/lt-wikidata-comp-en @ feature-extraction_w8a16 @ CPUExecutionProvider",
+          "dell-research-harvard/lt-wikidata-comp-en @ sentence-similarity_w8a16 @ CPUExecutionProvider"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "LinkTransformer checkpoints with non-MPNet backbones",
+          "LinkTransformer checkpoints that add a custom trained classification head rather than only a sentence-transformers Pooling module"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L1",
+      "recipe_template": "examples/recipes/sentence-transformers_multi-qa-mpnet-base-dot-v1/feature-extraction_fp16_config.json and sentence-similarity_w8a16_config.json",
+      "gotchas": [
+        "Cheap-next-time path for dell-research-harvard/lt-* sentence-transformers MPNet embedders: start from current `winml config` output or a current MPNet recipe, retain explicit fp16 metadata for the fp16 tuple, and substitute the embedded w8a16 quant.model_id to the target checkpoint.",
+        "CLS vs mean/max pooling in sentence-transformers metadata is not a recipe-field change when the exported graph is the raw MPNetModel last_hidden_state; preserve the downstream pooling note in the PR report instead of altering ONNX inputs/outputs.",
+        "Do not forget the calibration-source substitution in w8a16 clones: leaving quant.model_id pointed at sentence-transformers/multi-qa-mpnet-base-dot-v1 silently calibrates on the wrong model id."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Confirmed by successful build/perf of recipe clones and by the checkpoint's stock MPNetModel architecture. Falsify with a LinkTransformer checkpoint whose forward graph includes custom non-pooling modules required at inference time.",
+      "last_updated": "2026-07-14"
+    },
+    {
+      "id": "mpnet-003",
+      "title": "Historical CPU comparison: genuine w8a16 QDQ was slower than an fp32 artifact requested through the old fp16 bucket",
+      "observation": "Historical tester results for dell-research-harvard/lt-wikidata-comp-en on a CPU-only host compared an fp16-requested recipe and w8a16. The former contained FLOAT:200, INT32:1, INT64:55 and zero FLOAT16, so current `_meta-065/_meta-077` classifies it as an unmaterialized fp16 request rather than an fp16 PASS. w8a16 contained UINT16:221 and UINT8:194, proving genuine quantization. Historical CPU perf was slower for w8a16: the fp32 artifact from the fp16-requested path measured 1455.6ms mean (p50 1153, p90 2608) in winml perf and 2505.9ms in the custom harness; w8a16 measured 7207.3ms and 5703.1ms. Standalone analyze reported 389 ops, 17 unique op types, and QNN rules classified 389/389 supported, so the quantized recipe's value was size / NPU portability signal rather than CPU latency on this host. A true fp16 comparison remains untested.",
+      "scope": {
+        "validated_on": [
+          "dell-research-harvard/lt-wikidata-comp-en @ historical fp16 request realized as fp32 @ CPUExecutionProvider",
+          "dell-research-harvard/lt-wikidata-comp-en @ w8a16 @ CPUExecutionProvider",
+          "dell-research-harvard/lt-wikidata-comp-en @ fp16/w8a16 @ QNNExecutionProvider rules-only analyze"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "actual QNN NPU runtime latency/accuracy",
+          "GPU EP runtime latency",
+          "larger or smaller MPNet-family checkpoints on CPU",
+          "true CPU fp16 rebuilt with explicit precision and verified artifact evidence"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L1",
+      "recipe_template": "examples/recipes/dell-research-harvard_lt-wikidata-comp-en/<task>_w8a16_config.json",
+      "gotchas": [
+        "Do not mark w8a16 CPU latency regression as a recipe defect by itself; on CPU without the right int8/VNNI acceleration, QDQ overhead can dominate small/mid encoder transformers.",
+        "QNN analyze 389/389 supported is a portability signal only, not runtime proof; keep GPU/NPU as HOST-BLOCKED when the host exposes only CPU/Azure EPs."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "The measured inversion is empirical; likely mechanism is CPU EP quant overhead / lack of relevant integer acceleration, but hardware counters were not collected. Falsify on a CPU with efficient int8 kernels or on actual QNN NPU where w8a16 beats the unquantized recipe.",
+      "last_updated": "2026-07-31"
+    },
+    {
+      "id": "mpnet-004",
+      "title": "Re-probe MPNet exporter ownership: current main reports WINML-ONLY task coverage",
+      "observation": "On winml-cli main e28b128f5c2, the planner probe for model_type=mpnet reported no vendor-owned tasks and six WINML-ONLY tasks: feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, and token-classification. This contradicts the older mpnet-001 VENDOR-ONLY observation and means exporter ownership is version-sensitive rather than a permanent family property. The dell-research-harvard/lt-wikidata-comp-en sentence-similarity contribution still required recipe-only work: baseline auto-config/build passed and the candidate changed no source code.",
+      "scope": {
+        "validated_on": [
+          "dell-research-harvard/lt-wikidata-comp-en @ winml-cli main e28b128f5c2 @ planner Optimum probe and baseline build"
+        ],
+        "falsified_on": [
+          "mpnet-001 historical VENDOR-ONLY ownership claim"
+        ],
+        "not_yet_tested_on": [
+          "newer winml-cli / Optimum combinations",
+          "MPNet task heads beyond the six probed exporter tasks",
+          "sentence-similarity as a direct Optimum task mapping"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/dell-research-harvard_lt-wikidata-comp-en/cpu/cpu/sentence-similarity_<precision>_config.json",
+      "gotchas": [
+        "Do not reuse an old VENDOR-ONLY or WINML-ONLY classification without probing the current dependency lock and main commit.",
+        "WINML-ONLY exporter ownership does not imply per-checkpoint source changes; a stock MPNetModel checkpoint can remain an L0 recipe-only addition when baseline auto-config and build pass."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Confirmed by the current-main planner probe and successful baseline build. Falsify by repeating the probe on the same lock and commit and observing vendor-owned mpnet tasks.",
+      "last_updated": "2026-08-25"
+    },
+    {
+      "id": "mpnet-005",
+      "title": "True MPNet fp16 halves external weights but can regress CPU latency while preserving close hidden states",
+      "observation": "For dell-research-harvard/lt-wikidata-comp-en, setting quant.mode=fp16 with fp16_keep_io_types=true and building with --precision fp16 materialized all 203 floating initializers as FLOAT16; fp32 materialized all 203 as FLOAT. The model.onnx.data payload fell from 448,168,960 to 224,086,528 bytes (0.5000046x). On Intel Core i9-10900X with bundled CPUExecutionProvider, the repaired-SHA short perf run was slower for fp16: 351.35ms average and 2.85 samples/s versus the carried fp32 run at 256.82ms and 3.89 samples/s; reported total RSS delta was also higher (151.47MB versus 115.4MB). Direct last_hidden_state comparisons on two texts retained cosine >=0.9999987 with max absolute error <=0.001972 under a predeclared fp16 bound of 0.002. A two-row STS Benchmark check established schema and prediction-path functionality only; its Spearman value is not representative accuracy.",
+      "scope": {
+        "validated_on": [
+          "dell-research-harvard/lt-wikidata-comp-en @ sentence-similarity_fp32 @ CPUExecutionProvider",
+          "dell-research-harvard/lt-wikidata-comp-en @ sentence-similarity_fp16 @ CPUExecutionProvider",
+          "dell-research-harvard/lt-wikidata-comp-en @ mteb/stsbenchmark-sts test split @ two-row functional smoke"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "statistically robust CPU latency runs with more iterations",
+          "GPU or NPU runtime latency and memory",
+          "representative STS accuracy over the full dataset",
+          "other MPNet checkpoints and sequence lengths"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/dell-research-harvard_lt-wikidata-comp-en/cpu/cpu/sentence-similarity_fp16_config.json",
+      "gotchas": [
+        "Verify initializer dtypes and model.onnx.data size before calling an fp16 request materialized; recipe metadata alone is insufficient.",
+        "Set fp16_keep_io_types=true explicitly beside quant.mode=fp16 when the public recipe contract intends float32 I/O; do not rely on a resolved default.",
+        "CPU fp16 storage reduction does not guarantee CPU latency or memory improvement.",
+        "The exported output remains float32 last_hidden_state even when every floating initializer is FLOAT16.",
+        "Treat the two-row STS result only as a functional semantics smoke; the winml eval CLI metric path remained blocked for this dataset/task combination."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "Artifact dtype, size, L2 closeness, and short-run CPU perf are directly measured. The reason fp16 is slower and consumes more reported inference memory on this CPU was not isolated. Falsify the performance observation with a controlled repeated run on the same host or a target with efficient fp16 execution.",
+      "last_updated": "2026-08-25"
+    }
+  ]
+}

@@ -1,0 +1,229 @@
+{
+  "_meta": {
+    "family": "sam",
+    "hf_model_type": "sam",
+    "models_tested": ["Xenova/slimsam-77-uniform"],
+    "last_updated": "2026-07-19",
+    "epistemics_warning": "Observational findings, not ground truth. Re-validate on new checkpoints / ORT versions / EPs before relying on a finding to skip work."
+  },
+  "findings": [
+    {
+      "id": "sam-001",
+      "title": "ONNX-only SAM checkpoints need contract-derived composite discovery without replacing native PyTorch SAM export",
+      "observation": "At Xenova/slimsam-77-uniform revision 5850ab45f587c112167512ffef949107115e26a0, the checkpoint has no PyTorch weights and publishes two cooperating fp32 ONNX graphs: vision_encoder.onnx SHA-256 9f8433273a6750b587779baa0cf5508111001bf7e7acfcf585d370139fd366d0 and prompt_encoder_mask_decoder.onnx SHA-256 f4514391764fbd56e08e119060d874ecd7d52994bfb1968af159e12d4943b5bb. Generic graph-I/O discovery resolves them as image-encoder and prompt-decoder, emits portable component_name recipes, and builds all four CPU artifacts. The repaired optional-source fallback also preserves facebook/sam-vit-base as the existing single PyTorch config path when no published ONNX pair exists; six focused source-selection/composite tests passed.",
+      "scope": {
+        "validated_on": [
+          "Xenova/slimsam-77-uniform@5850ab45f587c112167512ffef949107115e26a0 @ fp32 @ CPUExecutionProvider/cpu @ WinML 0.2.0",
+          "Xenova/slimsam-77-uniform@5850ab45f587c112167512ffef949107115e26a0 @ fp16 @ CPUExecutionProvider/cpu @ WinML 0.2.0",
+          "facebook/sam-vit-base @ config source-fallback regression @ WinML 0.2.0"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": ["other ONNX-only SAM publishers and naming conventions", "malformed or ambiguous published SAM graph pairs"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/Xenova_slimsam-77-uniform/cpu/cpu/mask-generation_<precision>_config_<image-encoder|prompt-decoder>.json",
+      "gotchas": [
+        "Do not register an optional published-ONNX composite in a way that replaces the existing native PyTorch path when discovery returns no sources.",
+        "Malformed or ambiguous published pairs must fail closed; only the no-published-pair case falls through to PyTorch export.",
+        "Keep Hub cache paths out of recipes; persist the semantic component_name and resolve the pinned published graph during build."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Fresh tester re-entry proved Xenova composite fan-out and the facebook native-source fallback independently; deliverable SHA-256 026c4b99a5325d49447689dee52da4aa2425ca26027a16c40ddcb058be432383 and terminal tester verdict SHA-256 e88be8c3482bfd7702114bfa2db065ce7eacc52ce9c1255f3044c0f7dea421cf freeze the repaired behavior.",
+      "last_updated": "2026-07-19"
+    },
+    {
+      "id": "sam-002",
+      "title": "SlimSAM is a two-graph point-prompt composite, and direct ONNX ingestion emits no HTP trace metadata",
+      "observation": "The frozen model profile records a 9,723,528-parameter SAM configuration with a 12-block width-168 vision encoder (global attention at blocks 2, 5, 8, 11), 256-channel neck, point-prompt encoder, and two-layer width-256 two-way-transformer mask decoder. Frozen artifact I/O confirms the runtime boundary: pixel_values FLOAT[B,3,1024,1024] -> image_embeddings and image_positional_embeddings FLOAT[B,256,64,64]; the decoder consumes those tensors plus input_points FLOAT[B,point_batch,points,2] and input_labels INT64[B,point_batch,points], then emits iou_scores FLOAT[B,point_batch,3] and pred_masks FLOAT[B,point_batch,3,256,256]. No export_htp_metadata.json exists for any of the four artifacts because export=null direct ONNX ingestion bypasses HTPExporter; therefore no total_modules/modules_traced/execution_steps claim is made. Architecture evidence is instead the pinned config/source-derived model-breakdown plus graph I/O, node scopes, and topology.",
+      "scope": {
+        "validated_on": [
+          "Xenova/slimsam-77-uniform@5850ab45f587c112167512ffef949107115e26a0 @ fp32 image-encoder and prompt-decoder ONNX artifacts",
+          "Xenova/slimsam-77-uniform@5850ab45f587c112167512ffef949107115e26a0 @ fp16 image-encoder and prompt-decoder ONNX artifacts"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": ["box-prompt or mask-input SAM decoder variants", "an HTP-exported PyTorch SlimSAM artifact"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/Xenova_slimsam-77-uniform/cpu/cpu/mask-generation_<precision>_config_<image-encoder|prompt-decoder>.json",
+      "gotchas": [
+        "This decoder is point-only: do not fabricate input_boxes or input_masks absent from its graph contract.",
+        "Do not substitute source-derived architecture facts for nonexistent HTP trace counts; record HTP metadata as not produced for direct ONNX ingestion.",
+        "The two component graphs are one task pipeline, so perf and eval must exercise encoder-to-decoder handoff rather than grading each session in isolation."
+      ],
+      "direct_onnx_artifacts": [
+        {
+          "precision": "fp32",
+          "role": "image-encoder",
+          "resolved_export": null,
+          "htp_metadata": "NOT_PRODUCED_DIRECT_ONNX",
+          "metadata_exists": false,
+          "reason": "Direct published-ONNX ingestion bypasses HTPExporter; HTP trace counts do not exist and must not be fabricated.",
+          "evidence_alternative": {
+            "checkpoint_revision": "5850ab45f587c112167512ffef949107115e26a0",
+            "node_count": 1782,
+            "scope_roots": ["vision_encoder"],
+            "graph_io": "pixel_values FLOAT[B,3,1024,1024] -> image_embeddings and image_positional_embeddings FLOAT[B,256,64,64]",
+            "topology_and_component_mapping": true
+          }
+        },
+        {
+          "precision": "fp32",
+          "role": "prompt-decoder",
+          "resolved_export": null,
+          "htp_metadata": "NOT_PRODUCED_DIRECT_ONNX",
+          "metadata_exists": false,
+          "reason": "Direct published-ONNX ingestion bypasses HTPExporter; HTP trace counts do not exist and must not be fabricated.",
+          "evidence_alternative": {
+            "checkpoint_revision": "5850ab45f587c112167512ffef949107115e26a0",
+            "node_count": 810,
+            "scope_roots": ["mask_decoder", "prompt_encoder"],
+            "graph_io": "input_points FLOAT[B,point_batch,points,2], input_labels INT64[B,point_batch,points], image embeddings and positional embeddings -> iou_scores FLOAT[B,point_batch,3] and pred_masks FLOAT[B,point_batch,3,256,256]",
+            "topology_and_component_mapping": true
+          }
+        },
+        {
+          "precision": "fp16",
+          "role": "image-encoder",
+          "resolved_export": null,
+          "htp_metadata": "NOT_PRODUCED_DIRECT_ONNX",
+          "metadata_exists": false,
+          "reason": "Direct published-ONNX ingestion followed by WinML fp16 conversion bypasses HTPExporter; HTP trace counts do not exist and must not be fabricated.",
+          "evidence_alternative": {
+            "checkpoint_revision": "5850ab45f587c112167512ffef949107115e26a0",
+            "node_count": 1785,
+            "scope_roots": ["vision_encoder"],
+            "graph_io": "pixel_values FLOAT[B,3,1024,1024] -> image_embeddings and image_positional_embeddings FLOAT[B,256,64,64]",
+            "topology_and_component_mapping": true
+          }
+        },
+        {
+          "precision": "fp16",
+          "role": "prompt-decoder",
+          "resolved_export": null,
+          "htp_metadata": "NOT_PRODUCED_DIRECT_ONNX",
+          "metadata_exists": false,
+          "reason": "Direct published-ONNX ingestion followed by WinML fp16 conversion bypasses HTPExporter; HTP trace counts do not exist and must not be fabricated.",
+          "evidence_alternative": {
+            "checkpoint_revision": "5850ab45f587c112167512ffef949107115e26a0",
+            "node_count": 815,
+            "scope_roots": ["mask_decoder", "prompt_encoder"],
+            "graph_io": "input_points FLOAT[B,point_batch,points,2], input_labels INT64[B,point_batch,points], image embeddings and positional embeddings -> iou_scores FLOAT[B,point_batch,3] and pred_masks FLOAT[B,point_batch,3,256,256]",
+            "topology_and_component_mapping": true
+          }
+        }
+      ],
+      "feature_gaps_filed": [
+        "FILE: copilot-skills/dev_skill/adding-model-support/agents/learner.md — direct-ONNX HTP evidence exception",
+        "FILE: copilot-skills/dev_skill/adding-model-support/agents/reviewer.md — direct-ONNX HTP review branch"
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Tester recheck handoff SHA-256 c836baf13860a5ac02124284a6a3c6a7e2f9f574229219ac5aa7bd0312ac35b6 and direct-ONNX HTP status SHA-256 fe17147ceb15574ac820984bdb868ecefc010b4ac62a7344b4de0e130fb9efa6 record all four resolved export=null configs, metadata_exists=false, exact graph I/O/topology, and component scopes at winml-cli commit 487ff8a7ed976e28b9b2625acdd69a8346cb6c0e.",
+      "last_updated": "2026-07-19"
+    },
+    {
+      "id": "sam-003",
+      "title": "SlimSAM recipes are direct-ONNX role configs; fp16 is a genuine conversion with a default-ORT optimizer caveat",
+      "observation": "All resolved configs have auto=false, export=null, optim={}, compile=null, and portable loader.component_name. fp32 quant is null. fp16 uses quant.mode=fp16 with fp16_keep_io_types=true. The fp32 encoder is 27,313,796 bytes with 184 FLOAT initializers; fp16 is 13,899,113 bytes with 184 FLOAT16 and zero FLOAT initializers. The fp32 decoder is 16,519,175 bytes with 137 FLOAT initializers; fp16 is 8,400,644 bytes with 137 FLOAT16 and zero FLOAT initializers. Both fp16 graphs preserve FLOAT I/O but fail default ORT session initialization at InsertedPrecisionFreeCast/SimplifiedLayerNormFusion; both initialize and execute with ORT_DISABLE_ALL. Standard winml perf therefore exits 2, while the composite ORT_DISABLE_ALL harness passes.",
+      "scope": {
+        "validated_on": [
+          "Xenova/slimsam-77-uniform @ fp32 @ CPUExecutionProvider/cpu @ WinML 0.2.0",
+          "Xenova/slimsam-77-uniform @ fp16 @ CPUExecutionProvider/cpu @ WinML 0.2.0"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": ["newer ORT optimizer builds", "GPU/NPU providers"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/Xenova_slimsam-77-uniform/cpu/cpu/mask-generation_<precision>_config_<image-encoder|prompt-decoder>.json",
+      "gotchas": [
+        "The checkpoint's published fp16 variants are not the validated sources; convert the exact published fp32 pair through WinML.",
+        "A successful fp16 build is insufficient: verify FLOAT16 initializer counts and session creation.",
+        "On this runtime, ORT_DISABLE_ALL is required for fp16 and makes CPU fp16 slower than fp32; do not claim a speedup from reduced storage."
+      ],
+      "feature_gaps_filed": ["FILE: src/winml/modelkit/commands/perf.py — expose a graph-optimization/session-options override so converted SAM fp16 graphs can run standard winml perf with ORT_DISABLE_ALL"],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Initializer dtypes, file-size ratios, default-vs-disabled session A/B checks, and full composite execution independently confirm both genuine conversion and the optimizer-specific failure.",
+      "last_updated": "2026-07-19"
+    },
+    {
+      "id": "sam-004",
+      "title": "SlimSAM CPU reaches L3 on a pinned five-row point-prompt subset with small fp16 quality deltas",
+      "observation": "Tester verdict e88be8c3482bfd7702114bfa2db065ce7eacc52ce9c1255f3044c0f7dea421cf used mattmdjaga/human_parsing_dataset revision db120bb5c18c146a8fbd2160f7575a288269fe7d, train split, first five deterministic valid rows sample_0000..sample_0004, no shuffle, no streaming, seed 42, prompt_mode=point. L1 (3 warmups, 20 iterations, ORT_DISABLE_ALL): fp32 composite mean/p50/p90=1219.4138750011916/1213.7237499991897/1243.2789499987848 ms, throughput=0.8200661157796181 samples/s, encoder/decoder means=1187.7435800022795/31.67029499891214 ms; fp16=1584.7703800012823/1572.3618500051089/1608.407509996323 ms, 0.6310062407900322 samples/s, encoder/decoder=1545.1620049978374/39.60837500344496 ms. L2 against the exact frozen published fp32 ONNX pair: fp32 mask IoU/Dice=1.0/1.0, image-embedding cosine=0.9999999999999487, pred-mask cosine=0.9999999995887173; fp16=0.9930252396005821/0.9965004154183137, 0.9999998499461553, 0.9998631504023249. L3: fp32 mIoU/Dice=0.40013556173273895/0.5235086894209545; fp16=0.39918580013126925/0.5229150662134483; fp16 deltas=-0.0009497616014697/-0.0005936232075062; both processed 5 and skipped 0.",
+      "scope": {
+        "validated_on": [
+          "Xenova/slimsam-77-uniform@5850ab45f587c112167512ffef949107115e26a0 @ fp32 @ CPUExecutionProvider/cpu @ five-row pinned point-prompt subset",
+          "Xenova/slimsam-77-uniform@5850ab45f587c112167512ffef949107115e26a0 @ fp16 @ CPUExecutionProvider/cpu @ five-row pinned point-prompt subset"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": ["broad-dataset accuracy", "box prompts", "runtime EPs other than CPU"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/Xenova_slimsam-77-uniform/cpu/cpu/mask-generation_<precision>_config_<image-encoder|prompt-decoder>.json",
+      "gotchas": [
+        "The L3 values describe a five-row deterministic subset, not population-level segmentation accuracy.",
+        "The frozen Xenova revision has no PyTorch weights; L2 uses its exact published fp32 ONNX pair and must not substitute nielsr/slimsam-77-uniform.",
+        "fp16 is numerically close on this subset but slower on the tested CPU."
+      ],
+      "feature_gaps_filed": ["FILE: copilot-skills/dev_skill/adding-model-support/agents/tester.md — retain the pinned published fp32 ONNX pair as the explicit L2 reference when the exact checkpoint revision publishes no PyTorch weights"],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The same pinned inputs drive composite perf, exact-source numeric comparison, and CLI eval at both precisions; the dataset revision and subset are frozen in the tester verdict.",
+      "last_updated": "2026-07-19"
+    },
+    {
+      "id": "sam-005",
+      "title": "Incomplete pattern metadata must reject only that match rather than abort SAM analysis",
+      "observation": "The first analyzer pass aborted all four artifacts with KeyError 'X' because dtype-dependent LayerNormalization validation received a partial external-input mapping. The generic Pattern._check_skeleton_result_impl repair rejects only an unprovable pattern match when a matched external input lacks value/shape/type-derived data; it does not fabricate a classification and analysis continues. The refreshed public-rules v0.2.0 runs emitted valid JSON for all four artifacts and every requested target. Broad affected-area validation passed 3012 tests with 45 skipped; changed/untracked Python Ruff and git diff --check also passed.",
+      "scope": {
+        "validated_on": [
+          "Xenova/slimsam-77-uniform @ fp32/fp16 image-encoder and prompt-decoder @ public analyze rules v0.2.0",
+          "generic incomplete-metadata LayerNormalization regression test"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": ["other dtype-dependent pattern families with missing external-input metadata"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/Xenova_slimsam-77-uniform/cpu/cpu/mask-generation_<precision>_config_<image-encoder|prompt-decoder>.json",
+      "gotchas": [
+        "A missing metadata key disproves only that pattern match; it does not justify aborting graph-wide analysis.",
+        "Do not turn incomplete metadata into a positive or negative operator-support claim.",
+        "Analyzer exit 1 can still be ANALYZE-PARTIAL-SUCCESS when complete fail-closed JSON is emitted for all requested targets."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "A/B evidence is the deterministic KeyError before repair versus four complete 11-target outputs after repair, backed by a generic regression and broad analyzer suite.",
+      "last_updated": "2026-07-19"
+    },
+    {
+      "id": "sam-006",
+      "title": "SlimSAM static analysis covers four artifacts and all 11 EP/device rule targets with role-stable operator profiles",
+      "observation": "Public rules v0.2.0 (SHA-256 6dcabbe7f5493fbc2bd23de195ab6e35b3578d510f18c2e220bc5538a1f232cc; 1746 parquet files) produced ANALYZE-PARTIAL-SUCCESS for all four artifacts. fp32 encoder: 1782 nodes/26 types, top three Unsqueeze=245, Add=201, Mul=166, mapped 1775/1782 (99.6072%). fp16 encoder: 1785/26, same top three, mapped 1775/1785 (99.4398%). fp32 decoder: 810/32, top three Gather=137, Unsqueeze=124, Add=93, mapped 809/810 (99.8765%). fp16 decoder: 815/32, same top three, mapped 809/815 (99.2638%). Every artifact contains these 11 target rows: NvTensorRTRTX/GPU; CUDA/GPU; MIGraphX/GPU; QNN/NPU; QNN/GPU; OpenVINO/NPU; OpenVINO/GPU; OpenVINO/CPU; Dml/GPU; CPU/CPU; VitisAI/NPU. Encoder rows are precision-stable: NvTensorRTRTX 12 supported/0 partial/0 unsupported/25 unknown; CUDA 0/0/0/26; MIGraphX 0/0/0/26; QNN NPU 10/3/0/25 (partial Mod, Reshape, Transpose); QNN GPU 10/2/0/25 (partial Mod, Transpose); OpenVINO NPU 6/1/5/25 (partial Sub; unsupported Mod, Add, Div, Mul, Cast); OpenVINO GPU and CPU each 6/0/6/25 (unsupported Mod, Sub, Add, Div, Mul, Cast); Dml, CPU, and VitisAI each 0/0/0/26. Decoder rows are also precision-stable: NvTensorRTRTX 8/0/0/32; CUDA and MIGraphX 0/0/0/32; QNN NPU and GPU 8/0/0/32; OpenVINO NPU, GPU, and CPU each 6/0/2/32 (unsupported Mul, Div); Dml, CPU, and VitisAI each 0/0/0/32. runtime_support=false for every static row, so none is runtime compatibility evidence.",
+      "scope": {
+        "validated_on": [
+          "Xenova/slimsam-77-uniform @ fp32 image-encoder @ 11 static EP/device targets @ public rules v0.2.0",
+          "Xenova/slimsam-77-uniform @ fp32 prompt-decoder @ 11 static EP/device targets @ public rules v0.2.0",
+          "Xenova/slimsam-77-uniform @ fp16 image-encoder @ 11 static EP/device targets @ public rules v0.2.0",
+          "Xenova/slimsam-77-uniform @ fp16 prompt-decoder @ 11 static EP/device targets @ public rules v0.2.0"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": ["runtime compatibility on the 10 non-CPU targets", "newer rule bundles"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/Xenova_slimsam-77-uniform/cpu/cpu/mask-generation_<precision>_config_<image-encoder|prompt-decoder>.json",
+      "gotchas": [
+        "Static rule arrays can contain supported/partial/unsupported entries while runtime_support=false and unknown remains populated; report the exact counts without promoting them to measured execution.",
+        "Preserve the mapping gaps: 7 fp32-encoder, 1 fp32-decoder, 10 fp16-encoder, and 6 fp16-decoder nodes remain unmapped.",
+        "The analyzer process exits 1 because unavailable plugins cannot register, but all 44 requested artifact-target rows are present and parseable."
+      ],
+      "feature_gaps_filed": ["FILE: copilot-skills/dev_skill/adding-model-support/agents/tester.md — collect capable-host runtime evidence for NvTensorRTRTX, CUDA, MIGraphX, QNN, OpenVINO, DML, and VitisAI before promoting static rows to runtime support"],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The tester validated four complete analyzer payloads, 11 results per artifact, component mapping against the frozen profile, and exact model-wide operator histograms.",
+      "last_updated": "2026-07-19"
+    }
+  ]
+}

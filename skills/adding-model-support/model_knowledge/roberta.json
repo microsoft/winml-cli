@@ -1,0 +1,109 @@
+{
+  "_meta": {
+    "family": "roberta",
+    "hf_model_type": "roberta",
+    "models_tested": ["deepset/roberta-large-squad2"],
+    "last_updated": "2026-08-13",
+    "epistemics_warning": "Observational findings, not ground truth. Re-validate on new checkpoints / ORT versions / EPs before relying on a finding to skip work."
+  },
+  "findings": [
+    {
+      "id": "roberta-001",
+      "title": "RoBERTa-large SQuAD 2.0 preserves task metrics in fp16 on CPU, while fp16 is slower than fp32 on this host",
+      "observation": "At winml 0.2.0 on current-main 904c20109ab31d737c5132c3686ab404236edd57, deepset/roberta-large-squad2 built from the nested CPU recipes at fp32 and fp16. CPUExecutionProvider perf (20 measured, 5 warmup) was fp32 mean/p50 902.339/904.426 ms, 1.11 samples/s, RSS model-load delta 1167.0 MB; fp16 mean/p50 1041.909/1040.757 ms, 0.96 samples/s, RSS model-load delta 1180.8 MB. Both artifacts scored exact 85.0 and F1 88.70079365079366 on rajpurkar/squad_v2 validation, 100 shuffled samples, seed 42. CLI compare against the HF reference gave fp32 mean cosine 0.9999999999794873/0.9999999999866034 and fp16 0.9999928808311433/0.9999945743800909 for start/end logits. The optimized fp32 graph has 865 operators, 20 op types; top counts are Add 244, MatMul 193, Mul 97 (then Reshape 96 and Transpose 96). Full --ep all analysis found QNN GPU partial Div, Erf, Add, Mul and no unsupported op types; NVIDIA TensorRT RTX and OpenVINO GPU classified all 20 op types supported; CUDA, MIGraphX, and DML had all 20 unknown because no rule rows exist. export_htp_metadata reports 354,312,194 parameters, 443 modules, 172 traced modules, rooted at RobertaForQuestionAnswering -> RobertaModel -> embeddings + 24-layer encoder, plus qa_outputs. The input recipe optim block remained clamp_constant_values=true; autoconf did not add another optimization pass.",
+      "scope": {
+        "validated_on": [
+          "deepset/roberta-large-squad2 @ fp32 @ CPUExecutionProvider/cpu",
+          "deepset/roberta-large-squad2 @ fp16 @ CPUExecutionProvider/cpu"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": []
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/deepset_roberta-large-squad2/cpu/cpu/question-answering_<precision>_config.json",
+      "gotchas": [
+        "For fp16, use --precision fp16 without --no-quant; verify 396 FLOAT16 initializers and model.onnx.data near 709.7 MB instead of the fp32 1,419.3 MB.",
+        "CPU fp16 preserved exact/F1 on this subset but was slower than fp32; report measured values rather than assuming reduced precision is faster."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Exact task metrics were equal on the tested deterministic subset and the artifact dtype/size difference was inspected directly. Performance scope is this host only.",
+      "last_updated": "2026-07-16"
+    },
+    {
+      "id": "roberta-002",
+      "title": "The RoBERTa QA fp16 recipe must own quant intent to realize fp16 weights while preserving float logits",
+      "observation": "At microsoft/winml-cli candidate fdf697a741909c34932354f4af2560eea6efbc71 with winml-cli 0.2.0 and onnxruntime-windowsml 1.24.5.202604171637, the CPU fp16 recipe for deepset/roberta-large-squad2 carried quant.mode=fp16, task/model identity, and fp16_keep_io_types=true. A fresh recipe build produced 394 FLOAT16 initializers, no FLOAT initializers, FLOAT start/end logits, and 708,632,592 external-data bytes versus 394 FLOAT initializers and 1,417,256,976 bytes for fp32 (ratio 0.5000029). On one pinned SQuAD v2 validation row, fp16 start/end cosine versus PyTorch was 0.9999999707/0.9999999429 with max-abs 0.0115833/0.0143809 and the same decoded span, France. CPU perf over 20 measured iterations plus 5 warmups was fp32 mean/p50 629.132/625.715 ms at 1.59 samples/s and fp16 750.687/746.023 ms at 1.33 samples/s, so realized fp16 remained slower on this host. The required final-SHA L3 check was deliberately bounded to two deterministic fp32 SQuAD v2 validation rows, two tokenized features, and two model inferences; exact match and F1 were both 100, proving functional smoke operability only, not benchmark accuracy or fp16 task accuracy.",
+      "evidence": [
+        "Tester verdict SHA-256 3c787830d86231097c5fe3a8251c5023e65c187594306a4cedfe699105c2b593; sealed raw-evidence manifest SHA-256 af81365b288f0fb8d6d7136e506c34daa97eb2105cf022d02cefa052127889d4.",
+        "Manifest-backed artifacts: fp16 winml_build_config.json 5c707d636c4f50923cd63b26292201eb111bce9825da5d065642f14a0a316896; fp16 model.onnx.data 7f79eec6a6bae015842a886b6fe4e1cb8083ebd5aeb936f6e3aa67cddfc2166a; fp32 model.onnx.data 29767343c6c334824e76a40b0280f018d55e639702b581fd9c92560c9144b736.",
+        "Independent tester L0-L3 rows retain artifact validation, perf, single-row PyTorch parity, decoded-span agreement, and bounded FP32 functional-smoke accounting."
+      ],
+      "confidence": "verified on the exact candidate, checkpoint, CPU EP, and runtime versions named above",
+      "scope": {
+        "validated_on": [
+          "deepset/roberta-large-squad2 @ fp32 @ CPUExecutionProvider/cpu @ onnxruntime-windowsml 1.24.5.202604171637",
+          "deepset/roberta-large-squad2 @ fp16 @ CPUExecutionProvider/cpu @ onnxruntime-windowsml 1.24.5.202604171637",
+          "deepset/roberta-large-squad2 @ fp32 @ CPUExecutionProvider/cpu @ rajpurkar/squad_v2 revision 3ffb306f725f7d2ce8394bc1873b24868140c412 @ two-row functional smoke"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "fp16 task-metric evaluation; the L3 contract intentionally evaluated only the final-SHA fp32 CPU artifact",
+          "more than two deterministic SQuAD v2 rows or any representative benchmark-scale accuracy run",
+          "other RoBERTa checkpoints, sequence lengths, ORT versions, execution providers, or devices"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/deepset_roberta-large-squad2/cpu/cpu/question-answering_<precision>_config.json",
+      "gotchas": [
+        "Treat the fp16 filename or CLI selector as intent, not proof: require the recipe quant block and verify initializer dtypes plus external-data size after build.",
+        "Keep fp16_keep_io_types=true when the consumer expects FLOAT start_logits and end_logits.",
+        "Do not generalize the two-row fp32 functional smoke to benchmark accuracy or to fp16 Eval; retain its exact row, feature, and inference bounds.",
+        "Do not assume materially smaller fp16 weights improve CPU latency; this host measured slower fp16 mean and p50 latency."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The resolved build config preserved recipe-owned fp16 quantization, and direct artifact inspection proved all 394 floating initializers changed from FLOAT to FLOAT16 while public QA logits remained FLOAT. PyTorch parity and decoded-span equality confirm the converted artifact remained numerically usable on the tested row; the bounded fp32 L3 smoke independently confirms evaluator semantics.",
+      "last_updated": "2026-08-13"
+    },
+    {
+      "id": "roberta-003",
+      "title": "RoBERTa-large QA maps completely to embeddings, 24 encoder layers, and the QA head, with QNN indexing ops requiring attention",
+      "observation": "For the fp32 and fp16 artifacts built from microsoft/winml-cli candidate fdf697a741909c34932354f4af2560eea6efbc71, HTP metadata reports 354,312,194 parameters, 443 modules, and 172 traced modules. The traced top-level hierarchy is RobertaForQuestionAnswering -> RobertaModel -> RobertaEmbeddings plus RobertaEncoder with 24 RobertaLayer children -> qa_outputs; layer children include self-attention and attention output, intermediate GELU, and feed-forward output. Source-derived component mapping covered all 749 fp32 and 751 fp16 ONNX nodes: embeddings 17; self-attention 391; intermediate/GELU 72; feed-forward output 144; attention-output/residual/layer orchestration 120; QA head 5 fp32 or 7 fp16. Direct module scopes covered 497 nodes in each graph; 252 fp32 and 254 fp16 optimizer-generated nodes were assigned by execution adjacency, with zero unmapped. The manifest-backed analyze outputs contain 21 operator types: both graphs are dominated by Reshape 243, Gemm 145, Transpose 96, Add 75, LayerNormalization 49, and MatMul 48; fp16 differs by two extra Cast nodes. QNN rule data classifies Gather and GatherElements partial, affecting embedding/indexing and one attention-region Gather; Where is unknown for NvTensorRTRTX, QNN, and OpenVINO. CUDA, MIGraphX, TensorRT, and DML returned no shipped rule classifications. The analyze command exited 1 because --ep all includes unavailable or unclassified providers, but emitted complete structured results for all seven requested EPs and is therefore partial success, not a failed or missing analysis.",
+      "evidence": [
+        "Pinned model-breakdown SHA-256 7757283795a3339f4d66b8bcf12652f8f384baeca82ed8ea540b482858fd3f9e establishes embeddings, encoder/layers, self-attention, intermediate/output, and QA-head source hierarchy.",
+        "Manifest-backed HTP metadata: fp32 fd83bcb023f964b6a068ad90e7f5199c17d949466c67b224073da0a1e3f6ae4c; fp16 a4ca93aa39ed771fd77d78bdbbe1f521b91ba619d5459eba4fdf2bd25521fb54.",
+        "Manifest-backed raw analyze outputs: fp32 9bc88789719bfdc229fe3581a57b6b02ee24dd5e667863af98e4ff5f4e1e1206; fp16 440f7183f7891bfa4ccdc06150aa27b32860673d2ccfc4a4d95cbb6f2a3949ec. Component mappings: fp32 30f4dc82a69b1242f73ceea9a85605a16473c58f4f5379c453677969395f52aa; fp16 f33775c19f8fb8f58dc176a6611723f5fd1a053a0165fa37155c12fe42bb0597."
+      ],
+      "confidence": "verified for graph structure and shipped rule classifications; inferred for optimizer-node component assignment",
+      "scope": {
+        "validated_on": [
+          "deepset/roberta-large-squad2 @ fp32 @ ONNX opset 17 @ candidate fdf697a741909c34932354f4af2560eea6efbc71",
+          "deepset/roberta-large-squad2 @ fp16 @ ONNX opset 17 @ candidate fdf697a741909c34932354f4af2560eea6efbc71"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "runtime execution on NvTensorRTRTX, QNN, OpenVINO, CUDA, MIGraphX, TensorRT, or DML; analyze rule classifications are feasibility hints, not runtime PASS",
+          "whether QNN EP options or graph rewrites resolve partial Gather and GatherElements coverage",
+          "whether future rule manifests classify Where or currently empty CUDA, MIGraphX, TensorRT, and DML surfaces",
+          "other RoBERTa tasks, checkpoints, graph optimizations, sequence lengths, opsets, or runtime versions"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/deepset_roberta-large-squad2/cpu/cpu/question-answering_<precision>_config.json",
+      "gotchas": [
+        "Preserve the full hierarchy in analysis: top-level embeddings, the repeated encoder-layer regions, attention output/residual orchestration, and qa_outputs are all traced and mapped.",
+        "Treat QNN Gather and GatherElements as actionable partial support in embedding/indexing regions; investigate them before claiming QNN deployment coverage.",
+        "Treat Where and providers with no shipped classifications as unknown, not supported or unsupported.",
+        "An analyze exit code of 1 can still be complete partial-success evidence when --ep all writes every requested provider result; inspect the structured output before grading it as failure."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Source-derived model-breakdown, HTP trace hierarchy, ONNX node scopes, execution adjacency, and raw per-EP rule manifests were reconciled. All graph nodes are accounted for; only the component ownership of scope-free optimizer nodes is inferred, and no accelerator runtime execution is claimed.",
+      "last_updated": "2026-08-13"
+    }
+  ]
+}

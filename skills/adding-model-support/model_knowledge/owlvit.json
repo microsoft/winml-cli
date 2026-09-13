@@ -1,0 +1,40 @@
+{
+  "_meta": {
+    "family": "owlvit",
+    "hf_model_type": "owlvit",
+    "models_tested": ["google/owlvit-base-patch16"],
+    "last_updated": "2026-07-23",
+    "epistemics_warning": "Observational findings, not ground truth. Re-validate on new checkpoints / ORT versions / EPs."
+  },
+  "findings": [
+    {
+      "id": "owlvit-001",
+      "title": "Generalized keyword-name resolution fixes OwlViT semantic input bindings without recipe reordering",
+      "observation": "At google/owlvit-base-patch16 revision 4b420debb9c806fc4caf9ecc8efb72208c0db892 with WinML 0.2.0, Transformers 4.57.6, Torch 2.13.0, ONNX Runtime 1.27.0, and CPUExecutionProvider, the vendor OwlViTOnnxConfig emitted pixel_values before input_ids while OwlViTForObjectDetection.forward accepts input_ids before pixel_values. Keyword invocation exported successfully, but current main attached pixel_values to INT32[1,16] and input_ids to FLOAT[1,3,768,768]. Resolving ONNX input_names from the complete forward signature corrected the semantic bindings in recipe-free, fp32, and fp16 builds. The final fp32/fp16 graphs had 1025/1030 nodes and 28 operator types; dominant fp32 operators were Reshape 411, Gemm 150, and Transpose 121. Public-rule analysis found no partial or unsupported operator types, while Einsum plus some Cast/Sqrt signatures remained unknown on rule-backed EPs. Export metadata reported 152,789,511 parameters, 319 modules, and 106 traced modules, rooted at OwlViTForObjectDetection → OwlViTModel → vision/text towers plus class and box heads. Autoconf expanded optim from {} to gelu_fusion=true and matmul_add_fusion=true.",
+      "scope": {
+        "validated_on": [
+          "google/owlvit-base-patch16 @ fp32 @ CPUExecutionProvider/cpu",
+          "google/owlvit-base-patch16 @ fp16 @ CPUExecutionProvider/cpu"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": []
+      },
+      "effort_tier_required": "L0 on current main; the historical generalized exporter repair was L1",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/google_owlvit-base-patch16/cpu/cpu/zero-shot-object-detection_fp32_config.json",
+      "gotchas": [
+        "Do not infer semantic correctness from export success: verify every ONNX input name against its real shape and dtype.",
+        "Do not reorder keyword-invoked recipe inputs solely to match forward(); current main resolves keyword names from the complete signature. Preserve explicit positional get_export_args protocols.",
+        "Preserve explicit get_export_args positional protocols instead of reordering them by forward signature.",
+        "CPU fp16 conversion halves external weights (609,623,040 to 304,811,008 bytes) but was slower than fp32 in this host measurement.",
+        "winml eval has no zero-shot-object-detection task, so L3 is CLI-BLOCKED."
+      ],
+      "feature_gaps_filed": [
+        "https://github.com/microsoft/winml-cli/issues/1147 — add zero-shot-object-detection schema and evaluator to winml eval"
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Regression tests prove the keyword-name resolver follows inspect.signature(model.forward) only on a complete unambiguous match and preserves model-defined get_export_args ordering. Recipe-free and both precision builds proved corrected named bindings.",
+      "last_updated": "2026-07-23"
+    }
+  ]
+}

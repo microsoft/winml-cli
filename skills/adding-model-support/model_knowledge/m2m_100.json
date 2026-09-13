@@ -1,0 +1,64 @@
+{
+  "_meta": {
+    "family": "m2m_100",
+    "hf_model_type": "m2m_100",
+    "models_tested": [],
+    "diagnostic_only": ["facebook/nllb-200-distilled-600M"],
+    "last_updated": "2026-06-22",
+    "epistemics_warning": "Findings here are DIAGNOSTIC (read from repo state on 2026-06-22), not verified by running winml build/perf/eval. Re-validate before relying on a finding to skip work."
+  },
+  "findings": [
+    {
+      "id": "m2m_100-001",
+      "title": "m2m_100 has no @register_onnx_overwrite in the repo — Effort-L1, but the bart.py / marian.py / mu2.py template is highly applicable",
+      "observation": "No file matching m2m_100.py under src/winml/modelkit/models/hf/. NLLB-200-distilled-600M uses model_type='m2m_100' (HF M2M100 architecture). M2M100 is a sinusoidal-positional-encoding encoder-decoder seq2seq (basically MarianMT with bigger vocab + longer max_length), and behaves architecturally like marian.py — both use frozen sinusoidal MarianSinusoidalPositionalEmbedding-style position encoding. The decoder_only/encoder_decoder shared infra under models/winml/ is reusable.",
+      "scope": {
+        "validated_on": [],
+        "falsified_on": [],
+        "not_yet_tested_on": ["facebook/nllb-200-distilled-600M @ * @ *"]
+      },
+      "effort_tier_required": "L1",
+      "goal_tier_reached": "L0 (build will fail without new code)",
+      "recipe_template": "src/winml/modelkit/models/hf/marian.py is the canonical starting template — same sinusoidal-position pattern, same encoder/decoder split, same composite-translation registration. Recipe-side: same first-mover gap (no encoder-decoder recipe ships today).",
+      "gotchas": [
+        "NLLB uses language tokens (prepended bos_lang_id) — generation requires forced_bos_token_id matching the target language. The WinMLEncoderDecoderModel.generation_config plumbing must surface this, similar to bart-large-cnn's forced_bos_token_id / forced_eos_token_id handling. Verify by reading the bart.py generation_config property and replicating per-language semantics.",
+        "M2M100 max_position_embeddings is large (1024). Recipe must size KV-cache buffer accordingly — too small breaks long translations, too large balloons quantized.onnx size on QNN NPU.",
+        "M2M100 has shared encoder+decoder embedding (tie_word_embeddings=True for NLLB-distilled). Patching specs may need to account for this if any PatchingSpec rewrites the embedding lookup."
+      ],
+      "feature_gaps_filed": [
+        "FILE: add src/winml/modelkit/models/hf/m2m_100.py — most lines should be a near-copy of marian.py with `marian` → `m2m_100` and any class-name swaps (MarianMTModel → M2M100ForConditionalGeneration). Confirm the sinusoidal-position patch transfers cleanly.",
+        "FILE: same encoder-decoder recipe template gap as marian/bart/t5/vision-encoder-decoder."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Grep is definitive for 'no registration'. Architectural similarity to MarianMT is from M2M100 paper and HF modeling_m2m_100.py; the contributor should still diff modeling_marian.py against modeling_m2m_100.py before assuming the marian patch transfers verbatim.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "m2m_100-002",
+      "title": "REFINEMENT of m2m_100-001: Optimum-native M2M100OnnxConfig covers text2text-generation — NLLB is Effort-L0★, NOT L1",
+      "observation": "TasksManager probe 2026-06-22 PM: optimum's M2M100OnnxConfig registers 4 tasks on 'm2m_100': feature-extraction, feature-extraction-with-past, text2text-generation, text2text-generation-with-past. winml does NOT override any (added_by_winml: []). NLLB-200-distilled-600M with task=translation collapses to text2text-generation via to_optimum_task (translation → text2text-generation in Optimum's synonyms). So no new winml file is required for basic export.",
+      "scope": {
+        "validated_on": ["optimum @ probe 2026-06-22"],
+        "falsified_on": [],
+        "refines": ["m2m_100-001"],
+        "not_yet_tested_on": ["facebook/nllb-200-distilled-600M @ * @ *"]
+      },
+      "effort_tier_required": "L0★ baseline export. L1 ONLY if Goal-L1 perf shows the vanilla Optimum decoder export is unusable on QNN NPU (e.g. ScatterND-heavy DynamicCache fallbacks), in which case adding a marian-style sliding-window-cache override under models/hf/m2m_100.py becomes a performance-driven L1.",
+      "goal_tier_reached": "L0 (not yet attempted)",
+      "recipe_template": "Optimum's M2M100OnnxConfig emits the standard encoder-decoder ONNX. Recipe template still missing in examples/recipes/ (same cross-family seq2seq template gap recorded in skill_meta/_meta-002).",
+      "gotchas": [
+        "NLLB forced_bos_token_id (target language id) plumbing is independent of the OnnxConfig — it lives in WinMLEncoderDecoderModel.generation_config. Verify that pathway exists for any model exported via the vanilla Optimum path, not only for winml's marian/bart overrides.",
+        "Performance comparison Goal: Optimum's default uses DynamicCache (ScatterND-heavy on QNN NPU). The marian.py / bart.py override pattern uses WinMLStaticCache or WinMLSlidingWindowCache for a flatter HTP graph. Decision to L1 should be data-driven via `winml perf`.",
+        "My iter-1 finding that 'NLLB is L1' was a false negative — I checked the WinML registry but not the Optimum vendor registry. Methodology was missing a step.",
+        "For constrained validation, start with facebook/m2m100_418M before scheduling NLLB-600M; this is a cost optimization, not a different support mechanism."
+      ],
+      "feature_gaps_filed": [
+        "FILE: same encoder-decoder recipe template gap (now tracked in skill_meta/_meta-002)",
+        "OPTIONAL: if Goal-L1 perf shows vanilla DynamicCache is unworkable on QNN NPU, add models/hf/m2m_100.py with WinMLSlidingWindowCache override mirroring marian.py."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Optimum coverage probe (temp/probe_optimum_coverage.py + temp/coverage_report.json) on 2026-06-22.",
+      "last_updated": "2026-06-22"
+    }
+  ]
+}

@@ -1,0 +1,304 @@
+{
+  "_meta": {
+    "family": "vitpose",
+    "hf_model_type": "vitpose",
+    "models_tested": ["usyd-community/vitpose-plus-huge", "stanfordmimi/synthpose-vitpose-base-hf"],
+    "last_updated": "2026-07-31",
+    "epistemics_warning": "Observational findings, not ground truth. Re-validate on new checkpoints / ORT versions / EPs before relying on a finding to skip work."
+  },
+  "findings": [
+    {
+      "id": "vitpose-001",
+      "effort": "L2",
+      "title": "Historical >2GB FP16 failure and superseded ByteSize-threshold workaround",
+      "observation": "A >2GB fp32 ViT-Huge export failed during fp16 conversion because shape inference serialized the full ModelProto. Disabling shape inference for models at or above 90% of the protobuf limit made the same build complete and yielded genuine fp16.",
+      "scope": { "validated_on": ["usyd-community/vitpose-plus-huge @ fp16 @ CPUExecutionProvider"], "falsified_on": ["usyd-community/vitpose-plus-huge@9f36d7aec1800d23e97f10c2e74393aee92aa53f @ fp16 @ CPUExecutionProvider @ winml-cli b7a7b893: current main succeeds through the EncodeError-only retry from PR #1176 without the ByteSize/90% heuristic; see vitpose-013"], "not_yet_tested_on": ["other >2GB model families"] },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L1",
+      "recipe_template": null,
+      "gotchas": ["Do not use the historical ByteSize/90% prediction workaround. Current `vitpose-013` attempts normal conversion and retries with shape inference disabled only after `EncodeError`."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The same model failed without and completed with disable_shape_infer; genuine fp16 was verified by dtype and size.",
+      "last_updated": "2026-07-15",
+      "symptom": "winml build ... -p fp16 fails at the FP16 stage with google.protobuf.message.EncodeError: Failed to serialize proto (src/winml/modelkit/quant/fp16.py). Occurs for ViT-Huge and any model whose fp32 export exceeds ~2 GB.",
+      "root_cause": "ORT's convert_float_to_float16 runs ONNX shape inference by default. Shape inference serializes the full ModelProto, which exceeds protobuf's hard 2 GB single-message limit for large models.",
+      "fix": "SUPERSEDED by `vitpose-013`: attempt normal conversion, catch only `google.protobuf.message.EncodeError`, and retry with `disable_shape_infer=True`. Preserve the serialization root cause, not the ByteSize/90% heuristic.",
+      "gate2_proof": "Same model crashes with EncodeError WITHOUT the fix, and completes (FP16 stage 71.4s, Build complete 661.9s) WITH the fix. Genuine delta.",
+      "validation": {
+        "genuine_fp16": "FLOAT16=948, FLOAT32=0; model.onnx.data 1.8GB (half of 3.6GB fp32)",
+        "cpu_perf_p50_ms": 746.49,
+        "throughput_sps": 1.35,
+        "ram_model_load_mb": 3478.5
+      }
+    },
+    {
+      "id": "vitpose-002",
+      "effort": "L0",
+      "title": "Historical minimal VitPose recipe shape, refined by exact fp32/fp16 contracts in vitpose-014",
+      "observation": "VitPose keypoint detection uses pixel_values float32[1,3,256,192] and heatmaps [1,17,64,48]. Plus MoE checkpoints use the standard class because Optimum fixes the expert index at export.",
+      "scope": { "validated_on": ["usyd-community/vitpose-plus-huge @ fp16 @ CPUExecutionProvider"], "falsified_on": ["usyd-community/vitpose-plus-huge@9f36d7aec1800d23e97f10c2e74393aee92aa53f @ CPU fp32/fp16 @ winml-cli b7a7b893 repaired candidate: exact recipes require processor-normalized value_range and explicit fp16 quant metadata; see vitpose-014"], "not_yet_tested_on": ["accelerator EP eval"] },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L1",
+      "recipe_template": "examples/recipes/<org>_<vitpose-model>/<ep>/<device>/keypoint-detection_fp16_config.json",
+      "gotchas": ["Use `vitpose-014` for current processor-normalized ranges and explicit fp16 metadata. Every exact EP/device/precision tuple still requires its own evidence."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Recipe shape and CPU artifact/perf were validated on vitpose-plus-huge.",
+      "last_updated": "2026-07-15",
+      "notes": "Input pixel_values float32 [1,3,256,192] range[0,1]; output heatmaps [1,17,64,48]. loader task=keypoint-detection model_class=VitPoseForPoseEstimation model_type=vitpose. quant=null (fp16 driven by -p fp16 build flag). Includes eval block: coco_keypoints_val2017, build_script scripts/build_coco_keypoints.py, box_format xywh. 'plus' MoE checkpoints load through the same class; expert index is fixed at export by Optimum's VitPoseModelPatcher, so no extra input. hf/vitpose.py already registers the mapping. Recipe content is identical across base/small/large/huge; model id derives from the recipe folder name. Sibling vitpose recipes are NOT in the recipe README total (CPU-only validated, all-10-bucket eval deferred to CI)."
+    },
+    {
+      "id": "vitpose-003",
+      "title": "SynthPose Base exports a traced 52-heatmap classic-decoder ViTPose graph",
+      "observation": "At checkpoint revision e1f00dc65c23aedd629089ba44b46154e84a7778, stanfordmimi/synthpose-vitpose-base-hf resolves to model_type=vitpose, task=keypoint-detection, class=VitPoseForPoseEstimation. The 90,003,508-parameter model has a 16x16 patch projection over 256x192 RGB crops, 12 encoder blocks at width 768 with 12 heads and 3072-wide MLPs, then ConvTranspose 768->256 and 256->256 plus a 1x1 Conv producing 52 heatmaps [1,52,64,48]. HTP metadata from WinML 0.2.0 recorded 197 total modules, 78 traced modules, 156 execution steps, input pixel_values torch.float32[1,3,256,192], and the backbone/encoder-layer/attention/MLP/classic-decoder hierarchy.",
+      "scope": {
+        "validated_on": ["stanfordmimi/synthpose-vitpose-base-hf@e1f00dc65c23aedd629089ba44b46154e84a7778 @ fp32 @ CPUExecutionProvider @ onnxruntime 1.24.5"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["other SynthPose or non-Base ViTPose checkpoints"]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/stanfordmimi_synthpose-vitpose-base-hf/cpu/cpu/keypoint-detection_<precision>_config.json",
+      "gotchas": ["This checkpoint has 52 outputs rather than the 17-output COCO contract recorded for vitpose-002.", "HTP modules_traced/total_modules is 78/197; it is execution-trace coverage, not a claim that every registered PyTorch submodule emitted a distinct ONNX region."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Pinned config, source-derived architecture probe, HTP hierarchy metadata, and ONNX I/O/topology agree on the class, dimensions, 12-block backbone, classic decoder, and 52-channel output.",
+      "last_updated": "2026-07-19"
+    },
+    {
+      "id": "vitpose-004",
+      "title": "SynthPose Base needs no class-wide fix; recipes freeze exact CPU precision coverage",
+      "observation": "On winml-cli e7509b1e908c74beff0a5655b8f8d7de69c5afae with WinML 0.2.0, the recipe-free CPU baseline already built and perfed. The checked-in fp32 recipe is semantically identical to explicit-task auto-config. The fp16 recipe differs from the unqualified baseline only at /quant, where auto-config freezes mode=fp16 with fp16_keep_io_types=true and model/task identity; no source code or README change was needed.",
+      "scope": {
+        "validated_on": ["stanfordmimi/synthpose-vitpose-base-hf @ fp32 @ CPUExecutionProvider @ onnxruntime 1.24.5", "stanfordmimi/synthpose-vitpose-base-hf @ fp16 @ CPUExecutionProvider @ onnxruntime 1.24.5"],
+        "falsified_on": ["stanfordmimi/synthpose-vitpose-base-hf revised charter a821637da64f498d69088406d6ebaab68b15c119cd070a704223ed3f437e7a69 / tester verdict 302526d6eafbfe39536cf139aa74e000c1532019d257b974ac3e6844339ca496: processor-derived recipe range and generalized perf code/tests are required"],
+        "not_yet_tested_on": ["accelerator EP/device recipe tuples"]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/stanfordmimi_synthpose-vitpose-base-hf/cpu/cpu/keypoint-detection_<precision>_config.json",
+      "gotchas": ["Do not add the sibling COCO-17 eval block to this 52-keypoint checkpoint.", "A passing recipe-free baseline does not prove the exact CPU/device/precision recipe tuple.", "Superseded by vitpose-010: [0,1) was only the unrefined Optimum dummy range, not the processor-normalized graph-input domain; generic perf also dropped persisted ranges."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "This records the superseded first-pass handoff. The revised charter/tester evidence falsified its no-source-change and config-equality conclusions; see vitpose-010.",
+      "last_updated": "2026-07-19"
+    },
+    {
+      "id": "vitpose-005",
+      "title": "SynthPose Base CPU fp16 conversion is genuine half precision",
+      "observation": "Revised tester verdict 302526d6eafbfe39536cf139aa74e000c1532019d257b974ac3e6844339ca496 rebuilt model SHA-256 ac730176eb54c90f9ef87080e5dbeea798b3905489a7bdab75a3221299482912 for fp16 and 8b492bf731c8ad36900a010f25b68b917e042cbad7102f49a2e44fe76513290c for fp32. The CPU fp16 artifact retained float32 I/O but converted all 90,004,536 floating initializer elements to FLOAT16 with zero FLOAT initializer elements. Its final external data was 180,004,864 bytes versus 360,017,920 bytes for fp32 (ratio 0.4999886228); initializer names/dimensions and non-Cast topology matched fp32, with exactly two expected I/O Cast nodes.",
+      "scope": {
+        "validated_on": ["stanfordmimi/synthpose-vitpose-base-hf @ fp16 @ CPUExecutionProvider @ onnxruntime 1.24.5"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["fp16 on accelerator EPs"]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/stanfordmimi_synthpose-vitpose-base-hf/cpu/cpu/keypoint-detection_fp16_config.json",
+      "gotchas": ["Use explicit --precision fp16 and do not suppress the quant/conversion stage; a recipe label alone is not proof of fp16."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "ONNX initializer dtypes, element counts, topology, Cast count, and external-data size independently confirm true fp16.",
+      "last_updated": "2026-07-19"
+    },
+    {
+      "id": "vitpose-006",
+      "title": "SynthPose Base fp16 is slower than fp32 on the tested CPU runtime",
+      "observation": "Using the same VitPoseImageProcessor-derived person crop, 10 warmups, 100 measured iterations, and memory capture on CPUExecutionProvider/onnxruntime 1.24.5, fp32 measured mean 89.421 ms, p50 88.241 ms, 11.18 samples/s, and 379.29 MB total RSS delta; fp16 measured mean 118.169 ms, p50 117.193 ms, 8.46 samples/s, and 391.53 MB total RSS delta.",
+      "scope": {
+        "validated_on": ["stanfordmimi/synthpose-vitpose-base-hf @ fp32 @ CPUExecutionProvider @ onnxruntime 1.24.5", "stanfordmimi/synthpose-vitpose-base-hf @ fp16 @ CPUExecutionProvider @ onnxruntime 1.24.5"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["other CPUs", "GPU/NPU execution providers"]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L1",
+      "recipe_template": "examples/recipes/stanfordmimi_synthpose-vitpose-base-hf/cpu/cpu/keypoint-detection_<precision>_config.json",
+      "gotchas": ["Smaller fp16 storage does not imply lower CPU latency or memory for this runtime and host."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "The measured regression is reproducible evidence for this host/runtime only; no kernel-level cause was isolated.",
+      "last_updated": "2026-07-19"
+    },
+    {
+      "id": "vitpose-007",
+      "title": "Both CPU artifacts preserve all 52 heatmap peaks and postprocessed keypoints",
+      "observation": "Revised tester verdict 302526d6eafbfe39536cf139aa74e000c1532019d257b974ac3e6844339ca496 re-ran L2 against pinned PyTorch eager on the identical processor output and person box. fp32 heatmap cosine was 0.9999999999998754 with max_abs 8.940696716308594e-07; fp16 cosine was 0.9999999266198872 with max_abs 0.0007346272468566895. Both matched all 52 heatmap peak grid locations. Postprocessed 52-keypoint maximum Euclidean error was 3.411968959808029e-05 pixels for fp32 and 0.012464815032744195 pixels for fp16; all compared heatmaps, coordinates, and scores were finite.",
+      "scope": {
+        "validated_on": ["stanfordmimi/synthpose-vitpose-base-hf@e1f00dc65c23aedd629089ba44b46154e84a7778 @ fp32 @ CPUExecutionProvider @ onnxruntime 1.24.5", "stanfordmimi/synthpose-vitpose-base-hf@e1f00dc65c23aedd629089ba44b46154e84a7778 @ fp16 @ CPUExecutionProvider @ onnxruntime 1.24.5"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["dataset-scale parity", "accelerator EP parity"]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/stanfordmimi_synthpose-vitpose-base-hf/cpu/cpu/keypoint-detection_<precision>_config.json",
+      "gotchas": ["A single pinned person crop proves numeric parity for that input, not task accuracy over a population."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "A durable harness compared raw heatmaps, argmax peak grids, VitPoseImageProcessor image-space coordinates, and confidence scores against PyTorch eager.",
+      "last_updated": "2026-07-19"
+    },
+    {
+      "id": "vitpose-008",
+      "title": "COCO-17 defaults cannot honestly evaluate SynthPose's 52-keypoint output",
+      "observation": "Exact fp32 and fp16 winml eval attempts were CLI-BLOCKED: the default local coco_keypoints_val2017 dataset was absent, and obtaining it would not make the metric valid because the model emits 52 keypoints while KeypointAPMetric defaults to 17 COCO names/sigmas and fail-closes on prediction/reference/sigma count mismatch. The checkpoint provides 52 names but no pinned compatible 52-keypoint annotation dataset/revision and no defensible 52-element OKS sigma vector.",
+      "scope": {
+        "validated_on": ["stanfordmimi/synthpose-vitpose-base-hf @ fp32 @ CPUExecutionProvider @ onnxruntime 1.24.5", "stanfordmimi/synthpose-vitpose-base-hf @ fp16 @ CPUExecutionProvider @ onnxruntime 1.24.5"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["a pinned SynthPose-compatible 52-keypoint dataset with justified OKS sigmas"]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/stanfordmimi_synthpose-vitpose-base-hf/cpu/cpu/keypoint-detection_<precision>_config.json",
+      "gotchas": ["Never report COCO-17 OKS-AP for this 52-output checkpoint.", "Diligence audit: prior vitpose knowledge was re-read; PR #905/#949/#1023 behavior was mined; explicit --task config and exact eval were attempted; EP options, narrower export ranges, and a custom inference harness cannot supply missing ground truth or justify OKS sigmas."],
+      "feature_gaps_filed": ["Evaluation unblocker: provide a pinned 52-keypoint annotation dataset/revision plus defensible 52-value OKS sigmas and keypoint_names; no issue/PR was filed by this learner run."],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Source inspection and PR mining confirm custom layouts are supported only when matching sigmas and keypoint_names are supplied. The remaining blocker is missing evaluation data/metric semantics, not model inference.",
+      "last_updated": "2026-07-19"
+    },
+    {
+      "id": "vitpose-009",
+      "title": "SynthPose Base static analysis is complete across 11 EP/device rule targets",
+      "observation": "Revised tester verdict 302526d6eafbfe39536cf139aa74e000c1532019d257b974ac3e6844339ca496 refreshed analysis for model SHA-256 8b492bf731c8ad36900a010f25b68b917e042cbad7102f49a2e44fe76513290c (fp32) and ac730176eb54c90f9ef87080e5dbeea798b3905489a7bdab75a3221299482912 (fp16). Public rules v0.2.0 (SHA-256 6dcabbe7f5493fbc2bd23de195ab6e35b3578d510f18c2e220bc5538a1f232cc) produced 11/11 complete metadata/classification results at both precisions: CPU/CPU; CUDA/GPU; DML/GPU; MIGraphX/GPU; NvTensorRTRTX/GPU; OpenVINO/CPU, GPU, NPU; QNN/GPU, NPU; and VitisAI/NPU. Component mapping covered 423/423 fp32 and 425/425 fp16 nodes with zero unmapped. fp32 had 423 ops/13 types and fp16 425 ops/14 types; the top counts were Add=110, MatMul=96, and a third-place tie Reshape=50/Transpose=50 (both precisions), with fp16 adding Cast=2. Rule results marked ConvTranspose unknown for NvTensorRTRTX, OpenVINO, and QNN; QNN additionally marked Div/Erf/Add/Mul partial. CUDA, DML, MIGraphX, CPU, and VitisAI had all op types unknown because runtime_support=false/no applicable rule coverage.",
+      "scope": {
+        "validated_on": ["stanfordmimi/synthpose-vitpose-base-hf @ fp32 static rules @ 11 EP/device targets @ public rules v0.2.0", "stanfordmimi/synthpose-vitpose-base-hf @ fp16 static rules @ 11 EP/device targets @ public rules v0.2.0"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["runtime compatibility on the 10 non-CPU target tuples", "newer rule bundles"]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/stanfordmimi_synthpose-vitpose-base-hf/cpu/cpu/keypoint-detection_<precision>_config.json",
+      "gotchas": ["ANALYZE-PARTIAL-SUCCESS/exit 1 reflects partial and unknown classifications, not an incomplete JSON result.", "runtime_support=false means static rule classification must not be promoted to measured runtime compatibility."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The revised tester used winml analyze --ep all --device all with public rules v0.2.0, verified 11 runs and 11 complete results for each precision, then mapped all ONNX nodes to frozen model-breakdown components.",
+      "last_updated": "2026-07-19"
+    },
+    {
+      "id": "vitpose-010",
+      "title": "SynthPose Base recipes require the processor-normalized high-exclusive pixel range",
+      "observation": "Revised charter a821637da64f498d69088406d6ebaab68b15c119cd070a704223ed3f437e7a69 corrected Effort/Goal/Outcome to L2/L2/L2. Pinned VitPoseImageProcessor metadata derives the float32 graph-input domain [-2.1179039478302,2.640000104904175], represented high-exclusively as [-2.1179039478302,2.640000343322754); the semantic crop observed min=-2.1179039478302 and max=2.5702831745147705, falsifying [0,1) as the graph-input domain. Both recipes now persist the corrected range: fp32 recipe SHA-256 a00c2ca430726e08fd1c4a00db661cbb4c275e9375b6319aab89d06a95a2db0d and fp16 afb53b4b0f73cab80d6ec741c0b3bb1f15f0b69af8ea0969b499b0e359da7f85.",
+      "scope": {
+        "validated_on": ["stanfordmimi/synthpose-vitpose-base-hf @ fp32 @ CPUExecutionProvider @ onnxruntime 1.24.5", "stanfordmimi/synthpose-vitpose-base-hf @ fp16 @ CPUExecutionProvider @ onnxruntime 1.24.5"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["other normalized image-model families", "accelerator EP/device recipe tuples"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/stanfordmimi_synthpose-vitpose-base-hf/cpu/cpu/keypoint-detection_<precision>_config.json",
+      "gotchas": ["Optimum's generated [0,1) image dummy range is not necessarily the post-processor graph-input domain; derive normalized bounds from pinned processor metadata.", "The persisted range is canonical high-exclusive; np.nextafter(max_valid_float32,+inf) supplies the upper bound."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The bounds were derived from pinned rescale/normalize metadata, checked against the semantic crop, persisted byte-for-byte in both build configs, and validated against both revised artifacts.",
+      "last_updated": "2026-07-19"
+    },
+    {
+      "id": "vitpose-011",
+      "title": "Generic perf honors persisted high-exclusive input_value_ranges without model special cases",
+      "observation": "The generalized generate_random_inputs fix forwards every persisted io_config.input_value_ranges entry without model-id/model-type branching, preserves float low-inclusive/high-exclusive bounds, adapts integer high-exclusive bounds to the legacy inclusive NumPy generator, and retains [0,1) only for unspecified floats. Revised verdict 302526d6eafbfe39536cf139aa74e000c1532019d257b974ac3e6844339ca496 proved default fp32/fp16 VitPose generation stayed inside [-2.1179039478302,2.640000343322754) and emitted both negative and positive values. Negative sentinel [-9,-8), singleton integer [7,8), unspecified-float fallback, and co-located winml_build_config/WinMLSession persistence regressions passed; the full relevant tester gate reported 363 passed, 6 skipped, 1 xfailed plus passing changed-file Ruff, recipe pre-commit, and diff-scope checks.",
+      "scope": {
+        "validated_on": ["stanfordmimi/synthpose-vitpose-base-hf @ fp32 @ CPUExecutionProvider @ onnxruntime 1.24.5", "stanfordmimi/synthpose-vitpose-base-hf @ fp16 @ CPUExecutionProvider @ onnxruntime 1.24.5"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["other persisted-range model families", "accelerator EP/device tuples"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L1",
+      "recipe_template": "examples/recipes/stanfordmimi_synthpose-vitpose-base-hf/cpu/cpu/keypoint-detection_<precision>_config.json",
+      "gotchas": ["Integer high-exclusive ranges require subtracting one only at the legacy inclusive NumPy-generator boundary.", "The implementation must stay model-agnostic; no VitPose/model-id branch is needed.", "Methodology coverage already exists in _meta-017, which identified generic perf dropping recipe value_range and requested this durable propagation fix; do not append a duplicate _meta finding."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Unit-level range cases, persisted build-config integration, per-artifact generated-range proofs, and 100-iteration default perf independently exercised the same generalized path.",
+      "last_updated": "2026-07-19"
+    },
+    {
+      "id": "vitpose-012",
+      "title": "Revised SynthPose Base CPU perf retains the fp16 latency regression",
+      "observation": "On CPUExecutionProvider/onnxruntime 1.24.5 with 10 warmups and 100 measured iterations, revised verdict 302526d6eafbfe39536cf139aa74e000c1532019d257b974ac3e6844339ca496 measured default persisted-range perf at fp32 mean/p50=90.082/88.513 ms, 11.10 samples/s, total RSS delta 380.80 MB and fp16 mean/p50=120.723/118.815 ms, 8.28 samples/s, total RSS delta 390.76 MB. On the identical processor-derived person crop, fp32 mean/p50=91.666/89.780 ms, 10.91 samples/s, total RSS delta 381.02 MB and fp16 mean/p50=119.135/117.704 ms, 8.39 samples/s, total RSS delta 392.17 MB.",
+      "scope": {
+        "validated_on": ["stanfordmimi/synthpose-vitpose-base-hf @ fp32 @ CPUExecutionProvider @ onnxruntime 1.24.5", "stanfordmimi/synthpose-vitpose-base-hf @ fp16 @ CPUExecutionProvider @ onnxruntime 1.24.5"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["other CPUs", "GPU/NPU execution providers"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L1",
+      "recipe_template": "examples/recipes/stanfordmimi_synthpose-vitpose-base-hf/cpu/cpu/keypoint-detection_<precision>_config.json",
+      "gotchas": ["Default perf is now range-correct but remains synthetic; retain processor-semantic perf as representative evidence.", "The revised run confirms the host-local direction from vitpose-006, not a universal fp16 performance claim."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "Both default and semantic measurements agree that fp16 is slower on this host, but no kernel-level cause was isolated.",
+      "last_updated": "2026-07-19"
+    },
+    {
+      "id": "vitpose-013",
+      "title": "Large-model FP16 conversion should react to EncodeError, not predict protobuf size",
+      "observation": "On winml-cli b7a7b893 with the merged PR #1176 converter, usyd-community/vitpose-plus-huge@9f36d7aec1800d23e97f10c2e74393aee92aa53f first attempted normal FP16 conversion, caught only google.protobuf.message.EncodeError from shape-inference serialization, and retried with disable_shape_infer=True. The repaired PR #1099 fp16 artifact retained float32 boundary I/O, contained 951 FLOAT16 and 0 FLOAT initializers with exactly two Cast nodes, and used 1,802,615,296 external-data bytes versus fp32's 3,605,484,544 bytes (ratio 0.4999648). This falsifies vitpose-001's ByteSize/90%-threshold fix while preserving its root-cause observation.",
+      "scope": {
+        "validated_on": ["usyd-community/vitpose-plus-huge@9f36d7aec1800d23e97f10c2e74393aee92aa53f @ fp16 @ CPUExecutionProvider @ winml-cli b7a7b893 @ onnxruntime 1.24.5"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["other model families whose normal FP16 conversion raises EncodeError", "accelerator EP runtime"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/usyd-community_vitpose-plus-huge/cpu/cpu/keypoint-detection_fp16_config.json",
+      "gotchas": ["Do not restore a pre-emptive ModelProto.ByteSize or approximate 2 GB threshold; attempt normal conversion and narrow the fallback to EncodeError.", "A successful build or fp16 label is insufficient proof: verify initializer dtypes, expected boundary Casts, and approximately half-size external data."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Git history identifies PR #1176 commit faffbe2b as the current retry implementation. The exact Huge checkpoint exercised that path, and the tester artifact audit independently verified dtype, topology, and size evidence.",
+      "last_updated": "2026-07-31"
+    },
+    {
+      "id": "vitpose-014",
+      "title": "Auto-config derives normalized image ranges from processor metadata without a VitPose branch",
+      "observation": "The repaired PR #1099 candidate on winml-cli b7a7b893 loads the full image-processor config once and, for floating image-shaped inputs only, derives low-inclusive/high-exclusive float32 bounds from do_rescale, do_normalize, rescale_factor, image_mean, and image_std. Recipe-free config for the pinned VitPose++ Huge checkpoint emitted pixel_values float32[1,3,256,192] with [-2.1179039478302,2.640000343322754), and both CPU recipes persisted the same range. Focused regressions cover per-channel extrema, scalar/broadcast metadata, float32 nextafter upper bounds, disabled/missing/incompatible metadata fallback, and exclusion of text/non-float inputs; the implementation contains no model ID, organization, or vitpose branch.",
+      "scope": {
+        "validated_on": ["usyd-community/vitpose-plus-huge@9f36d7aec1800d23e97f10c2e74393aee92aa53f @ recipe-free config and CPU fp32/fp16 @ winml-cli b7a7b893 repaired candidate", "generic ResNet and scalar processor-metadata unit fixtures @ repaired candidate"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["real non-VitPose normalized image checkpoints", "processors with nonstandard raw pixel domains other than [0,255]"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/usyd-community_vitpose-plus-huge/cpu/cpu/keypoint-detection_<precision>_config.json",
+      "gotchas": ["Processor metadata must explicitly enable both rescaling and normalization; otherwise preserve the existing generated range.", "Apply normalized bounds only to floating image-shaped inputs, never every float tensor in a multimodal model.", "The high endpoint is np.nextafter(max_valid_float32,+inf) because recipe ranges are high-exclusive."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Recipe-free config acceptance, persisted build configs, semantic processor inputs, and focused generic fixtures all agree on the same metadata-driven rule. This closes vitpose-010's auto-config gap rather than duplicating its manual range derivation.",
+      "last_updated": "2026-07-31"
+    },
+    {
+      "id": "vitpose-015",
+      "title": "VitPose++ Huge CPU fp32 and fp16 preserve all 17 heatmap peaks and postprocessed keypoints",
+      "observation": "Independent tester L2 evidence for usyd-community/vitpose-plus-huge@9f36d7aec1800d23e97f10c2e74393aee92aa53f used the identical VitPoseImageProcessor person crop and COCO box for pinned PyTorch and ONNX Runtime 1.24.5. Fp32 heatmap cosine was 0.9999999999992747 with max_abs 1.341104507446289e-07; fp16 cosine was 0.9999994900305015 with max_abs 0.00012671202421188354. Both matched 17/17 peak-grid locations. Maximum postprocessed coordinate error was 3.4119690099032596e-05 pixels for fp32 and 0.007460596039891243 pixels for fp16; score max_abs was 1.2293457984924316e-07 and 0.00011840090155601501 respectively, with all outputs finite.",
+      "scope": {
+        "validated_on": ["usyd-community/vitpose-plus-huge@9f36d7aec1800d23e97f10c2e74393aee92aa53f @ fp32 @ CPUExecutionProvider @ onnxruntime 1.24.5", "usyd-community/vitpose-plus-huge@9f36d7aec1800d23e97f10c2e74393aee92aa53f @ fp16 @ CPUExecutionProvider @ onnxruntime 1.24.5"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["dataset-scale COCO-17 accuracy", "accelerator EP parity", "other person crops"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/usyd-community_vitpose-plus-huge/cpu/cpu/keypoint-detection_<precision>_config.json",
+      "gotchas": ["Single-crop numeric parity proves the export and postprocess path for that input, not population-level OKS/AP.", "Fp16 was numerically faithful and half-size but slower on this CPU: P50 830.265 ms versus fp32 744.290 ms over 100 measured iterations."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The tester compared raw heatmaps, peak grids, image-space coordinates, and confidence scores, and separately mapped all 1839 fp32 and 1841 fp16 ONNX nodes to frozen architecture components with zero unmapped nodes.",
+      "last_updated": "2026-07-31"
+    },
+    {
+      "id": "vitpose-016",
+      "title": "VitPose++ Huge L3 is data-blocked, not evaluator- or model-blocked",
+      "observation": "Exact CPU fp32 and fp16 winml eval attempts resolved keypoint-detection, the COCO-17 schema, model loading, image/objects/keypoints/bbox/area columns, xywh boxes, and validation split, then stopped because ~/.cache/winml/datasets/coco_keypoints_val2017 contained no data files. Unlike the 52-output SynthPose case in vitpose-008, this checkpoint emits the evaluator's expected 17 COCO heatmaps; the blocker is provisioning the pinned annotation dataset, not incompatible keypoint semantics. L0 through L2 passed for both precisions before L3 was recorded as DATASET_BLOCKER.",
+      "scope": {
+        "validated_on": ["usyd-community/vitpose-plus-huge@9f36d7aec1800d23e97f10c2e74393aee92aa53f @ fp32/fp16 winml eval @ CPUExecutionProvider @ winml-cli b7a7b893 repaired candidate"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["COCO keypoints val2017 after local dataset provisioning with pinned revision and split"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/usyd-community_vitpose-plus-huge/cpu/cpu/keypoint-detection_<precision>_config.json",
+      "gotchas": ["Do not report COCO OKS/AP until the local coco_keypoints_val2017 data is provisioned and pinned.", "Diligence audit: prior VitPose knowledge and recent VitPose PR history were re-read; explicit task/model-class recipe-free config passed; both exact eval attempts reached dataset loading; EP-option, export-range, and special-token harness retries are inapplicable to a missing annotation corpus; the custom L2 harness proves inference but cannot substitute for dataset-scale ground truth."],
+      "feature_gaps_filed": ["Evaluation unblocker: provision and pin the expected local COCO keypoints val2017 dataset/revision/split at the configured cache path, then rerun both precision tuples; no issue or PR was filed by this learner run."],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Both eval logs fail at the same datasets load_dataset boundary after task/schema/model resolution. The 17-output architecture matches the default COCO metric contract, isolating missing data as the blocker.",
+      "last_updated": "2026-07-31"
+    }
+  ]
+}
