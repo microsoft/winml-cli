@@ -2995,6 +2995,9 @@ def convert_to_fp16(
 
     _reject_sparse_initializer_tensor_metadata(model, op_block_list)
     _reject_duplicate_float_initializer_names(model, op_block_list)
+    original_model = model
+    if keep_io_types:
+        model = deepcopy(model)
     _rename_generated_io_cast_name_collisions(
         model,
         keep_io_types=keep_io_types,
@@ -3102,7 +3105,9 @@ def convert_to_fp16(
     if needs_safe_conversion:
         _reject_unloaded_external_initializer_outputs(model, op_block_list)
     original_nodes = len(model.graph.node)
-    conversion_model = deepcopy(model) if needs_safe_conversion else model
+    conversion_model = (
+        deepcopy(model) if needs_safe_conversion and model is original_model else model
+    )
     if needs_safe_conversion:
         _internalize_external_initializer_outputs(conversion_model, op_block_list)
         _internalize_selected_external_initializers(
@@ -3158,9 +3163,9 @@ def convert_to_fp16(
         _validate_converted_types(converted)
     _validate_local_function_conversion(converted)
 
-    if converted is not model:
-        model.CopyFrom(converted)
-        converted = model
+    if converted is not original_model:
+        original_model.CopyFrom(converted)
+        converted = original_model
 
     converted_nodes = len(converted.graph.node)
     if converted_nodes != original_nodes:

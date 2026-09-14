@@ -3443,6 +3443,23 @@ class TestRenameGeneratedIOCastNameCollisions:
         )
         assert model.SerializeToString() == original
 
+    def test_collision_with_unloaded_weight_is_rejected_before_mutation(self) -> None:
+        """A later preflight failure must not publish internal collision renames."""
+        model = _build_io_cast_name_collision_model()
+        weight = numpy_helper.from_array(
+            np.random.default_rng(0).standard_normal((1, 4)).astype(np.float32),
+            "weight",
+        )
+        model.graph.initializer.append(weight)
+        model.graph.node[3].input[1] = weight.name
+        _mark_initializers_as_external(model.graph, clear_data=True)
+        original = model.SerializeToString()
+
+        with pytest.raises(RuntimeError, match="unloaded external data"):
+            convert_to_fp16(model, keep_io_types=True, op_block_list=[])
+
+        assert model.SerializeToString() == original
+
     def test_public_io_collision_remains_rejected(self) -> None:
         """Renaming internal bindings must not alter the public I/O contract."""
         from winml.modelkit.quant.fp16 import (
@@ -3466,7 +3483,13 @@ class TestRenameGeneratedIOCastNameCollisions:
             _build_regular_output_nested_node_name_collision_model,
             _build_inferred_output_nested_node_name_collision_model,
         ],
-        ids=["existing-io-casts", "initializer-output", "nested-node", "nested-capture", "inferred-io"],
+        ids=[
+            "existing-io-casts",
+            "initializer-output",
+            "nested-node",
+            "nested-capture",
+            "inferred-io",
+        ],
     )
     def test_conversion_resolves_collisions_and_preserves_fp32_io(
         self, build_model: Callable[[], ModelProto]
@@ -3505,7 +3528,9 @@ class TestRenameGeneratedIOCastNameCollisions:
         ] == io_before
         checker.check_model(result)
         shape_inference.infer_shapes(result, check_type=True, strict_mode=True)
-        session = ort.InferenceSession(result.SerializeToString(), providers=["CPUExecutionProvider"])
+        session = ort.InferenceSession(
+            result.SerializeToString(), providers=["CPUExecutionProvider"]
+        )
         actual = session.run(None, feeds)
         for expected_output, actual_output in zip(expected, actual, strict=True):
             assert actual_output.dtype == expected_output.dtype
