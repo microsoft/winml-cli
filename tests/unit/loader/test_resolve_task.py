@@ -11,6 +11,8 @@ Offline / config-only: every case builds its config with
 import pytest
 from transformers import AutoConfig
 
+from winml.modelkit.export.io import _get_onnx_config
+from winml.modelkit.loader import resolve_loader_config
 from winml.modelkit.loader.resolution import TaskSource, resolve_task
 from winml.modelkit.loader.task import to_optimum_task
 
@@ -106,6 +108,86 @@ def test_user_class_unknown_raises_friendly_error():
         resolve_task(cfg, model_class="NotARealClass")
 
 
+@pytest.mark.parametrize(
+    ("model_type", "model_class", "io_config_class", "expected_inputs"),
+    [
+        (
+            "sam",
+            "SAMMaskGeneration",
+            "SamMaskGenerationIOConfig",
+            {"input_points", "input_labels", "image_embeddings", "mask_input"},
+        ),
+        (
+            "sam2",
+            "SAM2MaskGeneration",
+            "Sam2MaskGenerationIOConfig",
+            {"input_points", "image_embeddings", "high_res_features0", "high_res_features1"},
+        ),
+        (
+            "sam2_video",
+            "SAM2MaskGeneration",
+            "Sam2MaskGenerationIOConfig",
+            {"input_points", "image_embeddings", "high_res_features0", "high_res_features1"},
+        ),
+    ],
+)
+def test_user_class_custom_wrapper_preserves_task_and_round_trips_loader_config(
+    model_type, model_class, io_config_class, expected_inputs
+):
+    loader_config, hf_config, _, resolution = resolve_loader_config(
+        model_type=model_type,
+        task="mask-generation",
+        model_class=model_class,
+    )
+
+    assert loader_config.task == "mask-generation"
+    assert resolution.optimum_task == "mask-generation"
+
+    round_trip = resolve_task(
+        hf_config,
+        task=loader_config.task,
+        model_class=loader_config.model_class,
+    )
+    assert round_trip.task == "mask-generation"
+    assert round_trip.optimum_task == "mask-generation"
+    assert round_trip.model_class.__name__ == model_class
+
+    onnx_config = _get_onnx_config(loader_config.model_type, loader_config.task, hf_config)
+    assert type(onnx_config).__name__ == io_config_class
+    assert expected_inputs <= onnx_config.inputs.keys()
+
+
+@pytest.mark.parametrize("model_type", ["sam2", "sam2_video"])
+def test_user_class_custom_wrapper_tries_normalized_task_after_name_mismatch(model_type):
+    r = resolve_task(
+        _cfg(model_type, ["Sam2Model"]),
+        task="mask-generation",
+        model_class="Sam2VisionEncoder",
+    )
+
+    assert r.task == "image-feature-extraction"
+    assert r.optimum_task == "feature-extraction"
+    assert r.model_class.__name__ == "Sam2VisionEncoder"
+
+
+@pytest.mark.parametrize("model_type", ["sam2", "sam2_video"])
+def test_user_class_custom_wrapper_preserves_modality_for_canonical_task(model_type):
+    config = _cfg(model_type, ["Sam2Model"])
+    expected = resolve_task(
+        config,
+        task="mask-generation",
+        model_class="Sam2VisionEncoder",
+    )
+
+    resolution = resolve_task(
+        config,
+        task=expected.optimum_task,
+        model_class=expected.model_class.__name__,
+    )
+
+    assert resolution == expected
+
+
 def test_user_task_unsupported_raises_friendly_error():
     cfg = _cfg("bert", ["BertModel"])
     with pytest.raises(ValueError, match="not supported by TasksManager"):
@@ -173,9 +255,7 @@ def test_user_class_explicit_feature_extraction_is_modality_aware():
     surface image-feature-extraction (-> ImageDataset), not the modality-blind
     feature-extraction (-> TextDataset). optimum_task still collapses for the Optimum
     class lookup."""
-    r = resolve_task(
-        _cfg("vit", ["ViTModel"]), model_class="ViTModel", task="feature-extraction"
-    )
+    r = resolve_task(_cfg("vit", ["ViTModel"]), model_class="ViTModel", task="feature-extraction")
     assert r.source == TaskSource.USER_CLASS
     assert r.task == "image-feature-extraction"
     assert r.optimum_task == "feature-extraction"

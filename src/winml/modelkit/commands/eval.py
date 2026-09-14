@@ -75,6 +75,7 @@ logger = logging.getLogger(__name__)
     default="auto",
     include_auto=True,
 )
+@cli_utils.device_luid_option()
 @cli_utils.ep_option(required=False)
 @cli_utils.precision_option(
     optional_message="Applied during model build. Ignored for pre-built ONNX inputs "
@@ -231,6 +232,10 @@ logger = logging.getLogger(__name__)
     show_default=True,
     help="Device used to run the reference ONNX model.",
 )
+@cli_utils.device_luid_option(
+    "--reference-device-luid",
+    optional_message="Only valid with --reference.",
+)
 @click.option(
     "--reference-ep",
     type=click.Choice(ALL_EP_NAMES, case_sensitive=False),
@@ -253,6 +258,7 @@ def eval(
     revision: str | None,
     task: str | None,
     device: str,
+    device_luid: str | None,
     precision: str,
     quant: bool,
     optimize: bool,
@@ -283,6 +289,7 @@ def eval(
     input_data: str | None,
     reference: str | None,
     reference_device: str,
+    reference_device_luid: str | None,
     reference_ep: EPNameOrAlias | None,
     config_file: Path | None,
     use_cache: bool,
@@ -347,13 +354,16 @@ def eval(
 
     reference_environment_requested = (
         cli_utils.is_cli_provided(ctx, "reference_device")
+        or cli_utils.is_cli_provided(ctx, "reference_device_luid")
         or cli_utils.is_cli_provided(ctx, "reference_ep")
         or "reference_device" in config_fields
+        or "reference_device_luid" in config_fields
         or "reference_ep" in config_fields
     )
     if cfg.reference_path is None and reference_environment_requested:
         raise click.UsageError(
-            "--reference-device and --reference-ep require --reference <onnx>."
+            "--reference-device, --reference-device-luid, and --reference-ep "
+            "require --reference <onnx>."
         )
 
     # ── 2. Resolve in place ──
@@ -578,6 +588,7 @@ _PYTORCH_RUNTIME_INCOMPATIBLE_OPTIONS: dict[str, str] = {
     "input_data": "--input-data",
     "reference": "--reference",
     "ep": "--ep",
+    "device_luid": "--device-luid",
     "precision": "--precision",
     "quant": "--quant/--no-quant",
     "optimize": "--optimize/--no-optimize",
@@ -598,6 +609,7 @@ _PYTORCH_RUNTIME_INCOMPATIBLE_CONFIG_FIELDS = {
     "input_data",
     "reference_path",
     "ep",
+    "device_luid",
     "precision",
     "quant",
     "optimize",

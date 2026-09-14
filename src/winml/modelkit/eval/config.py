@@ -121,9 +121,13 @@ class WinMLEvaluationConfig:
             load as WinML model instances and their output tensors are compared
             directly, so no ``model_id`` / ``task`` / HF reference is needed.
         reference_device: Device used for a reference ONNX model. Defaults to CPU.
+        reference_device_luid: Optional physical adapter LUID for a reference
+            ONNX model.
         reference_ep: Explicit execution provider for a reference ONNX model.
         task: HF pipeline task. Auto-detected from model_id if omitted.
         device: Target device for inference.
+        device_luid: Optional adapter LUID from ``winml sys`` used to select a
+            physical adapter within the resolved EP/device pair.
         ep: Explicit execution provider (e.g., "qnn", "dml"). Overrides
             device-to-provider mapping when provided.
         shape_config: Shape overrides for the auto-generated HuggingFace export
@@ -161,9 +165,11 @@ class WinMLEvaluationConfig:
     input_data: str | None = None
     reference_path: str | None = field(default=None, metadata={"cli_name": "reference"})
     reference_device: str = "cpu"
+    reference_device_luid: str | None = None
     reference_ep: EPNameOrAlias | None = None
     task: str | None = None
     device: str = "auto"
+    device_luid: str | None = None
     precision: str = "auto"
     ep: EPNameOrAlias | None = None
     allow_unsupported_nodes: bool = False
@@ -217,11 +223,15 @@ class WinMLEvaluationConfig:
         if self.reference_path is not None:
             result["reference_path"] = self.reference_path
             result["reference_device"] = self.reference_device
+            if self.reference_device_luid is not None:
+                result["reference_device_luid"] = self.reference_device_luid
         if self.reference_ep is not None:
             result["reference_ep"] = self.reference_ep
         if self.task is not None:
             result["task"] = self.task
         result["device"] = self.device
+        if self.device_luid is not None:
+            result["device_luid"] = self.device_luid
         if self.precision != "auto":
             result["precision"] = self.precision
         if self.ep is not None:
@@ -278,9 +288,11 @@ class WinMLEvaluationConfig:
             input_data=data.get("input_data"),
             reference_path=data.get("reference_path"),
             reference_device=data.get("reference_device", "cpu"),
+            reference_device_luid=data.get("reference_device_luid"),
             reference_ep=data.get("reference_ep"),
             task=data.get("task"),
             device=data.get("device", "auto"),
+            device_luid=data.get("device_luid"),
             precision=data.get("precision", "auto"),
             ep=data.get("ep"),
             allow_unsupported_nodes=data.get("allow_unsupported_nodes", False),
