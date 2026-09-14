@@ -137,8 +137,17 @@ function Remove-StaleRemoteDisplayAdapters {
   $pnputil = Join-Path $env:SystemRoot 'System32\pnputil.exe'
   foreach ($device in $stale) {
     Write-Log "Removing stale Remote Display Adapter: $($device.InstanceId)"
-    $out = & $pnputil /remove-device $device.InstanceId 2>&1
-    $code = $LASTEXITCODE
+    # Windows PowerShell 5.1 turns redirected native stderr into errors.
+    # Capture it without bypassing exit-code and session-state handling.
+    $savedErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $out = & $pnputil /remove-device $device.InstanceId 2>&1
+        $code = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $savedErrorActionPreference
+    }
     if ($out) { $out | ForEach-Object { Write-Log "  pnputil: $_" } }
     if ($code -ne 0) {
       $allRemoved = $false
@@ -215,8 +224,17 @@ try {
     Write-Log "Remote disconnect from $sourceAddress left session $target Disc; redirecting immediately."
     $redirected = $false
     for ($attempt = 1; $attempt -le 3; $attempt++) {
-      $out = & tscon $target /dest:console 2>&1
-      $code = $LASTEXITCODE
+      # Windows PowerShell 5.1 turns redirected native stderr into errors.
+      # Capture it without bypassing exit-code and session-state handling.
+      $savedErrorActionPreference = $ErrorActionPreference
+      try {
+          $ErrorActionPreference = 'Continue'
+          $out = & tscon $target /dest:console 2>&1
+          $code = $LASTEXITCODE
+      }
+      finally {
+          $ErrorActionPreference = $savedErrorActionPreference
+      }
       if ($out) { $out | ForEach-Object { Write-Log "  tscon: $_" } }
 
       Start-Sleep -Seconds 2
