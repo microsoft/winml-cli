@@ -18,7 +18,9 @@ import importlib.util
 import json
 import sys
 import time
+from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -276,53 +278,91 @@ class TestRunSubprocessTimeouts:
             ]
         )
 
-    def test_execution_timeout_restarts_after_hf_download(
-        self, run_eval, tmp_path
+    def _run_download_timeline(
+        self, run_eval, tmp_path, *, cache_variable, after_download=0.55, scan_delay=0.0
     ):
-        incomplete = tmp_path / "hub" / "models--acme--model" / "blobs" / "model.incomplete"
-        script = self._download_script(
-            incomplete,
-            [0.2] * 5,
-            before_download=0.35,
-            after_download=0.35,
-        )
+        """Exercise real cache detection/accounting without subsecond OS scheduling races.
 
+        The old test allowed only 150 ms for Python startup before a 500-ms
+        deadline, and depended on Windows open_files observing a brief handle.
+        This clock controls only process wait/handle discovery; cache-root
+        resolution, snapshots, ownership matching and budget accounting are real.
+        """
+        cache_home = tmp_path / "huggingface" if cache_variable == "XDG_CACHE_HOME" else tmp_path
+        incomplete = cache_home / "hub" / "models--acme--model" / "blobs" / "model.incomplete"
+        now = 0.0
+        download_start, download_end = 0.35, 1.35
+        finish = download_end + after_download
+        observed = []
+        proc = MagicMock(pid=123, returncode=0, stdout=BytesIO(), stderr=BytesIO())
+
+        def open_paths(pid):
+            nonlocal now
+            assert pid == proc.pid
+            now += scan_delay
+            if download_start <= now < download_end:
+                incomplete.parent.mkdir(parents=True, exist_ok=True)
+                with incomplete.open("ab") as stream:
+                    stream.write(b"x")
+                observed.append(incomplete)
+                return {run_eval._normalized_path(incomplete)}
+            incomplete.unlink(missing_ok=True)
+            return set()
+
+        def wait(timeout):
+            nonlocal now
+            now = min(now + timeout, max(now, finish))
+            if now >= finish:
+                return 0
+            raise run_eval.subprocess.TimeoutExpired("controlled-child", timeout)
+
+        proc.wait.side_effect = wait
         with (
-            self._cache_env(run_eval, HF_HOME=tmp_path),
-            patch.object(run_eval, "_HF_DOWNLOAD_STALL_TIMEOUT", 1.0),
+            self._cache_env(run_eval, **{cache_variable: tmp_path}),
+            patch.object(run_eval, "time", SimpleNamespace(perf_counter=lambda: now)),
+            patch.object(run_eval.subprocess, "Popen", return_value=proc),
+            patch.object(run_eval, "_process_tree_open_paths", side_effect=open_paths),
+            patch.object(run_eval, "_kill_process_tree") as kill_tree,
+            patch.object(run_eval, "_HF_DOWNLOAD_STALL_TIMEOUT", 2.0),
         ):
-            result = run_eval._run_subprocess([sys.executable, "-c", script], timeout=0.5)
+            result = run_eval._run_subprocess(["controlled-child"], timeout=0.5)
 
-        assert result["exit_code"] == 0
-        assert result["elapsed"] >= 1.6
+        assert observed, "The actual cache snapshot must detect the owned download"
+        if result["timeout"]:
+            kill_tree.assert_called_once_with(proc.pid)
+            proc.kill.assert_called_once()
+        else:
+            kill_tree.assert_not_called()
+            proc.kill.assert_not_called()
+        return result
+
+    @pytest.mark.parametrize("cache_variable", ["HF_HOME", "XDG_CACHE_HOME"])
+    def test_execution_timeout_restarts_after_hf_download(self, run_eval, tmp_path, cache_variable):
+        result = self._run_download_timeline(run_eval, tmp_path, cache_variable=cache_variable)
+        assert result["exit_code"] == 0, result
+        assert result["elapsed"] == 1.9
         assert result["timeout"] is False
         assert result["hf_download_stalled"] is False
 
     def test_execution_timeout_restarts_after_hf_download_with_slow_handle_scan(
         self, run_eval, tmp_path
     ):
-        incomplete = tmp_path / "hub" / "models--acme--model" / "blobs" / "model.incomplete"
-        script = self._download_script(
-            incomplete,
-            [0.2] * 5,
-            before_download=0.35,
-            after_download=0.35,
+        result = self._run_download_timeline(
+            run_eval, tmp_path, cache_variable="HF_HOME", scan_delay=0.7
         )
-        real_open_paths = run_eval._process_tree_open_paths
-
-        def slow_open_paths(pid):
-            time.sleep(0.7)
-            return real_open_paths(pid)
-
-        with (
-            self._cache_env(run_eval, HF_HOME=tmp_path),
-            patch.object(run_eval, "_HF_DOWNLOAD_STALL_TIMEOUT", 2.0),
-            patch.object(run_eval, "_process_tree_open_paths", side_effect=slow_open_paths),
-        ):
-            result = run_eval._run_subprocess([sys.executable, "-c", script], timeout=0.5)
-
-        assert result["exit_code"] == 0
+        assert result["exit_code"] == 0, result
         assert result["timeout"] is False
+        assert result["hf_download_stalled"] is False
+
+    @pytest.mark.parametrize("cache_variable", ["HF_HOME", "XDG_CACHE_HOME"])
+    def test_execution_still_times_out_after_completed_download(
+        self, run_eval, tmp_path, cache_variable
+    ):
+        result = self._run_download_timeline(
+            run_eval, tmp_path, cache_variable=cache_variable, after_download=2.0
+        )
+        assert result["exit_code"] == -1, result
+        assert result["timeout"] is True
         assert result["hf_download_stalled"] is False
 
     def test_stalled_hf_download_uses_independent_timeout(self, run_eval, tmp_path):
@@ -371,28 +411,6 @@ class TestRunSubprocessTimeouts:
 
         assert result["exit_code"] == -1
         assert result["timeout"] is True
-        assert result["hf_download_stalled"] is False
-
-    def test_execution_timeout_restarts_after_xdg_hf_download(self, run_eval, tmp_path):
-        incomplete = (
-            tmp_path / "huggingface" / "hub" / "models--acme--model" / "blobs" / "model.incomplete"
-        )
-        script = self._download_script(
-            incomplete,
-            [0.2] * 5,
-            before_download=0.35,
-            after_download=0.35,
-        )
-
-        with (
-            self._cache_env(run_eval, XDG_CACHE_HOME=tmp_path),
-            patch.object(run_eval, "_HF_DOWNLOAD_STALL_TIMEOUT", 1.0),
-        ):
-            result = run_eval._run_subprocess([sys.executable, "-c", script], timeout=0.5)
-
-        assert result["exit_code"] == 0
-        assert result["elapsed"] >= 1.6
-        assert result["timeout"] is False
         assert result["hf_download_stalled"] is False
 
     def test_stalled_xdg_hf_download_uses_independent_timeout(self, run_eval, tmp_path):
