@@ -1775,6 +1775,110 @@ def _reject_scope_unsafe_value_info_lookups(
                 reserve_late_tensor(graph, node, "output", output_index)
 
 
+def _rename_generated_io_cast_name_collisions(
+    model: ModelProto,
+    *,
+    keep_io_types: bool,
+    op_block_list: list[str] | None,
+) -> None:
+    """Free ORT's I/O Cast names without changing public I/O or tensor bindings.
+
+    Only top-level internal tensors are renamed. Captures are updated in all
+    descendant graphs, including blocked graphs, but local definitions shadow
+    the rename. Public I/O collisions are left to the existing rejection guard.
+    Inferred types select reserved names and conversion-relevant nodes without
+    copying inferred metadata back into the model.
+    """
+    if not keep_io_types:
+        return
+
+    inferred_model = _ort_inference_preflight_model(model)
+    name_mapping, reserved_nodes = _ort_keep_io_name_mapping(
+        inferred_model, keep_io_types=keep_io_types
+    )
+    reserved_tensors = set(name_mapping.values())
+    public_names = {
+        value.name
+        for values in (getattr(model.graph, "input", []), getattr(model.graph, "output", []))
+        for value in values
+    }
+    if reserved_tensors & public_names:
+        return
+
+    tensor_collisions = reserved_tensors & _graph_tensor_names(model.graph)
+    nodes_to_rename = [
+        node
+        for graph, inferred_graph in zip(
+            _ort_traversed_graphs(model, op_block_list),
+            _ort_traversed_graphs(inferred_model, op_block_list),
+            strict=True,
+        )
+        for node, inferred_node in zip(graph.node, inferred_graph.node, strict=True)
+        if node.name in reserved_nodes
+        and not _node_is_conversion_neutral(inferred_model, inferred_graph, inferred_node)
+    ]
+    if not tensor_collisions and not nodes_to_rename:
+        return
+
+    graphs = _all_graphs(model)
+    occupied_names = reserved_nodes | reserved_tensors
+    for graph in graphs:
+        occupied_names.update(_graph_tensor_names(graph))
+        occupied_names.update(node.name for node in getattr(graph, "node", []))
+        for annotation in getattr(graph, "quantization_annotation", []):
+            occupied_names.add(annotation.tensor_name)
+            occupied_names.update(entry.value for entry in annotation.quant_parameter_tensor_names)
+
+    def allocate_name(name: str) -> str:
+        suffix = 1
+        candidate = f"{name}__existing_{suffix}"
+        while candidate in occupied_names:
+            suffix += 1
+            candidate = f"{name}__existing_{suffix}"
+        occupied_names.add(candidate)
+        return candidate
+
+    tensor_renames = {name: allocate_name(name) for name in sorted(tensor_collisions)}
+    node_renames = [(node, allocate_name(node.name)) for node in nodes_to_rename]
+    graph_renames = [(model.graph, tensor_renames)]
+    for graph, renames in graph_renames:
+        for child in _iter_all_child_graphs(graph):
+            child_renames = {
+                name: replacement
+                for name, replacement in renames.items()
+                if not _graph_defines_name(child, name)
+            }
+            if child_renames:
+                graph_renames.append((child, child_renames))
+
+    for graph, renames in graph_renames:
+        for node in getattr(graph, "node", []):
+            for values in (node.input, node.output):
+                for index, name in enumerate(values):
+                    if name in renames:
+                        values[index] = renames[name]
+        for values in (
+            getattr(graph, "input", []),
+            getattr(graph, "output", []),
+            getattr(graph, "value_info", []),
+            getattr(graph, "initializer", []),
+        ):
+            for value in values:
+                if value.name in renames:
+                    value.name = renames[value.name]
+        for sparse in getattr(graph, "sparse_initializer", []):
+            if sparse.values.name in renames:
+                sparse.values.name = renames[sparse.values.name]
+        for annotation in getattr(graph, "quantization_annotation", []):
+            if annotation.tensor_name in renames:
+                annotation.tensor_name = renames[annotation.tensor_name]
+            for entry in annotation.quant_parameter_tensor_names:
+                if entry.value in renames:
+                    entry.value = renames[entry.value]
+    for node, replacement in node_renames:
+        node.name = replacement
+
+
 def _reject_generated_io_cast_name_collisions(
     model: ModelProto,
     *,
@@ -2891,6 +2995,11 @@ def convert_to_fp16(
 
     _reject_sparse_initializer_tensor_metadata(model, op_block_list)
     _reject_duplicate_float_initializer_names(model, op_block_list)
+    _rename_generated_io_cast_name_collisions(
+        model,
+        keep_io_types=keep_io_types,
+        op_block_list=op_block_list,
+    )
     io_preflight_model = _ort_inference_preflight_model(model)
     blocked_ops = _effective_blocked_ops(op_block_list)
     _reject_unpreserved_float_container_io(
