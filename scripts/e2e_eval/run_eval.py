@@ -118,6 +118,8 @@ _DEFAULT_HF_DOWNLOAD_STALL_TIMEOUT = 120
 _HF_DOWNLOAD_STALL_TIMEOUT = float(_DEFAULT_HF_DOWNLOAD_STALL_TIMEOUT)
 _SUBPROCESS_POLL_INTERVAL = 0.25
 _HF_DOWNLOAD_MONITOR_TIMEOUT = 5.0
+_SUBPROCESS_HEARTBEAT_INTERVAL = 30.0
+_SUBPROCESS_LOG_ROOT = Path(__file__).resolve().parents[2] / "temp" / "e2e-eval-logs"
 _PRIORITY_RANK = {f"P{index}": index for index in range(4)}
 _RETRY_FAILED_TYPES = (
     *(failure_type.value for failure_type in FailureType),
@@ -534,9 +536,9 @@ def _clean_stray_cwd_artifacts(directory: Path) -> int:
 def safe_print(text: str) -> None:
     """Cross-platform safe print (handles Windows Unicode issues)."""
     try:
-        print(text)
+        print(text, flush=True)
     except UnicodeEncodeError:
-        print(text.encode("ascii", errors="replace").decode("ascii"))
+        print(text.encode("ascii", errors="replace").decode("ascii"), flush=True)
 
 
 def _progress_prefix(index: int, total: int, now: datetime | None = None) -> str:
@@ -775,7 +777,7 @@ class _HfDownloadTracker:
         }
         if progressed:
             self._active_paths.update(progressed)
-            self.last_progress = now
+            self.last_progress = max(now, time.perf_counter())
         self._active_paths.intersection_update(
             path for path in current if _normalized_path(path) in open_paths
         )
@@ -829,17 +831,19 @@ def _start_hf_download_monitor(
         kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
     else:
         kwargs["start_new_session"] = True
-    return subprocess.Popen(  # noqa: S603
-        [
-            sys.executable,
-            "-c",
-            _HF_DOWNLOAD_MONITOR_CODE,
-            str(Path(__file__).parent),
-            str(pid),
-            str(progress_path),
-        ],
-        **kwargs,
-    )
+    with (progress_path.parent / "monitor.log").open("wb") as monitor_log:
+        kwargs["stderr"] = monitor_log
+        return subprocess.Popen(  # noqa: S603
+            [
+                sys.executable,
+                "-c",
+                _HF_DOWNLOAD_MONITOR_CODE,
+                str(Path(__file__).parent),
+                str(pid),
+                str(progress_path),
+            ],
+            **kwargs,
+        )
 
 
 def _run_subprocess(args: list[str], timeout: int) -> dict:
@@ -852,7 +856,7 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
     ``_HF_DOWNLOAD_STALL_TIMEOUT`` seconds, the process is terminated as an HF
     fetch failure.
 
-    Output goes directly to temporary files so thread startup, full pipes and
+    Output goes directly to retained log files so thread startup, full pipes and
     inherited pipe handles cannot block the timeout loop or output cleanup.
     Download scans run in a separate process; missing or stale observations
     disable download suspension after ``_HF_DOWNLOAD_MONITOR_TIMEOUT`` seconds.
@@ -860,6 +864,8 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
     env = {
         **os.environ,
         "PYTHONIOENCODING": "utf-8",
+        "PYTHONUNBUFFERED": "1",
+        "PYTHONFAULTHANDLER": "1",
         "HF_HUB_DOWNLOAD_TIMEOUT": str(int(_HF_DOWNLOAD_STALL_TIMEOUT)),
         "HF_HUB_ETAG_TIMEOUT": str(int(_HF_DOWNLOAD_STALL_TIMEOUT)),
     }
@@ -873,13 +879,55 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
     last_download_observation = start
     download_state_known = False
     download_monitor_stalled = False
+    last_heartbeat = start
+    last_output_progress = start
+    last_output_sizes = (0, 0)
+    stage = Path(args[0]).name
+    if len(args) > 3 and args[1:3] == ["-m", "winml.modelkit.cli"]:
+        stage = args[3]
+    elif len(args) > 1 and str(args[1]).endswith(".py"):
+        stage = Path(args[1]).name
+    _SUBPROCESS_LOG_ROOT.mkdir(parents=True, exist_ok=True)
+    log_dir = Path(
+        tempfile.mkdtemp(
+            prefix=f"{datetime.now():%Y%m%d-%H%M%S}-{stage}-", dir=_SUBPROCESS_LOG_ROOT
+        )
+    )
+    pid: int | None = None
 
     with (
-        tempfile.TemporaryFile() as stdout_file,
-        tempfile.TemporaryFile() as stderr_file,
-        tempfile.TemporaryDirectory(prefix="winml-eval-monitor-") as monitor_dir,
+        (log_dir / "stdout.log").open("w+b") as stdout_file,
+        (log_dir / "stderr.log").open("w+b") as stderr_file,
+        (log_dir / "events.jsonl").open("a", encoding="utf-8") as events_file,
     ):
-        progress_path = Path(monitor_dir) / "progress.json"
+        def report(event: str, message: str, **details) -> None:
+            record = {
+                "timestamp": _utc_now(),
+                "event": event,
+                "stage": stage,
+                "runner_pid": os.getpid(),
+                "pid": pid,
+                "elapsed": round(time.perf_counter() - start, 3),
+                **details,
+            }
+            with contextlib.suppress(OSError):
+                events_file.write(json.dumps(record) + "\n")
+                events_file.flush()
+            with contextlib.suppress(OSError):
+                safe_print(
+                    f"  [{datetime.now():%Y-%m-%d %H:%M:%S}] [{event}] "
+                    f"stage={stage} pid={pid} {message}"
+                )
+
+        report(
+            "starting",
+            f"timeout={timeout:g}s logs={log_dir}",
+            command=[str(arg) for arg in args],
+            cwd=str(Path.cwd()),
+            timeout_seconds=timeout,
+            hf_stall_seconds=_HF_DOWNLOAD_STALL_TIMEOUT,
+        )
+        progress_path = log_dir / "download_progress.json"
         popen_kwargs: dict = {
             "stdout": stdout_file,
             "stderr": stderr_file,
@@ -889,14 +937,23 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
             popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
         else:
             popen_kwargs["start_new_session"] = True
-        proc = subprocess.Popen(args, **popen_kwargs)  # noqa: S603
+        try:
+            proc = subprocess.Popen(args, **popen_kwargs)  # noqa: S603
+        except OSError as exc:
+            report("spawn_failed", str(exc), error=str(exc))
+            raise
+        pid = proc.pid
+        report("spawned", f"timeout={timeout:g}s")
         monitor: subprocess.Popen | None = None
         try:
+            report("monitor_starting", "starting isolated download scan")
             try:
                 monitor = _start_hf_download_monitor(proc.pid, env, progress_path)
-            except OSError:
+                report("monitor_started", f"monitor_pid={monitor.pid}", monitor_pid=monitor.pid)
+            except OSError as exc:
                 download_monitor_stalled = True
                 download_state_known = True
+                report("monitor_disabled", "using execution timeout", error=str(exc))
                 logger.warning("Download monitor unavailable; enforcing execution timeout.")
 
             while True:
@@ -931,8 +988,16 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
                             logger.warning(
                                 "Download monitor unavailable or stale; enforcing execution timeout."
                             )
+                            report(
+                                "monitor_disabled",
+                                "stale or exited; using execution timeout",
+                                monitor_pid=monitor.pid if monitor is not None else None,
+                                observation_age_seconds=round(now - last_download_observation, 3),
+                            )
 
                     if download_active:
+                        if not download_was_active:
+                            report("download_active", "execution timeout suspended")
                         download_was_active = True
                         if now - last_download_progress >= _HF_DOWNLOAD_STALL_TIMEOUT:
                             hf_download_stalled = True
@@ -940,11 +1005,43 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
                         if download_was_active:
                             execution_elapsed = 0.0
                             download_was_active = False
+                            report("execution_resumed", f"execution budget reset to {timeout:g}s")
                         else:
                             execution_elapsed += now - last_poll
                         if execution_elapsed >= timeout and download_state_known:
                             timed_out = True
                     last_poll = now
+
+                    if now - last_heartbeat >= _SUBPROCESS_HEARTBEAT_INTERVAL:
+                        output_sizes = (
+                            os.fstat(stdout_file.fileno()).st_size,
+                            os.fstat(stderr_file.fileno()).st_size,
+                        )
+                        if output_sizes != last_output_sizes:
+                            last_output_progress = now
+                            last_output_sizes = output_sizes
+                        monitor_state = (
+                            "disabled" if download_monitor_stalled
+                            else "starting" if not download_state_known
+                            else "downloading" if download_active
+                            else "idle"
+                        )
+                        execution_remaining = max(0.0, timeout - execution_elapsed)
+                        output_idle = now - last_output_progress
+                        report(
+                            "heartbeat",
+                            f"elapsed={now - start:.1f}s exec_left={execution_remaining:.1f}s "
+                            f"monitor={monitor_state} stdout={output_sizes[0]}B "
+                            f"stderr={output_sizes[1]}B output_idle={output_idle:.1f}s",
+                            execution_remaining=round(execution_remaining, 3),
+                            monitor_state=monitor_state,
+                            monitor_age_seconds=round(now - last_download_observation, 3),
+                            hf_download_idle_seconds=round(now - last_download_progress, 3),
+                            stdout_bytes=output_sizes[0],
+                            stderr_bytes=output_sizes[1],
+                            output_idle_seconds=round(output_idle, 3),
+                        )
+                        last_heartbeat = now
 
                     if not timed_out and not hf_download_stalled:
                         continue
@@ -954,13 +1051,18 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
                         if hf_download_stalled
                         else f"execution timeout ({timeout:g}s)"
                     )
-                    safe_print(f"  [timeout] {reason}; terminating PID {proc.pid}")
+                    report(
+                        "timeout", reason,
+                        timeout=timed_out, hf_download_stalled=hf_download_stalled,
+                    )
                     exit_code = -1
                     break
         except KeyboardInterrupt:
+            report("interrupted", "stopping subprocess tree; logs retained")
             safe_print("\n  [Ctrl+C] Killing subprocess...")
             raise
         finally:
+            report("cleanup_starting", "reaping subprocess and download monitor")
             if proc.poll() is None:
                 _kill_process_tree(proc.pid)
                 with contextlib.suppress(OSError):
@@ -972,13 +1074,22 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
                     monitor.kill()
                 with contextlib.suppress(OSError, subprocess.TimeoutExpired):
                     monitor.wait(timeout=1)
+            report("cleanup_complete", f"process_returncode={proc.poll()}")
 
         stdout_size = os.fstat(stdout_file.fileno()).st_size
         stderr_size = os.fstat(stderr_file.fileno()).st_size
+        report("collecting_output", f"stdout={stdout_size}B stderr={stderr_size}B")
         stdout_file.seek(0)
         stderr_file.seek(0)
         stdout = stdout_file.read(stdout_size).decode("utf-8", errors="replace")
         stderr = stderr_file.read(stderr_size).decode("utf-8", errors="replace")
+        report(
+            "exited",
+            f"exit_code={exit_code} elapsed={time.perf_counter() - start:.1f}s logs={log_dir}",
+            exit_code=exit_code,
+            timeout=timed_out,
+            hf_download_stalled=hf_download_stalled,
+        )
     if hf_download_stalled:
         stderr += (
             "\nError while downloading from https://huggingface.co: "
@@ -995,6 +1106,7 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
         "timeout": timed_out,
         "hf_download_stalled": hf_download_stalled,
         "command": " ".join(str(a) for a in args),
+        "log_dir": str(log_dir),
     }
 
     # Retry once after clearing caches if the failure was due to disk full.

@@ -62,8 +62,10 @@ def _load_run_eval():
 
 
 @pytest.fixture(scope="module")
-def run_eval():
-    return _load_run_eval()
+def run_eval(tmp_path_factory):
+    module = _load_run_eval()
+    module._SUBPROCESS_LOG_ROOT = tmp_path_factory.mktemp("e2e-eval-logs")
+    return module
 
 
 @pytest.fixture(autouse=True)
@@ -636,6 +638,63 @@ class TestRunSubprocessTimeouts:
 
         assert result["exit_code"] == 0
         assert result["stdout"].splitlines() == ["120", "120"]
+
+    def test_subprocess_diagnostics_survive_timeout(self, run_eval, tmp_path, capsys):
+        script = (
+            "import sys, time; print('started', flush=True); "
+            "print('waiting for response', file=sys.stderr, flush=True); time.sleep(5)"
+        )
+        with (
+            self._cache_env(run_eval, HF_HOME=tmp_path / "hf"),
+            patch.object(run_eval, "_SUBPROCESS_LOG_ROOT", tmp_path / "logs", create=True),
+            patch.object(run_eval, "_SUBPROCESS_HEARTBEAT_INTERVAL", 0.1, create=True),
+            patch.object(run_eval, "_HF_DOWNLOAD_MONITOR_TIMEOUT", 0.1),
+        ):
+            result = run_eval._run_subprocess([sys.executable, "-c", script], timeout=0.8)
+
+        event_paths = list((tmp_path / "logs").glob("*/events.jsonl"))
+        assert len(event_paths) == 1
+        log_dir = event_paths[0].parent
+        events = [json.loads(line) for line in event_paths[0].read_text().splitlines()]
+        assert events[0]["event"] == "starting"
+        assert events[0]["command"] == [sys.executable, "-c", script]
+        spawned = next(event for event in events if event["event"] == "spawned")
+        assert spawned["pid"] > 0
+        heartbeats = [event for event in events if event["event"] == "heartbeat"]
+        assert heartbeats
+        assert heartbeats[-1]["stdout_bytes"] > 0
+        assert heartbeats[-1]["stderr_bytes"] > 0
+        assert heartbeats[-1]["execution_remaining"] <= 0.8
+        assert "output_idle_seconds" in heartbeats[-1]
+        assert "monitor_state" in heartbeats[-1]
+        assert any(event["event"] == "timeout" for event in events)
+        assert any(event["event"] == "cleanup_complete" for event in events)
+        assert events[-1]["event"] == "exited"
+        assert events[-1]["timeout"] is True
+        assert result["timeout"] is True
+        assert (log_dir / "stdout.log").read_text().strip() == "started"
+        assert (log_dir / "stderr.log").read_text().strip() == "waiting for response"
+        console = capsys.readouterr().out
+        assert str(log_dir) in console
+        assert "[heartbeat]" in console
+        assert f"pid={spawned['pid']}" in console
+
+    def test_download_progress_timestamp_includes_scan_time(self, run_eval, tmp_path):
+        incomplete = tmp_path / "model.incomplete"
+        tracker = run_eval._HfDownloadTracker({}, now=1.0)
+        tracker.bind(123)
+
+        with (
+            patch.object(
+                run_eval, "_process_tree_open_paths",
+                return_value={run_eval._normalized_path(incomplete)},
+            ),
+            patch.object(run_eval, "_snapshot_hf_downloads", return_value={incomplete: (1, 1)}),
+            patch.object(run_eval.time, "perf_counter", return_value=7.0),
+        ):
+            assert tracker.poll(now=2.0) is True
+
+        assert tracker.last_progress == 7.0
 
     @pytest.mark.parametrize(
         "blocked_function", ["_process_tree_open_paths", "_snapshot_hf_downloads"]

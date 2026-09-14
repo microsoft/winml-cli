@@ -188,9 +188,26 @@ uv run python scripts/e2e_eval/run_eval.py --update-baseline --eval-type accurac
 | `--retry-failed [TYPE ...]` | — | Re-run failed jobs (implies `--continue`); unknown types are rejected as argument errors. Retry criteria are not mutually exclusive: `HF_FETCH_FAIL` also checks failed perf and accuracy logs for `WinError 10060`, `we couldn't connect to 'https://huggingface.co'`, or `thrown while requesting HEAD https://huggingface.co`, even when the primary perf classification is another type or accuracy is `FAIL`. |
 | `--build-only` | off | Build with `--no-compile`, writing each stage's ONNX (no EP needed). Loops the EP matrix when `--ep`/`--device` omitted |
 
-Subprocess stdout/stderr are captured in temporary files and collected on exit,
-not streamed live to the console. Capture does not need reader threads or wait
-for pipe EOF, so full pipes and inherited output handles cannot stall the runner.
+Subprocess diagnostics are retained under `temp/e2e-eval-logs/` in the CLI project
+root, with a unique timestamped directory for each command. The directory is
+printed before launch. `stdout.log` and `stderr.log` receive raw output directly;
+`events.jsonl` records the command, runner/child PIDs, stage, timestamps, timeout
+decisions, and cleanup lifecycle. `monitor.log` captures download-monitor errors,
+and `download_progress.json` contains its latest observation. Logs remain after
+success, failure, or interruption and are separate from the generated reports.
+Remove old diagnostic directories when no longer needed; raw commands/output
+may contain private paths or data and should be reviewed before sharing.
+
+Every 30 seconds a flushed console heartbeat reports elapsed time, remaining
+execution budget, download-monitor state, stdout/stderr byte counts, and time
+since output growth was last observed. The same fields are written to
+`events.jsonl`. Output inactivity is diagnostic only, not a kill condition:
+inference can be silent while consuming its execution budget. Python children
+use unbuffered output and enable fault-handler output for fatal errors.
+
+Capture does not need reader threads or wait for pipe EOF, so full pipes and
+inherited output handles cannot stall the runner. Raw output is not streamed
+live to the console; the named files can be inspected while the command runs.
 Download ownership and cache progress are sampled in a separate helper process.
 If it stops reporting for five seconds or exits, it is stopped and execution
 timeout enforcement continues without trusting stale download observations.
