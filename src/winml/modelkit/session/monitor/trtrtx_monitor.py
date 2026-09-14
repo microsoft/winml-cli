@@ -163,7 +163,7 @@ class NvTensorRTRTXMonitor(EPMonitor):
         return result
 
     def _parse_operator_events(self, events: list[Any]) -> tuple[list[OperatorMetrics], int]:
-        # The EP uses pid for contexts and tid for runs, in first-seen run order.
+        # The EP uses pid for contexts and tid for subgraph invocations.
         contexts: dict[int, dict[int, dict[str, float]]] = {}
         types_by_path: dict[str, set[str | None]] = defaultdict(set)
         nodes_by_path: dict[str, dict[str, None]] = defaultdict(dict)
@@ -218,17 +218,29 @@ class NvTensorRTRTXMonitor(EPMonitor):
             else None
         )
         for pid, runs in contexts.items():
-            if stop is not None and len(runs) < stop:
-                raise ValueError(
-                    f"TensorRT RTX context {pid} has {len(runs)} runs; "
-                    f"expected at least {stop} including warmup"
+            invocations_per_run = 1
+            if stop is not None:
+                if stop == 0 or len(runs) < stop or len(runs) % stop:
+                    raise ValueError(
+                        f"TensorRT RTX context {pid} has {len(runs)} invocations; "
+                        f"cannot align with {stop} model runs including warmup. "
+                        "Expected a positive whole-number multiple of the total run count."
+                    )
+                invocations_per_run = len(runs) // stop
+            if invocations_per_run > 1:
+                logger.warning(
+                    "TensorRT RTX context %s: assuming %s consecutive subgraph invocations "
+                    "per model run from divisible counts. Variable invocation counts per "
+                    "inference cannot be detected from this trace.",
+                    pid,
+                    invocations_per_run,
                 )
-            retained = list(runs.values())[self._warmup_iterations : stop]
-            num_samples = max(num_samples, len(retained))
+            retained = list(runs.values())[self._warmup_iterations * invocations_per_run :]
+            num_samples = max(num_samples, len(retained) // invocations_per_run)
             for index, run in enumerate(retained):
                 for name, duration in run.items():
-                    # Same native names across contexts contribute to one per-run total.
-                    samples_by_path[name][index] += duration
+                    # Aggregate subgraph invocations and contexts into model-run samples.
+                    samples_by_path[name][index // invocations_per_run] += duration
 
         operators = []
         for name, samples in samples_by_path.items():

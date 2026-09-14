@@ -242,8 +242,18 @@ nodes omit the array. Fused layers do not claim a single `onnx_op_type`, and the
 timings remain attached to the native layer rather than being divided among or
 assigned to one of the source nodes.
 
-Warmups are excluded separately for each EP context (`pid`); each `tid` identifies
-a run in first-seen order. Repeated native layer names are summed per measured
+Each `tid` identifies a subgraph invocation, not necessarily a whole inference.
+For each EP context (`pid`), the invocation count must be a positive integer
+multiple of the total completed model runs (warmup plus measured). The monitor
+assumes a constant number of consecutive invocations per inference, groups them
+in first-seen order, and excludes whole warmup groups. For example, 20 invocations
+over 10 total model runs are grouped in pairs. Non-divisible counts are rejected
+instead of truncating the trace.
+
+Grouping multiple invocations emits a warning: divisibility does not prove
+inference boundaries, so variable-length control-flow loops can still produce
+incorrect per-inference attribution even when counts divide evenly.
+Repeated native layer names are summed per measured
 iteration, including matching names across contexts. Percentages reflect traced
 GPU layer time, not wall-clock latency or CPU fallback work. `detail` tracing is
 not supported.

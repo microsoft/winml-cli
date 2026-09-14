@@ -65,8 +65,8 @@ def test_public_exports_and_provider_options(tmp_path):
 @pytest.mark.parametrize("wrapped", [False, True])
 def test_run_grouping_warmup_and_statistics(tmp_path, contexts, wrapped):
     monitor = NvTensorRTRTXMonitor(output_dir=tmp_path)
-    events, durations, names = _generate_trace(contexts=contexts)
     warmup, measured = 1, 2
+    events, durations, names = _generate_trace(contexts=contexts, runs=warmup + measured)
     monitor.set_perf_window(warmup, measured)
     model_path = tmp_path / "model.onnx"
     monitor.set_onnx_model_path(model_path)
@@ -236,15 +236,64 @@ def test_empty_measured_window_excludes_all_layers(tmp_path):
     assert monitor.result.num_samples == 0
 
 
-def test_incomplete_context_is_a_parse_failure(tmp_path):
+@pytest.mark.parametrize("invocations", [2, 4, 5])
+def test_unaligned_context_is_a_parse_failure(tmp_path, invocations):
     monitor = NvTensorRTRTXMonitor(output_dir=tmp_path)
-    events, durations, _ = _generate_trace(contexts=2)
-    monitor.set_perf_window(1, durations.shape[1])
+    events, _, _ = _generate_trace(contexts=2, runs=invocations)
+    monitor.set_perf_window(1, 2)
     _write_trace(monitor, events)
     with monitor:
         pass
     assert monitor.result.status == "parse_failed"
-    assert "expected at least" in monitor.result.error
+    assert "cannot align" in monitor.result.error
+    assert not monitor.result.operators
+
+
+@pytest.mark.parametrize("warmup,measured", [(1, 2), (0, 10), (2, 0)])
+@pytest.mark.parametrize("multipliers", [(2,), (2, 3)])
+def test_subgraph_invocations_are_aggregated_before_warmup_filtering(
+    tmp_path, caplog, warmup, measured, multipliers
+):
+    monitor = NvTensorRTRTXMonitor(output_dir=tmp_path)
+    monitor.set_perf_window(warmup, measured)
+    total_runs = warmup + measured
+    events = []
+    expected = None
+    for pid, multiplier in enumerate(multipliers):
+        context_events, durations, names = _generate_trace(runs=total_runs * multiplier)
+        for event in context_events:
+            event["pid"] = pid
+        events.extend(context_events)
+        per_run = durations[0].reshape(total_runs, multiplier, len(names), -1).sum(axis=(1, 3))
+        expected = per_run if expected is None else expected + per_run
+    _write_trace(monitor, events)
+    with monitor:
+        pass
+    result = monitor.result
+    assert result.status == ("ok" if measured else "no_data")
+    assert result.num_samples == measured
+    assert "assuming" in caplog.text
+    assert "Variable invocation counts" in caplog.text
+    for index, operator in enumerate(result.operators):
+        samples = expected[warmup:, index]
+        assert operator.samples_us == pytest.approx(samples)
+        assert operator.sample_count == measured
+        assert operator.p90_us == pytest.approx(np.quantile(samples, 0.9))
+        assert result.statistics[operator.op_path]["total_us"] == pytest.approx(samples.sum())
+    if measured:
+        assert len(result.operators) == len(names)
+        assert result.summary["accel_execute_us"] == pytest.approx(expected[warmup:].sum())
+
+
+def test_invocations_with_zero_completed_runs_are_rejected(tmp_path):
+    monitor = NvTensorRTRTXMonitor(output_dir=tmp_path)
+    monitor.set_perf_window(0, 0)
+    events, _, _ = _generate_trace()
+    _write_trace(monitor, events)
+    with monitor:
+        pass
+    assert monitor.result.status == "parse_failed"
+    assert "cannot align with 0 model runs" in monitor.result.error
 
 
 @pytest.mark.parametrize(
