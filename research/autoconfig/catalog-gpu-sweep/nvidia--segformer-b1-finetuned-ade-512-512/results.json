@@ -1,0 +1,555 @@
+{
+  "model_id": "nvidia/segformer-b1-finetuned-ade-512-512",
+  "task": "image-segmentation",
+  "model_type": "segformer",
+  "timestamp": "2026-06-25T15:42:32",
+  "ep": "qnn",
+  "device": "gpu",
+  "hypotheses": {
+    "h0": {
+      "status": "OK_HIGH_CV",
+      "label": "baseline FP32 (no quant, no compile)",
+      "opset": 17,
+      "optim": {},
+      "op_signature": {
+        "total_operators": 378,
+        "operator_counts": {
+          "Conv": 20,
+          "Reshape": 138,
+          "Transpose": 76,
+          "LayerNormalization": 30,
+          "Gemm": 52,
+          "MatMul": 16,
+          "Div": 8,
+          "Softmax": 8,
+          "Add": 16,
+          "Gelu": 8,
+          "Resize": 4,
+          "Concat": 1,
+          "Relu": 1
+        },
+        "opset": 17
+      },
+      "graph_changed": null,
+      "screen": {
+        "p50_ms": 148.095,
+        "cv": 0.3239,
+        "stable": false
+      },
+      "full": {
+        "p50s_ms": [
+          119.011,
+          116.754,
+          99.73
+        ],
+        "median_p50_ms": 116.754
+      },
+      "verdict": "BASELINE"
+    },
+    "h1": {
+      "status": "PREBUILD_NOOP_SKIP",
+      "verdict": "NO_OP",
+      "label": "opset 17 explicit",
+      "opset": 17,
+      "optim": {},
+      "build_flags": [],
+      "graph_changed": false,
+      "noop_note": "pre-build config-identity skip: explicit opset=17 == baseline opset with no optim or build flags — config is identical to baseline (harness-002)"
+    },
+    "h2": {
+      "status": "OK_HIGH_CV",
+      "label": "opset 19",
+      "opset": 19,
+      "optim": {},
+      "op_signature": {
+        "total_operators": 410,
+        "operator_counts": {
+          "Conv": 20,
+          "Reshape": 170,
+          "Transpose": 76,
+          "LayerNormalization": 30,
+          "Gemm": 52,
+          "MatMul": 16,
+          "Div": 8,
+          "Softmax": 8,
+          "Add": 16,
+          "Gelu": 8,
+          "Resize": 4,
+          "Concat": 1,
+          "Relu": 1
+        },
+        "opset": 19
+      },
+      "graph_changed": true,
+      "screen": {
+        "p50_ms": 171.046,
+        "cv": 1.9707,
+        "stable": false
+      },
+      "full": {
+        "p50s_ms": [
+          141.188,
+          141.959,
+          102.54
+        ],
+        "median_p50_ms": 141.188
+      },
+      "gain_vs_baseline_pct": -20.93,
+      "verdict": "DISCARD"
+    },
+    "h3": {
+      "status": "OK_HIGH_CV",
+      "label": "opset 21 (tests gpu-006)",
+      "opset": 21,
+      "optim": {},
+      "op_signature": {
+        "total_operators": 410,
+        "operator_counts": {
+          "Conv": 20,
+          "Reshape": 170,
+          "Transpose": 76,
+          "LayerNormalization": 30,
+          "Gemm": 52,
+          "MatMul": 16,
+          "Div": 8,
+          "Softmax": 8,
+          "Add": 16,
+          "Gelu": 8,
+          "Resize": 4,
+          "Concat": 1,
+          "Relu": 1
+        },
+        "opset": 21
+      },
+      "graph_changed": true,
+      "screen": {
+        "p50_ms": 103.684,
+        "cv": 0.2375,
+        "stable": false
+      },
+      "full": {
+        "p50s_ms": [
+          107.711,
+          103.006,
+          107.144
+        ],
+        "median_p50_ms": 107.144
+      },
+      "gain_vs_baseline_pct": 8.23,
+      "verdict": "KEEP"
+    },
+    "h4": {
+      "status": "OK_HIGH_CV",
+      "label": "opset 17 + matmul_transpose_fusion",
+      "opset": 17,
+      "optim": {
+        "matmul_transpose_fusion": true
+      },
+      "op_signature": {
+        "total_operators": 370,
+        "operator_counts": {
+          "Conv": 20,
+          "Reshape": 130,
+          "Transpose": 72,
+          "LayerNormalization": 30,
+          "Gemm": 48,
+          "MatMul": 16,
+          "Div": 8,
+          "Softmax": 8,
+          "Add": 20,
+          "Gelu": 8,
+          "FusedMatMul": 4,
+          "Resize": 4,
+          "Concat": 1,
+          "Relu": 1
+        },
+        "opset": 17
+      },
+      "graph_changed": true,
+      "screen": {
+        "p50_ms": 136.142,
+        "cv": 0.4321,
+        "stable": false
+      },
+      "full": {
+        "p50s_ms": [
+          131.204,
+          131.952,
+          126.347
+        ],
+        "median_p50_ms": 131.204
+      },
+      "gain_vs_baseline_pct": -12.38,
+      "verdict": "DISCARD"
+    },
+    "h5": {
+      "status": "NOOP_SKIPPED",
+      "verdict": "NO_OP",
+      "label": "opset 17 + attention_fusion",
+      "opset": 17,
+      "optim": {
+        "attention_fusion": true
+      },
+      "build_flags": [],
+      "op_signature": {
+        "total_operators": 378,
+        "operator_counts": {
+          "Conv": 20,
+          "Reshape": 138,
+          "Transpose": 76,
+          "LayerNormalization": 30,
+          "Gemm": 52,
+          "MatMul": 16,
+          "Div": 8,
+          "Softmax": 8,
+          "Add": 16,
+          "Gelu": 8,
+          "Resize": 4,
+          "Concat": 1,
+          "Relu": 1
+        },
+        "opset": 17
+      },
+      "graph_changed": false,
+      "noop_note": "graph identical to baseline (opset + op counts unchanged) — flag did not fire; bench skipped, baseline perf assumed",
+      "full_ref": "h0",
+      "assumed_median_p50_ms": 116.754
+    },
+    "h6": {
+      "status": "NOOP_SKIPPED",
+      "verdict": "NO_OP",
+      "label": "opset 17 + bias_softmax_fusion",
+      "opset": 17,
+      "optim": {
+        "bias_softmax_fusion": true
+      },
+      "build_flags": [],
+      "op_signature": {
+        "total_operators": 378,
+        "operator_counts": {
+          "Conv": 20,
+          "Reshape": 138,
+          "Transpose": 76,
+          "LayerNormalization": 30,
+          "Gemm": 52,
+          "MatMul": 16,
+          "Div": 8,
+          "Softmax": 8,
+          "Add": 16,
+          "Gelu": 8,
+          "Resize": 4,
+          "Concat": 1,
+          "Relu": 1
+        },
+        "opset": 17
+      },
+      "graph_changed": false,
+      "noop_note": "graph identical to baseline (opset + op counts unchanged) — flag did not fire; bench skipped, baseline perf assumed",
+      "full_ref": "h0",
+      "assumed_median_p50_ms": 116.754
+    },
+    "h7": {
+      "status": "NOOP_SKIPPED",
+      "verdict": "NO_OP",
+      "label": "opset 17 + layer_norm_fusion",
+      "opset": 17,
+      "optim": {
+        "layer_norm_fusion": true
+      },
+      "build_flags": [],
+      "op_signature": {
+        "total_operators": 378,
+        "operator_counts": {
+          "Conv": 20,
+          "Reshape": 138,
+          "Transpose": 76,
+          "LayerNormalization": 30,
+          "Gemm": 52,
+          "MatMul": 16,
+          "Div": 8,
+          "Softmax": 8,
+          "Add": 16,
+          "Gelu": 8,
+          "Resize": 4,
+          "Concat": 1,
+          "Relu": 1
+        },
+        "opset": 17
+      },
+      "graph_changed": false,
+      "noop_note": "graph identical to baseline (opset + op counts unchanged) — flag did not fire; bench skipped, baseline perf assumed",
+      "full_ref": "h0",
+      "assumed_median_p50_ms": 116.754
+    },
+    "h8": {
+      "status": "OK_HIGH_CV",
+      "label": "opset 17 + skip_layer_norm_fusion",
+      "opset": 17,
+      "optim": {
+        "skip_layer_norm_fusion": true
+      },
+      "op_signature": {
+        "total_operators": 362,
+        "operator_counts": {
+          "Conv": 20,
+          "Reshape": 138,
+          "Transpose": 76,
+          "LayerNormalization": 14,
+          "Gemm": 52,
+          "MatMul": 16,
+          "Div": 8,
+          "Softmax": 8,
+          "SkipLayerNormalization": 16,
+          "Gelu": 8,
+          "Resize": 4,
+          "Concat": 1,
+          "Relu": 1
+        },
+        "opset": 17
+      },
+      "graph_changed": true,
+      "screen": {
+        "p50_ms": 193.633,
+        "cv": 0.9095,
+        "stable": false
+      },
+      "full": {
+        "p50s_ms": [
+          194.205,
+          128.557,
+          132.567
+        ],
+        "median_p50_ms": 132.567
+      },
+      "gain_vs_baseline_pct": -13.54,
+      "verdict": "DISCARD"
+    },
+    "h9": {
+      "status": "OK_HIGH_CV",
+      "label": "opset 21 + matmul_transpose + attention_fusion",
+      "opset": 21,
+      "optim": {
+        "matmul_transpose_fusion": true,
+        "attention_fusion": true
+      },
+      "op_signature": {
+        "total_operators": 402,
+        "operator_counts": {
+          "Conv": 20,
+          "Reshape": 162,
+          "Transpose": 72,
+          "LayerNormalization": 30,
+          "Gemm": 48,
+          "MatMul": 16,
+          "Div": 8,
+          "Softmax": 8,
+          "Add": 20,
+          "Gelu": 8,
+          "FusedMatMul": 4,
+          "Resize": 4,
+          "Concat": 1,
+          "Relu": 1
+        },
+        "opset": 21
+      },
+      "graph_changed": true,
+      "screen": {
+        "p50_ms": 124.62,
+        "cv": 0.2325,
+        "stable": false
+      },
+      "full": {
+        "p50s_ms": [
+          124.325,
+          127.257,
+          122.361
+        ],
+        "median_p50_ms": 124.325
+      },
+      "gain_vs_baseline_pct": -6.48,
+      "verdict": "DISCARD"
+    },
+    "h10": {
+      "status": "OK_HIGH_CV",
+      "label": "opset 17 + ln + skip_ln + matmul_transpose",
+      "opset": 17,
+      "optim": {
+        "layer_norm_fusion": true,
+        "skip_layer_norm_fusion": true,
+        "matmul_transpose_fusion": true
+      },
+      "op_signature": {
+        "total_operators": 366,
+        "operator_counts": {
+          "Conv": 20,
+          "Reshape": 130,
+          "Transpose": 72,
+          "LayerNormalization": 26,
+          "Gemm": 48,
+          "MatMul": 16,
+          "Div": 8,
+          "Softmax": 8,
+          "Add": 16,
+          "Gelu": 8,
+          "SkipLayerNormalization": 4,
+          "FusedMatMul": 4,
+          "Resize": 4,
+          "Concat": 1,
+          "Relu": 1
+        },
+        "opset": 17
+      },
+      "graph_changed": true,
+      "screen": {
+        "p50_ms": 141.7,
+        "cv": 0.1915,
+        "stable": false
+      },
+      "full": {
+        "p50s_ms": [
+          135.501,
+          139.688,
+          141.519
+        ],
+        "median_p50_ms": 139.688
+      },
+      "gain_vs_baseline_pct": -19.64,
+      "verdict": "DISCARD"
+    },
+    "h11": {
+      "status": "NOOP_SKIPPED",
+      "verdict": "NO_OP",
+      "label": "opset 17 + gelu_fusion explicit",
+      "opset": 17,
+      "optim": {
+        "gelu_fusion": true
+      },
+      "build_flags": [],
+      "op_signature": {
+        "total_operators": 378,
+        "operator_counts": {
+          "Conv": 20,
+          "Reshape": 138,
+          "Transpose": 76,
+          "LayerNormalization": 30,
+          "Gemm": 52,
+          "MatMul": 16,
+          "Div": 8,
+          "Softmax": 8,
+          "Add": 16,
+          "Gelu": 8,
+          "Resize": 4,
+          "Concat": 1,
+          "Relu": 1
+        },
+        "opset": 17
+      },
+      "graph_changed": false,
+      "noop_note": "graph identical to baseline (opset + op counts unchanged) — flag did not fire; bench skipped, baseline perf assumed",
+      "full_ref": "h0",
+      "assumed_median_p50_ms": 116.754
+    },
+    "h12": {
+      "status": "NOOP_SKIPPED",
+      "verdict": "NO_OP",
+      "label": "opset 17 + transpose_optimizer",
+      "opset": 17,
+      "optim": {
+        "transpose_optimizer": true
+      },
+      "build_flags": [],
+      "op_signature": {
+        "total_operators": 378,
+        "operator_counts": {
+          "Conv": 20,
+          "Reshape": 138,
+          "Transpose": 76,
+          "LayerNormalization": 30,
+          "Gemm": 52,
+          "MatMul": 16,
+          "Div": 8,
+          "Softmax": 8,
+          "Add": 16,
+          "Gelu": 8,
+          "Resize": 4,
+          "Concat": 1,
+          "Relu": 1
+        },
+        "opset": 17
+      },
+      "graph_changed": false,
+      "noop_note": "graph identical to baseline (opset + op counts unchanged) — flag did not fire; bench skipped, baseline perf assumed",
+      "full_ref": "h0",
+      "assumed_median_p50_ms": 116.754
+    },
+    "h13": {
+      "status": "OK",
+      "label": "no optimization (analyzer auto-optimization disabled, --no-analyze)",
+      "opset": 17,
+      "optim": {},
+      "op_signature": null,
+      "graph_changed": null,
+      "screen": {
+        "p50_ms": 94.404,
+        "cv": 0.0949,
+        "stable": true
+      },
+      "full": {
+        "p50s_ms": [
+          90.741,
+          90.335,
+          89.756
+        ],
+        "median_p50_ms": 90.335
+      },
+      "gain_vs_baseline_pct": 22.63,
+      "verdict": "KEEP",
+      "confirm_method": "interleaved_round_robin",
+      "confirm_rounds": 3,
+      "confirm_champ_p50s_ms": [
+        93.456,
+        120.541,
+        124.324
+      ],
+      "confirm_champ_median_ms": 120.541,
+      "confirm_baseline_p50s_ms": [
+        90.227,
+        118.287,
+        130.918
+      ],
+      "confirm_baseline_median_ms": 118.287,
+      "confirm_paired_delta_ms": [
+        -3.229,
+        -2.254,
+        6.594
+      ],
+      "confirm_rounds_faster": "1/3",
+      "confirm_ranges_separated": false,
+      "overall_median_p50_ms": 120.541,
+      "overall_gain_pct": -1.91,
+      "confirm_verdict": "MARGINAL_UNCONFIRMED"
+    }
+  },
+  "baseline_opset": 17,
+  "baseline_p50_ms": 116.754,
+  "best_hypothesis": "h13",
+  "best_p50_ms": 90.335,
+  "best_gain_pct": -1.91,
+  "conv_pct": null,
+  "best_gain_verdict": "KEEP",
+  "errors": [],
+  "feature_gaps": [],
+  "noop_hypotheses": [
+    "h5",
+    "h6",
+    "h7",
+    "h11",
+    "h12"
+  ],
+  "prebuild_noop_hypotheses": [
+    "h1"
+  ],
+  "gpu-006_generalized": "N/A (h1 not OK)",
+  "gpu-006_ranges_non_overlapping": null,
+  "confirm_baseline_p50_ms": 118.287
+}

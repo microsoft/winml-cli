@@ -1,0 +1,48 @@
+{
+  "issue_number": null,
+  "github_url": null,
+  "title": "winml perf: add --dvfs-protocol flag for reliable QNN NPU benchmarking (multi-session + cool-down)",
+  "status": "PENDING",
+  "labels": ["dev experience", "qnn", "NPU", "P2"],
+  "filed_date": null,
+  "category": "perf",
+  "source_findings": ["npu-007"],
+  "affected_eps": ["qnn_npu"],
+  "affected_arch": ["all"],
+  "summary": "Single-session winml perf on QNN NPU can show ±30% variance due to DVFS (Dynamic Voltage/Frequency Scaling) thermal noise. Reliable benchmarking requires 3+ independent sessions with 30s cool-down between sessions. This protocol should be built into winml perf as a first-class flag.",
+  "root_cause": "Snapdragon X Elite HTP (QNN NPU) uses DVFS to manage power/thermal. After sustained inference load, the NPU frequency drops to manage heat. A single bench session may start at full frequency (fast) and end at throttled frequency (slow), making the result unrepresentative. Multi-session protocol with cool-down ensures each session starts at a consistent thermal baseline.",
+  "measured_impact": [
+    {
+      "description": "Single-session CV on MobileViT QNN NPU",
+      "cv_observed": "0.37 (37%)",
+      "note": "CV > 0.15 is common on QNN NPU — current catalog_qnn_sweep.py Phase A screen marks this as 'DVFS noise — high CV expected' and always proceeds to Phase B regardless."
+    },
+    {
+      "description": "Multi-session stability",
+      "note": "3x500 iters with 30s cool-down between sessions achieves consistent results. All 3 session p50s should be compared (range non-overlap criterion) rather than using a single p50."
+    }
+  ],
+  "proposed_api": {
+    "flag": "--dvfs-protocol",
+    "description": "When set, winml perf runs N_sessions independent sessions with cool_down_s seconds between them. Reports median of session p50s, range, and CV-per-session.",
+    "defaults": {
+      "n_sessions": 3,
+      "iterations_per_session": 500,
+      "cool_down_s": 30,
+      "warmup": 10
+    },
+    "output": {
+      "session_p50s_ms": [6.9, 7.0, 8.0],
+      "median_p50_ms": 7.0,
+      "range_ms": 1.1,
+      "dvfs_stable": true
+    }
+  },
+  "fix_needed": {
+    "file": "winml perf command",
+    "description": "Add --dvfs-protocol flag. When active: run N sessions with cool-down, report median + range. Also report whether ranges overlap with a reference run (useful for A/B comparison)."
+  },
+  "discriminator": "ep == 'qnn_npu' → recommend --dvfs-protocol for reliable results",
+  "related_issues": [],
+  "notes": "The autoconfig catalog_qnn_sweep.py already implements this protocol internally (FULL_SESSIONS=3, COOL_DOWN_S=30, FULL_ITERS=500). Promoting to winml perf as a first-class flag would let users get reliable NPU numbers without needing the full autoconfig sweep infrastructure."
+}

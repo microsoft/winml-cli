@@ -1,0 +1,167 @@
+{
+  "model_id": "deepset/roberta-base-squad2",
+  "task": "question-answering",
+  "model_type": "roberta",
+  "timestamp": "2026-06-18T02:23:50",
+  "ep": "qnn",
+  "device": "gpu",
+  "baseline_opset": 17,
+  "hypotheses": {
+    "h0": {
+      "status": "OK",
+      "label": "baseline FP32 (no quant, no compile)",
+      "opset": 17,
+      "extra_optim": null,
+      "screen_p50_ms": 98.117,
+      "screen_cv": 0.15088109094244626,
+      "full_p50s_ms": [
+        99.948,
+        97.755,
+        99.535
+      ],
+      "median_p50_ms": 99.535,
+      "verdict": "BASELINE"
+    },
+    "h1": {
+      "status": "OK",
+      "label": "opset 17 explicit",
+      "opset": 17,
+      "extra_optim": null,
+      "screen_p50_ms": 98.107,
+      "screen_cv": 0.14872537127829819,
+      "full_p50s_ms": [
+        99.112,
+        98.16,
+        98.593
+      ],
+      "median_p50_ms": 98.593,
+      "gain_vs_baseline_pct": 0.95,
+      "verdict": "MARGINAL"
+    },
+    "h2": {
+      "status": "OK",
+      "label": "opset 19",
+      "opset": 19,
+      "extra_optim": null,
+      "screen_p50_ms": 107.597,
+      "screen_cv": 0.21958790672602396,
+      "full_p50s_ms": [
+        100.327,
+        99.658,
+        101.422
+      ],
+      "median_p50_ms": 100.327,
+      "gain_vs_baseline_pct": -0.8,
+      "verdict": "DISCARD"
+    },
+    "h3": {
+      "status": "OK",
+      "label": "opset 21 (tests gpu-006)",
+      "opset": 21,
+      "extra_optim": null,
+      "screen_p50_ms": 100.15,
+      "screen_cv": 0.16429355966050924,
+      "full_p50s_ms": [
+        100.42,
+        100.667,
+        100.984
+      ],
+      "median_p50_ms": 100.667,
+      "gain_vs_baseline_pct": -1.14,
+      "verdict": "DISCARD"
+    },
+    "h4": {
+      "status": "OK",
+      "label": "opset 17 + matmul_transpose_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "matmul_transpose_fusion": true
+      },
+      "screen_p50_ms": 97.954,
+      "screen_cv": 0.14972333952671663,
+      "full_p50s_ms": [
+        98.044,
+        99.494,
+        98.442
+      ],
+      "median_p50_ms": 98.442,
+      "gain_vs_baseline_pct": 1.1,
+      "verdict": "MARGINAL"
+    },
+    "h5": {
+      "status": "OK",
+      "label": "opset 17 + attention_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "attention_fusion": true
+      },
+      "screen_p50_ms": 102.402,
+      "screen_cv": 0.22213433331380247,
+      "full_p50s_ms": [
+        98.593,
+        98.912,
+        98.564
+      ],
+      "median_p50_ms": 98.593,
+      "gain_vs_baseline_pct": 0.95,
+      "verdict": "MARGINAL"
+    },
+    "h6": {
+      "status": "BUILD_FAIL",
+      "label": "opset 17 + bias_softmax_fusion",
+      "opset": 17,
+      "build_error": "ion_mask     [1, 512]       int32\n   Output:       start_logits\n                 end_logits\n   📦 Artifact:   \nC:\\tmp\\autoconfig-demo\\catalog-gpu-sweep\\deepset--roberta-base-squad2\\h6\\export\n.onnx  (474.9 MB)\n⏳ Optimize  Optimizing ONNX graph...Error: Build failed: [Errno 28] No space left on device\n"
+    },
+    "h7": {
+      "status": "BUILD_FAIL",
+      "label": "opset 17 + layer_norm_fusion",
+      "opset": 17,
+      "build_error": "put:    \nC:\\tmp\\autoconfig-demo\\catalog-gpu-sweep\\deepset--roberta-base-squad2\\h7\n\n════════════════════════════════════════════════════════════\n🎯 Stages\n════════════════════════════════════════════════════════════\n⏳ Export  Exporting to ONNX...Error: Build failed: [Errno 28] No space left on device\n"
+    },
+    "h8": {
+      "status": "BUILD_FAIL",
+      "label": "opset 17 + skip_layer_norm_fusion",
+      "opset": 17,
+      "build_error": "put:    \nC:\\tmp\\autoconfig-demo\\catalog-gpu-sweep\\deepset--roberta-base-squad2\\h8\n\n════════════════════════════════════════════════════════════\n🎯 Stages\n════════════════════════════════════════════════════════════\n⏳ Export  Exporting to ONNX...Error: Build failed: [Errno 28] No space left on device\n"
+    },
+    "h9": {
+      "status": "BUILD_FAIL",
+      "label": "opset 21 + matmul_transpose + attention_fusion",
+      "opset": 21,
+      "build_error": "put:    \nC:\\tmp\\autoconfig-demo\\catalog-gpu-sweep\\deepset--roberta-base-squad2\\h9\n\n════════════════════════════════════════════════════════════\n🎯 Stages\n════════════════════════════════════════════════════════════\n⏳ Export  Exporting to ONNX...Error: Build failed: [Errno 28] No space left on device\n"
+    },
+    "h10": {
+      "status": "BUILD_FAIL",
+      "label": "opset 17 + ln + skip_ln + matmul_transpose",
+      "opset": 17,
+      "build_error": "ut:    \nC:\\tmp\\autoconfig-demo\\catalog-gpu-sweep\\deepset--roberta-base-squad2\\h10\n\n════════════════════════════════════════════════════════════\n🎯 Stages\n════════════════════════════════════════════════════════════\n⏳ Export  Exporting to ONNX...Error: Build failed: [Errno 28] No space left on device\n"
+    },
+    "h11": {
+      "status": "BUILD_FAIL",
+      "label": "opset 17 + gelu_fusion explicit",
+      "opset": 17,
+      "build_error": "ut:    \nC:\\tmp\\autoconfig-demo\\catalog-gpu-sweep\\deepset--roberta-base-squad2\\h11\n\n════════════════════════════════════════════════════════════\n🎯 Stages\n════════════════════════════════════════════════════════════\n⏳ Export  Exporting to ONNX...Error: Build failed: [Errno 28] No space left on device\n"
+    },
+    "h12": {
+      "status": "BUILD_FAIL",
+      "label": "opset 17 + transpose_optimizer",
+      "opset": 17,
+      "build_error": "ut:    \nC:\\tmp\\autoconfig-demo\\catalog-gpu-sweep\\deepset--roberta-base-squad2\\h12\n\n════════════════════════════════════════════════════════════\n🎯 Stages\n════════════════════════════════════════════════════════════\n⏳ Export  Exporting to ONNX...Error: Build failed: [Errno 28] No space left on device\n"
+    }
+  },
+  "best_hypothesis": null,
+  "baseline_p50_ms": 99.535,
+  "best_p50_ms": null,
+  "best_gain_pct": null,
+  "opset21_gain_pct": -1.14,
+  "feature_gaps": [],
+  "errors": [
+    "h6: BUILD_FAIL",
+    "h7: BUILD_FAIL",
+    "h8: BUILD_FAIL",
+    "h9: BUILD_FAIL",
+    "h10: BUILD_FAIL",
+    "h11: BUILD_FAIL",
+    "h12: BUILD_FAIL"
+  ]
+}

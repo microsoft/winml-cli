@@ -1,0 +1,521 @@
+{
+  "model_id": "sentence-transformers/all-mpnet-base-v2",
+  "task": "feature-extraction",
+  "model_type": "mpnet",
+  "timestamp": "2026-06-25T18:20:35",
+  "ep": "qnn",
+  "device": "gpu",
+  "hypotheses": {
+    "h0": {
+      "status": "OK_HIGH_CV",
+      "label": "baseline FP32 (no quant, no compile)",
+      "opset": 17,
+      "optim": {},
+      "op_signature": {
+        "total_operators": 389,
+        "operator_counts": {
+          "Cast": 4,
+          "Equal": 1,
+          "Not": 1,
+          "CumSum": 1,
+          "Mul": 2,
+          "Add": 50,
+          "Gather": 2,
+          "LayerNormalization": 25,
+          "Reshape": 120,
+          "Gemm": 72,
+          "Transpose": 48,
+          "MatMul": 24,
+          "Div": 12,
+          "Unsqueeze": 2,
+          "Sub": 1,
+          "Softmax": 12,
+          "Gelu": 12
+        },
+        "opset": 17
+      },
+      "graph_changed": null,
+      "screen": {
+        "p50_ms": 107.949,
+        "cv": 0.2518,
+        "stable": false
+      },
+      "full": {
+        "p50s_ms": [
+          107.439,
+          109.953,
+          108.65
+        ],
+        "median_p50_ms": 108.65
+      },
+      "verdict": "BASELINE"
+    },
+    "h1": {
+      "status": "PREBUILD_NOOP_SKIP",
+      "verdict": "NO_OP",
+      "label": "opset 17 explicit",
+      "opset": 17,
+      "optim": {},
+      "build_flags": [],
+      "graph_changed": false,
+      "noop_note": "pre-build config-identity skip: explicit opset=17 == baseline opset with no optim or build flags — config is identical to baseline (harness-002)"
+    },
+    "h2": {
+      "status": "OK_HIGH_CV",
+      "label": "opset 19",
+      "opset": 19,
+      "optim": {},
+      "op_signature": {
+        "total_operators": 437,
+        "operator_counts": {
+          "Cast": 4,
+          "Equal": 1,
+          "Not": 1,
+          "CumSum": 1,
+          "Mul": 2,
+          "Add": 50,
+          "Gather": 2,
+          "LayerNormalization": 25,
+          "Reshape": 168,
+          "Gemm": 72,
+          "Transpose": 48,
+          "MatMul": 24,
+          "Div": 12,
+          "Unsqueeze": 2,
+          "Sub": 1,
+          "Softmax": 12,
+          "Gelu": 12
+        },
+        "opset": 19
+      },
+      "graph_changed": true,
+      "screen": {
+        "p50_ms": 106.725,
+        "cv": 0.1546,
+        "stable": false
+      },
+      "full": {
+        "p50s_ms": [
+          108.861,
+          109.47,
+          113.313
+        ],
+        "median_p50_ms": 109.47
+      },
+      "gain_vs_baseline_pct": -0.75,
+      "verdict": "DISCARD"
+    },
+    "h3": {
+      "status": "OK_HIGH_CV",
+      "label": "opset 21 (tests gpu-006)",
+      "opset": 21,
+      "optim": {},
+      "op_signature": {
+        "total_operators": 437,
+        "operator_counts": {
+          "Cast": 4,
+          "Equal": 1,
+          "Not": 1,
+          "CumSum": 1,
+          "Mul": 2,
+          "Add": 50,
+          "Gather": 2,
+          "LayerNormalization": 25,
+          "Reshape": 168,
+          "Gemm": 72,
+          "Transpose": 48,
+          "MatMul": 24,
+          "Div": 12,
+          "Unsqueeze": 2,
+          "Sub": 1,
+          "Softmax": 12,
+          "Gelu": 12
+        },
+        "opset": 21
+      },
+      "graph_changed": true,
+      "screen": {
+        "p50_ms": 112.317,
+        "cv": 0.2373,
+        "stable": false
+      },
+      "full": {
+        "p50s_ms": [
+          107.513,
+          108.361,
+          106.651
+        ],
+        "median_p50_ms": 107.513
+      },
+      "gain_vs_baseline_pct": 1.05,
+      "verdict": "MARGINAL"
+    },
+    "h4": {
+      "status": "NOOP_SKIPPED",
+      "verdict": "NO_OP",
+      "label": "opset 17 + matmul_transpose_fusion",
+      "opset": 17,
+      "optim": {
+        "matmul_transpose_fusion": true
+      },
+      "build_flags": [],
+      "op_signature": {
+        "total_operators": 389,
+        "operator_counts": {
+          "Cast": 4,
+          "Equal": 1,
+          "Not": 1,
+          "CumSum": 1,
+          "Mul": 2,
+          "Add": 50,
+          "Gather": 2,
+          "LayerNormalization": 25,
+          "Reshape": 120,
+          "Gemm": 72,
+          "Transpose": 48,
+          "MatMul": 24,
+          "Div": 12,
+          "Unsqueeze": 2,
+          "Sub": 1,
+          "Softmax": 12,
+          "Gelu": 12
+        },
+        "opset": 17
+      },
+      "graph_changed": false,
+      "noop_note": "graph identical to baseline (opset + op counts unchanged) — flag did not fire; bench skipped, baseline perf assumed",
+      "full_ref": "h0",
+      "assumed_median_p50_ms": 108.65
+    },
+    "h5": {
+      "status": "NOOP_SKIPPED",
+      "verdict": "NO_OP",
+      "label": "opset 17 + attention_fusion",
+      "opset": 17,
+      "optim": {
+        "attention_fusion": true
+      },
+      "build_flags": [],
+      "op_signature": {
+        "total_operators": 389,
+        "operator_counts": {
+          "Cast": 4,
+          "Equal": 1,
+          "Not": 1,
+          "CumSum": 1,
+          "Mul": 2,
+          "Add": 50,
+          "Gather": 2,
+          "LayerNormalization": 25,
+          "Reshape": 120,
+          "Gemm": 72,
+          "Transpose": 48,
+          "MatMul": 24,
+          "Div": 12,
+          "Unsqueeze": 2,
+          "Sub": 1,
+          "Softmax": 12,
+          "Gelu": 12
+        },
+        "opset": 17
+      },
+      "graph_changed": false,
+      "noop_note": "graph identical to baseline (opset + op counts unchanged) — flag did not fire; bench skipped, baseline perf assumed",
+      "full_ref": "h0",
+      "assumed_median_p50_ms": 108.65
+    },
+    "h6": {
+      "status": "NOOP_SKIPPED",
+      "verdict": "NO_OP",
+      "label": "opset 17 + bias_softmax_fusion",
+      "opset": 17,
+      "optim": {
+        "bias_softmax_fusion": true
+      },
+      "build_flags": [],
+      "op_signature": {
+        "total_operators": 389,
+        "operator_counts": {
+          "Cast": 4,
+          "Equal": 1,
+          "Not": 1,
+          "CumSum": 1,
+          "Mul": 2,
+          "Add": 50,
+          "Gather": 2,
+          "LayerNormalization": 25,
+          "Reshape": 120,
+          "Gemm": 72,
+          "Transpose": 48,
+          "MatMul": 24,
+          "Div": 12,
+          "Unsqueeze": 2,
+          "Sub": 1,
+          "Softmax": 12,
+          "Gelu": 12
+        },
+        "opset": 17
+      },
+      "graph_changed": false,
+      "noop_note": "graph identical to baseline (opset + op counts unchanged) — flag did not fire; bench skipped, baseline perf assumed",
+      "full_ref": "h0",
+      "assumed_median_p50_ms": 108.65
+    },
+    "h7": {
+      "status": "NOOP_SKIPPED",
+      "verdict": "NO_OP",
+      "label": "opset 17 + layer_norm_fusion",
+      "opset": 17,
+      "optim": {
+        "layer_norm_fusion": true
+      },
+      "build_flags": [],
+      "op_signature": {
+        "total_operators": 389,
+        "operator_counts": {
+          "Cast": 4,
+          "Equal": 1,
+          "Not": 1,
+          "CumSum": 1,
+          "Mul": 2,
+          "Add": 50,
+          "Gather": 2,
+          "LayerNormalization": 25,
+          "Reshape": 120,
+          "Gemm": 72,
+          "Transpose": 48,
+          "MatMul": 24,
+          "Div": 12,
+          "Unsqueeze": 2,
+          "Sub": 1,
+          "Softmax": 12,
+          "Gelu": 12
+        },
+        "opset": 17
+      },
+      "graph_changed": false,
+      "noop_note": "graph identical to baseline (opset + op counts unchanged) — flag did not fire; bench skipped, baseline perf assumed",
+      "full_ref": "h0",
+      "assumed_median_p50_ms": 108.65
+    },
+    "h8": {
+      "status": "OK_HIGH_CV",
+      "label": "opset 17 + skip_layer_norm_fusion",
+      "opset": 17,
+      "optim": {
+        "skip_layer_norm_fusion": true
+      },
+      "op_signature": {
+        "total_operators": 364,
+        "operator_counts": {
+          "Gather": 2,
+          "Cast": 4,
+          "Equal": 1,
+          "Not": 1,
+          "CumSum": 1,
+          "Mul": 2,
+          "Add": 25,
+          "SkipLayerNormalization": 25,
+          "Reshape": 120,
+          "Gemm": 72,
+          "Transpose": 48,
+          "Unsqueeze": 2,
+          "Sub": 1,
+          "MatMul": 24,
+          "Div": 12,
+          "Softmax": 12,
+          "Gelu": 12
+        },
+        "opset": 17
+      },
+      "graph_changed": true,
+      "screen": {
+        "p50_ms": 202.163,
+        "cv": 0.8514,
+        "stable": false
+      },
+      "full": {
+        "p50s_ms": [
+          225.214,
+          193.805,
+          140.688
+        ],
+        "median_p50_ms": 193.805
+      },
+      "gain_vs_baseline_pct": -78.38,
+      "verdict": "DISCARD"
+    },
+    "h9": {
+      "status": "NOOP_SKIPPED",
+      "verdict": "NO_OP",
+      "label": "opset 21 + matmul_transpose + attention_fusion",
+      "opset": 21,
+      "optim": {
+        "matmul_transpose_fusion": true,
+        "attention_fusion": true
+      },
+      "build_flags": [],
+      "op_signature": {
+        "total_operators": 437,
+        "operator_counts": {
+          "Cast": 4,
+          "Equal": 1,
+          "Not": 1,
+          "CumSum": 1,
+          "Mul": 2,
+          "Add": 50,
+          "Gather": 2,
+          "LayerNormalization": 25,
+          "Reshape": 168,
+          "Gemm": 72,
+          "Transpose": 48,
+          "MatMul": 24,
+          "Div": 12,
+          "Unsqueeze": 2,
+          "Sub": 1,
+          "Softmax": 12,
+          "Gelu": 12
+        },
+        "opset": 21
+      },
+      "graph_changed": false,
+      "noop_note": "graph identical to h3 (opset + op counts match) — flag did not fire; bench skipped, prior perf reused",
+      "full_ref": "h3",
+      "assumed_median_p50_ms": 107.513
+    },
+    "h10": {
+      "status": "NOOP_SKIPPED",
+      "verdict": "NO_OP",
+      "label": "opset 17 + ln + skip_ln + matmul_transpose",
+      "opset": 17,
+      "optim": {
+        "layer_norm_fusion": true,
+        "skip_layer_norm_fusion": true,
+        "matmul_transpose_fusion": true
+      },
+      "build_flags": [],
+      "op_signature": {
+        "total_operators": 364,
+        "operator_counts": {
+          "Gather": 2,
+          "Cast": 4,
+          "Equal": 1,
+          "Not": 1,
+          "CumSum": 1,
+          "Mul": 2,
+          "Add": 25,
+          "SkipLayerNormalization": 25,
+          "Reshape": 120,
+          "Gemm": 72,
+          "Transpose": 48,
+          "Unsqueeze": 2,
+          "Sub": 1,
+          "MatMul": 24,
+          "Div": 12,
+          "Softmax": 12,
+          "Gelu": 12
+        },
+        "opset": 17
+      },
+      "graph_changed": false,
+      "noop_note": "graph identical to h8 (opset + op counts match) — flag did not fire; bench skipped, prior perf reused",
+      "full_ref": "h8",
+      "assumed_median_p50_ms": 193.805
+    },
+    "h11": {
+      "status": "PREBUILD_NOOP_SKIP",
+      "verdict": "NO_OP",
+      "label": "opset 17 + gelu_fusion explicit",
+      "opset": 17,
+      "optim": {
+        "gelu_fusion": true
+      },
+      "build_flags": [],
+      "noop_note": "pre-build skip: baseline graph has none of the required op types ['Erf'] — fusion flag cannot fire (npu-021)"
+    },
+    "h12": {
+      "status": "NOOP_SKIPPED",
+      "verdict": "NO_OP",
+      "label": "opset 17 + transpose_optimizer",
+      "opset": 17,
+      "optim": {
+        "transpose_optimizer": true
+      },
+      "build_flags": [],
+      "op_signature": {
+        "total_operators": 389,
+        "operator_counts": {
+          "Cast": 4,
+          "Equal": 1,
+          "Not": 1,
+          "CumSum": 1,
+          "Mul": 2,
+          "Add": 50,
+          "Gather": 2,
+          "LayerNormalization": 25,
+          "Reshape": 120,
+          "Gemm": 72,
+          "Transpose": 48,
+          "MatMul": 24,
+          "Div": 12,
+          "Unsqueeze": 2,
+          "Sub": 1,
+          "Softmax": 12,
+          "Gelu": 12
+        },
+        "opset": 17
+      },
+      "graph_changed": false,
+      "noop_note": "graph identical to baseline (opset + op counts unchanged) — flag did not fire; bench skipped, baseline perf assumed",
+      "full_ref": "h0",
+      "assumed_median_p50_ms": 108.65
+    },
+    "h13": {
+      "status": "OK",
+      "label": "no optimization (analyzer auto-optimization disabled, --no-analyze)",
+      "opset": 17,
+      "optim": {},
+      "op_signature": null,
+      "graph_changed": null,
+      "screen": {
+        "p50_ms": 103.175,
+        "cv": 0.1201,
+        "stable": true
+      },
+      "full": {
+        "p50s_ms": [
+          104.712,
+          106.138,
+          104.023
+        ],
+        "median_p50_ms": 104.712
+      },
+      "gain_vs_baseline_pct": 3.62,
+      "verdict": "MARGINAL"
+    }
+  },
+  "baseline_opset": 17,
+  "baseline_p50_ms": 108.65,
+  "best_hypothesis": "h13",
+  "best_p50_ms": 104.712,
+  "best_gain_pct": 3.62,
+  "conv_pct": null,
+  "best_gain_verdict": "BASELINE_IS_BEST",
+  "errors": [],
+  "feature_gaps": [],
+  "noop_hypotheses": [
+    "h4",
+    "h5",
+    "h6",
+    "h7",
+    "h9",
+    "h10",
+    "h12"
+  ],
+  "prebuild_noop_hypotheses": [
+    "h1",
+    "h11"
+  ],
+  "gpu-006_generalized": "N/A (h1 not OK)",
+  "gpu-006_ranges_non_overlapping": null
+}

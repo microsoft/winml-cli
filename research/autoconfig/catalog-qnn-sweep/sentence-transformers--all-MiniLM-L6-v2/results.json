@@ -1,0 +1,123 @@
+{
+  "model_id": "sentence-transformers/all-MiniLM-L6-v2",
+  "task": "sentence-similarity",
+  "model_type": "bert",
+  "timestamp": "2026-06-13T15:58:36",
+  "ep": "qnn",
+  "device": "npu",
+  "baseline_opset": 17,
+  "hypotheses": {
+    "h0": {
+      "status": "OK_HIGH_CV",
+      "screen": {
+        "p50_ms": 5.934,
+        "cv": 0.2221,
+        "stable": false,
+        "note": "DVFS noise — high CV expected on QNN NPU"
+      },
+      "full": {
+        "p50s_ms": [
+          5.808,
+          5.647,
+          5.829
+        ],
+        "median_p50_ms": 5.808
+      },
+      "accuracy": null,
+      "label": "baseline (auto-config, W8A16)",
+      "opset": 17
+    },
+    "h1": {
+      "status": "OK_HIGH_CV",
+      "screen": {
+        "p50_ms": 5.851,
+        "cv": 0.9986,
+        "stable": false,
+        "note": "DVFS noise — high CV expected on QNN NPU"
+      },
+      "full": {
+        "p50s_ms": [
+          5.814,
+          5.88,
+          5.912
+        ],
+        "median_p50_ms": 5.88
+      },
+      "accuracy": null,
+      "label": "opset 17 explicit",
+      "opset": 17
+    },
+    "h2": {
+      "status": "OK_HIGH_CV",
+      "screen": {
+        "p50_ms": 5.309,
+        "cv": 0.2051,
+        "stable": false,
+        "note": "DVFS noise — high CV expected on QNN NPU"
+      },
+      "full": {
+        "p50s_ms": [
+          5.98,
+          5.799,
+          6.021
+        ],
+        "median_p50_ms": 5.98
+      },
+      "accuracy": null,
+      "label": "opset 19",
+      "opset": 19
+    },
+    "h3": {
+      "status": "OK_HIGH_CV",
+      "screen": {
+        "p50_ms": 5.959,
+        "cv": 1.1272,
+        "stable": false,
+        "note": "DVFS noise — high CV expected on QNN NPU"
+      },
+      "full": {
+        "p50s_ms": [
+          6.0,
+          5.851,
+          5.844
+        ],
+        "median_p50_ms": 5.851
+      },
+      "accuracy": null,
+      "label": "opset 21 (tests npu-001 bypass)",
+      "opset": 21
+    },
+    "h4": {
+      "status": "OK",
+      "screen": {
+        "p50_ms": 5.478,
+        "cv": 0.1344,
+        "stable": true
+      },
+      "full": {
+        "p50s_ms": [
+          6.059,
+          5.966,
+          5.469
+        ],
+        "median_p50_ms": 5.966
+      },
+      "accuracy": null,
+      "label": "opset 17 + conv fusions",
+      "opset": 17
+    },
+    "h5": {
+      "status": "TIMEOUT",
+      "label": "opset 21 + conv fusions"
+    }
+  },
+  "best_hypothesis": "h0",
+  "baseline_p50_ms": 5.808,
+  "best_p50_ms": 5.808,
+  "best_gain_pct": 0.0,
+  "npu001_generalized": "neutral",
+  "feature_gaps": [],
+  "errors": [
+    "Model timed out at 1346s (before h5)"
+  ]
+}
