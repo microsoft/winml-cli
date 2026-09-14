@@ -312,11 +312,13 @@ class TestFP16PassConfig:
     def test_reads_fp16_fields_from_config(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """FP16Pass should pass fp16_keep_io_types and fp16_op_block_list to convert_to_fp16."""
+        """FP16Pass should pass all FP16 controls to convert_to_fp16."""
+        selected_nodes = ["selected_cast_2", "selected_cast_1", "selected_cast_3"]
         config = WinMLQuantizationConfig(
             mode="fp16",
             fp16_keep_io_types=False,
             fp16_op_block_list=["Gather"],
+            fp16_nodes_to_exclude=selected_nodes,
         )
         model_path = tmp_path / "model.onnx"
         model_path.write_text("x")
@@ -325,8 +327,14 @@ class TestFP16PassConfig:
         calls: list[dict] = []
         fake_model = SimpleNamespace()
 
-        def fake_convert(model, *, keep_io_types, op_block_list):
-            calls.append({"keep_io_types": keep_io_types, "op_block_list": op_block_list})
+        def fake_convert(model, *, keep_io_types, op_block_list, node_block_list):
+            calls.append(
+                {
+                    "keep_io_types": keep_io_types,
+                    "op_block_list": op_block_list,
+                    "node_block_list": node_block_list,
+                }
+            )
             return model
 
         # Patch the source modules that are lazily imported inside run()
@@ -342,7 +350,13 @@ class TestFP16PassConfig:
         result = FP16Pass(config).run(model_path, output_path)
 
         assert result.success
-        assert calls == [{"keep_io_types": False, "op_block_list": ["Gather"]}]
+        assert calls == [
+            {
+                "keep_io_types": False,
+                "op_block_list": ["Gather"],
+                "node_block_list": selected_nodes,
+            }
+        ]
 
 
 class TestFP16Conversion:
@@ -352,6 +366,7 @@ class TestFP16Conversion:
         """Large external-data models can exceed protobuf's in-memory serialize limit."""
         calls: list[dict] = []
         model = SimpleNamespace(graph=SimpleNamespace(initializer=[], node=[]))
+        selected_nodes = ["selected_cast_2", "selected_cast_1", "selected_cast_3"]
 
         def fake_convert(model_arg, **kwargs):
             calls.append(kwargs)
@@ -373,15 +388,21 @@ class TestFP16Conversion:
                 model,
                 keep_io_types=True,
                 op_block_list=["Softmax"],
+                node_block_list=selected_nodes,
             )
             is model
         )
         assert calls == [
-            {"keep_io_types": True, "op_block_list": ["Softmax"]},
+            {
+                "keep_io_types": True,
+                "op_block_list": ["Softmax"],
+                "node_block_list": selected_nodes,
+            },
             {
                 "keep_io_types": True,
                 "disable_shape_infer": True,
                 "op_block_list": ["Softmax"],
+                "node_block_list": selected_nodes,
             },
         ]
 

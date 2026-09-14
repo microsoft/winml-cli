@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 # Mapped to their HF pipeline equivalent before calling ``pipeline()``.
 _HF_PIPELINE_TASK_MAP: dict[str, str] = {
     "image-to-text": "image-text-to-text",
+    "reranking": "text-classification",
     "next-sentence-prediction": "text-classification",
     "sequence-classification": "text-classification",
     "sentence-similarity": "feature-extraction",

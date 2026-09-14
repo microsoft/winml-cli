@@ -118,6 +118,23 @@ class TestUserModelClassEdgeCases:
         assert r.task == "fill-mask"
         assert r.source == TaskSource.USER_CLASS
 
+    def test_reranking_preserved_with_model_class(self):
+        """Explicit reranking should stay surfaced even though export uses classification."""
+        config = MagicMock()
+        config.model_type = "bert"
+        config.architectures = ["BertForSequenceClassification"]
+        config._name_or_path = ""
+
+        r = resolve_task(
+            config,
+            task="reranking",
+            model_class="AutoModelForSequenceClassification",
+        )
+
+        assert r.task == "reranking"
+        assert r.optimum_task == "text-classification"
+        assert r.source == TaskSource.USER_CLASS
+
 
 class TestUnderscoreModelTypePassedToTasksManager:
     """Regression: model_type with underscores must reach TasksManager un-normalized.

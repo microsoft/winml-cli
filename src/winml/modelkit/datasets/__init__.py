@@ -41,6 +41,7 @@ TASK_DATASET_MAPPING = {
     "image-classification": ImageDataset,
     "image-feature-extraction": ImageDataset,
     "object-detection": ObjectDetectionDataset,
+    "reranking": TextDataset,
     "text-classification": TextDataset,
     "text-feature-extraction": TextDataset,
     "feature-extraction": TextDataset,
