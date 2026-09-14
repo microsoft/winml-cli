@@ -1600,6 +1600,41 @@ class TestBuildForJobPrecision:
                 assert "--no-quant" not in command
         assert result["precision"] == precision
 
+    def test_release_default_preserves_case_when_config_resolves_precision(
+        self, run_eval, tmp_path
+    ):
+        from winml.modelkit.config import resolve_quant_compile_config
+
+        entry = _entry("release-test/default", "question-answering")
+        job = run_eval.EvalJob(entry, None, precision_locked=True)
+        args = argparse.Namespace(ep="qnn", device="npu", timeout=300)
+        quant_config, _ = resolve_quant_compile_config(
+            device=args.device, precision="auto", ep=args.ep
+        )
+        assert quant_config is not None
+        config_path = tmp_path / "build_config.json"
+        commands = []
+
+        def fake_subprocess(command, timeout):
+            commands.append(command)
+            if "config" in command:
+                config_path.write_text(
+                    json.dumps({"quant": quant_config.to_dict()}), encoding="utf-8"
+                )
+            return {"exit_code": 0, "stdout": "", "stderr": ""}
+
+        with (
+            patch.object(run_eval, "_run_subprocess", side_effect=fake_subprocess),
+            patch.object(run_eval, "_extract_onnx_path", return_value=str(tmp_path / "model.onnx")),
+        ):
+            result, _, _ = run_eval._build_for_job(job, args, tmp_path)
+
+        assert result["success"] is True
+        assert result["precision"] is not None
+        assert result["precision"] == run_eval._precision_from_build_config(config_path)
+        assert job.precision is None
+        assert all("--precision" not in command for command in commands)
+
     def test_release_rejects_inconsistent_precision_metadata(self, run_eval, tmp_path):
         entry = _entry("release-test/model", "text-classification")
         entry.precision = "fp16"
@@ -3200,6 +3235,65 @@ class TestReleaseRegistry:
         assert exc_info.value.code == 0
         values = json.loads(listing.read_text(encoding="utf-8"))
         assert {row["hf_id"] for row in values} == {item.hf_id for item in registry} - {entry.hf_id}
+
+
+def test_checked_in_recipe_filenames_match_quant_config(run_eval):
+    recipes_dir = Path(run_eval.__file__).resolve().parents[2] / "examples" / "recipes"
+    recipe_module = sys.modules["utils.recipes"]
+    mismatches = []
+    config_paths = sorted(recipes_dir.rglob("*_config*.json"))
+    assert config_paths
+    for config_path in config_paths:
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        expected = (
+            "fp32" if config["quant"] is None
+            else run_eval._precision_from_build_config(config_path)
+        )
+        assert expected is not None, f"Unknown quant configuration: {config_path}"
+        group, _ = recipe_module.split_config_stem(config_path)
+        _, precision = recipe_module.split_task_precision(group)
+        if precision != expected:
+            mismatches.append(f"{config_path.relative_to(recipes_dir)}: {precision} != {expected}")
+    assert not mismatches, "\n".join(mismatches)
+
+
+def test_release_keeps_renamed_recipe_configuration(run_eval, tmp_path):
+    testsets = Path(run_eval.__file__).parent / "testsets"
+    registry = run_eval.load_registry(testsets / "models_all.json")
+    entries, _ = run_eval.load_release_registry(
+        run_eval._RELEASE_MANIFEST, registry, ep="openvino", device="gpu"
+    )
+    entry = next(entry for entry in entries if entry.hf_id == "microsoft/resnet-50")
+    jobs = run_eval._build_jobs(
+        [entry], testsets.parents[2] / "examples" / "recipes",
+        "gpu", ep="openvino", release=True,
+    )
+    (job,) = jobs
+    assert job.precision == "fp32"
+    assert job.variant is not None
+    for component in job.variant.components:
+        config = json.loads(component.path.read_text(encoding="utf-8"))
+        assert config["quant"] is None
+        assert component.path.name == "image-classification_fp32_config.json"
+
+    args = argparse.Namespace(ep="openvino", device="gpu", timeout=300)
+    with (
+        patch.object(
+            run_eval, "_run_subprocess",
+            return_value={"exit_code": 0, "stdout": "", "stderr": ""},
+        ) as subprocess_call,
+        patch.object(run_eval, "_extract_onnx_path", return_value=str(tmp_path / "model.onnx")),
+    ):
+        result, meta_config, _ = run_eval._build_for_job(job, args, tmp_path)
+
+    assert result["success"] is True
+    assert result["precision"] == job.precision
+    assert meta_config == job.variant.components[0].path
+    for call in subprocess_call.call_args_list:
+        command = call.args[0]
+        assert command[command.index("-c") + 1] == str(job.variant.components[0].path)
+        assert "--precision" not in command
+        assert "--device" not in command
 
 
 def test_checked_in_release_json_matches_markdown_and_job_plans(run_eval):

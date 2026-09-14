@@ -245,7 +245,7 @@ class TestDiscoverAgainstRealRecipes:
             recipes_dir, "microsoft/resnet-50", "image-classification"
         )
         precisions = {v.precision for v in variants}
-        assert {"fp16", "w8a16"} <= precisions
+        assert precisions == {"fp32", "w8a16"}
         for v in variants:
             assert v.is_composite is False
 
@@ -260,7 +260,7 @@ class TestDiscoverAgainstRealRecipes:
             assert v.is_composite is True
             assert v.roles == ["encoder", "decoder"]
 
-    def test_unlimited_ocr_feature_extraction_has_six_precision_tuples(
+    def test_unlimited_ocr_feature_extraction_deduplicates_unquantized_recipes(
         self, recipes, recipes_dir
     ):
         if not recipes_dir.is_dir():
@@ -268,15 +268,12 @@ class TestDiscoverAgainstRealRecipes:
 
         expected = {
             ("cpu", "cpu"): {
-                "feature-extraction_fp16_config.json",
                 "feature-extraction_fp32_config.json",
             },
             ("dml", "gpu"): {
-                "feature-extraction_fp16_config.json",
                 "feature-extraction_fp32_config.json",
             },
             ("openvino", "cpu"): {
-                "feature-extraction_fp16_config.json",
                 "feature-extraction_fp32_config.json",
             },
         }
@@ -290,6 +287,6 @@ class TestDiscoverAgainstRealRecipes:
                 device=device,
             )
 
-            assert [variant.precision for variant in variants] == ["fp16", "fp32"]
+            assert [variant.precision for variant in variants] == ["fp32"]
             found_names = {variant.components[0].path.name for variant in variants}
             assert found_names == expected_names

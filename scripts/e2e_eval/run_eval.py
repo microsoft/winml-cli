@@ -6,8 +6,11 @@
 """E2E evaluation runner — unified, recipe-driven perf + accuracy.
 
 ``--release`` reads ``testsets/models_release_validation.json`` and builds one
-job per selected model/task at the target EP's recorded precision.
-Only a matching recipe is used; otherwise the build uses ``winml config``.
+job per selected model/task using the target EP's selected config precision.
+Recipe filenames follow their quant config; a matching recipe is built unchanged.
+The config label is not a measurement of the artifact's numerical precision.
+Without a matching recipe the build uses ``winml config``;
+this fallback does not establish equivalence to the historical configuration.
 ``default`` omits the precision flag without expanding NPU variants. Without
 ``--release``, the existing P0-P3 selection and recipe expansion below apply.
 
@@ -3070,9 +3073,10 @@ class EvalJob:
     it stays ``None`` for the single default-precision fallback. Each job
     produces one ``eval_result.json``.
 
-    ``precision_locked`` marks release jobs: the requested precision must not be
-    replaced by the harness's legacy defaults or skip-quant policy.
-    It constrains job selection and CLI flags, not the produced ONNX tensor dtypes.
+    ``precision_locked`` fixes the selected config precision for release jobs.
+    Recipes keep their authored configuration; fallback builds pass a non-default
+    label as a precision flag without applying legacy expansion/skip-quant policy.
+    The label is not a measurement of the produced ONNX tensor dtypes.
     """
 
     entry: ModelEntry
@@ -3124,7 +3128,7 @@ def _build_jobs(
 ) -> list[EvalJob]:
     """Expand entries into jobs. Recipes apply on every device; quant is NPU-only.
 
-    With ``release=True``, create exactly one precision-locked job per entry,
+    With ``release=True``, create exactly one selected-config job per entry,
     including a single fallback for ``default``. This mode can use a quantized
     GPU recipe when the manifest selected it; legacy expansion is bypassed.
 
@@ -3211,7 +3215,9 @@ def _build_for_job(
     otherwise the ``winml config`` fallback is used. ``recipe_meta`` is the
     eval/dataset config for ``winml eval -c`` (None for the fallback) and
     ``trust`` is whether the recipe's dataset needs ``--trust-remote-code``.
-    Release precision checks compare build metadata, not the ONNX artifact's dtypes.
+    Release checks compare declared case/recipe labels, not the loaded recipe's
+    quantization config or the ONNX artifact's dtypes. Recipes are not converted
+    to match a label: preserving their configuration preserves the historical case.
     """
     if job.variant is not None:
         build_result = _run_recipe_build(

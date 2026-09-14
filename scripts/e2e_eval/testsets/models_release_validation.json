@@ -10,49 +10,49 @@
           "precision": "default"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },
@@ -65,49 +65,49 @@
           "precision": "default"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },
@@ -117,52 +117,52 @@
       "priority": "P2",
       "targets": {
         "amd/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },
@@ -172,52 +172,52 @@
       "priority": "P2",
       "targets": {
         "amd/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },
@@ -227,52 +227,52 @@
       "priority": "P0",
       "targets": {
         "amd/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },
@@ -337,52 +337,52 @@
       "priority": "P2",
       "targets": {
         "amd/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },
@@ -392,52 +392,52 @@
       "priority": "P2",
       "targets": {
         "amd/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },
@@ -447,52 +447,52 @@
       "priority": "P2",
       "targets": {
         "amd/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
           "precision": "w8a16"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },
@@ -502,52 +502,52 @@
       "priority": "P2",
       "targets": {
         "amd/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },
@@ -560,49 +560,49 @@
           "precision": "default"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },
@@ -667,52 +667,52 @@
       "priority": "P0",
       "targets": {
         "amd/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },
@@ -722,52 +722,52 @@
       "priority": "P0",
       "targets": {
         "amd/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },
@@ -777,52 +777,52 @@
       "priority": "P2",
       "targets": {
         "amd/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },
@@ -832,52 +832,52 @@
       "priority": "P0",
       "targets": {
         "amd/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },
@@ -942,52 +942,52 @@
       "priority": "P2",
       "targets": {
         "amd/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
           "precision": "fp16"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },
@@ -997,52 +997,52 @@
       "priority": "P2",
       "targets": {
         "amd/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },
@@ -1052,52 +1052,52 @@
       "priority": "P2",
       "targets": {
         "amd/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },
@@ -1107,52 +1107,52 @@
       "priority": "P2",
       "targets": {
         "amd/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },
@@ -1162,52 +1162,52 @@
       "priority": "P2",
       "targets": {
         "amd/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },
@@ -1220,49 +1220,49 @@
           "precision": "default"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },
@@ -1272,52 +1272,52 @@
       "priority": "P1",
       "targets": {
         "amd/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },
@@ -1605,49 +1605,49 @@
           "precision": "default"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },
@@ -1767,52 +1767,52 @@
       "priority": "P2",
       "targets": {
         "amd/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },
@@ -1852,13 +1852,13 @@
           "precision": "w8a16"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
           "precision": "w8a16"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
           "precision": "w8a16"
@@ -1877,52 +1877,52 @@
       "priority": "P2",
       "targets": {
         "amd/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },
@@ -2152,52 +2152,52 @@
       "priority": "P2",
       "targets": {
         "amd/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },
@@ -2210,49 +2210,49 @@
           "precision": "default"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },
@@ -2265,49 +2265,49 @@
           "precision": "default"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },
@@ -2317,52 +2317,52 @@
       "priority": "P2",
       "targets": {
         "amd/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },
@@ -2592,52 +2592,52 @@
       "priority": "P2",
       "targets": {
         "amd/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MIGraphExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "amd/VitisAIExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "intel/OpenVINOExecutionProvider_GPU": {
           "precision": "w8a16"
         },
         "intel/OpenVINOExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXARMExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/TRTRTXExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/MLASExecutionProvider_CPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "qnn/QNNExecutionProvider_NPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         },
         "nvidia/DmlExecutionProvider_GPU": {
-          "precision": "fp16"
+          "precision": "fp32"
         }
       }
     },

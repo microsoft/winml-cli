@@ -56,9 +56,9 @@ the existing registry, single-model, build-only and baseline behavior, with
 `--priority` defaulting to `P0 P1 P2 P3`. In release mode it reads
 [testsets/models_release_validation.json](testsets/models_release_validation.json), the machine-readable
 projection of [testsets/models_release_validation.md](testsets/models_release_validation.md).
-It runs one job per selected model/task using the precision for the resolved
-`--ep` and `--device`, not the Markdown reference precision. It uses an exact
-precision-matching recipe when available, otherwise a single config/build job.
+It runs one job per selected model/task using the selected config precision for the
+resolved `--ep` and `--device`, not the Markdown reference precision. It uses a
+recipe with that exact label when available, otherwise a single config/build job.
 This also applies to `--no-recipes`; release never expands extra variants.
 
 `--release` rejects explicitly supplied `--priority`, `--hf-model`, `--registry`,
@@ -79,9 +79,37 @@ links remain in the sibling Markdown report for audit and are not opened by the
 runner, so the sibling artifacts repo is not required to load the release list.
 Registry metadata still supplies dataset and perf/eval overrides.
 `default` means omit the precision flag and leave resolution to WinML, not FP32.
-Precision locking constrains job selection and build arguments. The consistency
-check compares reported build metadata; it does not inspect ONNX tensor dtypes
-or independently prove that an artifact has the requested numerical precision.
+The target's `precision` selects a recipe/config, not a measured artifact dtype.
+Checked-in recipe filenames now follow their `quant` configuration:
+
+| `quant` configuration | Filename precision |
+|---|---|
+| `null` (no conversion) | `fp32` |
+| `mode: fp16` | `fp16` |
+| QDQ/static quantization | `w{weight_bits}a{activation_bits}` |
+
+This naming convention describes the configured build stage. It is not an
+independent guarantee of every tensor dtype or the EP's internal computation.
+A matching recipe is still built unchanged. No FP16 conversion was introduced
+by renaming an old `fp16` file whose config has `quant: null`.
+
+The filename correction renamed 91 files and removed 12 byte-identical copies
+whose `fp32` destination already existed. All configuration contents were
+preserved. The release manifest and target-column labels were updated for the
+456 selections that used a renamed recipe; unmatched config fallbacks were not
+changed. Historical evidence URLs, original JSON and the Markdown reference
+column retain their old labels. New jobs use `__fp32` result directories for
+these renamed cases, so `--continue` does not reuse old `__fp16` results.
+
+Precision locking constrains case selection. With a recipe, the consistency
+check compares recipe labels, not the loaded quantization config or tensor
+dtypes. Without a recipe (including `--no-recipes`), a non-default label is
+instead passed as an explicit precision flag. That fallback is a new build
+configuration and is not proof of reproducing the historical case.
+Keep the case label separate from `perf.result.benchmark_info.precision` (the
+perf command's requested policy) and `perf.result.model_info.precision` (the
+artifact precision reported by perf). `auto` for a prebuilt ONNX input does not
+mean that the model was converted to the device's default precision.
 Historical PASS evidence does not guarantee a new run with changed software or
 configuration will pass.
 
@@ -104,6 +132,85 @@ uv run --project . python scripts/e2e_eval/run_eval.py --release --ep openvino -
 # Disambiguate a shared EP through its output path
 uv run python scripts/e2e_eval/run_eval.py --release --ep dml --device gpu --output-dir eval_results/intel/DmlExecutionProvider_GPU --list
 ```
+
+#### Historical Precision Evidence
+
+The release set is a regression selection, not a requirement to convert every
+model to the precision named in its historical directory. The 2026-09-14 audit
+of the table's 800 linked results found:
+
+| Historical case label | Cases | Artifact precision explicitly reported | Not recovered from precision fields/logs |
+|---|---:|---|---:|
+| `fp16` | 464 | 237 report `fp32` | 227 |
+| `default` | 282 | 133 report `fp32`; 1 reports `w8a16` | 148 |
+| `w8a16` | 52 | 42 report `w8a16` | 10 |
+| `fp32` | 1 | None | 1 |
+| `w8a8` | 1 | None | 1 |
+
+The audit reads `perf.result.model_info.precision` first, then the older
+`Model Precision:` perf log entry. A missing observation remains unknown;
+neither a directory suffix, an input tensor dtype nor file size proves the
+precision of all weights, components or accelerator computations. Of the
+historical eval commands that reference a recipe, 457 `fp16` cases referred to
+configs with `quant: null`; 16 `w8a16` cases referred to QDQ configs. These are
+historical labels, before the filename correction described above.
+
+For ResNet-50, compare the
+[historical OpenVINO GPU result](../../../ModelKitArtifacts/site/e2e_model_coverage_result/intel/OpenVINOExecutionProvider_GPU/2026-07-12/models/microsoft__resnet-50__image-classification__fp16/eval_result.json)
+with the
+[September OpenVINO GPU result](../../../ModelKitArtifacts/site/e2e_model_coverage_result/intel/OpenVINOExecutionProvider_GPU/2026-09-10/models/microsoft__resnet-50__image-classification__fp16/eval_result.json):
+
+| Property | Historical result | September result |
+|---|---|---|
+| Case label | `fp16` | `fp16` |
+| Artifact precision reported by perf | `fp32` in logs | `fp32` in `model_info` |
+| Explicit perf/eval precision flag | Not supplied | Not supplied (`auto` policy) |
+| ONNX size | 102,188,898 bytes | 102,188,898 bytes |
+| Accuracy data | `timm/mini-imagenet`, test, 100 samples | Same |
+| Accuracy metric | 0.78 | 0.78 |
+| Perf / accuracy execution status | PASS / PASS | PASS / PASS |
+
+Both use the historically named `image-classification_fp16_config.json` recipe
+for evaluation, now named
+[image-classification_fp32_config.json](../../examples/recipes/microsoft_resnet-50/image-classification_fp32_config.json).
+Its `quant: null` content has not changed since its June 23 introduction.
+The current release recipe build also supplies no `--precision`
+override. Across all 16 ResNet-50 references, 9 explicitly report `fp32` and 7
+do not independently report artifact precision. All 12 September ResNet-50
+results available in the initial audit report `fp32`. Equal sizes and metrics
+are supporting evidence,
+not proof of byte-identical artifacts or a fresh release run: inspect the
+result timestamp because `--continue` can reuse earlier results.
+
+Conversely, the historical
+[QNN NPU splinter result](../../../ModelKitArtifacts/site/e2e_model_coverage_result/qnn/QNNExecutionProvider_NPU/2026-06-30/models/tau__splinter-base__question-answering/eval_result.json)
+has the `default` case label but reports `w8a16`. Do not turn every `default`
+case into an explicit `fp32` build.
+
+Use these rules when maintaining release cases:
+
+1. Identify a case by model, task, target and selected config precision. When
+  correcting a filename, update the manifest to keep selecting the same recipe
+  contents and preserve links to the old evidence. Do not rewrite historical JSON
+  or copy old results into the newly named result directories.
+2. Reuse the referenced recipe/configuration, including component configs,
+  export shapes, quantization settings, dataset, sample count and perf/eval
+  overrides. Do not inject a conversion solely to satisfy the case label.
+3. Treat a missing recipe or `--no-recipes` as a different build source. The
+  current runner still permits config fallback; historical equivalence is not
+  established by that fallback. Verify its configuration and run it before
+  replacing the case's accepted evidence.
+4. Separate the case label, requested build/perf policy and observed artifact
+  precision. Existing top-level `eval_result.precision` is not an independent
+  measurement: recipe builds return their label, whereas config builds can
+  return their resolved precision. For stronger replay guarantees, retain the
+  build command and configuration snapshot/hash alongside the evidence;
+  historical eval JSON alone does not contain a complete build snapshot.
+5. Compare perf and accuracy on the same case and artifact, with the recorded
+  dataset settings and the existing metric-grading policy. These 800 references
+  all have perf PASS, but only 609 also have accuracy PASS with positive dataset
+  sample counts; 191 have failed, missing or skipped accuracy. A perf-only
+  reference is not a known-good accuracy baseline.
 
 Without `--release`, the existing recipe expansion applies:
 
