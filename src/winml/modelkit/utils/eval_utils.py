@@ -271,6 +271,11 @@ _ZERO_SHOT_CLASSIFICATION_SCHEMA = TaskSchema(
     ),
     params=(
         SchemaItem(
+            "input_pair_column",
+            "optional per-row hypothesis/second text column for NLI pair scoring",
+            remap_hint="<your_hypothesis_column>",
+        ),
+        SchemaItem(
             "candidate_labels",
             "candidate label vocabulary; required if label column is not a ClassLabel",
             default="from dataset ClassLabel.names",
