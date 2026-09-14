@@ -115,6 +115,24 @@ PDH records are scoped to the current PID and all enumerated physical memory
 nodes for that adapter. Local/shared are driver accounting categories: UMA local
 memory can be system RAM. Do not add process RSS and GPU shared memory.
 
+GPU counter availability is classified explicitly. A successful counter value
+of zero is measured_zero; an empty successful enumeration is absent_unconfirmed,
+not proof of zero; enumeration errors and invalid readings are separate states.
+The CLI cannot certify that a process has never used the GPU merely from an
+absent PDH instance, so it never fabricates a zero baseline from that condition.
+
+The hardware monitor refreshes PID/LUID memory instances every 200 ms, including
+when monitoring starts before model load. Counter registration is deduplicated,
+failed registrations retry, and missing/disappeared instances stay unknown.
+Checkpoint reads also retry briefly (up to 250 ms) while paused at the same phase.
+None of these retries backfill earlier missing observations.
+
+hw_monitor.device_memory.coverage records window timestamps, the first/last valid
+sample, valid/missing counts and timestamped memory observations. Mean is over
+valid samples only; peak is over observed samples only. Initial missing samples
+remain a partial-coverage warning even after the metric recovers. Discovery can
+miss sub-200-ms lifetimes; sampling does not certify the true instantaneous peak.
+
 The --monitor summary uses null/N/A when RAM or device memory has no valid
 samples. Its sampled inference-window peaks have a different time boundary from
 the three phase checkpoints. Historical collectors and the external Raw CGC

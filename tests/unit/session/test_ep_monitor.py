@@ -446,7 +446,7 @@ class TestPdhPoller:
         """
         from winml.modelkit.session.monitor._pdh import PdhPoller
 
-        poller = PdhPoller.__new__(PdhPoller)
+        poller = PdhPoller(device="cpu")
         poller._stop_event = threading.Event()
         poller._lock = threading.Lock()
         poller._poll_interval_s = 0.0
@@ -473,6 +473,7 @@ class TestPdhPoller:
             return sample
 
         poller._query = MagicMock()
+        poller._query.memory_readings = {}
         poller._query._collect_once.side_effect = collect_then_stop
 
         poller._poll_loop()
@@ -1080,6 +1081,7 @@ class TestPollerDeviceRouting:
                 "_collect_once": lambda self: {},
                 "close": lambda self: None,
                 "counter_names": [],
+                "memory_readings": {},
             },
         )()
 
@@ -1121,6 +1123,7 @@ class TestPollerDeviceRouting:
                 "_collect_once": lambda self: {},
                 "close": lambda self: None,
                 "counter_names": [],
+                "memory_readings": {},
             },
         )()
         bound_luid = "0x00000000_0x00018393"
@@ -1173,6 +1176,7 @@ class TestPollerDeviceRouting:
                 "_collect_once": lambda self: {},
                 "close": lambda self: None,
                 "counter_names": [],
+                "memory_readings": {},
             },
         )()
         bound_luid = "0x00000000_0x00018393"
@@ -1227,6 +1231,7 @@ class TestPollerDeviceRouting:
                 "_collect_once": lambda self: {},
                 "close": lambda self: None,
                 "counter_names": [],
+                "memory_readings": {},
             },
         )()
 
@@ -1268,6 +1273,7 @@ class TestPollerDeviceRouting:
                 "_collect_once": lambda self: {},
                 "close": lambda self: None,
                 "counter_names": [],
+                "memory_readings": {},
             },
         )()
 
@@ -1350,6 +1356,7 @@ class TestHWMonitorDeviceRouting:
             (),
             {
                 "device_kind": "gpu",
+                "memory_coverage": {},
                 "mean_utilization_pct": 91.23,
                 "peak_utilization_pct": 98.76,
                 "utilization_sample_count": 5,
@@ -1402,6 +1409,7 @@ class TestHWMonitorDeviceRouting:
                 "_collect_once": lambda self: {},
                 "close": lambda self: None,
                 "counter_names": [],
+                "memory_readings": {},
             },
         )()
 
@@ -1442,6 +1450,7 @@ class TestHWMonitorDeviceRouting:
                 "_collect_once": lambda self: {},
                 "close": lambda self: None,
                 "counter_names": [],
+                "memory_readings": {},
             },
         )()
 

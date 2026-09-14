@@ -27,6 +27,11 @@ def metric(value: int | None, source: str, reason: str | None = None) -> dict[st
         "status": "valid" if value is not None else "unavailable",
         "source": source,
         "reason": reason,
+        "value_origin": "measured_zero"
+        if value == 0
+        else "measured"
+        if value is not None
+        else "unknown",
     }
 
 
@@ -46,9 +51,21 @@ def sample_vram(adapter_luid: str | None) -> dict[str, Any]:
     try:
         from ._pdh import PdhQuery, memory_instances
 
-        instances = memory_instances(os.getpid(), adapter_luid)
+        # Retry while the caller is paused at this phase; never borrow a later phase.
+        deadline = time.monotonic() + 0.25
+        while True:
+            instances = memory_instances(os.getpid(), adapter_luid)
+            if instances or time.monotonic() >= deadline:
+                break
+            time.sleep(0.05)
         if not instances:
-            return {key: metric(None, source, "no_process_memory_instance") for key in result}
+            return {
+                key: {
+                    **metric(None, source, "no_process_memory_instance; zero_not_proven"),
+                    "discovery_status": "absent_unconfirmed",
+                }
+                for key in result
+            }
         query = PdhQuery()
         query.open()
         names: dict[str, list[str]] = {"local": [], "shared": []}
@@ -75,7 +92,10 @@ def sample_vram(adapter_luid: str | None) -> dict[str, Any]:
     except Exception as exc:
         logger.debug("VRAM query unavailable", exc_info=True)
         result = {
-            key: metric(None, source, f"query_failed: {type(exc).__name__}: {exc}")
+            key: {
+                **metric(None, source, f"query_failed: {type(exc).__name__}: {exc}"),
+                "discovery_status": "error",
+            }
             for key in result
         }
     finally:

@@ -275,7 +275,8 @@ class HWMonitor:
                 "reason": "no_valid_memory_samples"
                 if self._pdh.peak_memory_local_mb is None or self._pdh.peak_memory_shared_mb is None
                 else None,
-                "source": "PDH process memory; sampled inference-window peak",
+                "source": "PDH process memory; observed-sample mean/peak",
+                "coverage": self._pdh.memory_coverage,
             },
             "running_time_ns": self._pdh.running_time_delta_ns,
         }
