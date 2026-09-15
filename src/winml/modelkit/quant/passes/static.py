@@ -87,6 +87,7 @@ class StaticPass(BaseQuantPass):
         use_external_data: bool = True,
     ) -> QuantizeResult:
         """Apply QDQ calibrated quantization to *model_path*."""
+        from onnx import external_data_helper, load_model, version_converter
         from onnxruntime.quantization import (
             CalibrationMethod,
             QuantType,
@@ -161,9 +162,40 @@ class StaticPass(BaseQuantPass):
             ),
         }
 
+        from onnxruntime.quantization.quant_utils import add_pre_process_metadata
+
+        from ...onnx import capture_metadata, load_onnx, restore_metadata, save_onnx
+        from ..qdq_fix import fix_qdq_dtype_info
+
+        input_model = load_model(model_path, load_external_data=False)
+        metadata_snapshot = capture_metadata(input_model)
+        onnx_opset = next(
+            opset.version for opset in input_model.opset_import if opset.domain in ("", "ai.onnx")
+        )
+        if onnx_opset < 21 and (
+            self._config.weight_type in ("uint16", "int16")
+            or self._config.activation_type in ("uint16", "int16")
+        ):
+            logger.info("Converting QDQ input to opset 21 before loading external weights...")
+            external_initializers = {
+                tensor.name: tensor
+                for tensor in input_model.graph.initializer
+                if external_data_helper.uses_external_data(tensor)
+            }
+            input_model = version_converter.convert_version(input_model, 21)
+            for tensor in input_model.graph.initializer:
+                original = external_initializers.get(tensor.name)
+                if original is not None:
+                    if tensor.data_type != original.data_type or tensor.dims != original.dims:
+                        raise ValueError(
+                            f"Opset conversion changed external initializer {tensor.name!r}"
+                        )
+                    tensor.CopyFrom(original)
+        add_pre_process_metadata(input_model)
+
         logger.info("Generating QDQ config...")
         qdq_config = get_qdq_config(
-            model_input=str(model_path),
+            model_input=input_model,
             calibration_data_reader=data_reader,
             weight_type=weight_type,
             activation_type=activation_type,
@@ -174,14 +206,7 @@ class StaticPass(BaseQuantPass):
             extra_options=extra_options,
         )
 
-        from onnxruntime.quantization.quant_utils import add_pre_process_metadata
-
-        from ...onnx import capture_metadata, load_onnx, restore_metadata, save_onnx
-        from ..qdq_fix import fix_qdq_dtype_info
-
-        input_model = load_onnx(model_path, validate=False)
-        metadata_snapshot = capture_metadata(input_model)
-        add_pre_process_metadata(input_model)
+        external_data_helper.load_external_data_for_model(input_model, str(model_path.parent))
 
         if use_external_data:
             qdq_config.use_external_data_format = True

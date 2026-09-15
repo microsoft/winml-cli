@@ -756,6 +756,69 @@ class TestPublishStagedModel:
 
 
 class TestStaticPassQuantizationRegionHints:
+    def test_external_16bit_opset_conversion_precedes_weight_loading(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from onnx import external_data_helper, version_converter
+        from onnxruntime.quantization import CalibrationDataReader
+
+        class Reader(CalibrationDataReader):
+            def get_next(self) -> dict[str, np.ndarray] | None:
+                return next(self._iterator, None)
+
+            def __init__(self) -> None:
+                self._iterator = iter(
+                    [{"input": np.random.RandomState(7).randn(1, 4, 3).astype(np.float32)}]
+                )
+
+        model_path = tmp_path / "input.onnx"
+        output_path = tmp_path / "quantized.onnx"
+        save(
+            _make_static_grouped_conv_model(),
+            model_path,
+            save_as_external_data=True,
+            all_tensors_to_one_file=True,
+            location="input.onnx.data",
+            size_threshold=128,
+        )
+        convert_version = version_converter.convert_version
+        conversions = []
+
+        def convert_compact_model(model: ModelProto, target_version: int) -> ModelProto:
+            external_weights = [
+                tensor
+                for tensor in model.graph.initializer
+                if external_data_helper.uses_external_data(tensor)
+            ]
+            assert external_weights
+            assert all(not tensor.HasField("raw_data") for tensor in external_weights)
+            conversions.append(target_version)
+            return convert_version(model, target_version)
+
+        monkeypatch.setattr(version_converter, "convert_version", convert_compact_model)
+        result = StaticPass(
+            WinMLQuantizationConfig(
+                mode="static",
+                calibration_data=Reader(),
+                activation_type="uint16",
+                weight_type="uint8",
+                per_channel=False,
+            )
+        ).run(model_path, output_path)
+
+        assert result.success
+        assert conversions == [21]
+        checker.check_model(str(output_path), full_check=True)
+        quantized = load(output_path)
+        qdq_nodes = [
+            node for node in quantized.graph.node
+            if node.op_type in {"QuantizeLinear", "DequantizeLinear"}
+        ]
+        assert qdq_nodes
+        assert all(node.domain == "" for node in qdq_nodes)
+
     def test_restores_model_only_hint_and_canonicalizes_branch_outputs(
         self,
         tmp_path: Path,
