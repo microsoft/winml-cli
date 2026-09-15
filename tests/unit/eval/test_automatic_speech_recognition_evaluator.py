@@ -130,6 +130,29 @@ def test_compute_uses_corpus_word_error_rate() -> None:
     assert result["processed_samples"] == 2
 
 
+def test_compute_scores_empty_hypothesis_as_deletions() -> None:
+    evaluator = _evaluator(seq2seq=False)
+    evaluator.config.dataset.samples = 2
+    evaluator.data = [
+        {
+            "audio": {"array": np.ones(160), "sampling_rate": 16_000},
+            "text": "hello world",
+        },
+        {
+            "audio": {"array": np.ones(160), "sampling_rate": 16_000},
+            "text": "recognized",
+        },
+    ]
+    evaluator.processor.return_value = {"input_values": torch.ones(1, 160)}
+    evaluator.processor.batch_decode.side_effect = [[""], ["recognized"]]
+    evaluator.model.return_value = SimpleNamespace(logits=torch.ones(1, 1, 1))
+
+    result = evaluator.compute()
+
+    assert result["wer"] == pytest.approx(2 / 3)
+    assert result["processed_samples"] == 2
+
+
 def test_seq2seq_compute_uses_bounded_generation() -> None:
     evaluator = _evaluator(seq2seq=True)
     evaluator.data = [{"audio": {"array": np.ones(160), "sampling_rate": 16_000}, "text": "hello"}]

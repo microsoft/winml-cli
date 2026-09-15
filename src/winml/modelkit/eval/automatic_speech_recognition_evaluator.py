@@ -214,8 +214,6 @@ class WinMLAutomaticSpeechRecognitionEvaluator(WinMLEvaluator):
                 if self.mode == "seq2seq"
                 else self._predict_ctc(waveform)
             )
-            if not prediction:
-                raise ValueError(f"ASR produced an empty transcript for row {row_index}")
             predictions.append(prediction)
             references.append(reference.strip())
 
