@@ -198,6 +198,15 @@ def _run_winml_cli_subprocess(
     )
 
 
+def _run_perf_cli(args: list[str]) -> None:
+    """Run an EP benchmark through the real CLI and require a clean process exit."""
+    # Isolate CLI calls: loading VitisAI can prevent MIGraphX loading in the same process.
+    result = _run_winml_cli_subprocess(["perf", *args], timeout=2400)
+    assert result.returncode == 0, (
+        f"perf failed (exit {result.returncode}):\n{result.stdout}\n{result.stderr}"
+    )
+
+
 def _assert_monitor_result(
     data: dict,
     *,
@@ -563,14 +572,7 @@ class _PerfBenchmarkSuite:
 
         output_file = tmp_path / f"perf_{ep}.json"
 
-        runner = CliRunner()
-        result = runner.invoke(
-            perf,
-            _build_perf_args(model_arg=model_arg, output_file=output_file, ep=ep),
-            obj={},
-            catch_exceptions=False,
-        )
-        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+        _run_perf_cli(_build_perf_args(model_arg=model_arg, output_file=output_file, ep=ep))
 
         assert output_file.exists()
         data = json.loads(output_file.read_text())
@@ -588,16 +590,11 @@ class _PerfBenchmarkSuite:
 
         output_file = tmp_path / f"perf_{ep}_cpu.json"
 
-        runner = CliRunner()
-        result = runner.invoke(
-            perf,
+        _run_perf_cli(
             _build_perf_args(
                 model_arg=model_arg, output_file=output_file, device="cpu", ep=ep, monitor=True
-            ),
-            obj={},
-            catch_exceptions=False,
+            )
         )
-        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
 
         assert output_file.exists()
         data = json.loads(output_file.read_text())
@@ -614,9 +611,7 @@ class _PerfBenchmarkSuite:
 
         output_file = tmp_path / f"perf_{ep}_gpu.json"
 
-        runner = CliRunner()
-        result = runner.invoke(
-            perf,
+        _run_perf_cli(
             _build_perf_args(
                 model_arg=gpu_model_arg,
                 output_file=output_file,
@@ -624,11 +619,8 @@ class _PerfBenchmarkSuite:
                 ep=ep,
                 monitor=True,
                 duration_overwrite=3,
-            ),
-            obj={},
-            catch_exceptions=False,
+            )
         )
-        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
 
         assert output_file.exists()
         data = json.loads(output_file.read_text())
@@ -651,16 +643,11 @@ class _PerfBenchmarkSuite:
 
         output_file = tmp_path / f"perf_{ep}_npu.json"
 
-        runner = CliRunner()
-        result = runner.invoke(
-            perf,
+        _run_perf_cli(
             _build_perf_args(
                 model_arg=npu_model_arg, output_file=output_file, device="npu", ep=ep, monitor=True
-            ),
-            obj={},
-            catch_exceptions=False,
+            )
         )
-        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
 
         assert output_file.exists()
         data = json.loads(output_file.read_text())
@@ -1032,16 +1019,11 @@ class TestPerfHuggingFace:
 
         output_file = tmp_path / f"perf_hf_{ep}_cpu.json"
 
-        runner = CliRunner()
-        result = runner.invoke(
-            perf,
+        _run_perf_cli(
             _build_perf_args(
                 model_arg=model_arg, output_file=output_file, device="cpu", ep=ep, monitor=True
-            ),
-            obj={},
-            catch_exceptions=False,
+            )
         )
-        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
 
         assert output_file.exists()
         data = json.loads(output_file.read_text())
@@ -1056,9 +1038,7 @@ class TestPerfHuggingFace:
 
         output_file = tmp_path / f"perf_hf_{ep}_gpu.json"
 
-        runner = CliRunner()
-        result = runner.invoke(
-            perf,
+        _run_perf_cli(
             _build_perf_args(
                 model_arg=model_arg,
                 output_file=output_file,
@@ -1066,11 +1046,8 @@ class TestPerfHuggingFace:
                 ep=ep,
                 monitor=True,
                 duration_overwrite=3,
-            ),
-            obj={},
-            catch_exceptions=False,
+            )
         )
-        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
 
         assert output_file.exists()
         data = json.loads(output_file.read_text())
@@ -1090,16 +1067,11 @@ class TestPerfHuggingFace:
 
         output_file = tmp_path / f"perf_hf_{ep}_npu.json"
 
-        runner = CliRunner()
-        result = runner.invoke(
-            perf,
+        _run_perf_cli(
             _build_perf_args(
                 model_arg=model_arg, output_file=output_file, device="npu", ep=ep, monitor=True
-            ),
-            obj={},
-            catch_exceptions=False,
+            )
         )
-        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
 
         assert output_file.exists()
         data = json.loads(output_file.read_text())

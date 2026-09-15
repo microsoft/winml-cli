@@ -6,7 +6,7 @@
 
 Conventions
 -----------
-* Each test invokes the real ``compile`` Click command via ``CliRunner``.
+* Tests invoke the real ``compile`` command via ``CliRunner`` or a CLI subprocess.
 * EP-availability gating: tests that exercise a specific EP runtime call
   :func:`tests.e2e.require_ep.require_ep`; absent EPs skip with a clear reason.
 * Test fixtures (tiny ONNX models, config files) are generated in-process —
@@ -895,8 +895,14 @@ def test_bad_input_unsupported_ep(ep: str, simple_matmul_onnx: Path) -> None:
     """
     require_ep(ep)
     src_hash = _sha256(simple_matmul_onnx)
-    result = _invoke("-m", str(simple_matmul_onnx), "--ep", ep)
-    _assert_rejected(result, "does not support EPContext compilation", src_hash, simple_matmul_onnx)
+    # Match separate CLI calls so previously loaded VitisAI cannot interfere with MIGraphX.
+    result = _run_winml_cli_subprocess(["compile", "-m", str(simple_matmul_onnx), "--ep", ep])
+    output = f"{result.stdout}\n{result.stderr}"
+    assert result.returncode != 0, f"Expected rejection but exit was 0:\n{output}"
+    assert "does not support EPContext compilation" in output, (
+        f"Expected unsupported EPContext compilation error (exit {result.returncode}):\n{output}"
+    )
+    assert _sha256(simple_matmul_onnx) == src_hash, "Input ONNX was mutated despite rejection"
 
 
 # Pair each EP with a device it supports. With no ``--device``, ``sysinfo``
