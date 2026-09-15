@@ -51,6 +51,169 @@ uv run python scripts/e2e_eval/build_registry.py --dry-run
 
 ### `run_eval.py` — Run Evaluation (recipe-driven perf + accuracy)
 
+**Release evaluation is opt-in with `--release`.** Without it, the runner keeps
+the existing registry, single-model, build-only and baseline behavior, with
+`--priority` defaulting to `P0 P1 P2 P3`. In release mode it reads
+[testsets/models_release_validation.json](testsets/models_release_validation.json), the machine-readable
+projection of [testsets/models_release_validation.md](testsets/models_release_validation.md).
+It runs one job per selected model/task using the selected config precision for the
+resolved `--ep` and `--device`, not the Markdown reference precision. It uses a
+recipe with that exact label when available, otherwise a single config/build job.
+This also applies to `--no-recipes`; release never expands extra variants.
+
+`--release` rejects explicitly supplied `--priority`, `--hf-model`, `--registry`,
+`--task`, `--group` and `--model-type`: the manifest defines the complete case set.
+It also rejects `--build-only` and `--update-baseline`; those modes keep their
+existing workflows without `--release`. Default argument values are not conflicts,
+and ordinary-mode combinations remain unchanged. `release` is not a priority
+value; model priority metadata remains P0-P3.
+
+Execution controls such as `--ep`, `--device`, `--eval-type`, `--output-dir`,
+`--continue`, `--retry-failed`, timeouts and cache cleanup remain available, as
+do `--list` and `--list-json`. Recipes and `--no-recipes` still choose the build
+source, but cannot expand the manifest's selected precisions.
+
+Each manifest entry contains `hf_id`, `task`, `priority` and a `targets` map keyed
+by `machine/EP_device`. A target stores only `precision`. Historical evidence
+links remain in the sibling Markdown report for audit and are not opened by the
+runner, so the sibling artifacts repo is not required to load the release list.
+Registry metadata still supplies dataset and perf/eval overrides.
+`default` means omit the precision flag and leave resolution to WinML, not FP32.
+The target's `precision` selects a recipe/config, not a measured artifact dtype.
+Checked-in recipe filenames now follow their `quant` configuration:
+
+| `quant` configuration | Filename precision |
+|---|---|
+| `null` (no conversion) | `fp32` |
+| `mode: fp16` | `fp16` |
+| QDQ/static quantization | `w{weight_bits}a{activation_bits}` |
+
+This naming convention describes the configured build stage. It is not an
+independent guarantee of every tensor dtype or the EP's internal computation.
+A matching recipe is still built unchanged. No FP16 conversion was introduced
+by renaming an old `fp16` file whose config has `quant: null`.
+
+The filename correction renamed 91 files and removed 12 byte-identical copies
+whose `fp32` destination already existed. All configuration contents were
+preserved. The release manifest and target-column labels were updated for the
+456 selections that used a renamed recipe; unmatched config fallbacks were not
+changed. Historical evidence URLs, original JSON and the Markdown reference
+column retain their old labels. New jobs use `__fp32` result directories for
+these renamed cases, so `--continue` does not reuse old `__fp16` results.
+
+Precision locking constrains case selection. With a recipe, the consistency
+check compares recipe labels, not the loaded quantization config or tensor
+dtypes. Without a recipe (including `--no-recipes`), a non-default label is
+instead passed as an explicit precision flag. That fallback is a new build
+configuration and is not proof of reproducing the historical case.
+Keep the case label separate from `perf.result.benchmark_info.precision` (the
+perf command's requested policy) and `perf.result.model_info.precision` (the
+artifact precision reported by perf). `auto` for a prebuilt ONNX input does not
+mean that the model was converted to the device's default precision.
+Historical PASS evidence does not guarantee a new run with changed software or
+configuration will pass.
+
+Targets such as OpenVINO GPU have one matching manifest key. For a shared EP
+such as DML GPU or MLAS CPU, use a consecutive `<machine>/<EP>_<device>` pair
+from the manifest in `--output-dir`, for example
+`nvidia/DmlExecutionProvider_GPU/2026-09-10`. The path is normalized before
+matching, and unrelated ancestor machine names do not select a target.
+Missing or multiple matching pairs cause an error instead of guessing.
+The output folder does not override `--ep/--device`; name it consistently to
+avoid filing OpenVINO results under DML.
+
+```bash
+# Preview the release plan without downloading/building models
+uv run --project . python scripts/e2e_eval/run_eval.py --release --ep openvino --device gpu --list
+
+# Resume/retry release evaluation
+uv run --project . python scripts/e2e_eval/run_eval.py --release --ep openvino --device gpu --eval-type both --output-dir ../ModelKitArtifacts/site/e2e_model_coverage_result/intel/OpenVINOExecutionProvider_GPU/2026-09-10 --continue --timeout 1000 --retry-failed HF_FETCH_FAIL --clean-cache winml
+
+# Disambiguate a shared EP through its output path
+uv run python scripts/e2e_eval/run_eval.py --release --ep dml --device gpu --output-dir eval_results/intel/DmlExecutionProvider_GPU --list
+```
+
+#### Historical Precision Evidence
+
+The release set is a regression selection, not a requirement to convert every
+model to the precision named in its historical directory. The 2026-09-14 audit
+of the table's 800 linked results found:
+
+| Historical case label | Cases | Artifact precision explicitly reported | Not recovered from precision fields/logs |
+|---|---:|---|---:|
+| `fp16` | 464 | 237 report `fp32` | 227 |
+| `default` | 282 | 133 report `fp32`; 1 reports `w8a16` | 148 |
+| `w8a16` | 52 | 42 report `w8a16` | 10 |
+| `fp32` | 1 | None | 1 |
+| `w8a8` | 1 | None | 1 |
+
+The audit reads `perf.result.model_info.precision` first, then the older
+`Model Precision:` perf log entry. A missing observation remains unknown;
+neither a directory suffix, an input tensor dtype nor file size proves the
+precision of all weights, components or accelerator computations. Of the
+historical eval commands that reference a recipe, 457 `fp16` cases referred to
+configs with `quant: null`; 16 `w8a16` cases referred to QDQ configs. These are
+historical labels, before the filename correction described above.
+
+For ResNet-50, compare the
+[historical OpenVINO GPU result](../../../ModelKitArtifacts/site/e2e_model_coverage_result/intel/OpenVINOExecutionProvider_GPU/2026-07-12/models/microsoft__resnet-50__image-classification__fp16/eval_result.json)
+with the
+[September OpenVINO GPU result](../../../ModelKitArtifacts/site/e2e_model_coverage_result/intel/OpenVINOExecutionProvider_GPU/2026-09-10/models/microsoft__resnet-50__image-classification__fp16/eval_result.json):
+
+| Property | Historical result | September result |
+|---|---|---|
+| Case label | `fp16` | `fp16` |
+| Artifact precision reported by perf | `fp32` in logs | `fp32` in `model_info` |
+| Explicit perf/eval precision flag | Not supplied | Not supplied (`auto` policy) |
+| ONNX size | 102,188,898 bytes | 102,188,898 bytes |
+| Accuracy data | `timm/mini-imagenet`, test, 100 samples | Same |
+| Accuracy metric | 0.78 | 0.78 |
+| Perf / accuracy execution status | PASS / PASS | PASS / PASS |
+
+Both use the historically named `image-classification_fp16_config.json` recipe
+for evaluation, now named
+[image-classification_fp32_config.json](../../examples/recipes/microsoft_resnet-50/image-classification_fp32_config.json).
+Its `quant: null` content has not changed since its June 23 introduction.
+The current release recipe build also supplies no `--precision`
+override. Across all 16 ResNet-50 references, 9 explicitly report `fp32` and 7
+do not independently report artifact precision. All 12 September ResNet-50
+results available in the initial audit report `fp32`. Equal sizes and metrics
+are supporting evidence,
+not proof of byte-identical artifacts or a fresh release run: inspect the
+result timestamp because `--continue` can reuse earlier results.
+
+Conversely, the historical
+[QNN NPU splinter result](../../../ModelKitArtifacts/site/e2e_model_coverage_result/qnn/QNNExecutionProvider_NPU/2026-06-30/models/tau__splinter-base__question-answering/eval_result.json)
+has the `default` case label but reports `w8a16`. Do not turn every `default`
+case into an explicit `fp32` build.
+
+Use these rules when maintaining release cases:
+
+1. Identify a case by model, task, target and selected config precision. When
+  correcting a filename, update the manifest to keep selecting the same recipe
+  contents and preserve links to the old evidence. Do not rewrite historical JSON
+  or copy old results into the newly named result directories.
+2. Reuse the referenced recipe/configuration, including component configs,
+  export shapes, quantization settings, dataset, sample count and perf/eval
+  overrides. Do not inject a conversion solely to satisfy the case label.
+3. Treat a missing recipe or `--no-recipes` as a different build source. The
+  current runner still permits config fallback; historical equivalence is not
+  established by that fallback. Verify its configuration and run it before
+  replacing the case's accepted evidence.
+4. Separate the case label, requested build/perf policy and observed artifact
+  precision. Existing top-level `eval_result.precision` is not an independent
+  measurement: recipe builds return their label, whereas config builds can
+  return their resolved precision. For stronger replay guarantees, retain the
+  build command and configuration snapshot/hash alongside the evidence;
+  historical eval JSON alone does not contain a complete build snapshot.
+5. Compare perf and accuracy on the same case and artifact, with the recorded
+  dataset settings and the existing metric-grading policy. These 800 references
+  all have perf PASS, but only 609 also have accuracy PASS with positive dataset
+  sample counts; 191 have failed, missing or skipped accuracy. A perf-only
+  reference is not a known-good accuracy baseline.
+
+Without `--release`, the existing recipe expansion applies:
+
 For each filtered model the runner builds the model, runs `winml perf`, and — when
 perf passes — runs `winml eval`. **Recipes drive the build on every device (they
 carry the accuracy eval/dataset config), but quantized precision variants are
@@ -110,26 +273,57 @@ uv run python scripts/e2e_eval/run_eval.py --update-baseline --eval-type accurac
 | `--registry` | `testsets/models_all.json` | Model registry file |
 | `--hf-model` | — | Single model (overrides registry) |
 | `--output-dir` | `eval_results/{date}` | Output directory |
-| `--recipes-dir` | `examples/recipes` | Authored recipe configs, selected from `<model>/<ep>/<device>` with legacy `<model>` fallback. NPU builds every precision variant (`winml config` `w8a8`+`w8a16` fallback when a model has none); CPU/GPU (and unquantized-track EPs like VitisAI) build only non-quantized variants, else a `winml config` fallback |
-| `--no-recipes` | off | Ignore recipes; build every model via `winml config` (on NPU still expands the `w8a8`+`w8a16` fallback) |
+| `--recipes-dir` | `examples/recipes` | Release: use only the matching target precision recipe. P0-P3: target-directory recipe expansion as described above |
+| `--no-recipes` | off | Release: one config/build per selected precision. P0-P3: legacy config fallback (including NPU expansion) |
 | `--copy-recipes-from EP DEVICE` | — | Copy missing configs from each model's source target into `--ep/--device` before building; existing target configs are never overwritten |
 | `--eval-type` | `perf` | `perf`, `accuracy`, or `both` (perf-gated accuracy) |
 | `--task` | — | Filter by HF task |
-| `--priority` | `P0 P1 P2` | Filter: one or more of `P0`, `P1`, `P2`, `P3` (e.g. `--priority P0 P1`). Pass `P3` explicitly to include P3 models. |
+| `--priority` | `P0 P1 P2 P3` | Filter: one or more of `P0`, `P1`, `P2`, `P3` (e.g. `--priority P0 P1`) |
+| `--release` | off | Use the fixed release manifest and target precisions; rejects explicit model selectors, `--build-only` and `--update-baseline` |
 | `--model-type` | — | Filter by model_type (e.g. `bert`) |
 | `--group` | — | Filter by group (e.g. `Foundry Toolkit`) |
 | `--device` | `auto` | Target device |
 | `--ep` | — | Execution provider (e.g. `qnn`, `dml`, `openvino`); applied at perf/eval time |
 | `--pin-single-dml-gpu` | off | CI RDP workaround: resolve the sole DXCore GPU after build and pass its current LUID to winml perf. Requires --ep dml --device gpu --eval-type perf; errors on ambiguous/missing hardware. Does not change pytest suites, build selection, or product defaults. |
 | `--timeout` | 600 | Per-subprocess execution timeout (seconds). Observable Hugging Face download time is excluded; the full timeout restarts when the download completes. |
-| `--hf-download-stall-timeout` | 600 | Fail as `HF_FETCH_FAIL` when a Hugging Face partial download has no size/mtime progress for this many seconds. |
+| `--hf-download-stall-timeout` | 120 | Fail as `HF_FETCH_FAIL` when a Hugging Face partial download has no size/mtime progress for this many seconds. Also sets Hugging Face Hub download and metadata request timeouts. |
 | `--clean-cache [TARGET ...]` | off | Clean caches after each job. `TARGET`: `winml`, `huggingface`, `others` (others = VitisAI cache + temp/cwd leaked scratch files). Use `--clean-cache` without TARGET to clear all (legacy behavior). |
 | `--update-baseline` | off | Offline mode: refresh `cache/baseline_cache.json` via the PyTorch baseline, then exit (no build/perf/eval) |
 | `--list` | off | List models and exit |
+| `--list-json PATH` | — | Write filtered models and exit; release includes `precision` (null for default) and `release_target`. Continue/retry checks use the selected precision's result directory |
 | `--verbose` | off | Print stderr for failed models |
 | `--continue` | off | Skip jobs with existing results (but backfill accuracy onto perf-only results when `--eval-type` wants it) |
 | `--retry-failed [TYPE ...]` | — | Re-run failed jobs (implies `--continue`); unknown types are rejected as argument errors. Retry criteria are not mutually exclusive: `HF_FETCH_FAIL` also checks failed perf and accuracy logs for `WinError 10060`, `we couldn't connect to 'https://huggingface.co'`, or `thrown while requesting HEAD https://huggingface.co`, even when the primary perf classification is another type or accuracy is `FAIL`. |
 | `--build-only` | off | Build with `--no-compile`, writing each stage's ONNX (no EP needed). Loops the EP matrix when `--ep`/`--device` omitted |
+
+Subprocess diagnostics are retained under `temp/e2e-eval-logs/` in the CLI project
+root, with a unique timestamped directory for each command. The directory is
+printed before launch. `stdout.log` and `stderr.log` receive raw output directly;
+`events.jsonl` records the command, runner/child PIDs, stage, timestamps, timeout
+decisions, and cleanup lifecycle. `monitor.log` captures download-monitor errors,
+and `download_progress.json` contains its latest observation. Logs remain after
+success, failure, or interruption and are separate from the generated reports.
+Remove old diagnostic directories when no longer needed; raw commands/output
+may contain private paths or data and should be reviewed before sharing.
+
+Every 30 seconds a flushed console heartbeat reports elapsed time, remaining
+execution budget, download-monitor state, stdout/stderr byte counts, and time
+since output growth was last observed. The same fields are written to
+`events.jsonl`. Output inactivity is diagnostic only, not a kill condition:
+inference can be silent while consuming its execution budget. Python children
+use unbuffered output and enable fault-handler output for fatal errors.
+
+Capture does not need reader threads or wait for pipe EOF, so full pipes and
+inherited output handles cannot stall the runner. Raw output is not streamed
+live to the console; the named files can be inspected while the command runs.
+Download ownership and cache progress are sampled in a separate helper process.
+If it stops reporting for five seconds or exits, it is stopped and execution
+timeout enforcement continues without trusting stale download observations.
+Timeouts print the reason and subprocess PID before process-tree cleanup.
+
+The Hugging Face HTTP settings are per-request limits, not a two-minute wall-clock
+limit across retries. Requests that never create an observable partial download
+remain subject to the subprocess execution timeout.
 
 ### `run_llm_eval.py` — Run GenAI Context Sweep
 

@@ -17,13 +17,20 @@ import argparse
 import importlib.util
 import json
 import sys
+import threading
 import time
-from io import BytesIO
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+
+def test_progress_prefix_includes_local_timestamp(run_eval):
+    now = datetime(2026, 9, 13, 2, 25, 10)
+
+    assert run_eval._progress_prefix(27, 50, now) == "[2026-09-13 02:25:10] [27/50]"
 
 
 def _load_run_eval():
@@ -56,8 +63,10 @@ def _load_run_eval():
 
 
 @pytest.fixture(scope="module")
-def run_eval():
-    return _load_run_eval()
+def run_eval(tmp_path_factory):
+    module = _load_run_eval()
+    module._SUBPROCESS_LOG_ROOT = tmp_path_factory.mktemp("e2e-eval-logs")
+    return module
 
 
 @pytest.fixture(autouse=True)
@@ -105,6 +114,145 @@ class TestResolveCleanCacheTargets:
     )
     def test_preserves_cli_and_legacy_boolean_semantics(self, run_eval, raw_targets, expected):
         assert run_eval._resolve_clean_cache_targets(raw_targets) == expected
+
+
+class TestEvalTargetAvailability:
+    @pytest.mark.parametrize(
+        ("ep", "device"),
+        [
+            ("cpu", "cpu"),
+            ("openvino", "gpu"),
+            ("QNNExecutionProvider", "npu"),
+            ("nv_tensorrt_rtx", "gpu"),
+            ("migraphx", "gpu"),
+        ],
+    )
+    def test_available_target_uses_runtime_binding(self, run_eval, ep, device):
+        from winml.modelkit.session import EPDeviceTarget, WinMLEPRegistry, expand_ep_name
+
+        with patch.object(WinMLEPRegistry, "instance") as registry:
+            registry.return_value.available_eps.return_value = {expand_ep_name(ep)}
+            assert run_eval._is_eval_target_available(ep, device)
+
+        registry.return_value.auto_device.assert_called_once_with(
+            EPDeviceTarget(ep=ep, device=device)
+        )
+
+    def test_undiscovered_ep_skips_without_acquiring_packages(self, run_eval, capsys):
+        from winml.modelkit.session import WinMLEPRegistry, expand_ep_name
+
+        with patch.object(WinMLEPRegistry, "instance") as registry:
+            registry.return_value.available_eps.return_value = {expand_ep_name("cpu")}
+            assert not run_eval._is_eval_target_available("openvino", "npu")
+
+        registry.return_value.auto_device.assert_not_called()
+        output = capsys.readouterr().out
+        assert "[SKIP]" in output
+        assert "No locally installed EP" in output
+
+    @pytest.mark.parametrize(
+        "error_name", ["DeviceNotFound", "WinMLEPNotDiscovered", "WinMLEPRegistrationFailed"]
+    )
+    def test_unavailable_target_reports_skip(self, run_eval, capsys, error_name):
+        from winml.modelkit import session
+
+        error = getattr(session, error_name)("target unavailable")
+        with patch.object(session.WinMLEPRegistry, "instance") as registry:
+            registry.return_value.available_eps.return_value = {session.expand_ep_name("openvino")}
+            registry.return_value.auto_device.side_effect = error
+            assert not run_eval._is_eval_target_available("openvino", "npu")
+
+        output = capsys.readouterr().out
+        assert "[SKIP]" in output
+        assert "openvino/npu" in output
+        assert "target unavailable" in output
+
+    def test_unexpected_probe_error_is_not_silently_skipped(self, run_eval):
+        from winml.modelkit.session import WinMLEPRegistry
+
+        with (
+            patch.object(WinMLEPRegistry, "instance", side_effect=RuntimeError("probe failed")),
+            pytest.raises(RuntimeError, match="probe failed"),
+        ):
+            run_eval._is_eval_target_available("openvino", "gpu")
+
+    @pytest.mark.parametrize(("ep", "device"), [("unknown_ep", "gpu"), ("openvino", "tpu")])
+    def test_invalid_target_is_not_silently_skipped(self, run_eval, ep, device):
+        from winml.modelkit.session import WinMLEPRegistry
+
+        with (
+            patch.object(WinMLEPRegistry, "instance") as registry,
+            pytest.raises(ValueError),
+        ):
+            run_eval._is_eval_target_available(ep, device)
+
+        registry.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("ep", "device"),
+        [(None, "gpu"), ("auto", "npu"), ("qnn", "auto"), ("qnn", None)],
+    )
+    def test_automatic_axes_keep_existing_policy(self, run_eval, ep, device):
+        from winml.modelkit.session import WinMLEPRegistry
+
+        with patch.object(WinMLEPRegistry, "instance") as registry:
+            assert run_eval._is_eval_target_available(ep, device)
+
+        registry.assert_not_called()
+
+    @pytest.mark.parametrize("release", [False, True])
+    def test_main_skips_before_loading_models_or_creating_output(self, run_eval, tmp_path, release):
+        output_dir = tmp_path / "results"
+        argv = [
+            "run_eval.py", "--ep", "openvino", "--device", "npu",
+            "--output-dir", str(output_dir),
+        ]
+        if release:
+            argv.append("--release")
+        with (
+            patch.object(sys, "argv", argv),
+            patch.object(run_eval, "_is_eval_target_available", return_value=False) as available,
+            patch.object(run_eval, "load_registry") as load_registry,
+            patch.object(run_eval, "load_release_registry") as load_release_registry,
+            patch.object(run_eval, "save_environment_info") as save_environment,
+        ):
+            assert run_eval.main() is None
+
+        available.assert_called_once_with("openvino", "npu")
+        load_registry.assert_not_called()
+        load_release_registry.assert_not_called()
+        save_environment.assert_not_called()
+        assert not output_dir.exists()
+
+    def test_available_target_continues_to_model_selection(self, run_eval):
+        with (
+            patch.object(sys, "argv", ["run_eval.py", "--ep", "cpu", "--device", "cpu"]),
+            patch.object(run_eval, "_is_eval_target_available", return_value=True) as available,
+            patch.object(run_eval, "load_registry", return_value=[]) as load_registry,
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            run_eval.main()
+
+        available.assert_called_once_with("cpu", "cpu")
+        load_registry.assert_called_once()
+        assert exc_info.value.code == 1
+
+    @pytest.mark.parametrize("mode", ["--list", "--list-json", "--build-only", "--update-baseline"])
+    def test_auxiliary_modes_do_not_probe_hardware(self, run_eval, tmp_path, mode):
+        argv = ["run_eval.py", "--ep", "openvino", "--device", "npu", mode]
+        if mode == "--list-json":
+            argv.append(str(tmp_path / "list.json"))
+        with (
+            patch.object(sys, "argv", argv),
+            patch.object(run_eval, "_is_eval_target_available", return_value=False) as available,
+            patch.object(run_eval, "load_registry", return_value=[]) as load_registry,
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            run_eval.main()
+
+        available.assert_not_called()
+        load_registry.assert_called_once()
+        assert exc_info.value.code == 1
 
 
 class TestFailureClassifier:
@@ -224,8 +372,27 @@ class TestKillProcessTree:
 
         subprocess_run.assert_called_once_with(
             ["taskkill", "/F", "/T", "/PID", "123"],
-            capture_output=True,
+            stdout=run_eval.subprocess.DEVNULL,
+            stderr=run_eval.subprocess.DEVNULL,
+            timeout=5,
         )
+
+    def test_platform_kill_timeout_does_not_block_cleanup(self, run_eval):
+        import psutil
+
+        parent = MagicMock()
+        parent.children.side_effect = psutil.NoSuchProcess(pid=123)
+
+        with (
+            patch.object(psutil, "Process", return_value=parent),
+            patch.object(run_eval.platform, "system", return_value="Windows"),
+            patch.object(
+                run_eval.subprocess,
+                "run",
+                side_effect=run_eval.subprocess.TimeoutExpired("taskkill", 5),
+            ),
+        ):
+            run_eval._kill_process_tree(123)
 
 
 class TestRunSubprocessTimeouts:
@@ -247,6 +414,19 @@ class TestRunSubprocessTimeouts:
         }
         env.update({name: str(value) for name, value in overrides.items()})
         return patch.dict(run_eval.os.environ, env, clear=True)
+
+    @staticmethod
+    def _monitor_script(setup: str) -> str:
+        return "\n".join(
+            [
+                "import sys, time",
+                "from pathlib import Path",
+                "sys.path.insert(0, sys.argv[1])",
+                "import run_eval",
+                setup,
+                "run_eval._monitor_hf_downloads(int(sys.argv[2]), Path(sys.argv[3]))",
+            ]
+        )
 
     @staticmethod
     def _download_script(
@@ -285,7 +465,7 @@ class TestRunSubprocessTimeouts:
 
         The old test allowed only 150 ms for Python startup before a 500-ms
         deadline, and depended on Windows open_files observing a brief handle.
-        This clock controls only process wait/handle discovery; cache-root
+        This clock controls process wait, handle discovery and monitor publication; cache-root
         resolution, snapshots, ownership matching and budget accounting are real.
         """
         cache_home = tmp_path / "huggingface" if cache_variable == "XDG_CACHE_HOME" else tmp_path
@@ -294,7 +474,10 @@ class TestRunSubprocessTimeouts:
         download_start, download_end = 0.35, 1.35
         finish = download_end + after_download
         observed = []
-        proc = MagicMock(pid=123, returncode=0, stdout=BytesIO(), stderr=BytesIO())
+        proc = MagicMock(pid=123, returncode=0)
+        proc.poll.side_effect = lambda: 0 if now >= finish else None
+        monitor = MagicMock(pid=456)
+        monitor.poll.return_value = None
 
         def open_paths(pid):
             nonlocal now
@@ -309,18 +492,32 @@ class TestRunSubprocessTimeouts:
             incomplete.unlink(missing_ok=True)
             return set()
 
-        def wait(timeout):
-            nonlocal now
-            now = min(now + timeout, max(now, finish))
-            if now >= finish:
-                return 0
-            raise run_eval.subprocess.TimeoutExpired("controlled-child", timeout)
+        def start_monitor(pid, env, progress_path):
+            tracker = run_eval._HfDownloadTracker(env, now)
+            tracker.bind(pid)
 
-        proc.wait.side_effect = wait
+            def wait(timeout):
+                nonlocal now
+                now = min(now + timeout, max(now, finish))
+                if now >= finish:
+                    return 0
+                active = tracker.poll(now)
+                snapshot = {
+                    "observed_at": now,
+                    "active": active,
+                    "last_progress": tracker.last_progress,
+                }
+                progress_path.write_text(json.dumps(snapshot), encoding="utf-8")
+                raise run_eval.subprocess.TimeoutExpired("controlled-child", timeout)
+
+            proc.wait.side_effect = wait
+            return monitor
+
         with (
             self._cache_env(run_eval, **{cache_variable: tmp_path}),
             patch.object(run_eval, "time", SimpleNamespace(perf_counter=lambda: now)),
             patch.object(run_eval.subprocess, "Popen", return_value=proc),
+            patch.object(run_eval, "_start_hf_download_monitor", side_effect=start_monitor),
             patch.object(run_eval, "_process_tree_open_paths", side_effect=open_paths),
             patch.object(run_eval, "_kill_process_tree") as kill_tree,
             patch.object(run_eval, "_HF_DOWNLOAD_STALL_TIMEOUT", 2.0),
@@ -438,6 +635,250 @@ class TestRunSubprocessTimeouts:
         assert result["exit_code"] == -1
         assert result["timeout"] is True
         assert result["hf_download_stalled"] is False
+
+    def test_hf_http_timeouts_match_stall_timeout(self, run_eval):
+        script = (
+            "import os; "
+            "print(os.environ['HF_HUB_DOWNLOAD_TIMEOUT']); "
+            "print(os.environ['HF_HUB_ETAG_TIMEOUT'])"
+        )
+
+        with patch.object(run_eval, "_HF_DOWNLOAD_STALL_TIMEOUT", 120.0):
+            result = run_eval._run_subprocess([sys.executable, "-c", script], timeout=5)
+
+        assert result["exit_code"] == 0
+        assert result["stdout"].splitlines() == ["120", "120"]
+
+    def test_subprocess_diagnostics_survive_timeout(self, run_eval, tmp_path, capsys):
+        script = (
+            "import sys, time; print('started', flush=True); "
+            "print('waiting for response', file=sys.stderr, flush=True); time.sleep(5)"
+        )
+        with (
+            self._cache_env(run_eval, HF_HOME=tmp_path / "hf"),
+            patch.object(run_eval, "_SUBPROCESS_LOG_ROOT", tmp_path / "logs", create=True),
+            patch.object(run_eval, "_SUBPROCESS_HEARTBEAT_INTERVAL", 0.1, create=True),
+            patch.object(run_eval, "_HF_DOWNLOAD_MONITOR_TIMEOUT", 0.1),
+        ):
+            result = run_eval._run_subprocess([sys.executable, "-c", script], timeout=0.8)
+
+        event_paths = list((tmp_path / "logs").glob("*/events.jsonl"))
+        assert len(event_paths) == 1
+        log_dir = event_paths[0].parent
+        events = [json.loads(line) for line in event_paths[0].read_text().splitlines()]
+        assert events[0]["event"] == "starting"
+        assert events[0]["command"] == [sys.executable, "-c", script]
+        spawned = next(event for event in events if event["event"] == "spawned")
+        assert spawned["pid"] > 0
+        heartbeats = [event for event in events if event["event"] == "heartbeat"]
+        assert heartbeats
+        assert heartbeats[-1]["stdout_bytes"] > 0
+        assert heartbeats[-1]["stderr_bytes"] > 0
+        assert heartbeats[-1]["execution_remaining"] <= 0.8
+        assert "output_idle_seconds" in heartbeats[-1]
+        assert "monitor_state" in heartbeats[-1]
+        assert any(event["event"] == "timeout" for event in events)
+        assert any(event["event"] == "cleanup_complete" for event in events)
+        assert events[-1]["event"] == "exited"
+        assert events[-1]["timeout"] is True
+        assert result["timeout"] is True
+        assert (log_dir / "stdout.log").read_text().strip() == "started"
+        assert (log_dir / "stderr.log").read_text().strip() == "waiting for response"
+        console = capsys.readouterr().out
+        assert str(log_dir) in console
+        assert "[heartbeat]" in console
+        assert f"pid={spawned['pid']}" in console
+
+    def test_download_progress_timestamp_includes_scan_time(self, run_eval, tmp_path):
+        incomplete = tmp_path / "model.incomplete"
+        tracker = run_eval._HfDownloadTracker({}, now=1.0)
+        tracker.bind(123)
+
+        with (
+            patch.object(
+                run_eval, "_process_tree_open_paths",
+                return_value={run_eval._normalized_path(incomplete)},
+            ),
+            patch.object(run_eval, "_snapshot_hf_downloads", return_value={incomplete: (1, 1)}),
+            patch.object(run_eval.time, "perf_counter", return_value=7.0),
+        ):
+            assert tracker.poll(now=2.0) is True
+
+        assert tracker.last_progress == 7.0
+
+    @pytest.mark.parametrize(
+        "blocked_function", ["_process_tree_open_paths", "_snapshot_hf_downloads"]
+    )
+    def test_blocked_download_monitor_cannot_disable_execution_timeout(
+        self, run_eval, tmp_path, blocked_function
+    ):
+        monitor_script = self._monitor_script(
+            "def blocked_scan(*args):\n"
+            "    time.sleep(30)\n"
+            "    return set()\n"
+            f"run_eval.{blocked_function} = blocked_scan"
+        )
+        monitors = []
+        original_start = run_eval._start_hf_download_monitor
+
+        def start_monitor(*args):
+            monitor = original_start(*args)
+            monitors.append(monitor)
+            return monitor
+
+        with (
+            self._cache_env(run_eval, HF_HOME=tmp_path),
+            patch.object(run_eval, "_HF_DOWNLOAD_MONITOR_TIMEOUT", 0.2),
+            patch.object(run_eval, "_HF_DOWNLOAD_MONITOR_CODE", monitor_script),
+            patch.object(run_eval, "_start_hf_download_monitor", side_effect=start_monitor),
+        ):
+            result = run_eval._run_subprocess(
+                [sys.executable, "-c", "import time; time.sleep(5)"], timeout=0.2
+            )
+
+        assert result["exit_code"] == -1
+        assert result["elapsed"] < 0.8
+        assert result["timeout"] is True
+        assert result["hf_download_stalled"] is False
+        assert len(monitors) == 1
+        assert monitors[0].poll() is not None
+
+    def test_stale_active_download_monitor_cannot_suspend_timeout_forever(self, run_eval, tmp_path):
+        monitor_script = "\n".join(
+            [
+                "import json, sys, time",
+                "from pathlib import Path",
+                "now = time.perf_counter()",
+                "state = {'observed_at': now, 'active': True, 'last_progress': now}",
+                "Path(sys.argv[3]).write_text(json.dumps(state), encoding='utf-8')",
+                "time.sleep(30)",
+            ]
+        )
+
+        with (
+            self._cache_env(run_eval, HF_HOME=tmp_path),
+            patch.object(run_eval, "_HF_DOWNLOAD_MONITOR_TIMEOUT", 0.5),
+            patch.object(run_eval, "_HF_DOWNLOAD_STALL_TIMEOUT", 5.0),
+            patch.object(run_eval, "_HF_DOWNLOAD_MONITOR_CODE", monitor_script),
+        ):
+            result = run_eval._run_subprocess(
+                [sys.executable, "-c", "import time; time.sleep(5)"], timeout=0.5
+            )
+
+        assert result["timeout"] is True
+        assert result["hf_download_stalled"] is False
+        assert result["elapsed"] < 2.0
+
+    def test_monitor_start_failure_keeps_execution_timeout(self, run_eval, tmp_path):
+        with (
+            self._cache_env(run_eval, HF_HOME=tmp_path),
+            patch.object(
+                run_eval, "_start_hf_download_monitor", side_effect=OSError("unavailable")
+            ),
+        ):
+            result = run_eval._run_subprocess(
+                [sys.executable, "-c", "import time; time.sleep(5)"], timeout=0.2
+            )
+
+        assert result["timeout"] is True
+        assert result["elapsed"] < 1.0
+
+    def test_monitor_retries_temporarily_locked_state_file(self, run_eval, tmp_path):
+        import psutil
+
+        progress_path = tmp_path / "progress.json"
+        tracker = MagicMock()
+        tracker.poll.return_value = True
+        tracker.last_progress = time.perf_counter()
+        original_replace = Path.replace
+        attempts = []
+
+        def replace_when_unlocked(source, target):
+            attempts.append(source)
+            if len(attempts) == 1:
+                raise PermissionError("state file is being read")
+            return original_replace(source, target)
+
+        with (
+            patch.object(run_eval, "_HfDownloadTracker", return_value=tracker),
+            patch.object(psutil, "pid_exists", side_effect=[True, True, False]),
+            patch.object(Path, "replace", replace_when_unlocked),
+            patch.object(run_eval.time, "sleep"),
+        ):
+            run_eval._monitor_hf_downloads(123, progress_path)
+
+        snapshot = json.loads(progress_path.read_text(encoding="utf-8"))
+        assert snapshot["active"] is True
+        assert snapshot["last_progress"] == tracker.last_progress
+        assert tracker.poll.call_count == 2
+
+    def test_thread_start_cannot_block_subprocess_timeout(self, run_eval, tmp_path):
+        original_start = threading.Thread.start
+        script = (
+            "import sys, time; sys.stderr.write('x' * 262144); "
+            "sys.stderr.flush(); time.sleep(5)"
+        )
+
+        def delayed_start(thread):
+            threading.Event().wait(1.0)
+            return original_start(thread)
+
+        with (
+            self._cache_env(run_eval, HF_HOME=tmp_path),
+            patch.object(threading.Thread, "start", delayed_start),
+            patch.object(run_eval, "_HF_DOWNLOAD_MONITOR_TIMEOUT", 0.1),
+        ):
+            result = run_eval._run_subprocess(
+                [sys.executable, "-c", script],
+                timeout=0.2,
+            )
+
+        assert result["exit_code"] == -1
+        assert result["timeout"] is True
+        assert result["elapsed"] < 1.0
+
+    def test_large_stdout_and_stderr_are_captured_without_reader_threads(self, run_eval, tmp_path):
+        output_size = 262144
+        script = (
+            "import sys; "
+            f"sys.stdout.buffer.write(b'o' * {output_size} + b'\\xff'); "
+            f"sys.stderr.buffer.write(b'e' * {output_size} + b'\\xfe')"
+        )
+
+        with (
+            self._cache_env(run_eval, HF_HOME=tmp_path),
+            patch.object(threading.Thread, "start", side_effect=AssertionError("thread startup")),
+        ):
+            result = run_eval._run_subprocess([sys.executable, "-c", script], timeout=5)
+
+        assert result["exit_code"] == 0
+        assert result["stdout"] == (b"o" * output_size + b"\xff").decode("utf-8", errors="replace")
+        assert result["stderr"] == (b"e" * output_size + b"\xfe").decode("utf-8", errors="replace")
+
+    def test_inherited_output_handles_do_not_delay_collection(self, run_eval, tmp_path):
+        descendant_pid_path = tmp_path / "descendant.pid"
+        script = "\n".join(
+            [
+                "import subprocess, sys",
+                "from pathlib import Path",
+                "child = subprocess.Popen(",
+                "    [sys.executable, '-c', 'import time; time.sleep(30)'],",
+                "    stdout=sys.stdout, stderr=sys.stderr,",
+                ")",
+                f"Path({str(descendant_pid_path)!r}).write_text(str(child.pid))",
+                "print('parent completed', flush=True)",
+            ]
+        )
+        try:
+            with self._cache_env(run_eval, HF_HOME=tmp_path):
+                result = run_eval._run_subprocess([sys.executable, "-c", script], timeout=5)
+
+            assert result["exit_code"] == 0
+            assert result["stdout"].strip() == "parent completed"
+            assert result["elapsed"] < 2.0
+        finally:
+            if descendant_pid_path.exists():
+                run_eval._kill_process_tree(int(descendant_pid_path.read_text()))
 
 
 def test_curated_target_models_preserve_existing_priorities(run_eval):
@@ -781,6 +1222,48 @@ class TestCompositeOnnxRegistry:
         # Nothing is built, so the caller's resolved precision is reported as-is.
         assert result["precision"] is None
         mock_subprocess.assert_not_called()
+
+
+class TestExtractOnnxPath:
+    def test_rejoins_rich_wrapped_artifact_path(self, run_eval, tmp_path):
+        artifact = tmp_path / "model-with-a-long-name_model.onnx"
+        artifact.touch()
+        path = str(artifact)
+        split_at = len(path) - 12
+        build_proc = {
+            "stderr": (
+                "Existing artifact found:\n"
+                f"{path[:split_at]}\n"
+                f"{path[split_at:]}\n"
+                "Use --rebuild to force rebuild.\n"
+            ),
+            "stdout": "",
+        }
+
+        assert (
+            run_eval._extract_onnx_path(
+                build_proc,
+                "microsoft/beit-base-patch16-224-pt22k-ft22k",
+                "image-classification",
+            )
+            == path
+        )
+
+    def test_cache_fallback_rejects_multiple_task_candidates(
+        self, run_eval, tmp_path, monkeypatch
+    ):
+        cache_dir = tmp_path / ".cache" / "winml" / "artifacts" / "microsoft_beit"
+        cache_dir.mkdir(parents=True)
+        (cache_dir / "imgcls_fp32_model.onnx").touch()
+        (cache_dir / "imgcls_w8a16_model.onnx").touch()
+        monkeypatch.setattr(run_eval.Path, "home", lambda: tmp_path)
+
+        assert (
+            run_eval._find_cached_model(
+                "microsoft/beit", {"stdout": "", "stderr": ""}, "image-classification"
+            )
+            is None
+        )
 
 
 class TestRunBuildNoQuantInjection:
@@ -1129,6 +1612,92 @@ class TestBuildForJobPrecision:
         assert all("--no-quant" in cmd for cmd in captured)
         assert all("--precision" not in cmd for cmd in captured)
         assert build_result["precision"] is None
+
+    @pytest.mark.parametrize("precision", [None, "fp16", "fp32", "w8a16", "w8a8"])
+    @pytest.mark.parametrize("ep", ["qnn", "vitisai"])
+    def test_release_fallback_keeps_requested_precision(self, run_eval, tmp_path, precision, ep):
+        entry = _entry("release-test/model", "text-classification")
+        entry.precision = precision
+        job = run_eval.EvalJob(entry, None, precision_locked=True)
+        args = argparse.Namespace(ep=ep, device="npu", timeout=300)
+        captured = []
+
+        def fake_subprocess(command, timeout):
+            captured.append(command)
+            if "config" in command:
+                (tmp_path / "build_config.json").write_text(
+                    json.dumps({"quant": None}), encoding="utf-8"
+                )
+            return {
+                "exit_code": 0,
+                "stdout": "",
+                "stderr": "",
+                "elapsed": 0.1,
+                "command": " ".join(command),
+            }
+
+        with (
+            patch.object(run_eval, "_run_subprocess", side_effect=fake_subprocess),
+            patch.object(run_eval, "_extract_onnx_path", return_value=str(tmp_path / "model.onnx")),
+        ):
+            result, _, _ = run_eval._build_for_job(job, args, tmp_path)
+
+        assert len(captured) == 2
+        for command in captured:
+            if precision is None:
+                assert "--precision" not in command
+            else:
+                assert command[command.index("--precision") + 1] == precision
+                assert "--no-quant" not in command
+        assert result["precision"] == precision
+
+    def test_release_default_preserves_case_when_config_resolves_precision(
+        self, run_eval, tmp_path
+    ):
+        from winml.modelkit.config import resolve_quant_compile_config
+
+        entry = _entry("release-test/default", "question-answering")
+        job = run_eval.EvalJob(entry, None, precision_locked=True)
+        args = argparse.Namespace(ep="qnn", device="npu", timeout=300)
+        quant_config, _ = resolve_quant_compile_config(
+            device=args.device, precision="auto", ep=args.ep
+        )
+        assert quant_config is not None
+        config_path = tmp_path / "build_config.json"
+        commands = []
+
+        def fake_subprocess(command, timeout):
+            commands.append(command)
+            if "config" in command:
+                config_path.write_text(
+                    json.dumps({"quant": quant_config.to_dict()}), encoding="utf-8"
+                )
+            return {"exit_code": 0, "stdout": "", "stderr": ""}
+
+        with (
+            patch.object(run_eval, "_run_subprocess", side_effect=fake_subprocess),
+            patch.object(run_eval, "_extract_onnx_path", return_value=str(tmp_path / "model.onnx")),
+        ):
+            result, _, _ = run_eval._build_for_job(job, args, tmp_path)
+
+        assert result["success"] is True
+        assert result["precision"] is not None
+        assert result["precision"] == run_eval._precision_from_build_config(config_path)
+        assert job.precision is None
+        assert all("--precision" not in command for command in commands)
+
+    def test_release_rejects_inconsistent_precision_metadata(self, run_eval, tmp_path):
+        entry = _entry("release-test/model", "text-classification")
+        entry.precision = "fp16"
+        job = run_eval.EvalJob(entry, None, precision_locked=True)
+        args = argparse.Namespace(ep="openvino", device="gpu", timeout=300)
+        with (
+            patch.object(
+                run_eval, "_run_build", return_value={"success": True, "precision": "fp32"}
+            ),
+            pytest.raises(ValueError, match="precision mismatch"),
+        ):
+            run_eval._build_for_job(job, args, tmp_path)
 
 
 class TestMergeBackfillResult:
@@ -1823,6 +2392,45 @@ class TestBuildJobs:
                 json.dumps({"eval": {"task": task, "dataset": {"path": "x"}}}), encoding="utf-8"
             )
 
+    @pytest.mark.parametrize("precision", [None, "fp16", "fp32", "w8a16", "w8a8"])
+    @pytest.mark.parametrize(
+        "device,ep", [("gpu", "qnn"), ("cpu", "mlas"), ("npu", "vitisai"), ("npu", "qnn")]
+    )
+    def test_release_runs_only_one_selected_recipe(self, run_eval, tmp_path, precision, device, ep):
+        entry = _entry("release-test/model", "text-classification")
+        entry.precision = precision
+        self._make_single_recipe(
+            tmp_path, "release-test_model", entry.task, ["fp16", "fp32", "w8a16", "w8a8"]
+        )
+        jobs = run_eval._build_jobs([entry], tmp_path, device, ep=ep, release=True)
+        assert len(jobs) == 1
+        assert jobs[0].precision == precision
+        assert jobs[0].precision_locked is True
+        if precision is None:
+            assert jobs[0].variant is None
+        else:
+            assert jobs[0].variant.precision == precision
+
+    @pytest.mark.parametrize("precision", [None, "fp32", "w8a8"])
+    def test_release_missing_recipe_does_not_expand_or_substitute(
+        self, run_eval, tmp_path, precision
+    ):
+        entry = _entry("release-test/model", "text-classification")
+        entry.precision = precision
+        self._make_single_recipe(tmp_path, "release-test_model", entry.task, ["fp16", "w8a16"])
+        jobs = run_eval._build_jobs([entry], tmp_path, "npu", ep="qnn", release=True)
+        assert len(jobs) == 1
+        assert jobs[0].precision == precision
+        assert jobs[0].variant is None
+
+    def test_release_without_recipes_still_honors_precision(self, run_eval):
+        entry = _entry("release-test/model", "text-classification")
+        entry.precision = "w8a8"
+        jobs = run_eval._build_jobs([entry], None, "gpu", ep="qnn", release=True)
+        assert len(jobs) == 1
+        assert jobs[0].precision == entry.precision
+        assert jobs[0].precision_locked is True
+
     def test_npu_recipe_expands_to_one_job_per_precision(self, run_eval, tmp_path):
         self._make_single_recipe(
             tmp_path, "microsoft_resnet-50", "image-classification", ["fp16", "w8a16"]
@@ -2285,6 +2893,608 @@ class TestRunAccuracyPhaseSchema:
         _, kwargs = mock_eval.call_args
         assert kwargs["recipe_config"] == tmp_path / "r.json"
         assert kwargs["trust_remote_code"] is True
+
+
+class TestReleaseRegistry:
+    @pytest.fixture
+    def release_table(self, run_eval, tmp_path):
+        columns = [
+            "intel/OpenVINOExecutionProvider_GPU",
+            "intel/DmlExecutionProvider_GPU",
+            "amd/DmlExecutionProvider_GPU",
+            "nvidia/DmlExecutionProvider_GPU",
+            "nvidia/TRTRTXARMExecutionProvider_GPU",
+            "nvidia/TRTRTXExecutionProvider_GPU",
+            "intel/MLASExecutionProvider_CPU",
+            "amd/MLASExecutionProvider_CPU",
+            "nvidia/MLASExecutionProvider_CPU",
+            "amd/MIGraphExecutionProvider_GPU",
+        ]
+        precisions = ["default", "fp16", "fp32", "w8a16", "w8a8"]
+        entries = [
+            run_eval.ModelEntry(
+                hf_id=f"release-test/model-{index}",
+                task=f"task-{index}",
+                model_type=f"type-{index}",
+                group="test-release",
+                priority=list(run_eval._PRIORITY_RANK)[index % len(run_eval._PRIORITY_RANK)],
+                precision="fp32",
+                dataset_config={"dataset_path": f"dataset-{index}"},
+                perf_args=["--warmup", str(index)],
+            )
+            for index in range(len(precisions))
+        ]
+        by_column = {
+            column: [
+                precisions[(index + offset) % len(precisions)] for index in range(len(entries))
+            ]
+            for offset, column in enumerate(columns)
+        }
+        rows = []
+        for index, entry in enumerate(entries):
+            rows.append(
+                {
+                    "hf_id": entry.hf_id,
+                    "task": entry.task,
+                    "priority": entry.priority,
+                    "targets": {
+                        column: {"precision": by_column[column][index]} for column in columns
+                    },
+                }
+            )
+        path = tmp_path / "models_release_validation.json"
+        path.write_text(json.dumps({"schema_version": 1, "models": rows}), encoding="utf-8")
+        return path, entries, by_column
+
+    @pytest.mark.parametrize("ep", ["OPENVINO", "openvino", "OpenVINOExecutionProvider"])
+    def test_target_precision_and_registry_metadata(self, run_eval, release_table, ep):
+        path, registry, by_column = release_table
+        loader = sys.modules["utils.registry"].load_release_registry
+        entries, column = loader(path, registry, ep=ep, device="gpu")
+        expected = [None if value == "default" else value for value in by_column[column]]
+        assert [entry.precision for entry in entries] == expected
+        assert [(entry.hf_id, entry.task) for entry in entries] == [
+            (entry.hf_id, entry.task) for entry in registry
+        ]
+        for actual, original in zip(entries, registry, strict=True):
+            assert actual is not original
+            assert actual.dataset_config == original.dataset_config
+            assert actual.perf_args == original.perf_args
+            assert original.precision == "fp32"
+
+    @pytest.mark.parametrize(
+        ("ep", "device", "machine", "expected_column"),
+        [
+            ("nv_tensorrt_rtx", "gpu", None, "nvidia/TRTRTXExecutionProvider_GPU"),
+            ("nvtensorrtrtx", "gpu", None, "nvidia/TRTRTXExecutionProvider_GPU"),
+            (
+                "NvTensorRTRTXExecutionProvider",
+                "GPU",
+                None,
+                "nvidia/TRTRTXExecutionProvider_GPU",
+            ),
+            (
+                "NVTENSORRTRTXEXECUTIONPROVIDER",
+                "gpu",
+                None,
+                "nvidia/TRTRTXExecutionProvider_GPU",
+            ),
+            ("TRTRTXExecutionProvider", "gpu", None, "nvidia/TRTRTXExecutionProvider_GPU"),
+            ("cpu", "cpu", "intel", "intel/MLASExecutionProvider_CPU"),
+            ("CPUExecutionProvider", "CPU", "amd", "amd/MLASExecutionProvider_CPU"),
+            ("migraphx", "gpu", None, "amd/MIGraphExecutionProvider_GPU"),
+            ("MIGraphXExecutionProvider", "gpu", None, "amd/MIGraphExecutionProvider_GPU"),
+        ],
+    )
+    def test_runtime_names_match_historical_targets(
+        self, run_eval, release_table, ep, device, machine, expected_column
+    ):
+        path, registry, by_column = release_table
+        entries, column = sys.modules["utils.registry"].load_release_registry(
+            path, registry, ep=ep, device=device, machine=machine
+        )
+        assert column == expected_column
+        assert [entry.precision or "default" for entry in entries] == by_column[column]
+
+    def test_tensorrt_does_not_fall_back_to_arm_target(self, run_eval, release_table):
+        path, registry, _ = release_table
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        for model in manifest["models"]:
+            del model["targets"]["nvidia/TRTRTXExecutionProvider_GPU"]
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        with pytest.raises(ValueError, match="no target"):
+            run_eval.load_release_registry(path, registry, ep="nv_tensorrt_rtx", device="gpu")
+
+    def test_legacy_alias_matching_still_requires_correct_device(self, run_eval, release_table):
+        path, registry, _ = release_table
+        with pytest.raises(ValueError, match="no target"):
+            run_eval.load_release_registry(path, registry, ep="nv_tensorrt_rtx", device="npu")
+
+    @pytest.mark.parametrize(("ep", "device"), [("dml", "gpu"), ("cpu", "cpu")])
+    def test_ambiguous_machine_requires_selection(self, run_eval, release_table, ep, device):
+        path, registry, _ = release_table
+        with pytest.raises(ValueError, match="output-dir"):
+            sys.modules["utils.registry"].load_release_registry(
+                path, registry, ep=ep, device=device
+            )
+
+    @pytest.mark.parametrize("explicit", [True, False])
+    def test_machine_selection(self, run_eval, release_table, tmp_path, explicit):
+        path, registry, by_column = release_table
+        entries, column = sys.modules["utils.registry"].load_release_registry(
+            path,
+            registry,
+            ep="dml",
+            device="gpu",
+            machine="AMD" if explicit else None,
+            output_dir=tmp_path / "amd" / "DmlExecutionProvider_GPU" / "results",
+        )
+        assert column == "amd/DmlExecutionProvider_GPU"
+        assert [entry.precision or "default" for entry in entries] == by_column[column]
+
+    @pytest.mark.parametrize(
+        ("ep", "device", "folder"),
+        [("dml", "gpu", "DmlExecutionProvider_GPU"), ("cpu", "cpu", "MLASExecutionProvider_CPU")],
+    )
+    def test_machine_path_is_normalized_and_target_scoped(
+        self, run_eval, release_table, tmp_path, ep, device, folder
+    ):
+        path, registry, by_column = release_table
+        output = tmp_path / "intel" / "archive" / "amd" / ".." / "NVIDIA" / folder / "results"
+        entries, column = run_eval.load_release_registry(
+            path, registry, ep=ep, device=device, output_dir=output
+        )
+        assert column == f"nvidia/{folder}"
+        assert [entry.precision or "default" for entry in entries] == by_column[column]
+
+    @pytest.mark.parametrize(
+        "parts",
+        [
+            ("intel", "archive", "results"),
+            ("intel", "archive", "DmlExecutionProvider_GPU"),
+            ("intel", "MLASExecutionProvider_CPU", "results"),
+            ("intel", "DmlExecutionProvider_GPU", "amd", "DmlExecutionProvider_GPU"),
+        ],
+    )
+    def test_machine_path_rejects_unrelated_or_ambiguous_components(
+        self, run_eval, release_table, tmp_path, parts
+    ):
+        path, registry, _ = release_table
+        with pytest.raises(ValueError, match="output-dir"):
+            run_eval.load_release_registry(
+                path, registry, ep="dml", device="gpu", output_dir=tmp_path.joinpath(*parts)
+            )
+
+    def test_cli_ep_wins_over_output_directory_name(self, run_eval, release_table, tmp_path):
+        path, registry, _ = release_table
+        _, column = sys.modules["utils.registry"].load_release_registry(
+            path,
+            registry,
+            ep="openvino",
+            device="gpu",
+            output_dir=tmp_path / "intel" / "DmlExecutionProvider_GPU" / "results",
+        )
+        assert column == "intel/OpenVINOExecutionProvider_GPU"
+
+    def test_missing_target_is_an_error(self, run_eval, release_table):
+        path, registry, _ = release_table
+        with pytest.raises(ValueError, match="no target"):
+            sys.modules["utils.registry"].load_release_registry(
+                path, registry, ep="qnn", device="npu"
+            )
+
+    def test_unknown_ep_alias_is_not_silently_accepted(self, run_eval, release_table):
+        path, registry, _ = release_table
+        with pytest.raises(ValueError, match="no target"):
+            sys.modules["utils.registry"].load_release_registry(
+                path, registry, ep="ov", device="gpu"
+            )
+
+    def test_missing_registry_entry_keeps_table_model_task(self, run_eval, release_table):
+        path, registry, _ = release_table
+        entries, _ = sys.modules["utils.registry"].load_release_registry(
+            path, [], ep="openvino", device="gpu"
+        )
+        assert [(entry.hf_id, entry.task) for entry in entries] == [
+            (entry.hf_id, entry.task) for entry in registry
+        ]
+
+    @pytest.mark.parametrize("problem", ["duplicate", "precision", "targets", "version", "empty"])
+    def test_invalid_manifest_is_rejected(self, run_eval, release_table, problem):
+        path, registry, _ = release_table
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if problem == "duplicate":
+            data["models"].append(data["models"][-1])
+        elif problem == "precision":
+            next(iter(data["models"][-1]["targets"].values()))["precision"] = "not-a-precision"
+        elif problem == "targets":
+            data["models"][-1]["targets"].popitem()
+        elif problem == "version":
+            data["schema_version"] += 1
+        else:
+            data["models"] = []
+        path.write_text(json.dumps(data), encoding="utf-8")
+        with pytest.raises(ValueError):
+            sys.modules["utils.registry"].load_release_registry(
+                path, registry, ep="openvino", device="gpu"
+            )
+
+    @pytest.mark.parametrize("json_output", [True, False])
+    @pytest.mark.parametrize(
+        ("ep", "column"),
+        [
+            ("openvino", "intel/OpenVINOExecutionProvider_GPU"),
+            ("nv_tensorrt_rtx", "nvidia/TRTRTXExecutionProvider_GPU"),
+        ],
+    )
+    def test_explicit_release_list_uses_manifest(
+        self, run_eval, release_table, tmp_path, capsys, json_output, ep, column
+    ):
+        path, registry, by_column = release_table
+        listing = tmp_path / "list.json"
+        argv = ["run_eval.py", "--release", "--ep", ep, "--device", "gpu"]
+        argv += ["--list-json", str(listing)] if json_output else ["--list"]
+        with (
+            patch.object(sys, "argv", argv),
+            patch.object(run_eval, "_RELEASE_MANIFEST", path),
+            patch.object(run_eval, "load_registry", return_value=registry),
+            patch.object(run_eval, "register_from_registry"),
+            patch.object(run_eval, "_run_build") as build,
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            run_eval.main()
+        assert exc_info.value.code == 0
+        build.assert_not_called()
+        if json_output:
+            values = json.loads(listing.read_text(encoding="utf-8"))
+            assert {row["hf_id"] for row in values} == {entry.hf_id for entry in registry}
+            expected = dict(
+                zip([entry.hf_id for entry in registry], by_column[column], strict=True)
+            )
+            for row in values:
+                assert (row["precision"] or "default") == expected[row["hf_id"]]
+                assert row["release_target"] == column
+        else:
+            output = capsys.readouterr().out
+            assert column in output
+            for entry, precision in zip(registry, by_column[column], strict=True):
+                assert entry.hf_id in output
+                assert f"[precision={precision}]" in output
+
+    @pytest.mark.parametrize("registered", [True, False])
+    def test_single_model_preserves_legacy_selection(
+        self, run_eval, release_table, tmp_path, registered
+    ):
+        _, registry, _ = release_table
+        listing = tmp_path / "filtered.json"
+        custom_registry = tmp_path / "custom.json"
+        hf_id = registry[-1].hf_id if registered else "release-test/not-selected"
+        task = registry[-1].task if registered else "text-classification"
+        argv = [
+            "run_eval.py",
+            "--registry",
+            str(custom_registry),
+            "--hf-model",
+            hf_id,
+            "--task",
+            task,
+            "--list-json",
+            str(listing),
+        ]
+        with (
+            patch.object(sys, "argv", argv),
+            patch.object(run_eval, "load_registry", return_value=registry) as loader,
+            patch.object(run_eval, "load_release_registry") as release_loader,
+            patch.object(run_eval, "register_from_registry"),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            run_eval.main()
+        assert exc_info.value.code == 0
+        loader.assert_called_once_with(custom_registry)
+        release_loader.assert_not_called()
+        values = json.loads(listing.read_text(encoding="utf-8"))
+        assert [(row["hf_id"], row["task"]) for row in values] == [(hf_id, task)]
+        assert all("release_target" not in row and "precision" not in row for row in values)
+
+    @pytest.mark.parametrize(
+        ("mode", "handler_name"),
+        [("--build-only", "_run_build_only"), ("--update-baseline", "_run_update_baseline")],
+    )
+    def test_auxiliary_modes_preserve_automatic_target(
+        self, run_eval, release_table, mode, handler_name
+    ):
+        _, registry, _ = release_table
+        with (
+            patch.object(sys, "argv", ["run_eval.py", mode]),
+            patch.object(run_eval, "load_registry", return_value=registry),
+            patch.object(run_eval, "load_release_registry") as release_loader,
+            patch.object(run_eval, "_resolve_eval_target") as resolve_target,
+            patch.object(run_eval, "register_from_registry"),
+            patch.object(run_eval, handler_name) as handler,
+        ):
+            run_eval.main()
+        release_loader.assert_not_called()
+        resolve_target.assert_not_called()
+        handler.assert_called_once()
+        entries, args = handler.call_args.args
+        assert {entry.hf_id for entry in entries} == {entry.hf_id for entry in registry}
+        assert args.ep is None
+        assert args.device == "auto"
+
+    @pytest.mark.parametrize("explicit", [False, True])
+    def test_priority_filtering_preserves_legacy_registry(
+        self, run_eval, release_table, tmp_path, explicit
+    ):
+        _, registry, _ = release_table
+        listing = tmp_path / "legacy.json"
+        custom_registry = tmp_path / "custom.json"
+        priorities = list(run_eval._PRIORITY_RANK)
+        if explicit:
+            priorities = priorities[:2]
+        argv = ["run_eval.py", "--registry", str(custom_registry), "--list-json", str(listing)]
+        if explicit:
+            argv += ["--priority", *priorities]
+        with (
+            patch.object(sys, "argv", argv),
+            patch.object(run_eval, "load_registry", return_value=registry) as loader,
+            patch.object(run_eval, "load_release_registry") as release_loader,
+            patch.object(run_eval, "register_from_registry"),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            run_eval.main()
+        assert exc_info.value.code == 0
+        loader.assert_called_once_with(custom_registry)
+        release_loader.assert_not_called()
+        values = json.loads(listing.read_text(encoding="utf-8"))
+        assert {row["hf_id"] for row in values} == {
+            entry.hf_id for entry in registry if entry.priority in priorities
+        }
+
+    def test_release_list_continue_uses_precision_suffix(self, run_eval, release_table, tmp_path):
+        path, registry, by_column = release_table
+        column = "intel/OpenVINOExecutionProvider_GPU"
+        labels = by_column[column]
+        entry = registry[labels.index("fp16")]
+        output = tmp_path / "results"
+        result_path = (
+            run_eval.model_result_dir(output, entry.hf_id, entry.task, "fp16") / "eval_result.json"
+        )
+        result_path.parent.mkdir(parents=True)
+        result_path.write_text(json.dumps({"perf": {"passed": True}}), encoding="utf-8")
+        listing = tmp_path / "pending.json"
+        argv = [
+            "run_eval.py",
+            "--release",
+            "--ep",
+            "openvino",
+            "--device",
+            "gpu",
+            "--output-dir",
+            str(output),
+            "--continue",
+            "--list-json",
+            str(listing),
+        ]
+        with (
+            patch.object(sys, "argv", argv),
+            patch.object(run_eval, "_RELEASE_MANIFEST", path),
+            patch.object(run_eval, "load_registry", return_value=registry),
+            patch.object(run_eval, "register_from_registry"),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            run_eval.main()
+        assert exc_info.value.code == 0
+        values = json.loads(listing.read_text(encoding="utf-8"))
+        assert {row["hf_id"] for row in values} == {item.hf_id for item in registry} - {entry.hf_id}
+
+
+def test_checked_in_recipe_filenames_match_quant_config(run_eval):
+    recipes_dir = Path(run_eval.__file__).resolve().parents[2] / "examples" / "recipes"
+    recipe_module = sys.modules["utils.recipes"]
+    mismatches = []
+    config_paths = sorted(recipes_dir.rglob("*_config*.json"))
+    assert config_paths
+    for config_path in config_paths:
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        expected = (
+            "fp32" if config["quant"] is None
+            else run_eval._precision_from_build_config(config_path)
+        )
+        assert expected is not None, f"Unknown quant configuration: {config_path}"
+        group, _ = recipe_module.split_config_stem(config_path)
+        _, precision = recipe_module.split_task_precision(group)
+        if precision != expected:
+            mismatches.append(f"{config_path.relative_to(recipes_dir)}: {precision} != {expected}")
+    assert not mismatches, "\n".join(mismatches)
+
+
+def test_release_keeps_renamed_recipe_configuration(run_eval, tmp_path):
+    testsets = Path(run_eval.__file__).parent / "testsets"
+    registry = run_eval.load_registry(testsets / "models_all.json")
+    entries, _ = run_eval.load_release_registry(
+        run_eval._RELEASE_MANIFEST, registry, ep="openvino", device="gpu"
+    )
+    entry = next(entry for entry in entries if entry.hf_id == "microsoft/resnet-50")
+    jobs = run_eval._build_jobs(
+        [entry], testsets.parents[2] / "examples" / "recipes",
+        "gpu", ep="openvino", release=True,
+    )
+    (job,) = jobs
+    assert job.precision == "fp32"
+    assert job.variant is not None
+    for component in job.variant.components:
+        config = json.loads(component.path.read_text(encoding="utf-8"))
+        assert config["quant"] is None
+        assert component.path.name == "image-classification_fp32_config.json"
+
+    args = argparse.Namespace(ep="openvino", device="gpu", timeout=300)
+    with (
+        patch.object(
+            run_eval, "_run_subprocess",
+            return_value={"exit_code": 0, "stdout": "", "stderr": ""},
+        ) as subprocess_call,
+        patch.object(run_eval, "_extract_onnx_path", return_value=str(tmp_path / "model.onnx")),
+    ):
+        result, meta_config, _ = run_eval._build_for_job(job, args, tmp_path)
+
+    assert result["success"] is True
+    assert result["precision"] == job.precision
+    assert meta_config == job.variant.components[0].path
+    for call in subprocess_call.call_args_list:
+        command = call.args[0]
+        assert command[command.index("-c") + 1] == str(job.variant.components[0].path)
+        assert "--precision" not in command
+        assert "--device" not in command
+
+
+def test_checked_in_release_json_matches_markdown_and_job_plans(run_eval):
+    testsets = Path(run_eval.__file__).parent / "testsets"
+    manifest_path = testsets / "models_release_validation.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    rows = [
+        [cell.strip() for cell in line.strip("|").split("|")]
+        for line in manifest_path.with_suffix(".md").read_text(encoding="utf-8").splitlines()
+        if line.startswith("|")
+    ]
+    headers, _, *data = rows
+    assert len(data) == len(manifest["models"])
+    targets = list(manifest["models"][0]["targets"])
+    assert set(headers[11:]) == set(targets)
+    assert len({model["hf_id"] for model in manifest["models"]}) == len(data)
+    for cells, model in zip(data, manifest["models"], strict=True):
+        assert cells[headers.index("Model")].startswith(f"[{model['hf_id']}](")
+        assert cells[headers.index("Task")] == model["task"]
+        assert cells[headers.index("Priority")] == model["priority"]
+        for target, values in model["targets"].items():
+            assert set(values) == {"precision"}
+            cell = cells[headers.index(target)]
+            label, _link = cell[1:-1].split("](", 1)
+            assert label == values["precision"]
+
+    registry = run_eval.load_registry(testsets / "models_all.json")
+    recipes = testsets.parents[2] / "examples" / "recipes"
+    for target in targets:
+        machine, ep_device = target.split("/", 1)
+        ep, device = ep_device.rsplit("_", 1)
+        entries, matched = run_eval.load_release_registry(
+            manifest_path, registry, ep=ep, device=device.lower(), machine=machine
+        )
+        assert matched == target
+        expected = {
+            (model["hf_id"], model["task"]): model["targets"][target]["precision"]
+            for model in manifest["models"]
+        }
+        jobs = run_eval._build_jobs(entries, recipes, device.lower(), ep=ep, release=True)
+        assert len(jobs) == len(expected)
+        assert {
+            (job.entry.hf_id, job.entry.task): job.precision or "default" for job in jobs
+        } == expected
+        assert all(job.precision_locked for job in jobs)
+
+
+class TestReleaseArgumentParsing:
+    @pytest.mark.parametrize("values", [[], ["--release"]])
+    def test_priority_defaults_are_unchanged(self, run_eval, values):
+        with patch.object(sys, "argv", ["run_eval.py", *values]):
+            args = run_eval.parse_args()
+        assert args.priority == list(run_eval._PRIORITY_RANK)
+        assert args.release is bool(values)
+
+    def test_explicit_priorities_remain_combinable(self, run_eval):
+        priorities = list(run_eval._PRIORITY_RANK)
+        with patch.object(sys, "argv", ["run_eval.py", "--priority", *priorities]):
+            assert run_eval.parse_args().priority == priorities
+
+    def test_repeated_priorities_keep_last_value(self, run_eval):
+        with patch.object(sys, "argv", ["run_eval.py", "--priority", "P0", "--priority", "P1"]):
+            assert run_eval.parse_args().priority == ["P1"]
+
+    def test_legacy_selection_options_remain_combinable(self, run_eval):
+        argv = [
+            "run_eval.py",
+            "--priority",
+            "P0",
+            "--hf-model",
+            "release-test/model",
+            "--registry",
+            "custom.json",
+            "--task",
+            "text-classification",
+            "--group",
+            "test",
+            "--model-type",
+            "bert",
+        ]
+        with patch.object(sys, "argv", argv):
+            args = run_eval.parse_args()
+        assert args.release is False
+        assert args.priority == ["P0"]
+        assert args.hf_model == "release-test/model"
+        assert args.registry == Path("custom.json")
+
+    @pytest.mark.parametrize(
+        "values",
+        [
+            ["--priority", "P0", "P1", "P2", "P3"],
+            ["--priority=P0"],
+            ["--pri", "P0"],
+            ["--hf-model", "release-test/model"],
+            ["--registry", "custom.json"],
+            ["--task", "text-classification"],
+            ["--group", "test"],
+            ["--model-type", "bert"],
+            ["--build-only"],
+            ["--update-baseline"],
+        ],
+    )
+    @pytest.mark.parametrize("release_first", [True, False])
+    def test_release_rejects_explicit_conflicts(self, run_eval, capsys, values, release_first):
+        options = ["--release", *values] if release_first else [*values, "--release"]
+        with (
+            patch.object(sys, "argv", ["run_eval.py", *options]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            run_eval.parse_args()
+        assert exc_info.value.code == 2
+        assert "--release cannot be combined" in capsys.readouterr().err
+
+    def test_release_accepts_execution_controls(self, run_eval, tmp_path):
+        argv = [
+            "run_eval.py",
+            "--release",
+            "--ep",
+            "dml",
+            "--device",
+            "gpu",
+            "--eval-type",
+            "both",
+            "--output-dir",
+            str(tmp_path / "nvidia"),
+            "--continue",
+            "--retry-failed",
+            "HF_FETCH_FAIL",
+            "--timeout",
+            "1200",
+            "--hf-download-stall-timeout",
+            "900",
+            "--clean-cache",
+            "winml",
+            "--list",
+        ]
+        with patch.object(sys, "argv", argv):
+            args = run_eval.parse_args()
+        assert args.release is True
+        assert args.continue_run is True
+        assert args.retry_failed == ["HF_FETCH_FAIL"]
+        assert args.timeout == 1200
+
+    def test_release_is_not_a_priority(self, run_eval):
+        with (
+            patch.object(sys, "argv", ["run_eval.py", "--priority", "release"]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            run_eval.parse_args()
+        assert exc_info.value.code == 2
 
 
 class TestRetryFailedArgumentParsing:

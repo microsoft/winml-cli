@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence  # noqa: TC003
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from itertools import pairwise
 from pathlib import Path  # noqa: TC003
 
 
@@ -35,6 +36,11 @@ class ModelEntry:
 
 _REQUIRED_FIELDS = {"hf_id", "task", "model_type", "group", "priority"}
 _VALID_PRIORITIES = {"P0", "P1", "P2", "P3"}
+_RELEASE_EP_ALIASES = {
+    "trtrtxexecutionprovider": "nv_tensorrt_rtx",
+    "mlasexecutionprovider": "cpu",
+    "migraphexecutionprovider": "migraphx",
+}
 
 
 def _canonical_ep_device_key(ep: str, device: str) -> str:
@@ -123,6 +129,127 @@ def load_registry(path: Path) -> list[ModelEntry]:
         )
 
     return entries
+
+
+def _release_manifest_rows(path: Path) -> tuple[list[str], list[dict]]:
+    from winml.modelkit.config.precision import is_quantized_precision
+
+    data = json.loads(path.read_text(encoding="utf-8-sig"))
+    if not isinstance(data, dict) or data.get("schema_version") != 1:
+        raise ValueError(f"Release manifest requires schema_version=1: {path}")
+    rows = data.get("models")
+    if not isinstance(rows, list) or not rows:
+        raise ValueError(f"Release manifest requires a nonempty models array: {path}")
+    target_names: list[str] = []
+    seen = set()
+    for row in rows:
+        if not isinstance(row, dict) or any(
+            not isinstance(row.get(field), str) or not row[field].strip()
+            for field in ("hf_id", "task")
+        ):
+            raise ValueError("Release manifest requires nonempty hf_id and task strings")
+        key = (row["hf_id"], row["task"])
+        if key in seen:
+            raise ValueError(f"Release manifest contains a duplicate model/task: {key}")
+        seen.add(key)
+        if "priority" in row and row["priority"] not in _VALID_PRIORITIES:
+            raise ValueError(f"Invalid release model priority for {key}: {row['priority']!r}")
+        targets = row.get("targets")
+        if not isinstance(targets, dict) or not targets:
+            raise ValueError(f"Release model requires a nonempty targets object: {key}")
+        if not target_names:
+            target_names = list(targets)
+        if set(targets) != set(target_names):
+            raise ValueError(f"Release models must have the same EP/device targets: {key}")
+        for target_name, target in targets.items():
+            machine, slash, ep_device = target_name.rpartition("/")
+            ep, underscore, device = ep_device.rpartition("_")
+            if not slash or not underscore or not machine or not ep or not device:
+                raise ValueError(f"Invalid release EP/device target: {target_name!r}")
+            precision = target.get("precision") if isinstance(target, dict) else None
+            if not isinstance(precision, str) or (
+                precision not in {"default", "fp16", "fp32"}
+                and not is_quantized_precision(precision)
+            ):
+                raise ValueError(
+                    f"Invalid release precision {precision!r} for {key} in {target_name}"
+                )
+    return target_names, rows
+
+
+def _release_ep_device_key(ep: str, device: str) -> str:
+    """Normalize historical result-folder names without changing runtime EP aliases."""
+    ep = ep.strip()
+    return _canonical_ep_device_key(_RELEASE_EP_ALIASES.get(ep.casefold(), ep), device)
+
+
+def _release_target_column(
+    headers: list[str],
+    ep: str,
+    device: str,
+    machine: str | None,
+    output_dir: Path | None,
+) -> str:
+    target_key = _release_ep_device_key(ep, device)
+    matches = []
+    for header in headers:
+        column_machine, slash, target = header.rpartition("/")
+        column_ep, underscore, column_device = target.rpartition("_")
+        if slash and underscore and _release_ep_device_key(column_ep, column_device) == target_key:
+            matches.append((column_machine, header))
+    if machine:
+        matches = [match for match in matches if match[0].casefold() == machine.casefold()]
+    elif len(matches) > 1 and output_dir is not None:
+        path_parts = output_dir.resolve().parts
+        target_folders = {
+            f"{parent.casefold()}/{child.casefold()}"
+            for parent, child in pairwise(path_parts)
+        }
+        inferred = [match for match in matches if match[1].casefold() in target_folders]
+        if len(inferred) == 1:
+            matches = inferred
+    if not matches:
+        raise ValueError(
+            f"Release manifest has no target for {target_key}"
+            + (f" on machine {machine!r}" if machine else "")
+        )
+    if len(matches) > 1:
+        machines = ", ".join(sorted({match[0] for match in matches}))
+        raise ValueError(
+            f"Release target {target_key} is ambiguous; use <machine>/<EP>_<device> "
+            f"in --output-dir (machines: {machines})"
+        )
+    return matches[0][1]
+
+
+def load_release_registry(
+    path: Path,
+    registry: list[ModelEntry],
+    *,
+    ep: str,
+    device: str,
+    machine: str | None = None,
+    output_dir: Path | None = None,
+) -> tuple[list[ModelEntry], str]:
+    """Load release JSON in manifest order without opening historical evidence files."""
+    headers, rows = _release_manifest_rows(path)
+    column = _release_target_column(headers, ep, device, machine, output_dir)
+    entries = []
+    for row in rows:
+        hf_id = row["hf_id"]
+        task = row["task"]
+        key = (hf_id, task)
+        label = row["targets"][column]["precision"]
+        precision = None if label == "default" else label
+        matching = [entry for entry in registry if (entry.hf_id, entry.task) == key]
+        base = next(
+            (entry for entry in matching if entry.precision == precision),
+            matching[0] if matching else make_adhoc_entry(hf_id, task),
+        )
+        entries.append(
+            replace(base, precision=precision, priority=row.get("priority") or base.priority)
+        )
+    return entries, column
 
 
 def filter_registry(
