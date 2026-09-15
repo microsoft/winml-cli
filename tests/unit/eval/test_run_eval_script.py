@@ -1224,6 +1224,48 @@ class TestCompositeOnnxRegistry:
         mock_subprocess.assert_not_called()
 
 
+class TestExtractOnnxPath:
+    def test_rejoins_rich_wrapped_artifact_path(self, run_eval, tmp_path):
+        artifact = tmp_path / "model-with-a-long-name_model.onnx"
+        artifact.touch()
+        path = str(artifact)
+        split_at = len(path) - 12
+        build_proc = {
+            "stderr": (
+                "Existing artifact found:\n"
+                f"{path[:split_at]}\n"
+                f"{path[split_at:]}\n"
+                "Use --rebuild to force rebuild.\n"
+            ),
+            "stdout": "",
+        }
+
+        assert (
+            run_eval._extract_onnx_path(
+                build_proc,
+                "microsoft/beit-base-patch16-224-pt22k-ft22k",
+                "image-classification",
+            )
+            == path
+        )
+
+    def test_cache_fallback_rejects_multiple_task_candidates(
+        self, run_eval, tmp_path, monkeypatch
+    ):
+        cache_dir = tmp_path / ".cache" / "winml" / "artifacts" / "microsoft_beit"
+        cache_dir.mkdir(parents=True)
+        (cache_dir / "imgcls_fp32_model.onnx").touch()
+        (cache_dir / "imgcls_w8a16_model.onnx").touch()
+        monkeypatch.setattr(run_eval.Path, "home", lambda: tmp_path)
+
+        assert (
+            run_eval._find_cached_model(
+                "microsoft/beit", {"stdout": "", "stderr": ""}, "image-classification"
+            )
+            is None
+        )
+
+
 class TestRunBuildNoQuantInjection:
     """``_run_build`` must append ``--no-quant`` to both winml config and
     winml build invocations when the EP quantizes internally (``EPS_WITH_INTERNAL_QUANT``).

@@ -11,10 +11,8 @@ testing. Auto-reads winml.io.inputs metadata for correct value ranges.
 from __future__ import annotations
 
 import logging
-import random
 from typing import Any, ClassVar, cast
 
-import numpy as np
 import torch
 from datasets import Dataset
 
@@ -27,6 +25,7 @@ class RandomDataset:
 
     Generates synthetic data by reading ONNX model input specs (shapes, dtypes)
     and winml.io.inputs metadata (value ranges) via get_io_config().
+    Samples are generated on demand and replayed deterministically by index.
     Model-agnostic and requires no real data or downloads.
 
     Args:
@@ -49,11 +48,6 @@ class RandomDataset:
         self.model_path = model_path
         self.max_samples = max_samples
         self.seed = seed
-
-        # Set random seeds for reproducibility
-        random.seed(seed)
-        np.random.seed(seed)
-        torch.manual_seed(seed)
 
         # Cache io_config (loads ONNX once)
         from ..onnx import get_io_config
@@ -98,25 +92,31 @@ class RandomDataset:
         """Label column name (readonly). RandomDataset has no labels."""
         return "sample_id"
 
-    def _generate_random_sample(self) -> dict[str, Any]:
+    def _generate_random_sample(self, index: int) -> dict[str, Any]:
         """Generate a single random sample as torch tensors.
 
         Uses cached InputTensorSpec list built from ONNX model I/O config.
         Each spec's to_tensor() handles value_range, dtype, and shape correctly.
         """
-        return {spec.name: spec.to_tensor() for spec in self._input_specs if spec.name}
+        generator = torch.Generator().manual_seed(self.seed + index)
+        sample = {
+            spec.name: spec.to_tensor(generator=generator)
+            for spec in self._input_specs
+            if spec.name
+        }
+        sample[self.label_col] = torch.tensor(index, dtype=torch.long)
+        return sample
 
     def _load_dataset(self) -> Dataset:
-        """Generate synthetic dataset with random samples as tensors."""
-        samples = []
-        for i in range(self.max_samples):
-            sample = self._generate_random_sample()
-            sample[self.label_col] = torch.tensor(i, dtype=torch.long)
-            samples.append(sample)
+        """Store sample indices and generate tensors only for requested rows."""
+        columns = [spec.name for spec in self._input_specs if spec.name] + [self.label_col]
 
-        dataset = Dataset.from_list(samples)
-        dataset.set_format("torch")
-        return dataset
+        def generate_batch(batch: dict[str, list[int]]) -> dict[str, list[Any]]:
+            samples = [self._generate_random_sample(index) for index in batch[self.label_col]]
+            return {name: [sample[name] for sample in samples] for name in columns}
+
+        dataset = Dataset.from_dict({self.label_col: range(self.max_samples)})
+        return dataset.with_transform(generate_batch)
 
     def get_data_config(self) -> dict[str, Any]:
         """Get Olive data configuration for random dataset."""

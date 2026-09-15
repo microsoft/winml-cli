@@ -1453,23 +1453,33 @@ def _run_recipe_build(
 
 def _extract_onnx_path(build_proc: dict, hf_id: str, task: str | None) -> str | None:
     """Extract ONNX path from build subprocess output."""
-    # Patterns used by winml build to report the artifact path
+    # Rich may wrap a long artifact path across physical output lines. Rejoin
+    # those fragments before falling back to cache discovery.
     markers = ("Final artifact:", "Existing artifact found:", "Artifact:")
-    onnx_path = None
-    for line in (build_proc["stderr"] + build_proc["stdout"]).splitlines():
+    output = re.sub(
+        r"\x1b\[[0-?]*[ -/]*[@-~]",
+        "",
+        build_proc["stderr"] + build_proc["stdout"],
+    )
+    lines = output.splitlines()
+    for index, line in enumerate(lines):
         for marker in markers:
-            if marker in line:
-                candidate = line.split(marker)[-1].strip()
-                if candidate and Path(candidate).exists():
-                    onnx_path = candidate
+            if marker not in line:
+                continue
+            fragments = [line.split(marker, 1)[1].strip()]
+            for continuation in lines[index + 1 : index + 11]:
+                candidate = "".join(fragments)
+                if candidate and Path(candidate).is_file():
+                    return candidate
+                if candidate.lower().endswith(".onnx"):
                     break
-        if onnx_path:
-            break
+                fragments.append(continuation.strip())
 
-    if not onnx_path or not Path(onnx_path).exists():
-        onnx_path = _find_cached_model(hf_id, build_proc, task)
+            candidate = "".join(fragments)
+            if candidate and Path(candidate).is_file():
+                return candidate
 
-    return onnx_path
+    return _find_cached_model(hf_id, build_proc, task)
 
 
 def _extract_task_from_config(config_path: Path) -> str | None:
@@ -1486,8 +1496,9 @@ def _find_cached_model(hf_id: str, build_proc: dict, task: str | None = None) ->
     """Try to find the built ONNX model in the WinML cache.
 
     Requires task to safely identify the correct artifact when a model has
-    multiple cached tasks (e.g. feat_* and txtcls_*). Returns None if task is
-    not provided to avoid picking the wrong model.
+    multiple cached tasks (e.g. feat_* and txtcls_*). A task can also have
+    multiple precision/config variants, so only an unambiguous single match is
+    safe. Returns None when task is absent or multiple candidates exist.
     """
     if not task:
         return None
@@ -1501,12 +1512,8 @@ def _find_cached_model(hf_id: str, build_proc: dict, task: str | None = None) ->
 
     prefix = get_task_abbrev(task) + "_"
 
-    model_files = sorted(
-        (p for p in cache_dir.glob("*_model.onnx") if p.name.startswith(prefix)),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-    return str(model_files[0]) if model_files else None
+    model_files = [p for p in cache_dir.glob("*_model.onnx") if p.name.startswith(prefix)]
+    return str(model_files[0]) if len(model_files) == 1 else None
 
 
 # ---------------------------------------------------------------------------

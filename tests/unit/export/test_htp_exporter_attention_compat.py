@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
@@ -360,3 +360,27 @@ def test_export_context_restores_sdpa_after_failure() -> None:
 
     assert torch.nn.functional.scaled_dot_product_attention is original_sdpa
     assert model.config._attn_implementation == "sdpa"
+
+
+@pytest.mark.parametrize("dtype", [torch.int32, torch.int64, torch.bool])
+@pytest.mark.parametrize("resolve_specs", [False, True])
+def test_io_resolution_preserves_generator_mask_dtype(
+    dtype: torch.dtype, resolve_specs: bool
+) -> None:
+    from winml.modelkit.export import generate_dummy_inputs, resolve_io_specs
+
+    mask = torch.randint(0, 2, (1, 8)).to(dtype)
+    onnx_config = MagicMock()
+    onnx_config.inputs = {"attention_mask": {0: "batch", 1: "sequence"}}
+    onnx_config.outputs = {"output": {0: "batch"}}
+    onnx_config.generate_dummy_inputs.return_value = {"attention_mask": mask}
+    hf_config = MagicMock(max_position_embeddings=8)
+
+    with patch("winml.modelkit.export.io._get_onnx_config", return_value=onnx_config):
+        if resolve_specs:
+            specs = resolve_io_specs("fake", "feature-extraction", hf_config)
+            assert specs["input_dtypes"] == [str(dtype).removeprefix("torch.")]
+        else:
+            inputs = generate_dummy_inputs("fake", "feature-extraction", hf_config)
+            assert inputs["attention_mask"].dtype == dtype
+            torch.testing.assert_close(inputs["attention_mask"], mask)

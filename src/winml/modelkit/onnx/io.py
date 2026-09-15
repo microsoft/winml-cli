@@ -23,9 +23,13 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
+
+
+if TYPE_CHECKING:
+    import torch
 
 
 logger = logging.getLogger(__name__)
@@ -70,7 +74,7 @@ class InputTensorSpec:
     shape: tuple[ShapeDim, ...] | None = None
     value_range: tuple[float, float] | None = None  # (min, max_exclusive)
 
-    def to_tensor(self) -> Any:
+    def to_tensor(self, *, generator: torch.Generator | None = None) -> Any:
         """Generate a dummy tensor from this spec.
 
         When value_range is set, generates values in the correct range:
@@ -78,6 +82,9 @@ class InputTensorSpec:
         - Float: uniform in [low, high)
 
         Falls back to ones (int) or rand [0,1) (float) when no range set.
+
+        Args:
+            generator: Optional independent random generator for reproducible sampling.
 
         Returns:
             torch.Tensor with the correct shape, dtype, and value range.
@@ -91,6 +98,7 @@ class InputTensorSpec:
             raise ValueError(f"Cannot create tensor: shape is None for '{self.name}'")
 
         dtype_map = {
+            "bool": torch.bool,
             "float32": torch.float32,
             "float16": torch.float16,
             "bfloat16": torch.bfloat16,
@@ -105,7 +113,11 @@ class InputTensorSpec:
         if self.value_range is not None:
             lo, hi = self.value_range
             if torch_dtype.is_floating_point:
-                return torch.rand(concrete_shape, dtype=torch_dtype) * (hi - lo) + lo
+                return (
+                    torch.rand(concrete_shape, dtype=torch_dtype, generator=generator)
+                    * (hi - lo)
+                    + lo
+                )
             # bbox uses the HF convention: a [..., 4] tensor of box corners
             # (x0, y0, x1, y1). We key on the input name because "bbox" is the
             # canonical HF/Optimum name for 2D box coordinates; a model using a
@@ -113,17 +125,21 @@ class InputTensorSpec:
             # randint path below. Reorder so x0<=x1 and y0<=y1 to keep each box
             # well-formed for layout models.
             if self.name == "bbox" and len(concrete_shape) >= 1 and concrete_shape[-1] == 4:
-                coords = torch.randint(int(lo), int(hi), concrete_shape, dtype=torch_dtype)
+                coords = torch.randint(
+                    int(lo), int(hi), concrete_shape, dtype=torch_dtype, generator=generator
+                )
                 x0 = torch.minimum(coords[..., 0], coords[..., 2])
                 y0 = torch.minimum(coords[..., 1], coords[..., 3])
                 x1 = torch.maximum(coords[..., 0], coords[..., 2])
                 y1 = torch.maximum(coords[..., 1], coords[..., 3])
                 return torch.stack((x0, y0, x1, y1), dim=-1)
-            return torch.randint(int(lo), int(hi), concrete_shape, dtype=torch_dtype)
+            return torch.randint(
+                int(lo), int(hi), concrete_shape, dtype=torch_dtype, generator=generator
+            )
 
         # Fallback: no range info (backward compatible)
         if torch_dtype.is_floating_point:
-            return torch.rand(concrete_shape, dtype=torch_dtype)
+            return torch.rand(concrete_shape, dtype=torch_dtype, generator=generator)
         return torch.ones(concrete_shape, dtype=torch_dtype)
 
     def concrete_shape(self) -> tuple[int, ...]:
@@ -211,6 +227,7 @@ ONNX_ELEM_TYPE_TO_NUMPY: dict[int, np.dtype] = {
     5: np.dtype("int16"),  # INT16
     6: np.dtype("int32"),  # INT32
     7: np.dtype("int64"),  # INT64
+    9: np.dtype("bool"),
     10: np.dtype("float16"),  # FLOAT16
     11: np.dtype("float64"),  # DOUBLE
     12: np.dtype("uint32"),  # UINT32
