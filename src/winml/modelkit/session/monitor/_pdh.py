@@ -20,14 +20,16 @@ from __future__ import annotations
 import ctypes
 import ctypes.wintypes as wintypes
 import logging
+import math
 import os
+import re
 import statistics
 import sys
 import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from ...utils.constants import ACCELERATOR_DEVICE_TYPES, DEVICE_PRIORITY
 
@@ -95,6 +97,48 @@ def _pdh_ok(status: int) -> bool:
     return (status & 0xFFFFFFFF) == 0
 
 
+def _pdh_data_ok(status: int) -> bool:
+    """CStatus accepts VALID_DATA and NEW_DATA; API returns still require zero."""
+    return (status & 0xFFFFFFFF) in (0, 1)
+
+
+def memory_instances(pid: int, luid: str) -> list[str]:
+    """Enumerate actual per-process memory nodes, without assuming phys_0."""
+    from ...sysinfo.pdh_adapters import _parse_multi_sz
+
+    # The instance list can grow between the sizing and data calls.
+    for _ in range(3):
+        counters, instances = wintypes.DWORD(), wintypes.DWORD()
+        args = (None, None, "GPU Process Memory")
+        status = _pdh.PdhEnumObjectItemsW(
+            *args, None, ctypes.byref(counters), None, ctypes.byref(instances), 400, 0
+        )
+        if (status & 0xFFFFFFFF) not in (0, 0x800007D2):
+            raise RuntimeError(f"Memory instance enumeration failed: 0x{status & 0xFFFFFFFF:08X}")
+        counter_buf = ctypes.create_unicode_buffer(max(counters.value, 1))
+        instance_buf = ctypes.create_unicode_buffer(max(instances.value, 1))
+        status = _pdh.PdhEnumObjectItemsW(
+            *args,
+            counter_buf,
+            ctypes.byref(counters),
+            instance_buf,
+            ctypes.byref(instances),
+            400,
+            0,
+        )
+        if (status & 0xFFFFFFFF) == 0x800007D2:
+            continue
+        if not _pdh_ok(status):
+            raise RuntimeError(f"Memory instance enumeration failed: 0x{status & 0xFFFFFFFF:08X}")
+        break
+    else:
+        raise RuntimeError("Memory instance list kept changing during enumeration")
+    pattern = re.compile(rf"pid_{pid}_luid_{re.escape(luid)}_phys_[0-9]+", re.IGNORECASE)
+    return sorted(
+        {item for item in _parse_multi_sz(instance_buf, instances.value) if pattern.fullmatch(item)}
+    )
+
+
 # ---------------------------------------------------------------------------
 # PDH Query
 # ---------------------------------------------------------------------------
@@ -127,6 +171,13 @@ class PdhQuery:
         self._query = wintypes.HANDLE()
         self._counters: list[_CounterEntry] = []
         self._opened = False
+        self.diagnostics: dict[str, dict] = {}
+        self._memory_target: tuple[int, str] | None = None
+        self._memory_next_discovery = 0.0
+        self._memory_active: set[str] = set()
+        self._memory_names: dict[str, tuple[str, str]] = {}
+        self.memory_discovery: dict[str, Any] = {"status": "not_configured"}
+        self.memory_readings: dict[str, dict[str, Any]] = {}
 
     def open(self) -> None:
         """Open the PDH query."""
@@ -153,10 +204,87 @@ class PdhQuery:
         entry = _CounterEntry(name=name, path=path, fmt=pdh_fmt)
         status = _pdh.PdhAddEnglishCounterW(self._query, path, 0, ctypes.byref(entry.handle))
         entry.registered = _pdh_ok(status)
+        self.diagnostics[name] = {"path": path, "add_status": status & 0xFFFFFFFF}
         if not entry.registered:
             logger.debug("Counter '%s' registration failed: 0x%08X", name, status & 0xFFFFFFFF)
         self._counters.append(entry)
         return entry.registered
+
+    def watch_memory(self, pid: int, luid: str) -> None:
+        """Follow this exact process/adapter, including instances created later."""
+        self._memory_target = (pid, luid)
+        self._memory_next_discovery = 0.0
+
+    def _refresh_memory(self) -> None:
+        if self._memory_target is None or time.monotonic() < self._memory_next_discovery:
+            return
+        self._memory_next_discovery = time.monotonic() + 0.2
+        try:
+            instances = set(memory_instances(*self._memory_target))
+        except RuntimeError as exc:
+            self.memory_discovery = {"status": "error", "reason": str(exc)}
+            return
+        self._memory_active = instances
+        self.memory_discovery = {
+            "status": "present" if instances else "absent_unconfirmed",
+            "reason": None if instances else "no_process_memory_instance; zero_not_proven",
+            "instances": sorted(instances),
+        }
+        for instance in sorted(instances):
+            if instance not in self._memory_names:
+                index = len(self._memory_names)
+                suffix = "" if index == 0 else f"_{index}"
+                self._memory_names[instance] = (
+                    f"memory_local_bytes{suffix}",
+                    f"memory_shared_bytes{suffix}",
+                )
+            for name, counter in zip(
+                self._memory_names[instance], ("Local Usage", "Shared Usage"), strict=True
+            ):
+                entry = next((entry for entry in self._counters if entry.name == name), None)
+                if entry is not None and entry.registered:
+                    continue
+                if entry is not None:
+                    self._counters.remove(entry)  # failed registration has no live handle
+                self.add_counter(
+                    name, chr(92) + f"GPU Process Memory({instance})" + chr(92) + counter
+                )
+
+    def _memory_values(self, values: dict[str, float | int | None]) -> None:
+        """Drop stale nodes; never let an empty/failed discovery masquerade as zero."""
+        active_names = {
+            name
+            for instance in self._memory_active
+            for name in self._memory_names.get(instance, ())
+        }
+        for name in list(values):
+            if (
+                name.startswith(("memory_local_bytes", "memory_shared_bytes"))
+                and name not in active_names
+            ):
+                del values[name]
+        self.memory_readings = {}
+        for key, prefix in (("local", "memory_local_bytes"), ("shared", "memory_shared_bytes")):
+            reason = self.memory_discovery.get("reason")
+            if self.memory_discovery["status"] == "present":
+                value = _sum_memory_nodes(values, prefix)
+                reason = None if value is not None else "counter_data_unavailable"
+            else:
+                for name in active_names:
+                    if name.startswith(prefix):
+                        values[name] = None
+                value = None
+            self.memory_readings[key] = {
+                "value_bytes": value,
+                "state": "measured_zero"
+                if value == 0
+                else "measured"
+                if value is not None
+                else self.memory_discovery["status"]
+                if self.memory_discovery["status"] != "present"
+                else "counter_data_unavailable",
+                "reason": reason,
+            }
 
     def prime(self) -> None:
         """Perform an initial collect (required for rate-based counters).
@@ -169,13 +297,16 @@ class PdhQuery:
 
     def _collect_once(self) -> dict[str, float | int | None]:
         """Single-shot PDH query. May return ``None`` for rate counters."""
-        _pdh.PdhCollectQueryData(self._query)
+        self._refresh_memory()
+        collect_status = _pdh.PdhCollectQueryData(self._query) & 0xFFFFFFFF
 
         values: dict[str, float | int | None] = {}
         ct = wintypes.DWORD()
 
         for entry in self._counters:
-            if not entry.registered:
+            diagnostic = self.diagnostics.setdefault(entry.name, {"path": entry.path})
+            diagnostic["collect_status"] = collect_status
+            if not entry.registered or collect_status != 0:
                 values[entry.name] = None
                 continue
 
@@ -188,17 +319,21 @@ class PdhQuery:
                     ctypes.byref(dval),
                 )
                 values[entry.name] = (
-                    dval.doubleValue if _pdh_ok(s) and _pdh_ok(dval.CStatus) else None
+                    dval.doubleValue if _pdh_ok(s) and _pdh_data_ok(dval.CStatus) else None
                 )
+                diagnostic.update(format_status=s & 0xFFFFFFFF, data_status=dval.CStatus)
             else:
                 lval = _PdhFmtLarge()
                 s = _pdh.PdhGetFormattedCounterValue(
                     entry.handle, _PDH_FMT_LARGE, ctypes.byref(ct), ctypes.byref(lval)
                 )
                 values[entry.name] = (
-                    lval.largeValue if _pdh_ok(s) and _pdh_ok(lval.CStatus) else None
+                    lval.largeValue if _pdh_ok(s) and _pdh_data_ok(lval.CStatus) else None
                 )
+                diagnostic.update(format_status=s & 0xFFFFFFFF, data_status=lval.CStatus)
 
+        if self._memory_target is not None:
+            self._memory_values(values)
         return values
 
     def collect(
@@ -241,6 +376,14 @@ class PdhQuery:
     def counter_names(self) -> list[str]:
         """Names of all registered counters."""
         return [c.name for c in self._counters]
+
+
+def _sum_memory_nodes(values: dict[str, float | int | None], prefix: str) -> float | None:
+    """Sum selected nodes only when every node has a valid reading."""
+    samples = [v for key, v in values.items() if key == prefix or key.startswith(prefix + "_")]
+    if not samples or any(v is None or not math.isfinite(v) or v < 0 for v in samples):
+        return None
+    return sum(value for value in samples if value is not None)
 
 
 def build_adapter_query(
@@ -309,17 +452,8 @@ def build_adapter_query(
             fmt="large",
         )
 
-    query.add_counter(
-        "memory_local_bytes",
-        rf"\GPU Process Memory(pid_{pid}_luid_{luid}_phys_0)\Local Usage",
-        fmt="large",
-    )
-    query.add_counter(
-        "memory_shared_bytes",
-        rf"\GPU Process Memory(pid_{pid}_luid_{luid}_phys_0)\Shared Usage",
-        fmt="large",
-    )
-
+    query.watch_memory(pid, luid)
+    # Actual registration happens on collect, then refreshes on the polling thread.
     return query
 
 
@@ -481,9 +615,7 @@ class PdhPoller:
             and device_norm in ACCELERATOR_DEVICE_TYPES
             and adapter_device_norm != device_norm
         ):
-            raise ValueError(
-                f"adapter_device {adapter_device!r} does not match device {device!r}"
-            )
+            raise ValueError(f"adapter_device {adapter_device!r} does not match device {device!r}")
         self._poll_interval_s = poll_interval_ms / 1000.0
         self._requested_device = device_norm
         # Full ORT EP name (e.g. "QNNExecutionProvider") to disambiguate when
@@ -516,6 +648,9 @@ class PdhPoller:
         self._gpu_luids: list[str] = []
         self._gpu_counter_names: list[str] = []
         self._gpu_samples: list[float] = []
+        self._memory_observations: list[dict[str, Any]] = []
+        self._memory_start_ns: int | None = None
+        self._memory_end_ns: int | None = None
 
     def start(self) -> None:
         """Resolve target device, register PDH counters, start background thread.
@@ -524,6 +659,7 @@ class PdhPoller:
         when the requested NPU/GPU adapter is discovered via ORT (preferred)
         or PDH fingerprinting (fallback).
         """
+        self._memory_start_ns = time.monotonic_ns()
         try:
             self._adapter_luid, self._device_kind = self._resolve_adapter(
                 self._requested_device,
@@ -591,7 +727,9 @@ class PdhPoller:
 
             self._query.prime()
 
-            initial = self._query.collect(interval=0.05)
+            # Do not wait for a process GPU instance before session.load can run.
+            initial = self._query._collect_once()
+            self._record_memory(self._query, initial)
             self._running_time_start_ns = {
                 k: int(v)
                 for k, v in initial.items()
@@ -617,11 +755,14 @@ class PdhPoller:
             self._thread.join(timeout=5.0)
             if self._thread.is_alive():
                 logger.warning("PdhPoller thread did not stop within timeout")
+                return
             self._thread = None
 
         if self._query is not None:
             try:
+                self._query._memory_next_discovery = 0.0
                 final = self._query._collect_once()
+                self._record_memory(self._query, final)
                 self._running_time_end_ns = {
                     k: int(v)
                     for k, v in final.items()
@@ -632,6 +773,7 @@ class PdhPoller:
             self._query.close()
             self._query = None
 
+        self._memory_end_ns = time.monotonic_ns()
         logger.debug(
             "PdhPoller stopped: %d util samples, %d local mem, %d shared mem, %d cpu samples",
             len(self._util_samples),
@@ -659,8 +801,7 @@ class PdhPoller:
                     v for k, v in values.items() if k.startswith("util_") and v is not None
                 ]
                 util = max(util_vals) if util_vals else None
-                mem_local = values.get("memory_local_bytes")
-                mem_shared = values.get("memory_shared_bytes")
+                self._record_memory(query, values)
                 cpu_raw = values.get("cpu_pct_raw")
                 cpu = cpu_raw / cpu_divisor if cpu_raw is not None else None
                 ram = values.get("ram_working_set_bytes")
@@ -670,10 +811,6 @@ class PdhPoller:
                 with self._lock:
                     if util is not None:
                         self._util_samples.append(util)
-                    if mem_local is not None:
-                        self._memory_local_bytes.append(mem_local)
-                    if mem_shared is not None:
-                        self._memory_shared_bytes.append(mem_shared)
                     if cpu is not None:
                         self._cpu_samples.append(cpu)
                     if ram is not None:
@@ -683,6 +820,61 @@ class PdhPoller:
             except Exception:
                 logger.debug("PdhPoller poll error", exc_info=True)
             self._stop_event.wait(self._poll_interval_s)
+
+    def _record_memory(self, query: PdhQuery, values: dict[str, float | int | None]) -> None:
+        timestamp = time.monotonic_ns()
+        observation: dict[str, Any] = {"timestamp_ns": timestamp}
+        with self._lock:
+            for key, samples in (
+                ("local", self._memory_local_bytes),
+                ("shared", self._memory_shared_bytes),
+            ):
+                value = _sum_memory_nodes(values, f"memory_{key}_bytes")
+                reading = query.memory_readings.get(key, {})
+                observation[key] = {
+                    "value_bytes": value,
+                    "state": reading.get(
+                        "state",
+                        "measured_zero"
+                        if value == 0
+                        else "measured"
+                        if value is not None
+                        else "unavailable",
+                    ),
+                    "reason": reading.get("reason"),
+                }
+                if value is not None:
+                    samples.append(value)
+            self._memory_observations.append(observation)
+
+    @property
+    def memory_coverage(self) -> dict[str, Any]:
+        """Describe observed samples and unknown gaps, never claim a full-window mean."""
+        with self._lock:
+            observations = [dict(row) for row in self._memory_observations]
+        result: dict[str, Any] = {
+            "window_start_ns": self._memory_start_ns,
+            "window_end_ns": self._memory_end_ns,
+            "discovery_interval_ms": 200,
+            "mean_scope": "valid_samples_only",
+            "peak_scope": "observed_samples_only",
+            "samples": observations,
+        }
+        for key in ("local", "shared"):
+            valid = [row for row in observations if row[key]["value_bytes"] is not None]
+            result[key] = {
+                "valid_samples": len(valid),
+                "total_samples": len(observations),
+                "missing_samples": len(observations) - len(valid),
+                "first_valid_ns": valid[0]["timestamp_ns"] if valid else None,
+                "last_valid_ns": valid[-1]["timestamp_ns"] if valid else None,
+                "coverage": "none"
+                if not valid
+                else "partial"
+                if len(valid) != len(observations)
+                else "all_observed_samples",
+            }
+        return result
 
     @staticmethod
     def _resolve_adapter(
@@ -753,46 +945,49 @@ class PdhPoller:
         return max(valid)
 
     @property
-    def peak_memory_local_mb(self) -> float:
+    def peak_memory_local_mb(self) -> float | None:
         """Peak dedicated device memory in MB during polling period."""
         with self._lock:
             valid = [s for s in self._memory_local_bytes if s is not None]
         if not valid:
-            return 0.0
+            return None
         return max(valid) / (1024 * 1024)
 
     @property
-    def mean_memory_local_mb(self) -> float:
+    def mean_memory_local_mb(self) -> float | None:
         """Mean dedicated device memory in MB during polling period."""
         with self._lock:
             valid = [s for s in self._memory_local_bytes if s is not None]
         if not valid:
-            return 0.0
+            return None
         return statistics.mean(valid) / (1024 * 1024)
 
     @property
-    def peak_memory_shared_mb(self) -> float:
+    def peak_memory_shared_mb(self) -> float | None:
         """Peak shared system memory used by device in MB during polling period."""
         with self._lock:
             valid = [s for s in self._memory_shared_bytes if s is not None]
         if not valid:
-            return 0.0
+            return None
         return max(valid) / (1024 * 1024)
 
     @property
-    def mean_memory_shared_mb(self) -> float:
+    def mean_memory_shared_mb(self) -> float | None:
         """Mean shared system memory used by device in MB during polling period."""
         with self._lock:
             valid = [s for s in self._memory_shared_bytes if s is not None]
         if not valid:
-            return 0.0
+            return None
         return statistics.mean(valid) / (1024 * 1024)
 
     @property
-    def peak_memory_mb(self) -> float:
+    def peak_memory_mb(self) -> float | None:
         """Peak device memory (local preferred, shared fallback) in MB."""
         local = self.peak_memory_local_mb
-        return local if local > 0 else self.peak_memory_shared_mb
+        shared = self.peak_memory_shared_mb
+        if local is not None and (local > 0 or shared is None):
+            return local
+        return shared
 
     @property
     def utilization_samples(self) -> list[float]:
@@ -853,29 +1048,29 @@ class PdhPoller:
         return max(valid)
 
     @property
-    def ram_used_mb(self) -> float:
+    def ram_used_mb(self) -> float | None:
         """Latest process working-set RAM in MB."""
         with self._lock:
             if not self._ram_used_bytes:
-                return 0.0
+                return None
             return self._ram_used_bytes[-1] / (1024 * 1024)
 
     @property
-    def mean_ram_used_mb(self) -> float:
+    def mean_ram_used_mb(self) -> float | None:
         """Mean process working-set RAM in MB during polling period."""
         with self._lock:
             valid = [s for s in self._ram_used_bytes if s is not None]
         if not valid:
-            return 0.0
+            return None
         return statistics.mean(valid) / (1024 * 1024)
 
     @property
-    def peak_ram_used_mb(self) -> float:
+    def peak_ram_used_mb(self) -> float | None:
         """Peak process working-set RAM in MB during polling period."""
         with self._lock:
             valid = [s for s in self._ram_used_bytes if s is not None]
         if not valid:
-            return 0.0
+            return None
         return max(valid) / (1024 * 1024)
 
     @property

@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from .op_metrics import OperatorMetrics, OpTraceResult
     from .openvino_monitor import OpenVinoMonitor
     from .report import display_op_trace_report, write_op_trace_json
+    from .trtrtx_monitor import NvTensorRTRTXMonitor
 
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
@@ -23,6 +24,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "OperatorMetrics": (".op_metrics", "OperatorMetrics"),
     "OpTraceResult": (".op_metrics", "OpTraceResult"),
     "OpenVinoMonitor": (".openvino_monitor", "OpenVinoMonitor"),
+    "NvTensorRTRTXMonitor": (".trtrtx_monitor", "NvTensorRTRTXMonitor"),
     "display_op_trace_report": (".report", "display_op_trace_report"),
     "write_op_trace_json": (".report", "write_op_trace_json"),
 }
@@ -30,6 +32,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
 __all__ = [
     "EPMonitor",
     "NullEPMonitor",
+    "NvTensorRTRTXMonitor",
     "OpTraceResult",
     "OpenVinoMonitor",
     "OperatorMetrics",

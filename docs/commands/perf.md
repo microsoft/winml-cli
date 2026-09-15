@@ -19,7 +19,7 @@ $ winml perf [options]
 | `--model` | `-m` | `TEXT` | — | HuggingFace model ID or path to a local `.onnx` file. Required. With `--runtime ort-genai`, also accepts a prebuilt genai **bundle directory**, or a HuggingFace model ID that is auto-built into a bundle on demand. |
 | `--runtime` | | `winml-ort\|ort-genai` | `winml-ort` | Inference runtime. `winml-ort` benchmarks single-shot ONNX inference; `ort-genai` benchmarks an onnxruntime-genai bundle (LLM generation: time-to-first-token + decode tokens/sec). With `ort-genai`, a model ID that is not a bundle directory is auto-built into one before benchmarking. An explicit `--ep` or `--device` selects both the transformer build and runtime target; without an override, the auto-build defaults to QNN/NPU. Bundles are cached under `~/.cache/winml/`, separately for each explicit EP/device target. GenAI cache controls are tracked in issue #1275. |
 | `--task` | | `TEXT` | auto-detected | Explicit task override (e.g., `image-classification`). Inferred from the model if omitted. |
-| `--iterations` | | `INTEGER` | `100` | Number of timed inference iterations used to compute statistics. |
+| `--iterations` | | `INTEGER` | `100` (`10` with `--op-tracing`) | Number of timed inference iterations used to compute statistics. Explicit values override the op-tracing default. |
 | `--warmup` | | `INTEGER` | `10` | Number of warm-up iterations run before timing begins; excluded from statistics. |
 | `--device` | `-d` | `auto\|cpu\|gpu\|npu` | `auto` | Device to run the benchmark on. `auto` selects the highest-priority available device. |
 | `--device-luid` | | `TEXT` | — | Pin a physical adapter within the resolved EP/device pair using its LUID from `winml sys` (`0xHHHHHHHH_0xLLLLLLLL`, case-insensitive). Requires the EP to expose that adapter's LUID. Not supported with `--runtime ort-genai`. |
@@ -76,6 +76,68 @@ target validation.
 | VRAM Usage | `memory.vram_*` | Adapter memory fields are emitted only when the effective GenAI route proves a specific accelerator adapter. Fields include baseline, after-compile, after-inference, load/inference/total deltas, and `vram_*_checkpoint_peak_mb` checkpoint maxima. Requires `--memory`. |
 
 ## Examples
+
+### Memory measurement contract
+
+With --memory, the legacy baseline stays **after the model factory, before
+input generation and explicit session.compile()**, as on main. Existing
+baseline/load/inference/total delta fields and the maximum-of-three checkpoint
+peak keep that boundary. Eager model loading before this baseline is excluded.
+
+Single-model runs also take an earlier, separately named before_model_load
+snapshot after device resolution and before the model factory. For each of
+rss, vram_local and vram_shared, additive fields are:
+
+- *_before_model_load_mb: earlier absolute snapshot.
+- *_model_factory_delta_mb: legacy baseline minus earlier snapshot.
+- *_total_from_before_model_load_delta_mb: inference end minus earlier snapshot.
+
+The new total includes model factory/build and input/session overhead. It is
+not weights-only memory or a continuous peak. Preloaded composite components
+have no observation before loading: all added fields are null with an explicit
+reason. They must not inherit the parent's aggregate baseline.
+
+Legacy *_mb fields use MiB. memory_measurement schema_version 2 retains the
+legacy baseline definition and adds the earlier boundary definition, PID,
+process creation time, selected LUID and timestamped byte/status/source records.
+Private commit is separate from RSS. The legacy checkpoint peak excludes the
+new earlier snapshot, even if that snapshot is larger. Signed deltas can be negative.
+
+Unavailable readings and dependent deltas are null, never zero. If the earlier
+GPU process instance is absent, only metrics needing that point are unavailable;
+a valid legacy baseline and its deltas remain usable. CPU GPU memory is
+not_applicable. Performance success does not certify memory.
+
+GPU memory uses main's effective EP-device binding, including --device-luid and
+provider selectors resolved through the advertised device options. Unresolved
+selectors are reported unavailable rather than matched to the first GPU.
+PDH records are scoped to the current PID and all enumerated physical memory
+nodes for that adapter. Local/shared are driver accounting categories: UMA local
+memory can be system RAM. Do not add process RSS and GPU shared memory.
+
+GPU counter availability is classified explicitly. A successful counter value
+of zero is measured_zero; an empty successful enumeration is absent_unconfirmed,
+not proof of zero; enumeration errors and invalid readings are separate states.
+The CLI cannot certify that a process has never used the GPU merely from an
+absent PDH instance, so it never fabricates a zero baseline from that condition.
+
+The hardware monitor refreshes PID/LUID memory instances every 200 ms, including
+when monitoring starts before model load. Counter registration is deduplicated,
+failed registrations retry, and missing/disappeared instances stay unknown.
+Checkpoint reads also retry briefly (up to 250 ms) while paused at the same phase.
+None of these retries backfill earlier missing observations.
+
+hw_monitor.device_memory.coverage records window timestamps, the first/last valid
+sample, valid/missing counts and timestamped memory observations. Mean is over
+valid samples only; peak is over observed samples only. Initial missing samples
+remain a partial-coverage warning even after the metric recovers. Discovery can
+miss sub-200-ms lifetimes; sampling does not certify the true instantaneous peak.
+
+The --monitor summary uses null/N/A when RAM or device memory has no valid
+samples. Its sampled inference-window peaks have a different time boundary from
+the three phase checkpoints. Historical collectors and the external Raw CGC
+runner are not upgraded by this CLI change; those results require provenance
+labels or a rerun with a compatible collector.
 
 Basic benchmark on the best available device:
 
@@ -207,8 +269,56 @@ context model with different input names — the trace falls back to random inpu
 and logs a warning.
 
 Op-tracing results are included in the main benchmark JSON under
-`hw_monitor.ep_proof`. The profiling CSV remains available as the raw trace
+`hw_monitor.ep_proof`. The EP's profiling CSV or JSON remains available as the raw trace
 artifact; no separate `_op_trace.json` file is written.
+
+For all EPs and tracing levels, `--op-tracing` defaults to **10 measured
+iterations** when `--iterations` is omitted, reducing timing variability.
+`--warmup` remains 10 by default and is excluded from reported statistics, so
+the default tracing run performs 20 inferences in total. Explicit `--iterations`
+and `--warmup` values are honored.
+
+### TensorRT RTX operator tracing
+
+```bash
+$ winml perf -m model.onnx --device gpu --ep nv_tensorrt_rtx --op-tracing basic
+```
+
+TensorRT RTX supports `basic` tracing on GPU with EP
+[2.30.49](https://dev.azure.com/WSSI/COMPUTE/_artifacts/feed/WCR/UPack/nvtensorrtrtx2-ep-msix/overview/2.30.49)
+or newer, with support for
+`nv_enable_profiling` and `nv_profiling_output_file`. The monitor enables these
+options and reads the EP's JSON after session teardown. The raw trace is retained
+at the path reported in `hw_monitor.ep_proof.artifacts.profile`.
+
+Operator paths preserve native TensorRT RTX layer names, including fused and
+EP-added layers; they do not need to map back to ORT nodes. A layer referencing
+multiple ONNX nodes is labeled `Fused`; a single-node mapping displays its exact
+ONNX type. Without source metadata, an exact native-name match can still resolve
+the type. Unresolved or ambiguous types are labeled `Unknown`.
+
+Each operator's optional `onnx_nodes` JSON array lists the contributing nodes as
+`{"name": "...", "op_type": "..."}` entries, preserving source order and removing
+duplicates. Unresolved node types are `null`; operators without known source
+nodes omit the array. Fused layers do not claim a single `onnx_op_type`, and their
+timings remain attached to the native layer rather than being divided among or
+assigned to one of the source nodes.
+
+Each `tid` identifies a subgraph invocation, not necessarily a whole inference.
+For each EP context (`pid`), the invocation count must be a positive integer
+multiple of the total completed model runs (warmup plus measured). The monitor
+assumes a constant number of consecutive invocations per inference, groups them
+in first-seen order, and excludes whole warmup groups. For example, 20 invocations
+over 10 total model runs are grouped in pairs. Non-divisible counts are rejected
+instead of truncating the trace.
+
+Grouping multiple invocations emits a warning: divisibility does not prove
+inference boundaries, so variable-length control-flow loops can still produce
+incorrect per-inference attribution even when counts divide evenly.
+Repeated native layer names are summed per measured
+iteration, including matching names across contexts. Percentages reflect traced
+GPU layer time, not wall-clock latency or CPU fallback work. `detail` tracing is
+not supported.
 
 ## Common pitfalls
 

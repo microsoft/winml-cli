@@ -192,7 +192,7 @@ def _get_rss_mb() -> float:
     return get_rss_mb()
 
 
-def _get_vram_mb(adapter_luid: str | None) -> tuple[float, float]:
+def _get_vram_mb(adapter_luid: str | None) -> tuple[float | None, float | None]:
     """Return current process device-memory usage as local/shared MB."""
     from ..session.monitor.memory_tracker import get_vram_mb
 
@@ -219,8 +219,8 @@ class _MemorySnapshot:
     """Point-in-time process RAM and device-memory usage."""
 
     rss_mb: float = 0.0
-    vram_local_mb: float = 0.0
-    vram_shared_mb: float = 0.0
+    vram_local_mb: float | None = None
+    vram_shared_mb: float | None = None
 
 
 class _GenaiMemoryTracker:
@@ -235,7 +235,7 @@ class _GenaiMemoryTracker:
     def _snapshot(self) -> _MemorySnapshot:
         gc.collect()
         rss = _get_rss_mb()
-        local, shared = _get_vram_mb(self._adapter_luid) if self._adapter_luid else (0.0, 0.0)
+        local, shared = _get_vram_mb(self._adapter_luid) if self._adapter_luid else (None, None)
         return _MemorySnapshot(rss_mb=rss, vram_local_mb=local, vram_shared_mb=shared)
 
     def record_baseline(self) -> None:
@@ -248,10 +248,10 @@ class _GenaiMemoryTracker:
         self._after_benchmark = self._snapshot()
 
     @staticmethod
-    def _delta(after: float, before: float) -> float:
-        return round(after - before, 2)
+    def _delta(after: float | None, before: float | None) -> float | None:
+        return round(after - before, 2) if after is not None and before is not None else None
 
-    def to_dict(self) -> dict[str, float]:
+    def to_dict(self) -> dict[str, float | None]:
         baseline = self._baseline
         after_load = self._after_load
         after_benchmark = self._after_benchmark
@@ -268,50 +268,20 @@ class _GenaiMemoryTracker:
         }
         if self._adapter_luid is None:
             return result
-        result.update(
-            {
-                "vram_local_baseline_mb": round(baseline.vram_local_mb, 2),
-                "vram_shared_baseline_mb": round(baseline.vram_shared_mb, 2),
-                "vram_local_after_compile_mb": round(after_load.vram_local_mb, 2),
-                "vram_shared_after_compile_mb": round(after_load.vram_shared_mb, 2),
-                "vram_local_after_inference_mb": round(after_benchmark.vram_local_mb, 2),
-                "vram_shared_after_inference_mb": round(after_benchmark.vram_shared_mb, 2),
-                "vram_local_checkpoint_peak_mb": round(
-                    max(
-                        baseline.vram_local_mb,
-                        after_load.vram_local_mb,
-                        after_benchmark.vram_local_mb,
-                    ),
-                    2,
-                ),
-                "vram_shared_checkpoint_peak_mb": round(
-                    max(
-                        baseline.vram_shared_mb,
-                        after_load.vram_shared_mb,
-                        after_benchmark.vram_shared_mb,
-                    ),
-                    2,
-                ),
-                "vram_local_model_load_delta_mb": self._delta(
-                    after_load.vram_local_mb, baseline.vram_local_mb
-                ),
-                "vram_shared_model_load_delta_mb": self._delta(
-                    after_load.vram_shared_mb, baseline.vram_shared_mb
-                ),
-                "vram_local_inference_delta_mb": self._delta(
-                    after_benchmark.vram_local_mb, after_load.vram_local_mb
-                ),
-                "vram_shared_inference_delta_mb": self._delta(
-                    after_benchmark.vram_shared_mb, after_load.vram_shared_mb
-                ),
-                "vram_local_total_delta_mb": self._delta(
-                    after_benchmark.vram_local_mb, baseline.vram_local_mb
-                ),
-                "vram_shared_total_delta_mb": self._delta(
-                    after_benchmark.vram_shared_mb, baseline.vram_shared_mb
-                ),
-            }
-        )
+        for key in ("vram_local", "vram_shared"):
+            points = [
+                getattr(snapshot, key + "_mb")
+                for snapshot in (baseline, after_load, after_benchmark)
+            ]
+            for phase, value in zip(
+                ("baseline", "after_compile", "after_inference"), points, strict=True
+            ):
+                result[f"{key}_{phase}_mb"] = round(value, 2) if value is not None else None
+            result[f"{key}_checkpoint_peak_mb"] = (
+                round(max(points), 2) if all(value is not None for value in points) else None
+            )
+            for phase, start, end in (("model_load", 0, 1), ("inference", 1, 2), ("total", 0, 2)):
+                result[f"{key}_{phase}_delta_mb"] = self._delta(points[end], points[start])
         return result
 
 
@@ -463,7 +433,7 @@ class GenaiBenchmarkResult:
     load: dict[str, float | str | None] = field(default_factory=dict)
     requests: list[_RequestSample] = field(default_factory=list)
     aggregate: dict[str, Any] = field(default_factory=dict)
-    memory_profile: dict[str, float] | None = None
+    memory_profile: dict[str, float | None] | None = None
     hw_monitor: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -915,6 +885,7 @@ def display_genai_report(result: GenaiBenchmarkResult, console: Console) -> None
         console.print("[bold]Hardware (during genai benchmark)[/bold]")
         cpu = result.hw_monitor.get("cpu", {})
         ram = result.hw_monitor.get("ram", {})
+        ram_text = f"{ram['used_mb']:.0f}" if ram.get("used_mb") is not None else "unavailable"
         device_kind = result.hw_monitor.get("device_kind")
         if device_kind in ACCELERATOR_DEVICE_TYPES:
             adapter = result.hw_monitor.get("adapter") or result.hw_monitor.get(device_kind, {})
@@ -922,12 +893,10 @@ def display_genai_report(result: GenaiBenchmarkResult, console: Console) -> None
                 f"  {device_kind.upper()}: {adapter.get('mean_pct', 0):.1f}% avg, "
                 f"{adapter.get('peak_pct', 0):.1f}% peak  |  "
                 f"CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  "
-                f"RAM: {ram.get('used_mb', 0):.0f} MB"
+                f"RAM: {ram_text} MiB"
             )
         else:
-            console.print(
-                f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  RAM: {ram.get('used_mb', 0):.0f} MB"
-            )
+            console.print(f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  RAM: {ram_text} MiB")
 
     if result.memory_profile:
         mem = result.memory_profile
@@ -939,18 +908,19 @@ def display_genai_report(result: GenaiBenchmarkResult, console: Console) -> None
             f"inference: {mem['rss_inference_delta_mb']:+.1f} MB  |  "
             f"total: {mem['rss_total_delta_mb']:+.1f} MB"
         )
-        vram_local = mem.get("vram_local_after_inference_mb", 0.0)
-        vram_shared = mem.get("vram_shared_after_inference_mb", 0.0)
-        if vram_local > 0 or vram_shared > 0:
+        if "vram_local_after_inference_mb" in mem:
+
+            def memory_text(key: str) -> str:
+                value = mem.get(key)
+                return f"{value:.1f}" if value is not None else "unavailable"
+
             console.print(
-                f"  VRAM: {vram_local:.1f}/{vram_shared:.1f} MB (local/shared) -> "
-                f"model load: {mem['vram_local_model_load_delta_mb']:+.1f}/"
-                f"{mem['vram_shared_model_load_delta_mb']:+.1f} MB  |  "
-                f"inference: {mem['vram_local_inference_delta_mb']:+.1f}/"
-                f"{mem['vram_shared_inference_delta_mb']:+.1f} MB  |  "
-                f"total: {mem['vram_local_total_delta_mb']:+.1f}/"
-                f"{mem['vram_shared_total_delta_mb']:+.1f} MB"
+                f"  GPU local/shared: {memory_text('vram_local_after_inference_mb')}/"
+                f"{memory_text('vram_shared_after_inference_mb')} MiB | total delta: "
+                f"{memory_text('vram_local_total_delta_mb')}/"
+                f"{memory_text('vram_shared_total_delta_mb')} MiB"
             )
+
     console.print()
 
 

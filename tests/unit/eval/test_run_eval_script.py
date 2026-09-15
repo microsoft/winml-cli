@@ -21,6 +21,7 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -457,77 +458,108 @@ class TestRunSubprocessTimeouts:
             ]
         )
 
-    def test_execution_timeout_restarts_after_hf_download(
-        self, run_eval, tmp_path
+    def _run_download_timeline(
+        self, run_eval, tmp_path, *, cache_variable, after_download=0.55, scan_delay=0.0
     ):
-        incomplete = tmp_path / "hub" / "models--acme--model" / "blobs" / "model.incomplete"
-        script = self._download_script(
-            incomplete,
-            [0.2] * 5,
-            before_download=0.35,
-            after_download=0.35,
-        )
+        """Exercise real cache detection/accounting without subsecond OS scheduling races.
+
+        The old test allowed only 150 ms for Python startup before a 500-ms
+        deadline, and depended on Windows open_files observing a brief handle.
+        This clock controls process wait, handle discovery and monitor publication; cache-root
+        resolution, snapshots, ownership matching and budget accounting are real.
+        """
+        cache_home = tmp_path / "huggingface" if cache_variable == "XDG_CACHE_HOME" else tmp_path
+        incomplete = cache_home / "hub" / "models--acme--model" / "blobs" / "model.incomplete"
+        now = 0.0
+        download_start, download_end = 0.35, 1.35
+        finish = download_end + after_download
+        observed = []
+        proc = MagicMock(pid=123, returncode=0)
+        proc.poll.side_effect = lambda: 0 if now >= finish else None
+        monitor = MagicMock(pid=456)
+        monitor.poll.return_value = None
+
+        def open_paths(pid):
+            nonlocal now
+            assert pid == proc.pid
+            now += scan_delay
+            if download_start <= now < download_end:
+                incomplete.parent.mkdir(parents=True, exist_ok=True)
+                with incomplete.open("ab") as stream:
+                    stream.write(b"x")
+                observed.append(incomplete)
+                return {run_eval._normalized_path(incomplete)}
+            incomplete.unlink(missing_ok=True)
+            return set()
+
+        def start_monitor(pid, env, progress_path):
+            tracker = run_eval._HfDownloadTracker(env, now)
+            tracker.bind(pid)
+
+            def wait(timeout):
+                nonlocal now
+                now = min(now + timeout, max(now, finish))
+                if now >= finish:
+                    return 0
+                active = tracker.poll(now)
+                snapshot = {
+                    "observed_at": now,
+                    "active": active,
+                    "last_progress": tracker.last_progress,
+                }
+                progress_path.write_text(json.dumps(snapshot), encoding="utf-8")
+                raise run_eval.subprocess.TimeoutExpired("controlled-child", timeout)
+
+            proc.wait.side_effect = wait
+            return monitor
 
         with (
-            self._cache_env(run_eval, HF_HOME=tmp_path),
-            patch.object(run_eval, "_HF_DOWNLOAD_STALL_TIMEOUT", 1.0),
+            self._cache_env(run_eval, **{cache_variable: tmp_path}),
+            patch.object(run_eval, "time", SimpleNamespace(perf_counter=lambda: now)),
+            patch.object(run_eval.subprocess, "Popen", return_value=proc),
+            patch.object(run_eval, "_start_hf_download_monitor", side_effect=start_monitor),
+            patch.object(run_eval, "_process_tree_open_paths", side_effect=open_paths),
+            patch.object(run_eval, "_kill_process_tree") as kill_tree,
+            patch.object(run_eval, "_HF_DOWNLOAD_STALL_TIMEOUT", 2.0),
         ):
-            result = run_eval._run_subprocess([sys.executable, "-c", script], timeout=0.5)
+            result = run_eval._run_subprocess(["controlled-child"], timeout=0.5)
 
-        assert result["exit_code"] == 0
-        assert result["elapsed"] >= 1.6
+        assert observed, "The actual cache snapshot must detect the owned download"
+        if result["timeout"]:
+            kill_tree.assert_called_once_with(proc.pid)
+            proc.kill.assert_called_once()
+        else:
+            kill_tree.assert_not_called()
+            proc.kill.assert_not_called()
+        return result
+
+    @pytest.mark.parametrize("cache_variable", ["HF_HOME", "XDG_CACHE_HOME"])
+    def test_execution_timeout_restarts_after_hf_download(self, run_eval, tmp_path, cache_variable):
+        result = self._run_download_timeline(run_eval, tmp_path, cache_variable=cache_variable)
+        assert result["exit_code"] == 0, result
+        assert result["elapsed"] == 1.9
         assert result["timeout"] is False
         assert result["hf_download_stalled"] is False
 
     def test_execution_timeout_restarts_after_hf_download_with_slow_handle_scan(
         self, run_eval, tmp_path
     ):
-        incomplete = tmp_path / "hub" / "models--acme--model" / "blobs" / "model.incomplete"
-        observed_path = tmp_path / "download-observed"
-        script = "\n".join(
-            [
-                "import time",
-                "from pathlib import Path",
-                f"path = Path({str(incomplete)!r})",
-                f"observed = Path({str(observed_path)!r})",
-                "path.parent.mkdir(parents=True, exist_ok=True)",
-                "deadline = time.perf_counter() + 5",
-                "with path.open('wb') as stream:",
-                "    while not observed.exists():",
-                "        if time.perf_counter() >= deadline:",
-                "            raise RuntimeError('monitor did not observe the download')",
-                "        stream.write(b'x')",
-                "        stream.flush()",
-                "        time.sleep(0.1)",
-                "path.unlink()",
-                "time.sleep(0.35)",
-            ]
+        result = self._run_download_timeline(
+            run_eval, tmp_path, cache_variable="HF_HOME", scan_delay=0.7
         )
-        monitor_script = self._monitor_script(
-            "real_open_paths = run_eval._process_tree_open_paths\n"
-            "def slow_open_paths(pid):\n"
-            "    time.sleep(0.7)\n"
-            "    return real_open_paths(pid)\n"
-            "run_eval._process_tree_open_paths = slow_open_paths\n"
-            "original_poll = run_eval._HfDownloadTracker.poll\n"
-            "def observed_poll(tracker, now):\n"
-            "    active = original_poll(tracker, now)\n"
-            "    if active:\n"
-            f"        Path({str(observed_path)!r}).touch()\n"
-            "    return active\n"
-            "run_eval._HfDownloadTracker.poll = observed_poll"
-        )
-
-        with (
-            self._cache_env(run_eval, HF_HOME=tmp_path),
-            patch.object(run_eval, "_HF_DOWNLOAD_STALL_TIMEOUT", 2.0),
-            patch.object(run_eval, "_HF_DOWNLOAD_MONITOR_CODE", monitor_script),
-        ):
-            result = run_eval._run_subprocess([sys.executable, "-c", script], timeout=0.5)
-
-        assert result["exit_code"] == 0
-        assert observed_path.exists()
+        assert result["exit_code"] == 0, result
         assert result["timeout"] is False
+        assert result["hf_download_stalled"] is False
+
+    @pytest.mark.parametrize("cache_variable", ["HF_HOME", "XDG_CACHE_HOME"])
+    def test_execution_still_times_out_after_completed_download(
+        self, run_eval, tmp_path, cache_variable
+    ):
+        result = self._run_download_timeline(
+            run_eval, tmp_path, cache_variable=cache_variable, after_download=2.0
+        )
+        assert result["exit_code"] == -1, result
+        assert result["timeout"] is True
         assert result["hf_download_stalled"] is False
 
     def test_stalled_hf_download_uses_independent_timeout(self, run_eval, tmp_path):
@@ -576,28 +608,6 @@ class TestRunSubprocessTimeouts:
 
         assert result["exit_code"] == -1
         assert result["timeout"] is True
-        assert result["hf_download_stalled"] is False
-
-    def test_execution_timeout_restarts_after_xdg_hf_download(self, run_eval, tmp_path):
-        incomplete = (
-            tmp_path / "huggingface" / "hub" / "models--acme--model" / "blobs" / "model.incomplete"
-        )
-        script = self._download_script(
-            incomplete,
-            [0.2] * 5,
-            before_download=0.35,
-            after_download=0.35,
-        )
-
-        with (
-            self._cache_env(run_eval, XDG_CACHE_HOME=tmp_path),
-            patch.object(run_eval, "_HF_DOWNLOAD_STALL_TIMEOUT", 1.0),
-        ):
-            result = run_eval._run_subprocess([sys.executable, "-c", script], timeout=0.5)
-
-        assert result["exit_code"] == 0
-        assert result["elapsed"] >= 1.6
-        assert result["timeout"] is False
         assert result["hf_download_stalled"] is False
 
     def test_stalled_xdg_hf_download_uses_independent_timeout(self, run_eval, tmp_path):
@@ -804,6 +814,10 @@ class TestRunSubprocessTimeouts:
 
     def test_thread_start_cannot_block_subprocess_timeout(self, run_eval, tmp_path):
         original_start = threading.Thread.start
+        script = (
+            "import sys, time; sys.stderr.write('x' * 262144); "
+            "sys.stderr.flush(); time.sleep(5)"
+        )
 
         def delayed_start(thread):
             threading.Event().wait(1.0)
@@ -815,12 +829,7 @@ class TestRunSubprocessTimeouts:
             patch.object(run_eval, "_HF_DOWNLOAD_MONITOR_TIMEOUT", 0.1),
         ):
             result = run_eval._run_subprocess(
-                [
-                    sys.executable,
-                    "-c",
-                    "import sys, time; sys.stderr.write('x' * 262144); "
-                    "sys.stderr.flush(); time.sleep(5)",
-                ],
+                [sys.executable, "-c", script],
                 timeout=0.2,
             )
 
@@ -3672,3 +3681,86 @@ class TestClearDiskCaches:
         run_eval._clear_disk_caches()
 
         assert not winml.exists()
+
+
+class TestSingleDmlGpuPin:
+    @pytest.mark.parametrize("native_count", [0, 2])
+    def test_ambiguous_inventory_fails_without_selecting_an_adapter(self, run_eval, native_count):
+        native = [MagicMock(device_type="GPU", luid=str(i)) for i in range(native_count)]
+        with (
+            patch("winml.modelkit.sysinfo.enumerate_compute_adapters", return_value=native),
+            patch("winml.modelkit.session.WinMLEPRegistry.instance") as registry,
+            pytest.raises(RuntimeError, match="exactly one DXCore GPU"),
+        ):
+            run_eval._single_physical_dml_gpu_luid()
+        registry.assert_not_called()
+
+    @pytest.mark.parametrize("advertised", [["stale"], ["stale", "physical"]])
+    def test_uses_only_physical_gpu_and_requires_dml_support(self, run_eval, advertised):
+        native = [MagicMock(device_type="GPU", luid="physical", name="GPU")]
+        devices = [MagicMock(device_type="GPU", ort_handle=luid) for luid in advertised]
+        with (
+            patch("winml.modelkit.sysinfo.enumerate_compute_adapters", return_value=native),
+            patch("winml.modelkit.session.WinMLEPRegistry.instance") as registry,
+            patch("winml.modelkit.sysinfo.get_ep_device_luid", side_effect=lambda handle: handle),
+        ):
+            registry.return_value.auto_device.return_value.ep.devices = devices
+            if "physical" in advertised:
+                assert run_eval._single_physical_dml_gpu_luid() == "physical"
+            else:
+                with pytest.raises(RuntimeError, match="not advertised by DML"):
+                    run_eval._single_physical_dml_gpu_luid()
+
+    @pytest.mark.parametrize("pin", [False, True])
+    @pytest.mark.parametrize("paths", [None, {"": "model.onnx"}, {"a": "a.onnx", "b": "b.onnx"}])
+    def test_pin_reaches_every_perf_subprocess_only_when_enabled(
+        self, run_eval, tmp_path, pin, paths
+    ):
+        proc = {
+            "stdout": "",
+            "stderr": "",
+            "exit_code": 0,
+            "elapsed": 0,
+            "timeout": False,
+            "command": "winml perf",
+            "result": _perf_result(),
+        }
+        with (
+            patch.object(
+                run_eval, "_single_physical_dml_gpu_luid", return_value="physical"
+            ) as resolve,
+            patch.object(run_eval, "_run_structured_perf", return_value=proc) as perf,
+        ):
+            result = run_eval.run_model(
+                _entry(),
+                "gpu",
+                30,
+                paths,
+                ep="dml",
+                model_dir=tmp_path,
+                pin_single_dml_gpu=pin,
+            )
+        assert result["exit_code"] == 0
+        assert resolve.call_count == int(pin)
+        assert perf.call_count == (len(paths) if paths else 1)
+        for call in perf.call_args_list:
+            argv = call.args[0]
+            assert ("--device-luid" in argv) is pin
+            if pin:
+                assert argv[argv.index("--device-luid") + 1] == "physical"
+
+    @pytest.mark.parametrize(
+        "extra", [[], ["--eval-type", "both"], ["--ep", "cpu"], ["--build-only"]]
+    )
+    def test_cli_rejects_unsupported_pin_modes(self, run_eval, extra):
+        argv = ["run_eval", "--pin-single-dml-gpu"]
+        if extra:
+            argv += ["--ep", "dml", "--device", "gpu", *extra]
+        with patch.object(sys, "argv", argv), pytest.raises(SystemExit) as exc:
+            run_eval.parse_args()
+        assert exc.value.code == 2
+
+    def test_cli_accepts_explicit_dml_perf_pin(self, run_eval):
+        argv = ["run_eval", "--pin-single-dml-gpu", "--ep", "dml", "--device", "gpu"]
+        with patch.object(sys, "argv", argv):
+            assert run_eval.parse_args().pin_single_dml_gpu is True

@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import onnxruntime as ort
+import pytest
 from google.protobuf.message import EncodeError
 from onnx import (
     AttributeProto,
@@ -36,7 +37,7 @@ from winml.modelkit.quant.fp16 import convert_to_fp16
 
 
 if TYPE_CHECKING:
-    import pytest
+    from collections.abc import Callable
 
 
 # =============================================================================
@@ -554,6 +555,36 @@ def _build_lexically_captured_initializer_output_model() -> ModelProto:
         [node], "lexical_capture", [condition], [shared, output], [initializer]
     )
     return helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+
+
+def _build_io_cast_name_collision_model() -> ModelProto:
+    """Build existing I/O Casts, fan-out, and an occupied rename candidate."""
+    condition = helper.make_tensor_value_info("condition", TensorProto.BOOL, [])
+    source = helper.make_tensor_value_info("source", TensorProto.FLOAT, [1, 4])
+    flag = helper.make_tensor_value_info("flag", TensorProto.BOOL, [])
+    result = helper.make_tensor_value_info("result", TensorProto.FLOAT, [1, 4])
+    nodes = [
+        helper.make_node("Identity", [condition.name], [flag.name], name="flag_identity"),
+        helper.make_node(
+            "Cast", [source.name], ["graph_input_cast_1"],
+            name="graph_input_cast1", to=TensorProto.FLOAT,
+        ),
+        helper.make_node(
+            "Identity", ["graph_input_cast_1"], ["graph_input_cast_1__existing_1"],
+            name="graph_input_cast1__existing_1",
+        ),
+        helper.make_node(
+            "Add", ["graph_input_cast_1", "graph_input_cast_1__existing_1"],
+            ["graph_output_cast_1"], name="sum",
+        ),
+        helper.make_node(
+            "Cast", ["graph_output_cast_1"], [result.name],
+            name="graph_output_cast1", to=TensorProto.FLOAT,
+        ),
+    ]
+    graph = helper.make_graph(nodes, "io_cast_collision", [condition, source], [flag, result])
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+    return shape_inference.infer_shapes(model, check_type=True, strict_mode=True)
 
 
 def _build_initializer_output_name_collision_model() -> ModelProto:
@@ -3323,6 +3354,190 @@ def _build_non_float_initializer_before_nested_float_initializer_model() -> Mode
 
 
 # =============================================================================
+# I/O CAST NAME COLLISION TESTS
+# =============================================================================
+
+
+class TestRenameGeneratedIOCastNameCollisions:
+    """Test name-only preprocessing and its integration with FP16 conversion."""
+
+    def test_rename_preserves_bindings_and_computation(self) -> None:
+        """Free reserved names without changing types, attributes, or computation."""
+        from winml.modelkit.quant.fp16 import (
+            _reject_generated_io_cast_name_collisions,
+            _rename_generated_io_cast_name_collisions,
+        )
+
+        model = _build_io_cast_name_collision_model()
+        original = ModelProto()
+        original.CopyFrom(model)
+        feeds = {
+            "condition": np.array(True),
+            "source": np.random.default_rng(0).standard_normal((1, 4)).astype(np.float32),
+        }
+        expected = ort.InferenceSession(
+            original.SerializeToString(), providers=["CPUExecutionProvider"]
+        ).run(None, feeds)
+
+        _rename_generated_io_cast_name_collisions(model, keep_io_types=True, op_block_list=[])
+
+        _reject_generated_io_cast_name_collisions(model, keep_io_types=True, op_block_list=[])
+        checker.check_model(model)
+        shape_inference.infer_shapes(model, check_type=True, strict_mode=True)
+        assert model.graph.input == original.graph.input
+        assert model.graph.output == original.graph.output
+        assert len(model.graph.node) == len(original.graph.node)
+        node_names = [node.name for node in model.graph.node]
+        tensor_names = [name for node in model.graph.node for name in node.output]
+        assert len(node_names) == len(set(node_names))
+        assert len(tensor_names) == len(set(tensor_names))
+        assert model.graph.node[2].name == original.graph.node[2].name
+        assert model.graph.node[2].output == original.graph.node[2].output
+        assert model.graph.node[2].input[0] == model.graph.node[1].output[0]
+        assert model.graph.node[3].input[0] == model.graph.node[1].output[0]
+        assert model.graph.node[3].input[1] == model.graph.node[2].output[0]
+        assert model.graph.node[4].input[0] == model.graph.node[3].output[0]
+        for before, after in zip(original.graph.node, model.graph.node, strict=True):
+            assert after.op_type == before.op_type
+            assert after.domain == before.domain
+            assert after.attribute == before.attribute
+        for before, after in zip(original.graph.value_info, model.graph.value_info, strict=True):
+            assert after.type == before.type
+            assert after.name in tensor_names
+        actual = ort.InferenceSession(
+            model.SerializeToString(), providers=["CPUExecutionProvider"]
+        ).run(None, feeds)
+        for expected_output, actual_output in zip(expected, actual, strict=True):
+            assert actual_output.dtype == expected_output.dtype
+            np.testing.assert_array_equal(actual_output, expected_output)
+
+    def test_rename_is_deterministic_and_idempotent(self) -> None:
+        """Occupied suffixes must not cause duplicate or unstable fresh names."""
+        from winml.modelkit.quant.fp16 import _rename_generated_io_cast_name_collisions
+
+        model = _build_io_cast_name_collision_model()
+        duplicate = ModelProto()
+        duplicate.CopyFrom(model)
+        _rename_generated_io_cast_name_collisions(model, keep_io_types=True, op_block_list=[])
+        renamed = model.SerializeToString()
+        _rename_generated_io_cast_name_collisions(duplicate, keep_io_types=True, op_block_list=[])
+        assert duplicate.SerializeToString() == renamed
+        _rename_generated_io_cast_name_collisions(model, keep_io_types=True, op_block_list=[])
+        assert model.SerializeToString() == renamed
+
+    @pytest.mark.parametrize(
+        ("build_model", "keep_io_types"),
+        [(_build_io_cast_name_collision_model, False), (_build_simple_fp32_model, True)],
+        ids=["io-types-not-kept", "no-collisions"],
+    )
+    def test_rename_is_noop_when_not_needed(
+        self, build_model: Callable[[], ModelProto], keep_io_types: bool
+    ) -> None:
+        """Leave unrelated graphs and conversion without kept I/O unchanged."""
+        from winml.modelkit.quant.fp16 import _rename_generated_io_cast_name_collisions
+
+        model = build_model()
+        original = model.SerializeToString()
+        _rename_generated_io_cast_name_collisions(
+            model, keep_io_types=keep_io_types, op_block_list=[]
+        )
+        assert model.SerializeToString() == original
+
+    def test_collision_with_unloaded_weight_is_rejected_before_mutation(self) -> None:
+        """A later preflight failure must not publish internal collision renames."""
+        model = _build_io_cast_name_collision_model()
+        weight = numpy_helper.from_array(
+            np.random.default_rng(0).standard_normal((1, 4)).astype(np.float32),
+            "weight",
+        )
+        model.graph.initializer.append(weight)
+        model.graph.node[3].input[1] = weight.name
+        _mark_initializers_as_external(model.graph, clear_data=True)
+        original = model.SerializeToString()
+
+        with pytest.raises(RuntimeError, match="unloaded external data"):
+            convert_to_fp16(model, keep_io_types=True, op_block_list=[])
+
+        assert model.SerializeToString() == original
+
+    def test_public_io_collision_remains_rejected(self) -> None:
+        """Renaming internal bindings must not alter the public I/O contract."""
+        from winml.modelkit.quant.fp16 import (
+            _reject_generated_io_cast_name_collisions,
+            _rename_generated_io_cast_name_collisions,
+        )
+
+        model = _build_initializer_output_name_collision_model()
+        original = model.SerializeToString()
+        _rename_generated_io_cast_name_collisions(model, keep_io_types=True, op_block_list=[])
+        assert model.SerializeToString() == original
+        with np.testing.assert_raises_regex(RuntimeError, "existing names collide"):
+            _reject_generated_io_cast_name_collisions(model, keep_io_types=True, op_block_list=[])
+
+    @pytest.mark.parametrize(
+        "build_model",
+        [
+            _build_io_cast_name_collision_model,
+            _build_initializer_output_node_name_collision_model,
+            _build_nested_node_name_collision_model,
+            _build_regular_output_nested_node_name_collision_model,
+            _build_inferred_output_nested_node_name_collision_model,
+        ],
+        ids=[
+            "existing-io-casts",
+            "initializer-output",
+            "nested-node",
+            "nested-capture",
+            "inferred-io",
+        ],
+    )
+    def test_conversion_resolves_collisions_and_preserves_fp32_io(
+        self, build_model: Callable[[], ModelProto]
+    ) -> None:
+        """The conversion entry point resolves collisions before calling ORT."""
+        model = build_model()
+        reference_model = shape_inference.infer_shapes(model, check_type=True, strict_mode=True)
+        checker.check_model(reference_model)
+        reference = ort.InferenceSession(
+            reference_model.SerializeToString(), providers=["CPUExecutionProvider"]
+        )
+        io_before = [
+            value.SerializeToString()
+            for values in (reference_model.graph.input, reference_model.graph.output)
+            for value in values
+        ]
+        feeds = {
+            value.name: (
+                np.array(True)
+                if value.type.tensor_type.elem_type == TensorProto.BOOL
+                else np.random.default_rng(index).standard_normal(
+                    tuple(dimension.dim_value for dimension in value.type.tensor_type.shape.dim)
+                ).astype(np.float32)
+            )
+            for index, value in enumerate(reference_model.graph.input)
+        }
+        expected = reference.run(None, feeds)
+
+        result = convert_to_fp16(model, keep_io_types=True, op_block_list=[])
+
+        assert result is model
+        assert [
+            value.SerializeToString()
+            for values in (result.graph.input, result.graph.output)
+            for value in values
+        ] == io_before
+        checker.check_model(result)
+        shape_inference.infer_shapes(result, check_type=True, strict_mode=True)
+        session = ort.InferenceSession(
+            result.SerializeToString(), providers=["CPUExecutionProvider"]
+        )
+        actual = session.run(None, feeds)
+        for expected_output, actual_output in zip(expected, actual, strict=True):
+            assert actual_output.dtype == expected_output.dtype
+            np.testing.assert_allclose(actual_output, expected_output, rtol=1e-3, atol=1e-3)
+
+
+# =============================================================================
 # CONVERT_TO_FP16 TESTS
 # =============================================================================
 
@@ -4102,37 +4317,6 @@ class TestConvertToFP16:
             convert_to_fp16(model, keep_io_types=True, op_block_list=[])
         assert model.SerializeToString() == original
 
-    def test_generated_cast_node_name_collision_is_rejected_before_mutation(self) -> None:
-        """A user node occupying ORT's deterministic Cast name fails safely."""
-        model = _build_initializer_output_node_name_collision_model()
-        original = model.SerializeToString()
-
-        with np.testing.assert_raises_regex(RuntimeError, "existing names collide"):
-            convert_to_fp16(model, keep_io_types=True, op_block_list=[])
-
-        assert model.SerializeToString() == original
-
-    def test_nested_generated_node_name_collision_is_rejected_before_mutation(self) -> None:
-        """Nested nodes also participate in ORT's global generated-name set."""
-        model = _build_nested_node_name_collision_model()
-        original = model.SerializeToString()
-
-        with np.testing.assert_raises_regex(RuntimeError, "existing names collide"):
-            convert_to_fp16(model, keep_io_types=True, op_block_list=[])
-
-        assert model.SerializeToString() == original
-
-    def test_regular_output_nested_node_name_collision_is_rejected_before_mutation(
-        self,
-    ) -> None:
-        """Generated I/O Cast names are reserved even without initializer outputs."""
-        model = _build_regular_output_nested_node_name_collision_model()
-        original = model.SerializeToString()
-
-        with np.testing.assert_raises_regex(RuntimeError, "graph_output_cast0"):
-            convert_to_fp16(model, keep_io_types=True, op_block_list=[])
-        assert model.SerializeToString() == original
-
     def test_neutral_nested_node_name_collision_is_allowed(self) -> None:
         """Skipping an already-concrete INT node cannot alter precision."""
         model = _build_neutral_nested_node_name_collision_model()
@@ -4183,20 +4367,6 @@ class TestConvertToFP16:
         )
         np.testing.assert_array_equal(output, np.array([2.0], dtype=np.float32))
         np.testing.assert_array_equal(loop_output, np.array([7], dtype=np.int64))
-
-    def test_inferred_output_nested_node_name_collision_is_rejected_before_mutation(
-        self,
-    ) -> None:
-        """Generated Cast reservations use the same inferred I/O types as ORT."""
-        model = _build_inferred_output_nested_node_name_collision_model()
-        inferred = shape_inference.infer_shapes(model, strict_mode=True)
-        assert inferred.graph.output[0].type.tensor_type.elem_type == TensorProto.FLOAT
-        checker.check_model(inferred)
-        original = model.SerializeToString()
-
-        with np.testing.assert_raises_regex(RuntimeError, "graph_output_cast0"):
-            convert_to_fp16(model, keep_io_types=True, op_block_list=[])
-        assert model.SerializeToString() == original
 
     def test_nested_local_generated_tensor_alias_does_not_collide(self) -> None:
         """A nested local binding may legally shadow a generated top-level alias."""

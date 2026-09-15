@@ -40,6 +40,7 @@ import onnx
 import pytest
 from click.testing import CliRunner
 
+from tests.e2e.dml_adapter import perf_test_luid, physical_dml_test_luid
 from tests.e2e.require_ep import require_device, require_ep
 from winml.modelkit.commands.perf import perf
 from winml.modelkit.utils.constants import EP_ALIASES
@@ -129,6 +130,7 @@ def _build_perf_args(
     input_data: Path | None = None,
     op_tracing: str | None = None,
     duration_overwrite: float | None = None,
+    use_test_gpu: bool = True,
 ) -> list[str]:
     """Build the argv list passed to the perf CLI.
 
@@ -172,6 +174,10 @@ def _build_perf_args(
         args += ["--op-tracing", op_tracing]
     if duration_overwrite is not None:
         args += ["--duration", str(duration_overwrite)]
+    if use_test_gpu:
+        luid = perf_test_luid(ep, device)
+        if luid is not None:
+            args += ["--device-luid", luid]
     return args
 
 
@@ -676,10 +682,17 @@ class TestPerfONNXDirect(_PerfBenchmarkSuite):
         from winml.modelkit.sysinfo import get_ep_device_luid
 
         selected = WinMLEPRegistry.instance().auto_device(EPDeviceTarget(ep="dml", device="gpu"))
+        test_luid = physical_dml_test_luid(selected)
+        if test_luid is not None:
+            selected = WinMLEPRegistry.instance().auto_device(
+                EPDeviceTarget(ep="dml", device="gpu"), device_luid=test_luid
+            )
         for device in selected.ep.devices:
             if device.device_type != "GPU":
                 continue
             expected_luid = get_ep_device_luid(device.ort_handle)
+            if test_luid is not None and expected_luid != test_luid:
+                continue
             options = dict(device.ort_handle.ep_options)
             before = [
                 (get_ep_device_luid(d.ort_handle), dict(d.ort_handle.ep_options))
@@ -704,9 +717,9 @@ class TestPerfONNXDirect(_PerfBenchmarkSuite):
 
     @pytest.mark.parametrize("selection_mode", ["luid", "provider-option"])
     def test_dml_device_luid_selection(
-        self, tmp_path: Path, onnx_model_path: Path, selection_mode: str
+        self, tmp_path: Path, gpu_model_arg: str, selection_mode: str, record_property
     ) -> None:
-        """LUID pins and provider options select the matching monitored DML adapter."""
+        """Verify both selectors with the same real GPU workload as other perf tests."""
         require_ep("dml", device="gpu")
         from winml.modelkit.session import EPDeviceTarget, WinMLEPRegistry
         from winml.modelkit.sysinfo import enumerate_compute_adapters, get_ep_device_luid
@@ -720,17 +733,28 @@ class TestPerfONNXDirect(_PerfBenchmarkSuite):
         assert advertised_luids and None not in advertised_luids, "DML must publish an adapter LUID"
         luids = {luid for luid in advertised_luids if luid is not None}
         native_luids = {adapter.luid for adapter in enumerate_compute_adapters()}
-        assert luids <= native_luids
+        test_luid = physical_dml_test_luid(selected)
+        if test_luid is None:
+            assert luids <= native_luids
+        else:
+            # This agent deliberately exercises its real GPU through both CLI
+            # selectors. Keep the full ORT inventory for diagnostics, not as a
+            # list of devices on which inference is safe after an RDP switch.
+            record_property("dml_test_scope", "physical_gpu")
+            record_property("dml_ort_luids", ",".join(sorted(luids)))
+            record_property("dml_physical_luid", test_luid)
+            luids = {test_luid}
 
         for index, luid in enumerate(sorted(luids)):
             output_file = tmp_path / f"gpu_{index}.json"
             args = _build_perf_args(
-                model_arg=str(onnx_model_path),
+                model_arg=gpu_model_arg,
                 output_file=output_file,
                 ep="dml",
                 device="gpu",
                 monitor=True,
                 duration_overwrite=1,
+                use_test_gpu=False,  # Exercise each selector independently below.
             )
             if selection_mode == "luid":
                 selection_args = ["--device-luid", luid]
@@ -742,7 +766,9 @@ class TestPerfONNXDirect(_PerfBenchmarkSuite):
                 )
                 device_id = device.ort_handle.ep_options["device_id"]
                 selection_args = ["--ep-options", f"device_id={device_id}"]
-            result = _run_winml_cli_subprocess(["perf", *args, *selection_args])
+            # The fixture is already ONNX. Test runtime selection, without
+            # an independent build/compile phase that does not honor the pin.
+            result = _run_winml_cli_subprocess(["perf", *args, "--skip-build", *selection_args])
             assert result.returncode == 0, result.stdout + result.stderr
             diagnostics = result.stdout + result.stderr
             data = json.loads(output_file.read_text())
@@ -761,8 +787,9 @@ class TestPerfONNXDirect(_PerfBenchmarkSuite):
         result = _run_winml_cli_subprocess(
             [
                 "perf",
+                "--skip-build",
                 *_build_perf_args(
-                    model_arg=str(onnx_model_path),
+                    model_arg=gpu_model_arg,
                     output_file=tmp_path / "default_gpu.json",
                     ep="dml",
                     device="gpu",
@@ -770,7 +797,14 @@ class TestPerfONNXDirect(_PerfBenchmarkSuite):
             ]
         )
         assert result.returncode == 0, result.stdout + result.stderr
-        assert ("Multiple devices match" in result.stderr) == (len(luids) > 1)
+        if test_luid is None:
+            assert ("Multiple devices match" in result.stderr) == (len(luids) > 1)
+        else:
+            # The shared-agent path must explicitly select the real GPU; default
+            # selection remains covered on agents without the opt-in.
+            data = json.loads((tmp_path / "default_gpu.json").read_text())
+            assert data["benchmark_info"]["device_luid"] == test_luid
+            assert "Multiple devices match" not in result.stderr
 
     @pytest.fixture
     def model_arg(self, onnx_model_path: Path) -> str:
@@ -899,6 +933,57 @@ class TestPerfONNXDirect(_PerfBenchmarkSuite):
         effective_batch = next(iter(arrays.values())).shape[0]
         assert data["benchmark_info"]["effective_batch_size"] == effective_batch
         assert data["latency_ms"]["mean"] > 0
+
+    def test_op_tracing_basic_trtrtx_gpu(self, tmp_path: Path, onnx_model_path: Path):
+        """Trace a generated graph and compare reported timings with the real EP artifact."""
+        require_ep("nv_tensorrt_rtx", device="gpu")
+        output_file = tmp_path / "perf_op_tracing_trtrtx_gpu.json"
+        result = CliRunner().invoke(
+            perf,
+            _build_perf_args(
+                model_arg=str(onnx_model_path),
+                output_file=output_file,
+                device="gpu",
+                ep="nv_tensorrt_rtx",
+                op_tracing="basic",
+                memory=False,
+            ),
+            obj={},
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+        output = json.loads(output_file.read_text(encoding="utf-8"))
+        trace = output["hw_monitor"]["ep_proof"]
+        assert trace["status"] == "ok"
+        assert trace["metadata"]["device"] == "gpu"
+        assert trace["metadata"]["num_samples"] == output["benchmark_info"]["iterations"]
+        assert trace["operators"]
+
+        payload = json.loads(Path(trace["artifacts"]["profile"]).read_text(encoding="utf-8"))
+        events = payload["traceEvents"] if isinstance(payload, dict) else payload
+        layers = [
+            event
+            for event in events
+            if event.get("cat") == "nv::trt::layer" and event.get("ph") == "X"
+        ]
+        warmup = output["benchmark_info"]["warmup"]
+        measured = output["benchmark_info"]["iterations"]
+        retained = []
+        for pid in dict.fromkeys(event["pid"] for event in layers):
+            context = [event for event in layers if event["pid"] == pid]
+            tids = list(dict.fromkeys(event["tid"] for event in context))
+            retained.extend(
+                event for event in context if event["tid"] in tids[warmup : warmup + measured]
+            )
+        assert {operator["op_path"] for operator in trace["operators"]} == {
+            event["name"] for event in retained
+        }
+        for operator in trace["operators"]:
+            expected = sum(
+                event["dur"] for event in retained if event["name"] == operator["op_path"]
+            )
+            assert sum(operator["samples_us"]) == pytest.approx(expected)
+            assert len(operator["samples_us"]) == measured
 
     def test_op_tracing_basic_qnn_npu(self, tmp_path: Path, npu_model_arg: str):
         """--op-tracing basic produces a QNN NPU operator trace."""

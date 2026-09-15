@@ -21,6 +21,7 @@ $ winml eval [options]
 | `--task` | | `TEXT` | auto-detected | Task name (e.g., `image-classification`). Auto-detected from `--model-id` when not provided. Required when `-m` is an ONNX file and the task cannot be inferred. |
 | `--precision` | | `TEXT` | `auto` | Precision used when building the model from a HuggingFace ID. One of `auto`, `fp32`, `fp16`, `int8`, `int16`, or a mixed `w{x}a{y}` spec (e.g., `w8a16`). `fp16`/`fp32` skip quantization. **Ignored** when `-m` is a pre-built `.onnx` file — the precision is already baked in. |
 | `--device` | | choice | `auto` | Target device. Choices: `auto`, `npu`, `gpu`, `cpu`. `auto` selects the best available device. Combined with `--precision`, this drives the build when `-m` is a HuggingFace ID. |
+| `--device-luid` | | `TEXT` | — | Select a physical adapter within the resolved EP/device pair using its LUID from `winml sys` (`0xHHHHHHHH_0xLLLLLLLL`, case-insensitive). Supported by the `winml-ort` runtime. |
 | `--ep` / `--execution-provider` | | `TEXT` | — | Target ONNX Runtime execution provider when finer control than `--device` is needed. Full names (e.g., `QNNExecutionProvider`, `OpenVINOExecutionProvider`, `VitisAIExecutionProvider`) and aliases (`qnn`, `ov`/`openvino`, `vitis`/`vitisai`) are accepted. |
 | `--shape-config` | | `PATH` | — | JSON shape overrides used while auto-generating a Hugging Face export config, for example `{"height": 480, "width": 480}`. Applies only when `-m` is a HuggingFace ID that eval builds; **ignored for pre-built `.onnx` inputs**. |
 | `--input-specs` | | `PATH` | — | JSON input tensor specs to merge into the Hugging Face export config. Symbolic string dimensions infer dynamic axes. **Ignored for pre-built `.onnx` inputs**. |
@@ -44,6 +45,7 @@ $ winml eval [options]
 | `--input-data` | | `PATH` | — | Path to a `.npz` file of real input tensors to compare with instead of randomly generated ones (used with `--mode compare`). Keys must match the candidate model's input names. The **leading axis of each array is the sample axis**, so an archive shaped `(N, ...)` yields `N` samples (mean/std/min/max are computed across them); all inputs must share the same `N`. Each run is shaped to the candidate's batch size — a dynamic batch runs one row per sample, a static batch `B` chunks the axis into `N // B` batches (trailing rows are dropped with a warning). Note this differs from `winml perf --input-data`, which runs the **whole archive as a single batch**. |
 | `--reference` | | `TEXT` | — | Reference `.onnx` file to compare the candidate against (used with `--mode compare`). Compares two ONNX models on identical random inputs; `--model-id` and `--task` are not required in this mode. |
 | `--reference-device` | | `cpu\|gpu\|npu\|auto` | `cpu` | Device used for the reference ONNX model. Only valid with `--reference`. |
+| `--reference-device-luid` | | `TEXT` | — | Select a physical adapter for the reference ONNX model using its LUID from `winml sys`. Only valid with `--reference`. |
 | `--reference-ep` | | `TEXT` | — | Explicit execution provider used for the reference ONNX model, for example `dml`. Only valid with `--reference`. |
 
 ## How it works
@@ -106,6 +108,27 @@ Compare a candidate running on DML with an ONNX reference running on CPU:
 
 ```bash
 $ winml eval --mode compare -m candidate.onnx --device gpu --ep dml --reference baseline.onnx
+```
+
+Select a specific DML GPU for the candidate using its LUID from `winml sys`:
+
+```bash
+$ winml eval --mode compare -m candidate.onnx --device gpu --ep dml \
+    --device-luid 0x00000000_0x00012C8B --reference baseline.onnx
+```
+
+The LUID pins only the candidate model. The reference continues to use
+`--reference-device`, `--reference-device-luid`, and `--reference-ep`. If a
+selected adapter cannot initialize, eval fails instead of silently retrying
+that model on CPU.
+
+Pin the candidate and reference to different physical GPUs:
+
+```bash
+$ winml eval --mode compare -m candidate.onnx --device gpu --ep dml \
+    --device-luid 0x00000000_0x00012C8B --reference baseline.onnx \
+    --reference-device gpu --reference-ep dml \
+    --reference-device-luid 0x00000000_0x00015A31
 ```
 
 Check what dataset columns are expected before running, then remap them to match your dataset:
@@ -182,7 +205,7 @@ model-build pipeline from the runtime compilation cache.
 - **`--shuffle` is on by default.** The random 100-sample slice changes between runs unless you pass `--no-shuffle`. Use `--no-shuffle` when comparing two model variants to ensure they see identical samples.
 - **`--streaming` skips the local cache.** Streaming mode avoids downloading the full split but prevents random shuffling on large datasets. For reproducible evaluation, download the split once and omit `--streaming`.
 - **Export overrides only apply when eval builds from a HuggingFace ID.** `--shape-config`, `--input-specs`, `--export-config`, and `--dynamic-axes` shape the ONNX export that `eval` generates when `-m` is a HuggingFace model ID. When `-m` is a pre-built `.onnx` file, there is no export step, so these flags are ignored and the command prints a warning.
-- **The PyTorch runtime accepts only Hugging Face checkpoints.** `--runtime pytorch` cannot be combined with ONNX files, composite models, GenAI bundles, compare/reference/input-data modes, EP selection, or ONNX build/export controls. Use `--device cpu`, `--device gpu` with CUDA, or `--device auto`.
+- **The PyTorch runtime accepts only Hugging Face checkpoints.** `--runtime pytorch` cannot be combined with ONNX files, composite models, GenAI bundles, compare/reference/input-data modes, EP or adapter LUID selection, or ONNX build/export controls. Use `--device cpu`, `--device gpu` with CUDA, or `--device auto`.
 - **Column names vary across datasets.** If the evaluator raises a missing-column error, run `winml eval --schema --task <task>` to inspect the expected schema and use `--column` to remap dataset field names to the expected names.
 
 ## See also
