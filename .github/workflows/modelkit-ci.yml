@@ -36,6 +36,7 @@ jobs:
               tests/unit/core tests/unit/onnx tests/unit/cache
               tests/unit/utils tests/unit/test_helpers tests/unit/sysinfo tests/unit/inspect
               tests/unit/optracing tests/unit/serve tests/unit/packaging tests/regression tests/cli
+              skills/adding-model-support/tests
 
     name: test (${{ matrix.group }})
 

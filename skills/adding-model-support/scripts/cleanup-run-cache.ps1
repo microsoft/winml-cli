@@ -106,10 +106,14 @@ function Get-PathBytes {
     }
     $measurement = Get-ChildItem -LiteralPath $Path -Force -Recurse -File |
         Measure-Object -Property Length -Sum
-    if ($null -eq $measurement.Sum) {
+    if ($null -eq $measurement) {
         return [int64]0
     }
-    return [int64]$measurement.Sum
+    $sumProperty = $measurement.PSObject.Properties["Sum"]
+    if ($null -eq $sumProperty -or $null -eq $sumProperty.Value) {
+        return [int64]0
+    }
+    return [int64]$sumProperty.Value
 }
 
 function Get-FreeBytes {

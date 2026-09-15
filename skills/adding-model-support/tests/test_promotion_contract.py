@@ -3,6 +3,9 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
+import json
+import shutil
+import subprocess
 from pathlib import Path
 
 
@@ -86,3 +89,62 @@ def test_reviewer_eval_matches_the_active_verdict_contract() -> None:
     assert "a fixable compatibility break is `request_changes`" in reviewer
     for stale_verdict in ("acceptable/changes_needed/unsound", "formal approved"):
         assert stale_verdict not in evals
+
+
+def test_cleanup_dry_run_measures_empty_and_nonempty_directories(tmp_path: Path) -> None:
+    script = SKILL_ROOT / "scripts" / "cleanup-run-cache.ps1"
+    powershell = shutil.which("powershell")
+    assert powershell is not None
+
+    for name, contents in (("empty", b""), ("nonempty", b"bytecode")):
+        case_root = tmp_path / name
+        allowed_root = case_root / "run-owned"
+        candidate = allowed_root / "__pycache__"
+        candidate.mkdir(parents=True)
+        if contents:
+            (candidate / "module.pyc").write_bytes(contents)
+        manifest_path = case_root / "manifest.json"
+        record_path = case_root / "record.json"
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "run_id": f"{name}-directory-test",
+                    "terminal_state": "APPROVE",
+                    "quiescent": True,
+                    "dependencies_complete": True,
+                    "allowed_roots": [str(allowed_root)],
+                    "repository_roots": [],
+                    "protected_paths": [],
+                    "candidates": [
+                        {
+                            "path": str(candidate),
+                            "kind": "python_bytecode",
+                            "regenerable": True,
+                            "dependent_checks_complete": True,
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        result = subprocess.run(  # noqa: S603
+            [
+                powershell,
+                "-NoProfile",
+                "-File",
+                str(script),
+                "-ManifestPath",
+                str(manifest_path),
+                "-RecordPath",
+                str(record_path),
+            ],
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+
+        assert result.returncode == 0, result.stderr
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        assert record["candidates"][0]["bytes"] == len(contents)
