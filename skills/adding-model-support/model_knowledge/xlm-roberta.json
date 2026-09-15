@@ -1,0 +1,237 @@
+{
+  "_meta": {
+    "family": "xlm-roberta",
+    "hf_model_type": "xlm-roberta",
+    "models_tested": ["Davlan/xlm-roberta-large-ner-hrl", "dell-research-harvard/lt-wikidata-comp-multi"],
+    "last_updated": "2026-08-26",
+    "epistemics_warning": "Observational findings, not ground truth. Re-validate on new checkpoints / ORT versions / EPs before relying on a finding to skip work."
+  },
+  "findings": [
+    {
+      "id": "xlm-roberta-001",
+      "title": "Path-based FP16 conversion handles an XLM-R external-data artifact above protobuf's 2 GB in-memory limit",
+      "observation": "For Davlan/xlm-roberta-large-ner-hrl at pinned revision 1f929ffad9b7353f9c84b0b3f579fc3bb0b3685e, winml 0.2.0 with ONNX Runtime 1.27.0, the original in-memory FP16Pass failed while shape inference serialized a ModelProto whose external weights totalled 2,237,493,248 bytes. The generalized repair passes path inputs through infer_shapes_path into a closed temporary file and disables duplicate ORT FP16 shape inference; it contains no model-id or model-type condition. Tester verdict 399ef7b2dc7d38a037ee9e127143e467c8ba1d8974abd85d0b8027575cca41e0 then built CPU fp16 in 216.130 s: onnx.checker PASS, 328,462-byte model.onnx, 1,118,746,624 bytes of external data, and 396 FLOAT16 initializers. The matching fp32 artifact has 2,237,493,248 external-data bytes and 396 FLOAT initializers.",
+      "scope": {
+        "validated_on": [
+          "Davlan/xlm-roberta-large-ner-hrl @ fp16 @ CPUExecutionProvider/cpu",
+          "Davlan/xlm-roberta-large-ner-hrl @ fp32 source external data 2,237,493,248 bytes"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": ["another model family whose external data exceeds 2 GB", "fp16 conversion on a non-CPU target"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/Davlan_xlm-roberta-large-ner-hrl/cpu/cpu/token-classification_<precision>_config.json",
+      "gotchas": [
+        "The failure is protobuf serialization during in-memory shape inference, not ONNX external-data storage; moving weights beside model.onnx does not by itself repair the conversion.",
+        "Verify true fp16 with both initializer dtype and the expected roughly half-sized external data; a successful command or fp16 filename alone is insufficient."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The same metadata-derived path branch converted the >2 GB source without checkpoint special-casing and produced an independently checked fp16 graph. Generality beyond this large XLM-R checkpoint remains observational.",
+      "last_updated": "2026-07-20"
+    },
+    {
+      "id": "xlm-roberta-002",
+      "title": "Explicit built-in CPU routing avoids optional WindowsML catalog teardown crashes in WinMLSession-backed commands",
+      "observation": "On Windows, the current-main baseline at e7509b1e908c74beff0a5655b8f8d7de69c5afae produced finite CPU output and valid perf/eval/analyze JSON but WinMLSession-backed processes terminated during teardown with STATUS_ACCESS_VIOLATION 0xC0000005; direct ONNX Runtime exited 0. The generalized repair resolves explicit built-in CPU sessions without initializing the optional WindowsML device/plugin catalog and limits optional EP/device enumeration in static analyze to runtime unknown-op checking. Under tester verdict 399ef7b2dc7d38a037ee9e127143e467c8ba1d8974abd85d0b8027575cca41e0, wrapped fp32/fp16 CPU inference and perf exited 0, eval commands exited 0, and both all-EP analyzes emitted complete 11-run/11-result JSON; no checkpoint special case was used.",
+      "scope": {
+        "validated_on": [
+          "Davlan/xlm-roberta-large-ner-hrl @ fp32 @ explicit CPUExecutionProvider/cpu on Windows",
+          "Davlan/xlm-roberta-large-ner-hrl @ fp16 @ explicit CPUExecutionProvider/cpu on Windows"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": ["explicit accelerator sessions on a Windows host with the corresponding provider", "WindowsML catalog-backed device selection", "non-Windows hosts"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/Davlan_xlm-roberta-large-ner-hrl/cpu/cpu/token-classification_<precision>_config.json",
+      "gotchas": [
+        "Treat the process exit code as authoritative: output-file existence did not make the baseline lifecycle crash a PASS.",
+        "Do not initialize optional WindowsML device/plugin discovery for an explicitly requested built-in CPU session."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Direct-ORT versus wrapped-session probes isolated the failing boundary, and the repaired shared route removed the post-output crash across perf, eval, inference, and analyze lifecycle checks.",
+      "last_updated": "2026-07-20"
+    },
+    {
+      "id": "xlm-roberta-003",
+      "title": "XLM-R large NER preserves token logits in fp16 on CPU, while fp16 is slower and no authoritative L3 mapping is available",
+      "observation": "Tester verdict 399ef7b2dc7d38a037ee9e127143e467c8ba1d8974abd85d0b8027575cca41e0 used fixed [1,512] semantic input, 10 warmups, and 100 measured iterations with winml 0.2.0 / ONNX Runtime 1.27.0. CPU fp32 mean/p50/p90/p95/p99 was 807.006/807.485/865.731/896.948/967.764 ms, throughput 1.24 samples/s, RAM delta 1,302.46 MB. CPU fp16 was 891.633/883.903/949.475/1,004.085/1,059.499 ms, 1.12 samples/s, RAM delta 1,348.27 MB. Against pinned PyTorch revision 1f929ffad9b7353f9c84b0b3f579fc3bb0b3685e, fp32 full logits had cosine 0.9999999999999452, max/mean abs 1.6689300537109375e-05/1.8852588254958391e-06, and top-1 match 1.0; active-token cosine was 0.9999999999997312 with 14 tokens. Fp16 full logits had cosine 0.9999999662786659, max/mean abs 0.006743431091308594/0.0017111350381229487, and top-1 match 1.0; active-token cosine was 0.9999999294059181 with mean abs 0.0015683119732236106 and top-1 match 1.0. L3 metrics are deliberately excluded: BramVanroy/conll2003 IDs encode O/PER/ORG/LOC/MISC, while the checkpoint IDs encode O/DATE/PER/ORG/LOC, and no authoritative aligned dataset revision, split, and complete mapping is published.",
+      "scope": {
+        "validated_on": [
+          "Davlan/xlm-roberta-large-ner-hrl @ fp32 @ CPUExecutionProvider/cpu",
+          "Davlan/xlm-roberta-large-ner-hrl @ fp16 @ CPUExecutionProvider/cpu"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": ["accelerator execution providers", "L3 task metric with a checkpoint-owner-authoritative dataset and exact nine-label mapping"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/Davlan_xlm-roberta-large-ner-hrl/cpu/cpu/token-classification_<precision>_config.json",
+      "gotchas": [
+        "On this CPU host, fp16 is slower and uses a larger measured RAM delta than fp32; reduced artifact size does not imply faster execution.",
+        "A healthy eval command and emitted numbers are not semantic evidence when dataset label IDs and checkpoint label IDs disagree; do not remap DATE/MISC or label order without authoritative provenance."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Artifact precision, finite outputs, full and active-token logits, and top-1 labels were independently compared. The L3 exclusion is evidence-preserving rather than a claim that no compatible private or future dataset exists.",
+      "last_updated": "2026-07-20"
+    },
+    {
+      "id": "xlm-roberta-004",
+      "title": "XLM-R large NER exposes complete HTP hierarchy and 11-target static analysis with stable dominant operators",
+      "observation": "Both tester-built artifacts carry export_htp_metadata for XLMRobertaForTokenClassification: 558,850,057 parameters, 444 total modules, 172 traced modules, 344 execution steps, [1,512] int32 input_ids and attention_mask, and a traced XLMRobertaModel hierarchy containing embeddings plus XLMRobertaEncoder layers 0 through 23. Component mapping covers 855 of 862 fp32 nodes and 855 of 863 fp16 nodes across embeddings, 24 repeated attention/FFN blocks, and the per-token classifier. Both graphs have dominant counts Add 244, MatMul 193, Mul 97, Reshape 96, Transpose 96, LayerNormalization 49, Softmax 24, and Div 24. Rules v0.2.0 (SHA-256 6dcabbe7f5493fbc2bd23de195ab6e35b3578d510f18c2e220bc5538a1f232cc) yielded complete 11-run/11-result static JSON per precision: NVIDIA TensorRT RTX and OpenVINO NPU/GPU/CPU were fully supported; QNN NPU/GPU marked Add, Div, Erf, and Mul partial with no unsupported types; CUDA, MIGraphX, DML, CPU, and VitisAI were all unknown because those rows had no runtime/rule support. These classifications are static evidence, not measured accelerator execution.",
+      "scope": {
+        "validated_on": [
+          "Davlan/xlm-roberta-large-ner-hrl @ fp32 artifact analysis and HTP metadata",
+          "Davlan/xlm-roberta-large-ner-hrl @ fp16 artifact analysis and HTP metadata"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": ["runtime execution on NVIDIA TensorRT RTX, OpenVINO, QNN, CUDA, MIGraphX, DML, or VitisAI"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/Davlan_xlm-roberta-large-ner-hrl/cpu/cpu/token-classification_<precision>_config.json",
+      "gotchas": [
+        "All-EP analyze exits 1 for partial QNN classifications even when lifecycle and output completeness are healthy; validate the 11 records instead of relabeling the command as a lifecycle failure.",
+        "runtime_support=false and all-unknown rows do not prove an EP is incompatible; they mean this static rules run has no support evidence for that target."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Both precision artifacts independently produced matching HTP counts and complete static target sets. Only CPU inference was executed, so accelerator classifications remain static and scoped accordingly.",
+      "last_updated": "2026-07-20"
+    },
+    {
+      "id": "xlm-roberta-005",
+      "title": "The multilingual LT checkpoint materializes distinct CPU fp32 and true-fp16 sentence-similarity artifacts",
+      "observation": "For dell-research-harvard/lt-wikidata-comp-multi at pinned revision 129b41d6e02494453aef06108baec55d85c6ad8c, candidate a4ad838ecb83d103ee2a338dda5746a72492262b with WinML 0.0.1.dev0 and ONNX Runtime 1.24.5 built `examples/recipes/dell-research-harvard_lt-wikidata-comp-multi/cpu/cpu/sentence-similarity_fp32_config.json` and `sentence-similarity_fp16_config.json` on CPUExecutionProvider/cpu. Both use IR 8, ai.onnx opset 17, int32 input_ids/attention_mask [1,512], float last_hidden_state [1,512,768], a [250002,768] vocabulary initializer, and preserved float I/O. Fp32 has 383 nodes, 200 FLOAT initializers, and 1,109,820,432 external-data bytes. Fp16 has 384 nodes, 200 FLOAT16 initializers, and 554,914,320 external-data bytes: an independently checked 0.5000036978955168 fp16/fp32 ratio.",
+      "scope": {
+        "validated_on": [
+          "dell-research-harvard/lt-wikidata-comp-multi@129b41d6e02494453aef06108baec55d85c6ad8c @ fp32 @ CPUExecutionProvider/cpu",
+          "dell-research-harvard/lt-wikidata-comp-multi@129b41d6e02494453aef06108baec55d85c6ad8c @ fp16 @ CPUExecutionProvider/cpu"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": ["another lt-wikidata XLM-R checkpoint", "GPU or NPU execution providers"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/dell-research-harvard_lt-wikidata-comp-multi/cpu/cpu/sentence-similarity_<precision>_config.json",
+      "gotchas": [
+        "Build fp16 with `--precision fp16` and leave quantization enabled; the recipe's quant.mode alone is not sufficient CPU precision evidence.",
+        "Preserved FLOAT output is expected because fp16_keep_io_types=true; initializer dtype and external-data ratio prove internal fp16 realization."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Initializer dtypes, graph structure, colocated external data, resolved build configs, and the exact size ratio were checked independently for both artifacts.",
+      "last_updated": "2026-08-26"
+    },
+    {
+      "id": "xlm-roberta-006",
+      "title": "True fp16 improved short-run CPU throughput for this multilingual LT checkpoint",
+      "observation": "On the final candidate a4ad838ecb83d103ee2a338dda5746a72492262b with ONNX Runtime 1.24.5, CPUExecutionProvider perf used one warmup and three measured iterations. Fp32 mean/p50 latency was 424.85/373.55 ms, throughput 2.35 samples/s, and RAM delta 105.0 MB. True fp16 mean/p50 was 314.49/316.34 ms, throughput 3.18 samples/s, and RAM delta 122.0 MB. The fp16 output remained float32 by the preserved-I/O contract.",
+      "scope": {
+        "validated_on": [
+          "dell-research-harvard/lt-wikidata-comp-multi@129b41d6e02494453aef06108baec55d85c6ad8c @ fp32 @ CPUExecutionProvider/cpu",
+          "dell-research-harvard/lt-wikidata-comp-multi@129b41d6e02494453aef06108baec55d85c6ad8c @ fp16 @ CPUExecutionProvider/cpu"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": ["a longer benchmark on the same host", "another CPU architecture", "GPU or NPU execution providers"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L1",
+      "recipe_template": "examples/recipes/dell-research-harvard_lt-wikidata-comp-multi/cpu/cpu/sentence-similarity_<precision>_config.json",
+      "gotchas": ["Three measured iterations establish a smoke perf row, not stable family-wide speedup or memory behavior."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "The artifact precision is confirmed, but the latency difference is observational on one host and a short run; a longer repeated benchmark could falsify the magnitude.",
+      "last_updated": "2026-08-26"
+    },
+    {
+      "id": "xlm-roberta-007",
+      "title": "Attention-mask mean-pooled embeddings preserve PyTorch parity in fp32 and fp16",
+      "observation": "The final candidate compared four fixed texts against pinned PyTorch revision 129b41d6e02494453aef06108baec55d85c6ad8c using the checkpoint's attention-mask mean pooling. Predeclared fp32 bounds were cosine >=0.9999 and max absolute error <=0.0005; observed minimum cosine was 0.9999999403953552 and maximum error 1.2293457984924316e-07. Predeclared fp16 bounds were cosine >=0.999 and max error <=0.02; observed minimum cosine was 0.9999995231628418 and maximum error 0.00013403967022895813. Both CPU tuples passed without broadening the frozen bounds after execution.",
+      "scope": {
+        "validated_on": [
+          "dell-research-harvard/lt-wikidata-comp-multi@129b41d6e02494453aef06108baec55d85c6ad8c @ fp32 @ CPUExecutionProvider/cpu",
+          "dell-research-harvard/lt-wikidata-comp-multi@129b41d6e02494453aef06108baec55d85c6ad8c @ fp16 @ CPUExecutionProvider/cpu"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": ["longer or adversarial multilingual text sets", "other sequence lengths", "accelerator execution providers"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/dell-research-harvard_lt-wikidata-comp-multi/cpu/cpu/sentence-similarity_<precision>_config.json",
+      "gotchas": ["Compare the downstream mean-pooled embedding, not raw last_hidden_state alone, because pooling is outside the exported graph."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Named-input ONNX outputs and pinned PyTorch outputs were pooled by the same frozen checkpoint contract and adjudicated against precision-specific bounds declared before execution.",
+      "last_updated": "2026-08-26"
+    },
+    {
+      "id": "xlm-roberta-008",
+      "title": "Pinned two-row English-German STS evaluation is functional smoke only",
+      "observation": "Final-SHA fp32 CPU functional smoke used mteb/sts17-crosslingual-sts revision bb1de64ee6fd9ccd66e0bdbadcafe990f652d887, config en-de, test split, deterministic first two rows, and a 512-token cap. Both requested rows were processed; labels were STS relatedness scores and predictions were cosine similarities of attention-mask mean-pooled, L2-normalized 768-dimensional embeddings. The emitted Spearman correlation was 0.9999999999999999. With only two ordered pairs this proves evaluator and semantic-path operability, not representative accuracy or benchmark quality; it is not an fp16 or family-wide metric claim.",
+      "scope": {
+        "validated_on": ["dell-research-harvard/lt-wikidata-comp-multi@129b41d6e02494453aef06108baec55d85c6ad8c @ fp32 functional smoke @ CPUExecutionProvider/cpu"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["fp16 task evaluation", "other language directions", "benchmark-scale STS accuracy", "other XLM-R checkpoints"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/dell-research-harvard_lt-wikidata-comp-multi/cpu/cpu/sentence-similarity_fp32_config.json",
+      "gotchas": ["A near-one Spearman value on two rows is structurally fragile and must never be reported as model quality."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Dataset identity, exact revision/config/split, row bounds, pooling semantics, labels, predictions, and processed counts were retained in the sealed Tester handoff.",
+      "last_updated": "2026-08-26"
+    },
+    {
+      "id": "xlm-roberta-009",
+      "title": "HTP export exposes the same traced 12-layer hierarchy for fp32 and fp16 builds",
+      "observation": "Both final builds produced export_htp_metadata.json for XLMRobertaModel with 278,043,648 parameters, 228 total modules, 88 traced modules (38.59649122807018% module-count coverage), and 176 execution steps. The hierarchy contains XLMRobertaEmbeddings, XLMRobertaEncoder with layers 0-11 and attention/intermediate/output children, plus XLMRobertaPooler; downstream sentence-transformers mean pooling remains outside the graph. Relative to Planner auto-config, both resolved winml_build_config files add optim.gelu_fusion=true and optim.matmul_add_fusion=true beside clamp_constant_values=true. Fp32 retains quant=null; fp16's only recipe delta is explicit quant.mode=fp16 with fp16_keep_io_types=true and checkpoint/task/model_type fields, while compile remains null.",
+      "scope": {
+        "validated_on": [
+          "dell-research-harvard/lt-wikidata-comp-multi@129b41d6e02494453aef06108baec55d85c6ad8c @ fp32 HTP/config @ CPU recipe",
+          "dell-research-harvard/lt-wikidata-comp-multi@129b41d6e02494453aef06108baec55d85c6ad8c @ fp16 HTP/config @ CPU recipe"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": ["whether the same autoconfig optimization defaults apply to another XLM-R checkpoint or future WinML version"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L0",
+      "recipe_template": "examples/recipes/dell-research-harvard_lt-wikidata-comp-multi/cpu/cpu/sentence-similarity_<precision>_config.json",
+      "gotchas": [
+        "88/228 is trace coverage by module count, not missing graph execution; repeated children and container modules affect the denominator.",
+        "The runtime-only mean-pooling contract must be preserved separately because export_htp_metadata ends at XLMRobertaModel."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Both precision builds independently emitted matching model/module/trace counts and hierarchy. Generality of the autoconfig defaults is intentionally unclaimed.",
+      "last_updated": "2026-08-26"
+    },
+    {
+      "id": "xlm-roberta-010",
+      "title": "Fp32 static Analyze localizes accelerator cautions to embedding gathers and encoder Where",
+      "observation": "The standalone fp32 all-EP Analyze contains 383 nodes and 19 operator types: Reshape 121, Gemm 72, Transpose 48, Add 39, LayerNormalization 25, MatMul 24, Mul 13, Softmax 12, Gelu 12, plus smaller types. Frozen mapping covers all 383 nodes: embeddings 16 and encoder.layers[] 367; downstream mean pooling and last_hidden_state are tensor/runtime boundaries with zero graph nodes. QNN GPU marks GatherElements and Gather partial (the embedding region contains GatherElements and three Gather nodes; the encoder region contains one Gather) and encoder Where unknown, with 380 supported/2 partial/1 unknown and no unsupported nodes. NvTensorRTRTX GPU and OpenVINO GPU support 382 nodes and mark the encoder Where unknown. CUDA and MIGraphX report 380 supported/2 partial/1 unknown but type-derived attribution is ambiguous. Tensorrt and DML have no rule data for all 383 nodes. All rows have runtime_support=false, so these are static actionable cautions, not accelerator execution claims. The automatic fp32 and fp16 analyze_result.json files each report the same 383/19 histogram but only a non-runtime DML row with empty classifications; no standalone all-EP fp16 classification was produced, so fp32 EP findings are not transferred to fp16.",
+      "scope": {
+        "validated_on": ["dell-research-harvard/lt-wikidata-comp-multi@129b41d6e02494453aef06108baec55d85c6ad8c @ fp32 static Analyze @ seven EP targets"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["fp16 standalone all-EP Analyze", "runtime execution on QNN, NvTensorRTRTX, OpenVINO, CUDA, MIGraphX, TensorRT, or DML", "another XLM-R checkpoint"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L0",
+      "recipe_template": "examples/recipes/dell-research-harvard_lt-wikidata-comp-multi/cpu/cpu/sentence-similarity_fp32_config.json",
+      "gotchas": [
+        "Join EP findings to mapped components before acting: QNN gather cautions touch embeddings and one encoder gather, while Where is in the optimized encoder region.",
+        "Do not convert no-rule-data or runtime_support=false into an accelerator incompatibility claim.",
+        "Do not infer fp16 EP classifications from the matching fp16 operator histogram."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "Operator counts, complete fp32 component mapping, and rule classifications are sealed and internally consistent; actual accelerator support and fp16 all-EP classification remain unmeasured.",
+      "last_updated": "2026-08-26"
+    }
+  ]
+}

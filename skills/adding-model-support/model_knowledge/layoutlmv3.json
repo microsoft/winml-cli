@@ -1,0 +1,43 @@
+{
+  "_meta": {
+    "family": "layoutlmv3",
+    "hf_model_type": "layoutlmv3",
+    "models_tested": [
+      "rubentito/layoutlmv3-base-mpdocvqa"
+    ],
+    "last_updated": "2026-07-24",
+    "epistemics_warning": "Observational findings, not ground truth. Re-validate on new checkpoints / ORT versions / EPs before relying on a finding to skip work."
+  },
+  "findings": [
+    {
+      "id": "layoutlmv3-001",
+      "title": "LayoutLMv3ForQuestionAnswering builds and perfs at L1 with zero code changes on existing PR #1174 infra; fp16 saves ~100MB RAM with no latency penalty.",
+      "observation": "rubentito/layoutlmv3-base-mpdocvqa (LayoutLMv3ForQuestionAnswering, document VQA extractive QA) built and perfed successfully on winml 0.2.0 / ORT 1.24.5 using architecture support from PR #1174 (merged 2026-07-23). Inputs: input_ids, attention_mask, bbox, pixel_values. Outputs: start_logits, end_logits. CPU perf (fp32): P50 341.35ms, avg 342.95ms, 2.92 sps, RAM +652MB. CPU perf (fp16): P50 341.44ms, avg 343.81ms, 2.91 sps, RAM +551MB. fp16 saves ~100MB RAM with no measurable latency penalty. OpenVINO EP was auto-selected even when CPU config was specified (observed in perf output). Analyze step was CLI-BLOCKED due to missing runtime rule parquet files — this is an infrastructure gap, not a model issue.",
+      "scope": {
+        "validated_on": [
+          "rubentito/layoutlmv3-base-mpdocvqa @ fp32 @ CPUExecutionProvider (ORT 1.24.5, 2026-07-24)",
+          "rubentito/layoutlmv3-base-mpdocvqa @ fp16 @ CPUExecutionProvider (ORT 1.24.5, 2026-07-24)"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "other LayoutLMv3 checkpoints (e.g. microsoft/layoutlmv3-base)",
+          "accelerator EPs (QNN, OpenVINO explicit, DML, CUDA, NvTensorRTRTX, MIGraphX, VitisAI)",
+          "L2 parity validation",
+          "L3 eval (document-question-answering eval not yet supported)"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L1",
+      "recipe_template": "examples/recipes/rubentito_layoutlmv3-base-mpdocvqa/cpu/cpu/question-answering_<fp32|fp16>_config.json",
+      "gotchas": [
+        "OpenVINO EP auto-selected even with CPU config — perf numbers reflect OpenVINO execution, not pure CPU EP.",
+        "Analyze blocked by missing rule parquet files (infra issue tracked separately, not model-specific).",
+        "fp16 provides memory savings (~100MB) but no latency improvement on this CPU host; do not assume CPU fp16 speedup."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "OpenVINO auto-selection mechanism not investigated. Hypothesis: ORT session options or EP priority list defaults to OpenVINO when available. Would be falsified by running on a host without OpenVINO EP installed.",
+      "last_updated": "2026-07-24"
+    }
+  ]
+}

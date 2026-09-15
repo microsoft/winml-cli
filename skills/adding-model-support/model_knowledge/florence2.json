@@ -1,0 +1,184 @@
+{
+  "_meta": {
+    "family": "florence2",
+    "hf_model_type": "florence2",
+    "models_tested": [
+      "microsoft/Florence-2-base@5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac"
+    ],
+    "last_updated": "2026-07-30",
+    "epistemics_warning": "Observational findings, not ground truth. Re-validate on new checkpoints / ORT versions / EPs before relying on a finding to skip work."
+  },
+  "findings": [
+    {
+      "id": "florence2-001",
+      "title": "Florence-2 composite generation requires encoder ownership of the full image/prompt token sequence and logical cache length on every cached decoder step",
+      "observation": "PR #1098 revision-2 repair on microsoft/Florence-2-base@5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac, WinML 0.2.0, CPUExecutionProvider: setting the composite main_input_name to input_ids kept the 585-token image/prompt sequence on the encoder and started decoder history from decoder_start_token_id, with no output slicing. The exported decoder wrapper must report its traced cache_position from WinMLCache.get_seq_length(); treating a populated static buffer as logical step 0 made all four reference/ONNX encoder-cache crossings emit token 0 on cached step 2. With the repair, every crossing emitted reference token 102. Static cache update_all_layers(outputs) retained its one-argument API and advances by logits.shape[1], not the full 1024-token storage capacity.",
+      "scope": {
+        "validated_on": [
+          "microsoft/Florence-2-base@5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac @ fp32 @ CPUExecutionProvider",
+          "microsoft/Florence-2-base@5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac @ requested-fp16 (encoder fp32 + decoder fp16) @ CPUExecutionProvider"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "other Florence-2 checkpoints",
+          "microsoft/Florence-2-base @ GPU/NPU EPs"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/microsoft_Florence-2-base/cpu/cpu/image-to-text_<precision>_config_{encoder,decoder}.json",
+      "gotchas": [
+        "Do not repair decoder token alignment by slicing generated output; that hides incorrect encoder/decoder token ownership.",
+        "A full-capacity present KV tensor replaces static storage but advances logical cache length only by the logits sequence length.",
+        "Cached-step parity must recurse with candidate-produced cache and cross reference/ONNX encoder state with reference/ONNX cache; prefill alone did not expose the cache_position defect."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The producer isolated cache_position by rebuilding only the decoder. The independent tester then reproduced token 102 in all four encoder/cache crossings for both required CPU tuples and exact end-to-end token IDs/captions.",
+      "last_updated": "2026-07-30"
+    },
+    {
+      "id": "florence2-002",
+      "title": "Florence-2-base requested fp16 is a mixed composite: keep the encoder fp32 and convert only the decoder to fp16",
+      "observation": "On microsoft/Florence-2-base@5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac, WinML 0.2.0, CPUExecutionProvider, full encoder fp16 amplified a projector/scatter max delta of 0.0673 through text attention (layer-1 score MatMul 0.713, Softmax dominant-weight shift 0.116, layer-1 output 2.734) to final hidden-state max delta 18.435. Blocking Softmax, Gemm, LayerNormalization, MatMul, their combinations, or the complete /encoder/ subgraph did not clear the outlier. Keeping the encoder fp32 and converting only the decoder to fp16 reduced encoder max delta to 0.01229095 (cosine 0.999999999791), decoder prefill max delta to 0.00102949 (cosine 0.999999999108), and produced exact tokens/caption. Resolved component configs serialize encoder precision fp32 with quant null and decoder precision fp16 with quant.mode fp16 and fp16_keep_io_types=true.",
+      "scope": {
+        "validated_on": [
+          "microsoft/Florence-2-base@5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac @ requested-fp16 (encoder fp32 + decoder fp16) @ CPUExecutionProvider"
+        ],
+        "falsified_on": [
+          "microsoft/Florence-2-base full encoder fp16 @ CPUExecutionProvider"
+        ],
+        "not_yet_tested_on": [
+          "other Florence-2 checkpoints @ requested-fp16",
+          "microsoft/Florence-2-base @ fp16-capable GPU/NPU EPs"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/microsoft_Florence-2-base/cpu/cpu/image-to-text_fp16_config_{encoder,decoder}.json",
+      "gotchas": [
+        "The fp16 filename records the requested composite tuple; serialized component precision is authoritative and must disclose encoder fp32 plus decoder fp16.",
+        "Do not weaken numeric thresholds or claim a nodes_to_exclude policy: the attempted op/node blocks did not repair the full-fp16 encoder.",
+        "Composite precision policy must resolve from model registration so unrelated composites retain their requested precision."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The final fresh mixed build and independent L2/L3 reruns replaced the earlier repeated-token-0 artifact after the cache-position repair.",
+      "last_updated": "2026-07-30"
+    },
+    {
+      "id": "florence2-003",
+      "title": "Florence-2-base reaches full CPU L0-L3 coverage for fp32 and the explicitly mixed requested-fp16 tuple, with low but concrete Flickr30k caption metrics",
+      "observation": "Independent tester revision 2 on microsoft/Florence-2-base@5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac, WinML 0.2.0, CPUExecutionProvider: fresh fp32 and requested-fp16 composite builds passed structure (sequence 585, width 768, vocabulary 51289, six cache layers). Composite p50 was 2619.8036 ms fp32 and 2510.2747 ms mixed fp16; throughput was 0.38388 and 0.39214 images/s; peak RSS deltas were 2557542400 and 2603921408 bytes. L2 produced exact token IDs and caption for both tuples. L3 used nlphuji/flickr30k@cd91f9a00273ce2e1584511cba8c10b917c488a3, test source indices 0..7, prompt <CAPTION>, n=8, zero skips: both tuples reported CIDEr 0.7842 and CER 0.8713. These low successful metrics remain PASS data and do not halt the ladder.",
+      "scope": {
+        "validated_on": [
+          "microsoft/Florence-2-base@5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac @ fp32 @ CPUExecutionProvider",
+          "microsoft/Florence-2-base@5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac @ requested-fp16 (encoder fp32 + decoder fp16) @ CPUExecutionProvider"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "microsoft/Florence-2-base @ GPU/NPU EPs",
+          "Flickr30k subsets beyond pinned source indices 0..7",
+          "Florence-2 prompts other than <CAPTION>"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/microsoft_Florence-2-base/cpu/cpu/image-to-text_<precision>_config_{encoder,decoder}.json",
+      "gotchas": [
+        "Report the requested-fp16 tuple as mixed precision, never as a full-fp16 composite.",
+        "Pin dataset revision, split, source indices, prompt, sample count, and skip count beside CIDEr/CER; the small subset is concrete evidence, not a quality generalization."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Tester independently rebuilt both tuples and reran composite perf, recursive-cache L2, full generation, and pinned-subset L3 after producer revision 2.",
+      "last_updated": "2026-07-30"
+    },
+    {
+      "id": "florence2-004",
+      "title": "Florence-2 split artifacts preserve distinct encoder/decoder topology and require per-component analyzer evidence",
+      "observation": "Fresh HTP exports for microsoft/Florence-2-base@5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac report 231414016 parameters and 558 modules. The encoder trace covers 184 modules / 368 execution steps and exposes input_ids[1,585], pixel_values[1,3,768,768], attention_mask[1,585]; the decoder trace covers 28 modules / 57 steps and exposes decoder_input_ids[1,1], encoder_hidden_states[1,585,768], six layers of past key/value [1,12,1024,64], decoder_attention_mask[1,1024], and cache_position[1]. Resolved builds enabled gelu_fusion, layer_norm_fusion, and matmul_add_fusion. Standalone all-EP analysis produced seven EP rows per artifact: fp32 encoder 1361 ops / 28 types (top Reshape 399, Transpose 250, Gemm 132), fp32 decoder 390 / 20 (Reshape 99, Gemm 60, Transpose 54), and fp16 decoder 416 / 20 (Reshape 99, Gemm 60, Transpose 54, plus 27 Cast). The encoder NvTensorRTRTX row specifically classified NonZero unsupported; complete accelerator classifications remain artifact-specific and must not be inferred from one component to the other.",
+      "scope": {
+        "validated_on": [
+          "microsoft/Florence-2-base@5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac encoder @ fp32 @ all-rule EP analysis",
+          "microsoft/Florence-2-base@5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac decoder @ fp32 @ all-rule EP analysis",
+          "microsoft/Florence-2-base@5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac decoder @ fp16 @ all-rule EP analysis"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "runtime execution on accelerator EPs represented only by static analyzer rules",
+          "other Florence-2 checkpoints"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/microsoft_Florence-2-base/cpu/cpu/image-to-text_<precision>_config_{encoder,decoder}.json",
+      "gotchas": [
+        "The requested-fp16 encoder is byte-identical to the fp32 encoder, so its fresh fp32 analysis may be reused only with that byte-identity evidence.",
+        "Do not collapse analyzer results across encoder and decoder: their operator populations, cache surface, and partial/unsupported EP findings differ.",
+        "HTP trace coverage is component execution coverage (184/558 encoder, 28/558 decoder), not a claim that the untraced modules are absent from the checkpoint."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Counts come from fresh revision-2 export_htp_metadata.json, resolved winml_build_config.json, and standalone seven-row analyze JSON artifacts. Analyzer producer version is onnxruntime.transformers 1.24.5, opset 17.",
+      "last_updated": "2026-07-30"
+    },
+    {
+      "id": "florence2-005",
+      "title": "Florence-2 moved-main candidate preserves full CPU L0-L3 acceptance for fp32 and requested-fp16 mixed precision",
+      "observation": "Moved-main terminal tester PASS at b7a7b893d757bb8e52b5b5a594a9aa72f0c0fff4 sealed the 26-path candidate content fingerprint 5fa0e03606ab2ffb8f4f99824e4e9bea7abb5a2c579b9a15708d10a95ea6f409. Fresh CPU composite p50 was 2238.5597 ms for fp32 and 2265.8664 ms for requested-fp16 (encoder fp32 plus decoder fp16), with peak RSS deltas 2563022848 and 2591752192 bytes. Both tuples retained exact token IDs and caption, all four recursive encoder/cache crossings selected token 102, and pinned Flickr30k indices 0..7 remained CIDEr 0.7842 / CER 0.8713 with n=8 and zero skips. Moved-main partitions passed: models 1516, commands/config/build/compiler/session/eval 3386, analyze 1515, optim 565, and remaining nonhardware 846; Ruff, mypy over 434 source files, license, and git diff check also passed.",
+      "scope": {
+        "validated_on": [
+          "microsoft/Florence-2-base@5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac @ fp32 @ CPUExecutionProvider @ b7a7b893d757bb8e52b5b5a594a9aa72f0c0fff4",
+          "microsoft/Florence-2-base@5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac @ requested-fp16 (encoder fp32 + decoder fp16) @ CPUExecutionProvider @ b7a7b893d757bb8e52b5b5a594a9aa72f0c0fff4"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "microsoft/Florence-2-base @ GPU/NPU EPs",
+          "Flickr30k subsets beyond pinned source indices 0..7",
+          "Florence-2 prompts other than <CAPTION>"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/microsoft_Florence-2-base/cpu/cpu/image-to-text_<precision>_config_{encoder,decoder}.json",
+      "gotchas": [
+        "Bind acceptance claims to both the exact moved-main head and the tester content fingerprint; pre-move performance and partition totals are historical diagnostics only.",
+        "Requested-fp16 remains an explicitly mixed tuple even when its latency is slower than fp32 in a short CPU run.",
+        "Low successful L3 metrics remain PASS under the replacement charter and must be reported without turning the eight-sample subset into a quality generalization."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The moved-main tester independently rebuilt both tuples from the reconciled 26-path candidate, reran L0-L3 and all nonhardware partitions, then sealed 79 evidence files in integrity-moved-main.json. No earlier tester artifact was reused as acceptance evidence.",
+      "last_updated": "2026-07-30"
+    },
+    {
+      "id": "florence2-006",
+      "title": "Moved-main Florence-2 artifacts retain split topology while regenerated graph counts differ from the pre-move revision-2 artifacts",
+      "observation": "Sealed moved-main artifacts at b7a7b893d757bb8e52b5b5a594a9aa72f0c0fff4 preserve fp32 encoder byte identity across both requested tuples and distinct fp32/fp16 decoders. Standalone onnxruntime.transformers 1.24.5 opset-17 analysis produced seven EP rows for each artifact: fp32 encoder 1319 operators / 27 types, requested-fp16 encoder 1319 / 27, fp32 decoder 354 / 19, and fp16 decoder 380 / 19. Encoder top counts remain Reshape 399, Transpose 250, Gemm 132; decoder top counts remain Reshape 99, Gemm 60, Transpose 54, with fp16 adding 27 Cast versus one Cast in fp32. The fp32/requested-fp16 encoder model and external-data SHA-256 values match exactly, while decoder model hashes differ by precision. NvTensorRTRTX still classifies encoder NonZero unsupported; accelerator rows are static analyzer evidence, not runtime execution claims.",
+      "scope": {
+        "validated_on": [
+          "microsoft/Florence-2-base@5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac encoder @ fp32 and requested-fp16 tuple @ all-rule EP analysis @ b7a7b893d757bb8e52b5b5a594a9aa72f0c0fff4",
+          "microsoft/Florence-2-base@5ca5edf5bd017b9919c05d08aebef5e4c7ac3bac decoder @ fp32 and fp16 @ all-rule EP analysis @ b7a7b893d757bb8e52b5b5a594a9aa72f0c0fff4"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "runtime execution on accelerator EPs represented only by static analyzer rules",
+          "other Florence-2 checkpoints"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/microsoft_Florence-2-base/cpu/cpu/image-to-text_<precision>_config_{encoder,decoder}.json",
+      "gotchas": [
+        "Do not carry pre-move graph totals forward after main-overlap reconciliation; regenerate and fingerprint every final component artifact.",
+        "The requested-fp16 encoder can share fp32 analysis only when both model and external-data hashes prove byte identity.",
+        "Keep per-component analyzer rows separate because encoder and decoder operator populations and unsupported classifications differ."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The moved-main integrity seal records separate hashes for four analyzer JSON files and all component ONNX/external-data artifacts. The regenerated counts supersede revision-2 counts only for the b7a7b893 candidate; florence2-004 remains historical evidence for its earlier artifact set.",
+      "last_updated": "2026-07-30"
+    }
+  ]
+}

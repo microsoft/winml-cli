@@ -1,0 +1,314 @@
+{
+  "_meta": {
+    "family": "vilt",
+    "hf_model_type": "vilt",
+    "models_tested": [
+      "dandelin/vilt-b32-finetuned-vqa @ visual-question-answering @ fp32/fp16 @ cpu; fp32/fp16 build-only @ dml/gpu",
+      "dandelin/vilt-b32-finetuned-vqa@d0a1f6ab88522427a7ae76ceb6e1e1e7b68a1d08 @ visual-question-answering @ fp32/fp16 @ CPUExecutionProvider/cpu @ winml-cli candidate 3c39615b418f468ef42704ef2034a94070f0eacd"
+    ],
+    "diagnostic_only": [],
+    "last_updated": "2026-07-27",
+    "epistemics_warning": "vilt-001 / vilt-002 are diagnostic (read from repo state on 2026-06-22). vilt-003 is VALIDATED via actual winml config + build + perf + L2 parity on 2026-06-24. vilt-004/vilt-005 re-validate PR #951 head 6a2d753 across the required precision/EP matrix and current analyze rules on 2026-07-15. vilt-006 through vilt-011 record final-candidate evidence at 3c39615b418f468ef42704ef2034a94070f0eacd on 2026-07-27; their reach is limited to the pinned checkpoint, CPU runtime tuple, bounded Eval smoke, and static rule data stated in each scope."
+  },
+  "findings": [
+    {
+      "id": "vilt-001",
+      "title": "ViLT has no @register_onnx_overwrite in the repo, AND no model in the repo registers visual-question-answering today — Effort-L1 (possibly L2)",
+      "observation": "No file matching vilt.py under src/winml/modelkit/models/hf/. Grep of '@register_onnx_overwrite' across all hf/*.py files returns zero results for model_type 'vilt' AND zero results for task 'visual-question-answering' on ANY model_type. BLIP only registers image-to-text / image-text-to-text / feature-extraction / text2text-generation; nothing else covers VQA. Inference-side TASK_REGISTRY['visual-question-answering'] exists (tasks.py line 417), but no export-side path exists end-to-end.",
+      "scope": {
+        "validated_on": [],
+        "falsified_on": [],
+        "not_yet_tested_on": ["dandelin/vilt-b32-finetuned-vqa @ * @ *"]
+      },
+      "effort_tier_required": "L1 (new vilt.py); risk of L2 if visual-question-answering is the FIRST VQA export path and shared infra (models/winml/) needs new dispatch — current shared-infra files are decoder_only.py, encoder_decoder.py, image_classification.py, sequence_classification.py, etc. — no vqa.py.",
+      "goal_tier_reached": "L0 (build will fail without new code)",
+      "recipe_template": "No template — ViLT would be the first VQA recipe. By architecture (single-stream multimodal transformer over patched image + tokenized text → classifier head over a fixed answer vocabulary), it most resembles a text-classification model with multi-modal input. Closest template is a text-classification recipe with an added pixel_values InputTensorSpec.",
+      "gotchas": [
+        "ViLT inputs are unusual: pixel_values + input_ids + attention_mask + pixel_mask + token_type_ids — all five must be declared in OnnxConfig.inputs.",
+        "VQA finetune (vilt-b32-finetuned-vqa) has a fixed 3129-way classification head (one logit per VQA answer). Output is logits over the answer vocabulary, NOT generated text — the task is technically classification framed as 'VQA'. Make sure TASK_REGISTRY['visual-question-answering'] postprocess can map argmax(logits) → answer string via the model's id2label.",
+        "Patch handling in optimum: confirm whether optimum.exporters.onnx ships a ViltOnnxConfig before re-implementing one. If yes, the @register_onnx_overwrite is a thin override; if not, write from scratch."
+      ],
+      "feature_gaps_filed": [
+        "FILE: add src/winml/modelkit/models/hf/vilt.py with @register_onnx_overwrite('vilt', 'visual-question-answering')",
+        "FILE: verify TASK_REGISTRY['visual-question-answering'] handles the 'classification-over-answer-vocab' VQA pattern (vs. generative VQA used by BLIP-2 / LLaVA / Pix2Struct). If only one pattern is supported, document the gap.",
+        "FILE: since this would be the first VQA export path, consider whether models/winml/visual_question_answering.py needs to exist as shared infra for future VQA models (Pix2Struct will hit this same question)"
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Two-axis grep (no vilt file + no VQA registration anywhere) is definitive. ViLT architecture / output-head details from HF model card.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "vilt-003",
+      "title": "VALIDATED — Effort-L1 contribution closes the visual-question-answering gap, but requires an export-time model patcher because ViLT's stock `visual_embed` is NOT ONNX-traceable; full L0/L1/L2 ladder PASS on CPU",
+      "observation": "Implemented `src/winml/modelkit/models/hf/vilt.py` (2026-06-24, ~155 lines, the second-largest hf/ contribution after BLIP). Effort axis: this is L1 as vilt-001 predicted (NOT L1-light like mgp_str-004) because three independent problems compound: (1) vendor `ViltOnnxConfig` does not exist in Optimum, so the OnnxConfig is from-scratch; (2) ViLT's stock `ViltEmbeddings.visual_embed` is fundamentally NOT ONNX-traceable — it iterates Python-level over tensor values (`for h, w in zip(x_h, x_w)`), uses `torch.multinomial` (non-exportable), and does per-row Python loops over `nonzero()` results — so the contribution needs a custom `ModelPatcher` that replaces `visual_embed` for the duration of export; (3) the patched `visual_embed` doesn't consume `pixel_mask`, so the input is dropped from the exported graph (the production `ViltProcessor` always emits an all-ones mask anyway). The patched-vs-original numerical parity was verified BEFORE shipping: cos=1.000000, same argmax, max-abs-diff=1.2e-5 (within fp32 tolerance from interpolation operation reordering). Goal-ladder verdict on dandelin/vilt-b32-finetuned-vqa @ visual-question-answering @ cpu: **L0 PASS** (build 62.9s — Export 29.8s + Optimize 32.2s — optimized 449.2 MB, autoconf converged); **L1 PASS** (CPU mean=67.49ms, P50=65.83ms, P90=76.52ms, throughput=14.82 samples/sec, std=5.92ms over 20 iters); **L2 PASS** (cosine vs PyTorch reference on identical inputs: cos=1.000000, max_abs_diff=4.2e-5, top-class match — both PT and ORT pick class 3 from the 3129-way answer head); **L3 CLI-BLOCKED** (visual-question-answering not in winml eval's default-dataset registry — same status as mgp_str-004's image-to-text). 4-input exported ONNX (input_ids/attention_mask/token_type_ids [1,40] int32, pixel_values [1,3,384,384] float32 → logits [1,3129] float32). vilt-001's L1 effort estimate is CONFIRMED; the diagnostic probe's 'first VQA contribution + task-family decision' question is RESOLVED-DEFERRED: ViLT shipped as classification-VQA over the single user-facing task name `visual-question-answering`, and the generative-VQA split (vs Pix2Struct) is left for the next VQA contributor to decide.",
+      "scope": {
+        "validated_on": ["dandelin/vilt-b32-finetuned-vqa @ visual-question-answering @ fp32 @ cpu (2026-06-24)"],
+        "falsified_on": [],
+        "refines": ["vilt-001"],
+        "not_yet_tested_on": ["DML / QNN / OpenVINO EPs (host availability per `_meta-016` — CPU is universal floor)", "Generative-VQA path (Pix2Struct) — task-family split decision deferred to that contributor", "Non-default image sizes (the patch pins H,W to 384×384 to match all known production usage; truly dynamic H,W is blocked by the same `Resize` symbolic-shape failure that motivated the patch)"]
+      },
+      "effort_tier_required": "L1 (new OnnxConfig from scratch + custom ModelPatcher + dummy-input override). Larger than mgp_str-004 because ViLT has no vendor base to subclass AND the stock forward is untrace-able.",
+      "goal_tier_reached": "L2 PASS on the encoder+classifier head (single-stream, no decoder); L3 CLI-BLOCKED because winml eval has no default VQA dataset.",
+      "recipe_template": "examples/recipes/dandelin_vilt-b32-finetuned-vqa/visual-question-answering_config.json — copy-able for any future ViLT VQA checkpoint with the same 384×384 / 40-token / 3129-class configuration. Recipe matches `winml config -m <id> --task visual-question-answering` autoconf exactly AFTER the L1 registration in models/hf/vilt.py is in place. Per `_meta-038` Step 1b: Gate-1 IDENTICAL + Gate-2 FAIL-without-registration AND FAIL-without-patcher = real engineering, NOT catalog-only.",
+      "gotchas": [
+        "**Stock `ViltEmbeddings.visual_embed` is NOT ONNX-traceable.** It uses `for h, w in zip(x_h, x_w)` over tensor values, `torch.multinomial` (random + non-exportable), and per-row Python loops over `nonzero()` results. PyTorch eager runs it fine (the loops execute concretely), but the legacy `torch.onnx.export` tracer aborts with `Input and output sizes should be greater than 0, but got input (H: 12, W: 12) output (H: 0, W: 0)` because the symbolic-shape arithmetic resolves to 0. The fix is a custom `ModelPatcher` subclass that swaps `visual_embed` for a statically-shaped equivalent during export. The replacement assumes all-ones `pixel_mask` (which is what `ViltProcessor` always emits in production) and uses `x.shape[2], x.shape[3]` (static H,W) for position-embedding interpolation. Verified numerically equivalent before shipping.",
+        "**The `pixel_mask` input is intentionally dropped from the exported graph.** The patched `visual_embed` synthesizes an all-ones token mask internally and never references the incoming `pixel_mask`. Including it would dead-code-eliminate during export (since no op consumes it) and then `sess.run` would error with `Invalid input name: pixel_mask`. Cleaner to omit it from the OnnxConfig.inputs declaration. Documented as a deliberate trade-off in the module docstring + `inputs` property docstring.",
+        "**Recipe `value_range = [0, 1]` for `pixel_mask` would produce all-zeros** (low inclusive, high exclusive) and crash the un-patched export path with the same 0×0 error. This was the FIRST diagnostic dead-end: even after the patcher was wired in, an earlier draft kept `pixel_mask` declared as an input, and `autoconf` defaulted the range to [0,1] which produced all-zeros (not all-ones). The fix here was to drop the input entirely; if a future contributor re-introduces it, they must set `value_range = [1, 2]` to get all-ones via `randint(low=1, high=2)`.",
+        "**H,W must be STATIC, not dynamic.** Declaring `pixel_values: {0: 'B', 2: 'H', 3: 'W'}` makes ViLT's position-embedding `Resize` op fail symbolic shape inference (target H/W resolves to 0). Pinning H,W to 384 matches all known production `ViltProcessor` usage and is documented in the `inputs` property docstring.",
+        "**VQA classification head, not generative**: `dandelin/vilt-b32-finetuned-vqa` has a fixed 3129-way classification head (one logit per VQAv2 answer). Output is `logits[B, 3129]`, NOT generated text. The inference-side `TASK_REGISTRY['visual-question-answering']` already handles this (`argmax(logits)` → `id2label`). Future generative-VQA models (Pix2Struct, BLIP-2, LLaVA) need architecture-aware dispatch under the same user-facing task name; this unresolved boundary is retained from the diagnostic probe."
+      ],
+      "feature_gaps_filed": [
+        "FILE: consider whether shared infra `models/winml/visual_question_answering.py` should exist for future VQA models (Pix2Struct generative-VQA path will hit this question)",
+        "FILE: winml CLI inconsistency surfaced during this work — `winml inspect --task <name>` rejects task names that `winml config --task <name>` accepts. Filed as `_meta-040` in skill_meta/findings.json (separate Lane-A skill PR)."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The earlier probe found `TasksManager._SUPPORTED_MODEL_TYPE.get('vilt') is None` and zero visual-question-answering export registrations. L0 was then verified via `Build complete in 62.9s`; L1 mean was 67.49ms at 14.82 samples/sec; L2 reached cosine 1.000000, max_abs_diff 4.2e-5, and top-class match. Direct patched-vs-original comparison also reached cosine 1.000000 with the same argmax.",
+      "resolution": "VALIDATED as an Effort-L1 contribution. Historical branch `shzhen/add-vilt-vqa` added `src/winml/modelkit/models/hf/vilt.py`, registration wiring, and a VQA recipe. Its README row and old `user_skill` knowledge path predate `_meta-069` and the current `dev_skill` layout; neither is a current deliverable template.",
+      "last_updated": "2026-07-31"
+    },
+    {
+      "id": "vilt-004",
+      "title": "PR #951 head 6a2d753 preserves ViLT VQA numerical fidelity in both fp32 and fp16 on CPU; DML artifacts build but this host cannot execute them",
+      "observation": "Tester re-validation at winml-cli PR #951 head 6a2d753df29eea02426603e99b5620d3833be899 with ONNX Runtime 1.24.5 used processor-derived named inputs for dandelin/vilt-b32-finetuned-vqa. CPU fp32 built in 46.8s and perf PASSed at mean/P50 78.684/74.849 ms, 12.71 samples/s, +398.15 MB RAM; L2 cosine=0.999999881, max_abs=0.000015259, top_index=17. CPU fp16 built in 55.4s with 218 FLOAT16 initializers and a 235459322-byte external-data file; perf PASSed at mean/P50 104.039/101.501 ms, 9.61 samples/s, +407.25 MB RAM; L2 cosine=0.999999881, max_abs=0.007852554, top_index=17. DML fp32/fp16 recipes also built and structurally validated (46.7s/55.4s), but both native perf processes exited -1073740791 (0xC0000409), so runtime remains HOST-BLOCKED rather than an artifact failure. OpenVINO and QNN runtime tuples were unavailable on this host; their shipped folders remain carried-over coverage. export_htp_metadata.json records ViltForQuestionAnswering with 117588537 parameters, 240 modules, and 91 traced modules (37.9% trace coverage). winml_build_config.json matches the input recipes semantically: optim stayed {}, fp32 quant stayed null, and fp16 retained mode=fp16 with fp16_keep_io_types=true; autoconf only materialized default/null quant fields.",
+      "scope": {
+        "validated_on": [
+          "dandelin/vilt-b32-finetuned-vqa @ visual-question-answering @ fp32 @ CPUExecutionProvider/CPU @ ORT 1.24.5 @ PR #951 6a2d753",
+          "dandelin/vilt-b32-finetuned-vqa @ visual-question-answering @ fp16 @ CPUExecutionProvider/CPU @ ORT 1.24.5 @ PR #951 6a2d753",
+          "dandelin/vilt-b32-finetuned-vqa @ visual-question-answering @ fp32/fp16 build+structure only @ DmlExecutionProvider/GPU @ ORT 1.24.5 @ PR #951 6a2d753"
+        ],
+        "falsified_on": [],
+        "refines": ["vilt-003"],
+        "not_yet_tested_on": [
+          "dandelin/vilt-b32-finetuned-vqa @ fp32/fp16 runtime @ DmlExecutionProvider/GPU — HOST-BLOCKED by native 0xC0000409 on this host",
+          "dandelin/vilt-b32-finetuned-vqa @ fp32/fp16 @ OpenVINOExecutionProvider/{CPU,GPU,NPU} — provider plugin missing on this host (onnxruntime_providers_shared.dll Error 126)",
+          "dandelin/vilt-b32-finetuned-vqa @ fp32/fp16/w8a8/w8a16 @ QNNExecutionProvider/NPU — provider absent on this host"
+        ]
+      },
+      "effort_tier_required": "L1 (existing ViLT OnnxConfig + export patcher contribution re-validated)",
+      "goal_tier_reached": "L2 PASS on CPU fp32 and fp16; accelerator runtime coverage partial/host-blocked",
+      "recipe_template": "examples/recipes/dandelin_vilt-b32-finetuned-vqa/<ep>/<device>/visual-question-answering_<precision>_config.json",
+      "gotchas": [
+        "CPU fp16 is numerically faithful but slower than fp32 on this host (P50 101.501 ms vs 74.849 ms); precision conversion is a size/fidelity result, not a CPU speedup claim.",
+        "A DML recipe build PASS does not imply DML runtime PASS: preserve the separate HOST-BLOCKED perf rows when the registered provider aborts with 0xC0000409.",
+        "Use processor-derived named inputs for L1/L2; the four exported inputs are input_ids, attention_mask, token_type_ids, and pixel_values, while pixel_mask remains intentionally absent per vilt-003."
+      ],
+      "feature_gaps_filed": [
+        "HOST: repair DML driver/runtime so registered DmlExecutionProvider sessions do not abort with 0xC0000409.",
+        "HOST: package onnxruntime_providers_shared.dll with the installed OpenVINO EP plugin so registration succeeds."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Evidence: temp/vilt_951_tester/{04_l0_cpu_fp32_build.log,05_l0_cpu_fp16_build.log,08_l0_dml_builds.log,11_l1_perf.log,12_l2_pytorch_vs_onnx.log}; artifacts/cpu/cpu/{fp32,fp16}/{export_htp_metadata.json,winml_build_config.json}. The same named inputs produced matching top_index=17 for PyTorch and all four ONNX artifacts.",
+      "resolution": "VALIDATED at PR #951 head 6a2d753; CPU fp32/fp16 reach L2, DML build reaches L0 but runtime is host-blocked, and unavailable OpenVINO/QNN tuples remain explicit rather than inferred.",
+      "last_updated": "2026-07-15"
+    },
+    {
+      "id": "vilt-005",
+      "title": "ViLT VQA's 440-op graph is fully covered by TensorRT/OpenVINO rules, while QNN has 14 partial nodes concentrated in the Erf GELU pattern",
+      "observation": "Standalone `winml analyze --ep all` on the PR #951 fp32 CPU artifact emitted analyze_all.json for 440 operators across 17 types at opset 17. NvTensorRTRTXExecutionProvider classified 440 supported; OpenVINOExecutionProvider classified 440 supported; QNNExecutionProvider classified 426 supported + 14 partial + 0 unsupported/unknown. The partial nodes are 13 Erf nodes plus 1 Cast node; the rule-level partial type set also names Add/Div/Mul because the 13 matched GeluPattern subgraphs are partial. CUDA, MIGraphX, and DML remained 440 unknown because no rules are shipped for them. The command exited 1 only after OpenVINO plugin registration failed on missing onnxruntime_providers_shared.dll, but the JSON contained all six requested EP classifications and remained usable evidence.",
+      "scope": {
+        "validated_on": [
+          "dandelin/vilt-b32-finetuned-vqa @ fp32 ONNX opset 17 @ NvTensorRTRTXExecutionProvider/GPU rules @ 440/0/0/0 @ PR #951 6a2d753",
+          "dandelin/vilt-b32-finetuned-vqa @ fp32 ONNX opset 17 @ OpenVINOExecutionProvider/GPU rules @ 440/0/0/0 @ PR #951 6a2d753",
+          "dandelin/vilt-b32-finetuned-vqa @ fp32 ONNX opset 17 @ QNNExecutionProvider/GPU rules @ 426/14/0/0 @ PR #951 6a2d753"
+        ],
+        "falsified_on": [],
+        "refines": ["vilt-003"],
+        "not_yet_tested_on": [
+          "actual TensorRT/OpenVINO/QNN runtime placement and fallback — analyze rule classification is static evidence, not runtime execution",
+          "whether enabling gelu_fusion converts QNN's 13 partial GeluPattern instances to native supported Gelu ops"
+        ]
+      },
+      "effort_tier_required": "L1",
+      "goal_tier_reached": "L2 PASS on CPU; analyze coverage captured independently of the Goal ladder",
+      "recipe_template": "examples/recipes/dandelin_vilt-b32-finetuned-vqa/cpu/cpu/visual-question-answering_fp32_config.json",
+      "gotchas": [
+        "Do not sum supported and partial type memberships: a type can appear in both classifications. Node totals are 426 supported + 14 partial; the 14 partial nodes are 13 Erf + 1 Cast.",
+        "An analyze exit code of 1 does not invalidate an already-written complete JSON when the only error is host plugin registration; retain the exit/error alongside the parsed counts.",
+        "Static rule coverage must not be promoted to runtime EP PASS, especially while OpenVINO/QNN are host-blocked."
+      ],
+      "feature_gaps_filed": [
+        "CANDIDATE: evaluate gelu_fusion for ViLT on QNN to replace the 13 partial Erf-based GELU patterns with a native Gelu operator."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Evidence: temp/vilt_951_tester/analyze_all.json plus 06_analyze_all.log and 13_analysis_summary.log. The emitted JSON was parseable after exit 1 and contained metadata.total_operators=440, metadata.unique_operator_types=17, and six results[] rows.",
+      "resolution": "OBSERVED static compatibility profile; runtime confirmation remains deferred to capable hosts.",
+      "last_updated": "2026-07-15"
+    },
+    {
+      "id": "vilt-006",
+      "title": "The verified ViLT VQA export contract is static square-384 with three 40-token int32 inputs and one float32 image input",
+      "observation": "At winml-cli candidate 3c39615b418f468ef42704ef2034a94070f0eacd, no-recipe CPU builds of dandelin/vilt-b32-finetuned-vqa@d0a1f6ab88522427a7ae76ceb6e1e1e7b68a1d08 produced opset-17 graphs with input_ids, attention_mask, and token_type_ids as INT32 [1,40], pixel_values as FLOAT [1,3,384,384], and logits as FLOAT [1,3129]. The fp32 graph had 442 nodes and passed ONNX checking; named-input CPU parity against PyTorch gave cosine 0.9999999999998272, max_abs 4.57763671875e-05, and the same top answer 'reading'. The environment probe identified winml-cli 0.2.0 but did not recover a package-version string for the imported ONNX Runtime distribution, so no ORT version is asserted for this run.",
+      "scope": {
+        "validated_on": [
+          "dandelin/vilt-b32-finetuned-vqa@d0a1f6ab88522427a7ae76ceb6e1e1e7b68a1d08 @ visual-question-answering @ fp32 @ CPUExecutionProvider/cpu @ candidate 3c39615b418f468ef42704ef2034a94070f0eacd @ 2026-07-27"
+        ],
+        "falsified_on": [],
+        "refines": ["vilt-003", "vilt-004"],
+        "not_yet_tested_on": [
+          "non-square or non-384 image tensors",
+          "batch sizes other than 1",
+          "text sequence lengths other than 40",
+          "other ViLT checkpoints or accelerator runtime tuples"
+        ]
+      },
+      "effort_tier_required": "L1",
+      "goal_tier_reached": "L2 PASS on CPU fp32",
+      "recipe_template": "examples/recipes/dandelin_vilt-b32-finetuned-vqa/<ep>/<device>/visual-question-answering_<precision>_config.json",
+      "gotchas": [
+        "Treat 384x384 as an artifact contract, not a claim that ViLT generally supports only square images; square-resizing a non-square source deliberately distorts aspect ratio.",
+        "Do not advertise dynamic image height/width from this graph; only the exact static [1,3,384,384] input was structurally and numerically validated."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Evidence: temp/eval-support-batch/02-vilt/tester/revision-1/{structural-validation.json,l2-named-parity.json,artifacts/cpu-fp32/winml_build_config.json,logs/environment-probe.stdout.txt}. The graph contract and named parity independently agree.",
+      "resolution": "VALIDATED for the pinned checkpoint and CPU fp32 tuple; dynamic or differently shaped image contracts remain untested.",
+      "last_updated": "2026-07-27"
+    },
+    {
+      "id": "vilt-007",
+      "title": "The verified patched ViLT graph must omit pixel_mask because its static visual-embedding path synthesizes the all-ones image-token mask internally",
+      "observation": "At candidate 3c39615b418f468ef42704ef2034a94070f0eacd, both checked CPU artifacts for dandelin/vilt-b32-finetuned-vqa exposed exactly four inputs and no pixel_mask: input_ids, attention_mask, token_type_ids, and pixel_values. This matches the export patch's bounded assumption that the square-384 preprocessing path supplies an all-ones image mask and the replacement visual_embed synthesizes the corresponding image-token mask. Under that exact path, declaring pixel_mask would create a dead input that export can remove, leaving callers vulnerable to Invalid input name errors.",
+      "scope": {
+        "validated_on": [
+          "dandelin/vilt-b32-finetuned-vqa@d0a1f6ab88522427a7ae76ceb6e1e1e7b68a1d08 @ fp32/fp16 graph structure @ static RGB 384x384 preprocessing @ candidate 3c39615b418f468ef42704ef2034a94070f0eacd"
+        ],
+        "falsified_on": [],
+        "refines": ["vilt-003", "vilt-004"],
+        "not_yet_tested_on": [
+          "preprocessing paths with padded or non-all-ones pixel masks",
+          "variable-size image batches",
+          "other ViLT tasks or checkpoints"
+        ]
+      },
+      "effort_tier_required": "L1",
+      "goal_tier_reached": "L2 PASS on CPU fp32/fp16 with the four-input contract",
+      "recipe_template": "examples/recipes/dandelin_vilt-b32-finetuned-vqa/<ep>/<device>/visual-question-answering_<precision>_config.json",
+      "gotchas": [
+        "Omission is valid only with the verified all-ones static-square preprocessing/export assumption; it must not be generalized to padded image batches.",
+        "Keep exporter patching exception-safe so the original visual_embed method is restored after normal and exceptional export exits."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Evidence: the exact input lists in structural-validation.json and winml_build_config.json, plus candidate tests reported by producer/tester for dummy-input removal and patch restoration.",
+      "resolution": "VALIDATED omission for the pinned static-square export path; masked/padded image support remains outside this contract.",
+      "last_updated": "2026-07-27"
+    },
+    {
+      "id": "vilt-008",
+      "title": "ViLT VQA Eval for this checkpoint is fixed-vocabulary classification and must reject generative output shapes",
+      "observation": "Candidate 3c39615b418f468ef42704ef2034a94070f0eacd evaluated dandelin/vilt-b32-finetuned-vqa by requiring rank-2 logits [B,3129], taking one argmax index per row, and mapping it through the checkpoint id2label vocabulary to one answer string. The final CPU fp32 smoke decoded 'down' and 'watching' for the first two pinned VQAv2 validation rows. The shared evaluator explicitly rejects generative/non-rank-2 VQA output instead of treating generated token IDs as classification logits.",
+      "scope": {
+        "validated_on": [
+          "dandelin/vilt-b32-finetuned-vqa@d0a1f6ab88522427a7ae76ceb6e1e1e7b68a1d08 @ [1,3129] logits @ fp32 @ CPUExecutionProvider/cpu @ lmms-lab/VQAv2 first 2 validation rows @ candidate 3c39615b418f468ef42704ef2034a94070f0eacd"
+        ],
+        "falsified_on": [],
+        "refines": ["vilt-002", "vilt-003"],
+        "not_yet_tested_on": [
+          "generative VQA architectures",
+          "classification-VQA checkpoints with missing or inconsistent id2label metadata",
+          "classification-VQA checkpoints with output rank other than 2"
+        ]
+      },
+      "effort_tier_required": "L2 (shared task evaluator and compatibility dispatch)",
+      "goal_tier_reached": "L3 PASS as a two-row CPU fp32 functional smoke only",
+      "recipe_template": "examples/recipes/dandelin_vilt-b32-finetuned-vqa/cpu/cpu/visual-question-answering_fp32_config.json",
+      "gotchas": [
+        "Do not route generative VQA through argmax over a fixed answer vocabulary; reject unsupported output semantics explicitly.",
+        "Consume one top answer per row for VQA soft scoring; ranked alternatives are not additional predictions for the same row."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Evidence: producer deliverable implementation contract, focused evaluator/pipeline tests (129 passed), structural-validation.json output shape, and functional-smoke.json predictions.",
+      "resolution": "VALIDATED for fixed-vocabulary classification VQA; generative VQA remains a distinct unsupported dispatch path.",
+      "last_updated": "2026-07-27"
+    },
+    {
+      "id": "vilt-009",
+      "title": "VQAv2 classification smoke scoring normalizes free-text answers before applying the capped annotator-match soft score",
+      "observation": "For the pinned lmms-lab/VQAv2@32665d35052eb4a6d4414851c3c829a72754915a validation source, candidate 3c39615b418f468ef42704ef2034a94070f0eacd compares the one decoded answer with the ten normalized annotator answers and computes each row as min(matches / 3, 1). The deterministic first-two-row CPU fp32 smoke processed 2/2 rows with zero skips; 'down' and 'watching' each scored 1.0, producing aggregate vqa_accuracy 1.0. This proves normalization/scoring operability only and is not representative VQAv2 accuracy.",
+      "scope": {
+        "validated_on": [
+          "dandelin/vilt-b32-finetuned-vqa@d0a1f6ab88522427a7ae76ceb6e1e1e7b68a1d08 @ fp32 @ CPUExecutionProvider/cpu @ lmms-lab/VQAv2@32665d35052eb4a6d4414851c3c829a72754915a validation first 2 rows @ candidate 3c39615b418f468ef42704ef2034a94070f0eacd"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "benchmark-scale VQAv2 evaluation",
+          "datasets without ten VQAv2-style annotator answers",
+          "fp16 or accelerator Eval tuples"
+        ]
+      },
+      "effort_tier_required": "L2 (shared VQA evaluator and metric semantics)",
+      "goal_tier_reached": "L3 PASS as a two-row CPU fp32 functional smoke only",
+      "recipe_template": "examples/recipes/dandelin_vilt-b32-finetuned-vqa/cpu/cpu/visual-question-answering_fp32_config.json",
+      "gotchas": [
+        "Do not score raw answer strings or only multiple_choice_answer when ten annotator answers are available.",
+        "Do not present the two-row aggregate of 1.0 as benchmark accuracy or extrapolate it to fp16/accelerator tuples."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Evidence: charter eval semantics, producer implementation summary and focused tests, tester functional-smoke.json, and the final verdict table's explicit functional-only disclaimer.",
+      "resolution": "VALIDATED as bounded metric-generation evidence; no benchmark-quality claim is made.",
+      "last_updated": "2026-07-27"
+    },
+    {
+      "id": "vilt-010",
+      "title": "Real FP16 ViLT weights halve external-data size and preserve CPU answer parity, but regress CPU latency on the tested host",
+      "observation": "At candidate 3c39615b418f468ef42704ef2034a94070f0eacd, the authoritative CPU fp16 build for dandelin/vilt-b32-finetuned-vqa contained 219 FLOAT16 initializers and 235,460,802 bytes of external data versus 219 FLOAT initializers and 470,918,964 bytes for fp32 (ratio 0.5000028030), while both retained float32 I/O. Named parity gave fp16 cosine 0.9999999921448373, max_abs 0.006922721862792969, and the same top answer 'reading'. Despite the size reduction and fidelity, CPU p50 regressed to 113.291 ms from 86.861 ms and throughput fell to 8.81 from 11.5 samples/s. A preliminary command combining --precision fp16 with --no-quant emitted fp32 bytes and was rejected; initializer dtypes and external-data size, not an accepted precision flag, established the final artifact's precision. The imported ONNX Runtime package version was not recoverable from the environment probe and is therefore not asserted.",
+      "scope": {
+        "validated_on": [
+          "dandelin/vilt-b32-finetuned-vqa@d0a1f6ab88522427a7ae76ceb6e1e1e7b68a1d08 @ fp32/fp16 @ CPUExecutionProvider/cpu @ 10 warmup + 50 measured iterations @ candidate 3c39615b418f468ef42704ef2034a94070f0eacd @ 2026-07-27"
+        ],
+        "falsified_on": [],
+        "refines": ["vilt-004"],
+        "not_yet_tested_on": [
+          "other CPU architectures or ONNX Runtime distributions",
+          "DML, OpenVINO, QNN, TensorRT, CUDA, MIGraphX, or VitisAI runtime",
+          "other ViLT checkpoints"
+        ]
+      },
+      "effort_tier_required": "L1",
+      "goal_tier_reached": "L2 PASS on CPU fp32/fp16; FP16 CPU performance is slower",
+      "recipe_template": "examples/recipes/dandelin_vilt-b32-finetuned-vqa/cpu/cpu/visual-question-answering_<precision>_config.json",
+      "gotchas": [
+        "FP16 conversion is a size/fidelity result here, not a CPU speedup claim.",
+        "Never accept an fp16 label or successful command as precision proof; inspect initializer dtypes, retained I/O types, and external-data size.",
+        "Do not combine --precision fp16 with --no-quant in this CLI era; the already-institutionalized _meta-077 guard covers that silent-failure shape."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Evidence: structural-validation.json, l2-named-parity.json, verdict_table.json, authoritative fp16 status/config, and TEST_REPORT.md. The preliminary wrong-precision failure is already covered by _meta-077 and current producer/tester/reviewer contracts, so no duplicate methodology finding is added.",
+      "resolution": "VALIDATED on the tested CPU host; no FP16 acceleration claim is warranted.",
+      "last_updated": "2026-07-27"
+    },
+    {
+      "id": "vilt-011",
+      "title": "ViLT Analyze evidence needs both exhaustive operator rows and a hierarchy-backed component join, and remains static-only for non-executed EPs",
+      "observation": "The final fp32 graph at candidate 3c39615b418f468ef42704ef2034a94070f0eacd had 442 nodes across 19 operator types. HTP metadata recorded 117,588,537 parameters, 240 modules, 91 traced modules, and 182 execution steps. A lexical scope join partitioned all 442 nodes into self_attention 252, feed_forward_intermediate 84, encoder_other 37, feed_forward_output_or_residual 36, joint_text_image_embeddings 15, classification_head 8, unmapped_graph_scaffolding 7, and pooler 3. Analyze materialized 12 static EP rows even though its CLI exited 1 for partial/unknown classifications; every row has runtime_support=false, so rule classifications are not runtime placement or execution proof.",
+      "scope": {
+        "validated_on": [
+          "dandelin/vilt-b32-finetuned-vqa@d0a1f6ab88522427a7ae76ceb6e1e1e7b68a1d08 @ fp32 opset-17 graph @ static all-EP rule analysis @ candidate 3c39615b418f468ef42704ef2034a94070f0eacd"
+        ],
+        "falsified_on": [],
+        "refines": ["vilt-005"],
+        "not_yet_tested_on": [
+          "actual accelerator runtime placement, fallback, or end-to-end execution",
+          "component mapping after graph rewrites that remove or rename source scopes",
+          "fp16 component/operator join"
+        ]
+      },
+      "effort_tier_required": "L1",
+      "goal_tier_reached": "L2 PASS on CPU; Analyze captured separately as static evidence",
+      "recipe_template": "examples/recipes/dandelin_vilt-b32-finetuned-vqa/cpu/cpu/visual-question-answering_fp32_config.json",
+      "gotchas": [
+        "Preserve Analyze exit status and partial/unknown rows, but do not discard complete parseable JSON solely because the CLI returned 1.",
+        "Do not convert runtime_support=false rule rows into accelerator compatibility claims.",
+        "Keep the seven unmapped scaffolding nodes explicit rather than forcing them into a semantic component."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Evidence: analysis-all.json, component-operator-join.json, export_htp_metadata.json, operator-analysis status, and verdict_table.json. Component counts sum exactly to 442.",
+      "resolution": "OBSERVED complete static operator/component evidence; accelerator runtime support remains unproven.",
+      "last_updated": "2026-07-27"
+    }
+  ]
+}

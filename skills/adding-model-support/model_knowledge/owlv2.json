@@ -1,0 +1,99 @@
+{
+  "_meta": {
+    "family": "owlv2",
+    "hf_model_type": "owlv2",
+    "models_tested": ["google/owlv2-base-patch16"],
+    "last_updated": "2026-07-27",
+    "epistemics_warning": "Observational findings, not ground truth. Re-validate on new checkpoints / ORT versions / EPs before relying on a finding to skip work."
+  },
+  "findings": [
+    {
+      "id": "owlv2-001",
+      "effort": "L0",
+      "title": "owlv2 zero-shot-object-detection fp16 recipe (composite text+vision)",
+      "observation": "A config-driven OWLv2 fp16 build succeeded with three named text/image inputs and four detector/embedding outputs. Genuine fp16 and CPU perf were measured; no architecture code was required.",
+      "scope": { "validated_on": ["google/owlv2-base-patch16 @ fp16 @ CPUExecutionProvider"], "falsified_on": [], "not_yet_tested_on": ["accelerator EPs"] },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L1",
+      "recipe_template": "examples/recipes/google_owlv2-base-patch16/<ep>/<device>/zero-shot-object-detection_fp16_config.json",
+      "gotchas": ["CPU fp16 inference is functionally valid but slow at roughly 6.2 seconds per inference."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "FLOAT16 initializer count, artifact-size reduction, successful build, and CPU perf were observed directly.",
+      "last_updated": "2026-07-15",
+      "notes": "owlv2 is an OWL-ViT v2 open-vocabulary detector: CLIP-style text encoder + large ViT vision encoder fused by a class/box head. loader task=zero-shot-object-detection model_class=AutoModelForZeroShotObjectDetection model_type=owlv2. Three inputs: pixel_values float32 [1,3,960,960] range[0,1]; input_ids int32 [1,16] range[0,49408] (text seq_len is only 16 for owlv2-base, NOT 77); attention_mask int32 [1,16] range[0,2]. Four outputs: logits, pred_boxes, text_embeds, image_embeds. opset 17. quant=null, fp16 driven by -p fp16 build flag; optim.clamp_constant_values=true. Build is config-driven (no new code) -> L0. Both OwlV2OnnxConfig and OwlViTOnnxConfig exist in optimum model_configs.py.",
+      "validation": {
+        "genuine_fp16": "FLOAT16=417, FLOAT32=0; model.onnx.data 306MB (half of 613MB fp32)",
+        "build_time_s": 220.0,
+        "fp16_stage_s": 17.3,
+        "cpu_perf_p50_ms": 6155.78,
+        "throughput_sps": 0.16,
+        "ram_model_load_mb": 618.2,
+        "ram_inference_mb": 3016.7,
+        "perf_note": "Runs correctly on CPUExecutionProvider but slow: ~6.2s/inference. A single 960px fp16 ViT inference on CPU-emulated fp16 takes minutes of wall time across warmup+iters (~10min total). Model is functionally valid."
+      }
+    },
+    {
+      "id": "owlv2-002",
+      "effort": "note",
+      "title": "Duplicate optimum installs cause non-deterministic owlv2 model_type registration",
+      "observation": "TasksManager probes varied when optimum and optimum_onnx both provided the namespace, while winml config and build still succeeded.",
+      "scope": { "validated_on": ["google/owlv2-base-patch16 environment with duplicate Optimum distributions"], "falsified_on": [], "not_yet_tested_on": ["environment with only one Optimum distribution"] },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L0",
+      "recipe_template": null,
+      "gotchas": ["Treat probe-only registration flakiness as diagnostic until config/build also fail."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Probe divergence and successful config/build were observed in the same environment.",
+      "last_updated": "2026-07-15",
+      "symptom": "'Multiple distributions found for package optimum': both optimum-2.1.0 (core) and optimum_onnx-0.1.0 (split-out ONNX exporters) provide the `optimum` namespace. owlv2 registration in TasksManager._SUPPORTED_MODEL_TYPE is flaky across probes: one probe found owlv2->onnx->zero-shot-object-detection mapped to OwlV2OnnxConfig, another raised KeyError 'owlv2', another reported 'Only [] are supported'.",
+      "impact": "Despite the flakiness, `winml config` and `winml build` both SUCCEEDED and resolved owlv2 -> genuine fp16 model. Treat the probe flakiness as a diagnostic red herring, not a blocker.",
+      "workaround": "None needed for build. If registration ever fails hard, pin a single optimum distribution."
+    },
+    {
+      "id": "owlv2-003",
+      "effort": "note",
+      "title": "HISTORICAL (pre-#1155): OWLv2 keyword input names were assigned positionally and required recipe-order repair",
+      "observation": "A recipe order differing from forward() swapped ONNX input names and caused named perf to fail; matching forward order fixed the names and produced L2 cosine 1.0 on all outputs.",
+      "scope": { "validated_on": ["google/owlv2-base-patch16 @ named-input L1/L2"], "falsified_on": ["google/owlv2-base-patch16 @ winml-cli main 3a2b2f7db5e70bb1f9039dd9037697ef92b2bc2a with generalized _resolve_keyword_input_names from #1155: recipe order [pixel_values,input_ids,attention_mask] still exported correct forward-signature ONNX bindings"], "not_yet_tested_on": ["other multi-input architectures"] },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/google_owlv2-base-patch16/<ep>/<device>/zero-shot-object-detection_fp16_config.json",
+      "gotchas": ["Random generated inputs do not expose positional name swaps; feed multi-input models by name at least once."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Swapped and corrected ONNX input specs were inspected directly; corrected named-input perf and parity passed.",
+      "last_updated": "2026-07-15",
+      "symptom": "With recipe input_tensors declared as [pixel_values, input_ids, attention_mask], the exported model.onnx attached 'pixel_values' to shape [1,16] int32 (the text tensor) and 'input_ids' to [1,3,960,960] float32 (the image tensor) -- names bound to the wrong tensors. perf/eval feeding inputs BY NAME then crashed 'Invalid rank for input: pixel_values Got: 4 Expected: 2'.",
+      "root_cause": "torch.onnx.export assigns input_names to graph inputs POSITIONALLY, in the order of Owlv2ForObjectDetection.forward(input_ids, pixel_values, attention_mask). The recipe had listed the tensors in a different order, so the correct names were zipped onto the wrong positional tensors.",
+      "fix": "Historical workaround: reorder export.input_tensors to match forward() order. Current main includes #1155's generalized keyword-name resolver, so do not carry this workaround forward; validate final ONNX names against shape/dtype instead.",
+      "gotcha": "Historical behavior before #1155: winml perf with RANDOM data (by declared shape/dtype) did not surface the swap. On current main, the generalized exporter repair binds keyword input names by forward signature; named-input validation remains required to catch regressions."
+    },
+    {
+      "id": "owlv2-004",
+      "title": "Current WinML main binds OWLv2 keyword inputs by forward signature without a recipe-order workaround",
+      "observation": "At winml-cli main 3a2b2f7db5e70bb1f9039dd9037697ef92b2bc2a with winml 0.2.0 and ONNX Runtime 1.24.5, the generalized _resolve_keyword_input_names repair already merged through #1155. The resolved fp32 and fp16 build configs for google/owlv2-base-patch16 retained input_tensors order [pixel_values, input_ids, attention_mask], while both built ONNX artifacts exposed the semantically correct forward-signature bindings input_ids INT32[1,16], pixel_values FLOAT[1,3,960,960], attention_mask INT32[1,16]. Both exact CPU builds passed ONNX load/checker and named I/O validation. The old PR #1101 architecture-specific binding patch is therefore unnecessary; the final model contribution is recipe-only.",
+      "scope": {
+        "validated_on": [
+          "google/owlv2-base-patch16 @ fp32 @ CPUExecutionProvider/cpu @ winml-cli 3a2b2f7db5e70bb1f9039dd9037697ef92b2bc2a",
+          "google/owlv2-base-patch16 @ fp16 @ CPUExecutionProvider/cpu @ winml-cli 3a2b2f7db5e70bb1f9039dd9037697ef92b2bc2a"
+        ],
+        "falsified_on": [],
+        "refines": ["owlv2-003"],
+        "not_yet_tested_on": ["OWLv2 checkpoints with a different forward signature", "accelerator execution providers"]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L0",
+      "recipe_template": "examples/recipes/google_owlv2-base-patch16/cpu/cpu/zero-shot-object-detection_<precision>_config.json",
+      "gotchas": [
+        "Do not resurrect the historical OWLv2-specific exporter patch: #1155 already generalized keyword-name resolution on main.",
+        "Resolved build-config input order is no longer proof of final ONNX binding order; validate each exported name against its shape and dtype."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Planner history identified merged commits 3c94de2e and 6cad754b, the recipe-free baseline exported correct bindings, and tester independently validated the same correct bindings in both precision artifacts despite the retained config order.",
+      "last_updated": "2026-07-27"
+    }
+  ]
+}

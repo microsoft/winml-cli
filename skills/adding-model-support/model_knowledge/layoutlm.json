@@ -1,0 +1,500 @@
+{
+  "_meta": {
+    "family": "layoutlm",
+    "hf_model_type": "layoutlm",
+    "models_tested": [
+      "impira/layoutlm-invoices",
+      "DmitrySpartak/layoutlm-invoices",
+      "impira/layoutlm-document-qa @ question-answering @ fp32 @ cpu",
+      "impira/layoutlm-document-qa @ question-answering @ w8a16 @ cpu",
+      "impira/layoutlm-document-qa@beed3c4d02d86017ebca5bd0fdf210046b907aa6 @ question-answering @ fp16/w8a16 @ QNNExecutionProvider/npu",
+      "impira/layoutlm-document-qa@beed3c4d02d86017ebca5bd0fdf210046b907aa6 @ question-answering @ fp32/w8a8 @ QNNExecutionProvider/npu (EXHAUSTED-FAIL)"
+    ],
+    "last_updated": "2026-08-27",
+    "epistemics_warning": "Observational findings, not ground truth. Re-validate on new checkpoints / ORT versions / EPs before relying on a finding to skip work."
+  },
+  "findings": [
+    {
+      "id": "layoutlm-001",
+      "title": "LayoutLM v1 document-question-answering needs a winml-registered extractive-QA OnnxConfig (Optimum has none) plus hand-tuned input ranges.",
+      "observation": "impira/layoutlm-invoices is LayoutLMForQuestionAnswering (extractive QA: start_logits/end_logits), loaded via AutoModelForDocumentQuestionAnswering (layoutlm v1 is ONLY in MODEL_FOR_DOCUMENT_QUESTION_ANSWERING_MAPPING_NAMES, not the plain QA mapping). Optimum's TasksManager registers layoutlm only for feature-extraction/fill-mask/text-classification/token-classification, so `winml config -t document-question-answering --model-type layoutlm` FAILS ('layoutlm doesn't support task document-question-answering'). Added src/winml/modelkit/models/hf/layoutlm.py: @register_onnx_overwrite('layoutlm','document-question-answering') on LayoutLMDocumentQAOnnxConfig(LayoutLMOnnxConfig), overriding outputs to {start_logits,end_logits} (Optimum's document-question-answering common output is a single 'logits' tensor, which is WRONG for this extractive head), plus a RoBERTa-style _adjust_position_embeddings (this checkpoint uses a RoBERTa vocab: max_position_embeddings=514, pad_token_id=1 -> usable 512). Wired into hf/__init__.py. fp16 build exit0 in 97.5s; model.onnx.data 242.6MB (half of 485MB fp32); 206 FLOAT16 / 0 FLOAT32 initializers; IN input_ids/bbox/attention_mask/token_type_ids, OUT start_logits/end_logits [1,512]. CPU perf P50 280.62ms (3.56 samples/sec) via --input-data npz.",
+      "scope": {
+        "validated_on": [
+          "impira/layoutlm-invoices @ fp16 @ CPUExecutionProvider (ORT CPU, 2026-07-12)"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "all NPU/GPU EPs (QNN, OpenVINO, VitisAI, DML, NvTensorRTRTX, MIGraphX)",
+          "layoutlmv2 / layoutlmv3 (they DO have Optimum QA configs; different path)",
+          "BERT-vocab layoutlm checkpoints (type_vocab_size=2, pad_token_id=0)"
+        ]
+      },
+      "effort_tier_required": "L1",
+      "goal_tier_reached": "L1",
+      "recipe_template": "examples/recipes/impira_layoutlm-invoices/document-question-answering_fp16_config.json",
+      "gotchas": [
+        "type_vocab_size=1 on this checkpoint: token_type_embeddings has a single row, so token_type_ids MUST be 0. winml's default value_range [0,2] and winml perf's random inputs both emit value 1 -> ONNXRuntime Gather 'indices element out of data bounds' at /layoutlm/embeddings/token_type_embeddings/Gather. Recipe pins token_type_ids value_range to [0,1] (yields 0). Perf must be run with --input-data (npz: token_type_ids=0, bbox=0, input_ids<vocab, attention_mask=1).",
+        "max_position_embeddings=514 with pad_token_id=1 (RoBERTa vocab, 50265). winml config resolves sequence_length from the raw config -> emits seq_len 514, which OOBs position embeddings during export ('index out of range in self'). Recipe pins all seq shapes to 512. The code-side _adjust_position_embeddings is defensive (autoconf path) but does NOT change the config-gen shape resolution.",
+        "bbox value_range [0,1] resolves to constant 0 (random_(0,1) -> 0); [0,0] errors 'random_ expects from < to'. Constant-0 bbox is safe for tracing (h=w=0 diff -> index 0, no negative index).",
+        "Optimum vendor OnnxConfig existing != task registered: LayoutLMOnnxConfig class exists but has no document-question-answering entry in TasksManager. Registration is per-(model_type,task)."
+      ],
+      "feature_gaps_filed": [
+        "winml value_range resolution ignores type_vocab_size (emits token_type_ids [0,2] even when type_vocab_size=1) -> should clamp to [0, type_vocab_size].",
+        "winml perf random input generation ignores model embedding-table bounds (token_type_ids); no way to constrain ranges without a full npz."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Confirmed by direct forward pass: model runs with token_type_ids=0 for input_ids up to vocab-1; fails only when token_type_ids hits value 1 (type_vocab_size=1). Export OOB confirmed tied to seq_len 514 vs usable 512.",
+      "last_updated": "2026-07-12"
+    },
+    {
+      "id": "layoutlm-002",
+      "title": "LayoutLMForQuestionAnswering must resolve by architecture to document-question-answering and AutoModelForDocumentQuestionAnswering, not next-sentence-prediction.",
+      "observation": "On winml 0.2.0 / ORT 1.24.5 at baseline e7509b1e908c74beff0a5655b8f8d7de69c5afae, DmitrySpartak/layoutlm-invoices auto-resolved to next-sentence-prediction and AutoModelForNextSentencePrediction; recipe-free build exited 2 with 'Unrecognized LayoutLMConfig for AutoModelForNextSentencePrediction'. The L1 class-of-models repair maps model_type=layoutlm plus architectures[0]=LayoutLMForQuestionAnswering to document-question-answering, maps that model-type/task pair to AutoModelForDocumentQuestionAnswering, and registers a LayoutLM v1 ONNX config. Explicit and automatic config then agreed and recipe-free fp32/fp16 builds emitted the document-QA contract: input_ids, bbox, attention_mask, token_type_ids -> start_logits, end_logits. The mapping is architecture/task-driven; it contains no checkpoint-ID branch and leaves non-QA LayoutLM heads on their existing Optimum task paths.",
+      "scope": {
+        "validated_on": [
+          "DmitrySpartak/layoutlm-invoices @ fp32 @ CPUExecutionProvider (winml 0.2.0, ORT 1.24.5, 2026-07-19)",
+          "DmitrySpartak/layoutlm-invoices @ fp16 @ CPUExecutionProvider (winml 0.2.0, ORT 1.24.5, 2026-07-19)"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "other LayoutLMForQuestionAnswering checkpoints",
+          "LayoutLM v2/v3 document-QA checkpoints",
+          "accelerator runtime execution (QNN, OpenVINO, VitisAI, DML, NvTensorRTRTX, CUDA, MIGraphX)"
+        ]
+      },
+      "effort_tier_required": "L1",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/DmitrySpartak_layoutlm-invoices/cpu/cpu/document-question-answering_<fp32|fp16>_config.json",
+      "gotchas": [
+        "Do not substitute plain question-answering for document-question-answering: this model consumes OCR-derived token boxes and the exact task has a distinct loader/export contract.",
+        "A successful neural export is not a PDF/image-to-answer pipeline. OCR, word/box normalization and alignment, and answer decoding remain external.",
+        "The checkpoint carries extra token_classifier_head weights that the resolved stock LayoutLMForQuestionAnswering class ignores; do not claim the model card's non-consecutive-token behavior from this runtime path."
+      ],
+      "feature_gaps_filed": [
+        "https://github.com/microsoft/winml-cli/issues/134 — generalized LayoutLM/LayoutLMv3 document-QA exporter support; this run validates LayoutLM v1",
+        "https://github.com/microsoft/winml-cli/issues/1132 — end-to-end document-question-answering OCR/inference/evaluation contract"
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Baseline exact-task config and recipe-free build failed on the wrong NSP route. After the generalized architecture/task and model-class registrations, explicit config, automatic config, recipe-free builds, recipe builds, semantic perf, and PyTorch parity all used the exact document-QA I/O contract.",
+      "last_updated": "2026-07-19"
+    },
+    {
+      "id": "layoutlm-003",
+      "title": "LayoutLM v1 dummy and semantic inputs must honor embedding-table and document-layout bounds; generic perf must propagate high-exclusive input_value_ranges.",
+      "observation": "DmitrySpartak/layoutlm-invoices has type_vocab_size=1, so token_type_ids must be zero; bbox coordinates are normalized integer indices in [0,1023], and its RoBERTa-style max_position_embeddings=514 with pad_token_id=1 yields a usable sequence length of 512. Generated fp32/fp16 configs use int32 shapes input_ids[1,512] range [0,50265), bbox[1,512,4] range [0,1), attention_mask[1,512] range [0,2), and token_type_ids[1,512] range [0,1). Superseded tester verdict 8aa3f85e7cf4341d640157935b44430b9084d1f2c51efbc80a2ff158e2098689 found that default perf discarded io_config.input_value_ranges: 20/20 trials generated token_type_ids=1 and hit token_type_embeddings/Gather out-of-bounds. The producer repaired the generic adapter so canonical ranges remain high-exclusive while the legacy NumPy integer generator receives an inclusive maximum. Current tester PASS d30aa86fdad717c57096d1b38c7e6a1c04fcb2b4fd16a460b9e39026ca270985 records zero violations for token_type_ids, arbitrary/singleton integer inputs, ranged float input, and unspecified float defaults; default fp32/fp16 perf completed without --input-data. Semantic parity used 33 nonzero boxed tokens with bbox min=0, max=755, monotonic boxes, and token_type_ids={0}.",
+      "scope": {
+        "validated_on": [
+          "DmitrySpartak/layoutlm-invoices @ fp32 @ CPUExecutionProvider (default and semantic inputs; ORT 1.24.5, 2026-07-19)",
+          "DmitrySpartak/layoutlm-invoices @ fp16 @ CPUExecutionProvider (default and semantic inputs; ORT 1.24.5, 2026-07-19)"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "LayoutLM checkpoints with type_vocab_size greater than 1",
+          "full bbox coordinate extremes up to 1023 on accelerator EPs",
+          "dynamic sequence lengths"
+        ]
+      },
+      "effort_tier_required": "L1",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/DmitrySpartak_layoutlm-invoices/cpu/cpu/document-question-answering_<fp32|fp16>_config.json",
+      "gotchas": [
+        "Config value ranges are high-exclusive. [0,1) is the correct singleton-zero range; adapting it as an inclusive NumPy maximum requires subtracting one at the adapter boundary only.",
+        "A constant-zero bbox is safe for export tracing but is not meaningful document-QA evidence; semantic validation must use normalized, ordered, nonzero OCR boxes.",
+        "This generic perf defect is already covered methodologically by _meta-017, which states that perf ignored recipe value_range and requested the durable CLI-side propagation fix. Do not append a duplicate methodology finding."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The failure was reproduced by the superseded tester with a 20-trial generic probe, repaired without model-ID/model-type branching, then revalidated by focused range tests (3 passed), the broad relevant suite (554 passed), a zero-violation generic probe, and 100-iteration default perf for both precisions.",
+      "last_updated": "2026-07-19"
+    },
+    {
+      "id": "layoutlm-004",
+      "title": "DmitrySpartak/layoutlm-invoices reaches CPU L2 parity in fp32/fp16; fp16 is smaller but slower, and both graphs are Add/MatMul/layout-move dominated.",
+      "observation": "Tester PASS d30aa86fdad717c57096d1b38c7e6a1c04fcb2b4fd16a460b9e39026ca270985 on winml 0.2.0 / ORT 1.24.5: fp32 artifact=508,972,442 bytes, 442 ops, 16 unique types, 208 FLOAT initializers; fp16 artifact=254,570,982 bytes, 444 ops, 16 unique types, 208 FLOAT16 and zero FLOAT initializers. Semantic CPU perf (10 warmups + 100 iterations) was fp32 mean/p50/p90/p95=208.185/201.974/236.443/245.382 ms, 4.80 samples/s, RAM total +438.69 MB; fp16=256.448/251.709/289.198/297.091 ms, 3.90 samples/s, RAM total +465.46 MB. Default perf after the range repair was fp32 mean/p50=213.624/206.071 ms and fp16=252.585/245.067 ms. L2 versus pinned PyTorch preserved start/end argmaxes 16/22: fp32 start/end cosine=0.9999999999999564/0.9999999999999577 with max_abs=1.9073486328125e-05 for both; fp16=0.9999999880818508/0.999999960350131 with max_abs=0.009905815124511719/0.010828971862792969. Top-three operator ranks, preserving the third-rank tie, are Add 129, MatMul 97, Reshape 48, Transpose 48 for both graphs. Analyze covered all 11 requested rows: NvTensorRTRTX/GPU, CUDA/GPU, MIGraphX/GPU, QNN/NPU, QNN/GPU, OpenVINO/NPU, OpenVINO/GPU, OpenVINO/CPU, Dml/GPU, CPU/CPU, VitisAI/NPU. Status is ANALYZE-PARTIAL-SUCCESS only because OpenVINO runtime plugin registration failed with missing onnxruntime_providers_shared.dll Error 126; complete JSON was emitted for all rows. export_htp_metadata reports 127,792,898 parameters, 234 modules, 89 traced modules (38.03%), root LayoutLMForQuestionAnswering -> LayoutLMModel. Resolved build config kept optim={} and compile=null for both; fp32 quant=null, fp16 quant.mode=fp16; generated configs were byte-identical to recipes.",
+      "scope": {
+        "validated_on": [
+          "DmitrySpartak/layoutlm-invoices @ fp32 @ CPUExecutionProvider (L0/L1/L2, ORT 1.24.5, 2026-07-19)",
+          "DmitrySpartak/layoutlm-invoices @ fp16 @ CPUExecutionProvider (L0/L1/L2, ORT 1.24.5, 2026-07-19)"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "runtime perf/parity on NvTensorRTRTXExecutionProvider/GPU",
+          "runtime perf/parity on CUDAExecutionProvider/GPU",
+          "runtime perf/parity on MIGraphXExecutionProvider/GPU",
+          "runtime perf/parity on QNNExecutionProvider/NPU",
+          "runtime perf/parity on QNNExecutionProvider/GPU",
+          "runtime perf/parity on OpenVINOExecutionProvider/NPU",
+          "runtime perf/parity on OpenVINOExecutionProvider/GPU",
+          "runtime perf/parity on OpenVINOExecutionProvider/CPU",
+          "runtime perf/parity on DmlExecutionProvider/GPU",
+          "runtime perf/parity on VitisAIExecutionProvider/NPU"
+        ]
+      },
+      "effort_tier_required": "L1",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/DmitrySpartak_layoutlm-invoices/cpu/cpu/document-question-answering_<fp32|fp16>_config.json",
+      "gotchas": [
+        "On this CPU host fp16 halves artifact size but regresses latency and memory versus fp32; do not infer CPU speedup from precision alone.",
+        "Analyze rule coverage across 11 EP/device rows is static compatibility evidence, not runtime validation on unavailable accelerator providers.",
+        "Reshape and Transpose tie at the third operator rank (48 each); retain both when reporting the required top-three counts."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Both exact tuples independently passed config, recipe build, ONNX checker, 100-iteration semantic and default perf, identical-input PyTorch parity, component-to-ONNX mapping (442/442 and 444/444 nodes), and public-rules analyze. The host exposed DmlExecutionProvider and CPUExecutionProvider; only CPU runtime measurements are claimed.",
+      "last_updated": "2026-07-19"
+    },
+    {
+      "id": "layoutlm-005",
+      "title": "Goal L3 remains CLI-blocked because winml eval has no document-question-answering schema or execution contract; plain question-answering is not a valid substitute.",
+      "observation": "After L0-L2 passed for DmitrySpartak/layoutlm-invoices, `.venv/Scripts/winml.exe eval --schema --task document-question-answering --no-color` exited 2 with: `Error: Task 'document-question-answering' is not supported by winml eval.` Direct fp32/fp16 eval commands exited 1 with: `Error: Evaluation failed: Task 'document-question-answering' is not supported.` Neither produced a dataset or metric. The supported-task lists include question-answering but not document-question-answering; substituting it would erase OCR/layout preprocessing, bbox alignment, and document answer-decoding semantics. The generalized gap is filed as microsoft/winml-cli#1132, 'Add end-to-end document-question-answering inference and eval contract' (open, created 2026-07-19).",
+      "scope": {
+        "validated_on": [
+          "DmitrySpartak/layoutlm-invoices @ fp32 @ CPUExecutionProvider (eval CLI-BLOCKED, winml 0.2.0, 2026-07-19)",
+          "DmitrySpartak/layoutlm-invoices @ fp16 @ CPUExecutionProvider (eval CLI-BLOCKED, winml 0.2.0, 2026-07-19)",
+          "impira/layoutlm-document-qa@beed3c4d02d86017ebca5bd0fdf210046b907aa6 @ document-question-answering eval @ WinML 0.1.0/current main f5ee1267 (CLI-BLOCKED, 2026-08-27)"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "a future winml version after issue #1132 lands",
+          "a pinned document-QA dataset/evaluator with OCR and bbox preprocessing"
+        ]
+      },
+      "effort_tier_required": "L1",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/DmitrySpartak_layoutlm-invoices/cpu/cpu/document-question-answering_<fp32|fp16>_config.json",
+      "gotchas": [
+        "This is an eval task-family blocker, not an export, precision, or model-quality failure; custom L2 parity already proves the neural span scorer.",
+        "An honest future L3 harness needs a document dataset, OCR/word-box construction and alignment, start/end decoding, and a pinned span metric contract."
+      ],
+      "feature_gaps_filed": [
+        "https://github.com/microsoft/winml-cli/issues/1132 — add end-to-end document-question-answering inference and eval contract"
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Step 4c diligence passed: prior LayoutLM knowledge was read; same-family history 0b65be49/175b8e76/c3bb5691 was mined; explicit exact-task config now passes; export range/shape traps were repaired; semantic perf and custom PyTorch L2 harness pass; no EP failure exists; only the exact eval schema/execution registry remains absent, with verbatim errors and issue #1132 recorded.",
+      "last_updated": "2026-08-27"
+    },
+    {
+      "id": "layoutlm-006",
+      "title": "LayoutLM question-answering is an L1-light registration gap when Optimum already ships LayoutLMOnnxConfig but does not register (`layoutlm`, `question-answering`)",
+      "observation": "Baseline on origin/main `defa3f63ffdc5c4cd3c252a4b3f60fcc9939f953` failed for `winml build -m impira/layoutlm-document-qa ... --no-analyze --no-optimize --no-quant --no-compile --rebuild` by misrouting the checkpoint to `AutoModelForNextSentencePrediction` / unsupported `LayoutLMConfig`. The Optimum probe for `layoutlm` reported only `feature-extraction`, `fill-mask`, `text-classification`, and `token-classification`, but `LayoutLMOnnxConfig(task=\"question-answering\")` already existed with the right four-input QA contract (`input_ids`, `bbox`, `attention_mask`, `token_type_ids`). The shipping delta in winml-cli was therefore thin L1-light code: add `src\\winml\\modelkit\\models\\hf\\layoutlm.py` with `LayoutLMQAIOConfig(LayoutLMOnnxConfig)` plus `@register_onnx_overwrite(\"layoutlm\", \"question-answering\", library_name=\"transformers\")`, then wire the import in `src\\winml\\modelkit\\models\\hf\\__init__.py`. Historical producer commits were `20ab04a4` and `5bd5ad4b`; the latter renamed an unmaterialized fp16 request to fp32, a repair strategy superseded by current exact-fp16 rebuild requirements.",
+      "scope": {
+        "validated_on": [
+          "impira/layoutlm-document-qa @ question-answering @ fp32 @ cpu",
+          "impira/layoutlm-document-qa @ question-answering @ w8a16 @ cpu"
+        ],
+        "falsified_on": [
+          "impira/layoutlm-document-qa@beed3c4d02d86017ebca5bd0fdf210046b907aa6 @ QNNExecutionProvider/npu: registration-only L1-light support was insufficient; metadata-derived bounds plus shared autoconf and compile-override fixes were required"
+        ],
+        "not_yet_tested_on": [
+          "other LayoutLM question-answering checkpoints that may need additional dummy-input constraints beyond registration"
+        ]
+      },
+      "effort_tier_required": "L1-light",
+      "goal_tier_reached": "L2",
+      "recipe_template": "HISTORICAL (pre EP/device nested layout): examples/recipes/impira_layoutlm-document-qa/question-answering_fp32_config.json",
+      "gotchas": [
+        "Preserve the document-layout input: the QA override must keep `bbox` in the ONNX input contract (via `DummyBboxInputGenerator` / `LayoutLMOnnxConfig`), not collapse to text-only BERT-style QA.",
+        "This family already had the vendor OnnxConfig; the missing piece was task registration, so start by probing `TasksManager` before designing a from-scratch exporter."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Confirmed by the planner's Optimum probe and by the shipped winml-cli implementation: once the QA registration existed, both fp32 and w8a16 recipes built and reached the tester's corrected L2 ceiling on CPU.",
+      "last_updated": "2026-07-31"
+    },
+    {
+      "id": "layoutlm-007",
+      "title": "`impira/layoutlm-document-qa` requires all-zero `token_type_ids` because `type_vocab_size=1`; random segment ids crash at the token-type embedding gather",
+      "observation": "`temp\\impira_layoutlm-document-qa\\l0_validate.log` records the HF config as `type_vocab_size=1` and the token-type embedding table as shape `[1, 768]`. Raw CLI perf on both artifacts (`temp\\impira_layoutlm-document-qa\\perf_fp16_cli.log` / `perf_w8a16_cli.log`) then failed with `Gather ... idx=1 must be within the inclusive range [-1,0]`, i.e. random dummy `token_type_ids` hit an out-of-bounds lookup. The historical producer-side fix used `ZeroTokenTypeLayoutLMTextInputGenerator` to force zero-only segment IDs; the current generalized implementation instead uses `LayoutLMTextInputGenerator` with metadata-derived high-exclusive `type_vocab_size`, preserving zero-only generation for this checkpoint and valid multi-type generation for sibling checkpoints. The tester's `_meta-017` fallback harness supplied the same invariant for L1/L2. The contribution also hardened shared recipe-driven dummy generation in `src\\winml\\modelkit\\onnx\\io.py`: when `InputTensorSpec.name == \"bbox\"` and the last dim is 4, reorder coordinates so top-left <= bottom-right before feeding LayoutLM.",
+      "scope": {
+        "validated_on": [
+          "impira/layoutlm-document-qa @ question-answering @ fp32 @ cpu",
+          "impira/layoutlm-document-qa @ question-answering @ w8a16 @ cpu"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "LayoutLM checkpoints with `type_vocab_size > 1`",
+          "other LayoutLM checkpoints whose bbox preconditions differ from ordered [x1, y1, x2, y2] boxes"
+        ]
+      },
+      "effort_tier_required": "L1-light",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/impira_layoutlm-document-qa/question-answering_w8a16_config.json",
+      "gotchas": [
+        "For this checkpoint, treat `token_type_ids` as a constant-zero input in export, calibration, perf, and parity harnesses; recipe `value_range` alone does not protect raw `winml perf` because the CLI generates its own dummy inputs.",
+        "Ordered bounding boxes are part of the valid-input contract: if a fallback harness synthesizes bbox tensors manually, ensure each box satisfies top-left <= bottom-right before blaming the model or EP."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Falsify by showing a reproducible valid run on this checkpoint with non-zero `token_type_ids`, or by demonstrating that a future CLI/harness path now preserves the recipe's zero-only constraint end-to-end.",
+      "last_updated": "2026-07-12"
+    },
+    {
+      "id": "layoutlm-008",
+      "title": "`impira/layoutlm-document-qa` ships reproducible fp32 and recipe-driven w8a16 CPU artifacts, reaches L2, and needs a fixed valid batch for honest L1/L2 evidence",
+      "observation": "Shipped recipes: `examples\\recipes\\impira_layoutlm-document-qa\\question-answering_fp32_config.json` and `...\\question-answering_w8a16_config.json`. The emitted build configs at `temp\\impira_layoutlm-document-qa\\fp32\\winml_build_config.json` and `...\\w8a16\\winml_build_config.json` show the stable 4-input / 2-output contract (`input_ids[1,512]`, `bbox[1,512,4]`, `attention_mask[1,512]`, `token_type_ids[1,512]` -> `start_logits[1,512]`, `end_logits[1,512]`) with autoconf adding `gelu_fusion` and `matmul_add_fusion`; fp32 preserves `quant=null`, while the corrected w8a16 rerun preserved `quant={mode: static, weight_type: uint8, activation_type: uint16}`. Tester verdict (corrected rerun, 2026-07-12): L0 PASS for both artifacts, L1 PASS on CPU only via the `_meta-017` valid-input harness after raw `winml perf` crashed, and L2 PASS versus PyTorch on that same fixed batch (fp32 cosine ~0.99999999992 on both logits; w8a16 cosine ~0.952 start / ~0.960 end). `temp\\impira_layoutlm-document-qa\\analyze_fp32.json` reports 395 operators / 16 op types; QNN NPU covers all 395 ops, OpenVINO NPU is partial only on one `Slice`, and VitisAI NPU has rule coverage gaps (`unknown` for all 16 op types).",
+      "scope": {
+        "validated_on": [
+          "impira/layoutlm-document-qa @ question-answering @ fp32 @ cpu",
+          "impira/layoutlm-document-qa @ question-answering @ w8a16 @ cpu"
+        ],
+        "falsified_on": [
+          "impira/layoutlm-document-qa@beed3c4d02d86017ebca5bd0fdf210046b907aa6 @ QNNExecutionProvider/npu: the prior QNN-runtime-untested state is closed by exact fp16/W8A16 PASS and fp32/W8A8 EXHAUSTED-FAIL evidence"
+        ],
+        "not_yet_tested_on": [
+          "DML runtime perf on actual GPU hardware",
+          "task-metric L3 evaluation for document QA",
+          "other LayoutLM QA checkpoints that may quantize differently from this 127,792,898-parameter model"
+        ]
+      },
+      "effort_tier_required": "L1-light",
+      "goal_tier_reached": "L2",
+      "recipe_template": "HISTORICAL (pre EP/device nested layout): examples/recipes/impira_layoutlm-document-qa/question-answering_fp32_config.json (with sibling `question-answering_w8a16_config.json` for static quant)",
+      "gotchas": [
+        "For CPU perf/parity, reuse the tester's fixed valid batch rather than raw `winml perf` dummies; the CLI path is not an honest L1 harness for this checkpoint because it violates the token-type constraint from layoutlm-007.",
+        "The analyze snapshot is useful triage data, not a runtime guarantee. Current QNN runtime evidence is precision-specific: fp16 and W8A16 pass, while fp32 and W8A8 are exhausted failures."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Artifact facts come from `winml_build_config.json`, `export_htp_metadata.json` (234 modules, 127,792,898 parameters, 89 modules traced), and `analyze_fp32.json`; L1/L2 outcome comes from the tester's corrected verdict table using the `_meta-017` valid-input fallback harness.",
+      "last_updated": "2026-07-12"
+    },
+    {
+      "id": "layoutlm-009",
+      "title": "LayoutLM QA export bounds must derive from position and token-type metadata",
+      "observation": "For impira/layoutlm-document-qa@beed3c4d02d86017ebca5bd0fdf210046b907aa6, `max_position_embeddings=514` with `pad_token_id=1` yields usable sequence length 512, while `type_vocab_size=1` yields the high-exclusive token-type range [0,1). The metadata-derived QNN recipes and emitted artifacts expose int32 input_ids[1,512], bbox[1,512,4], attention_mask[1,512], and token_type_ids[1,512], with start_logits/end_logits[1,512]. The implementation uses one LayoutLM input generator for both singleton and multi-type vocabularies and contains no checkpoint-ID branch.",
+      "scope": {
+        "validated_on": [
+          "impira/layoutlm-document-qa@beed3c4d02d86017ebca5bd0fdf210046b907aa6 @ fp16 @ QNNExecutionProvider/npu @ ORT 1.24.5",
+          "impira/layoutlm-document-qa@beed3c4d02d86017ebca5bd0fdf210046b907aa6 @ w8a16 @ QNNExecutionProvider/npu @ ORT 1.24.5"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "a real LayoutLM QA checkpoint with type_vocab_size greater than 1 on QNN/NPU",
+          "dynamic sequence lengths"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/impira_layoutlm-document-qa/qnn/npu/question-answering_<fp16|w8a16>_config.json",
+      "gotchas": [
+        "Value ranges are high-exclusive; [0,1) is the correct declaration for zero-only token_type_ids.",
+        "Synthetic bbox tensors must remain ordered, and the checked-in document-coordinate range is [0,1000)."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The candidate derives both bounds from normalized model metadata. Sixteen focused LayoutLM compatibility tests cover RoBERTa-style and BERT-style position capacities, explicit sequence overrides, singleton token types, and multi-type high-exclusive generation.",
+      "last_updated": "2026-08-27"
+    },
+    {
+      "id": "layoutlm-010",
+      "title": "Explicit-false LayoutLM QNN optimization choices must survive analyzer autoconf",
+      "observation": "The analyzer discovered `gelu_fusion=true` and `matmul_add_fusion=true`, but the verified QNN recipes explicitly veto `matmul_add_fusion`; fp16 also vetoes `gelu_fusion`. Before the generic precedence repair, autoconf replaced the recipe's false value and realized a 73-Gemm graph. The repaired analyze loop filters only discovered keys that were explicitly false in the incoming config, while unspecified discoveries and explicit true values still apply.",
+      "scope": {
+        "validated_on": [
+          "impira/layoutlm-document-qa@beed3c4d02d86017ebca5bd0fdf210046b907aa6 @ fp16 @ QNNExecutionProvider/npu",
+          "impira/layoutlm-document-qa@beed3c4d02d86017ebca5bd0fdf210046b907aa6 @ w8a16 @ QNNExecutionProvider/npu"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "another architecture that combines explicit-false and unrelated analyzer discoveries"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/impira_layoutlm-document-qa/qnn/npu/question-answering_<fp16|w8a16>_config.json",
+      "gotchas": [
+        "Do not disable the whole autoconf loop to preserve one veto; only the matching explicitly false key is protected.",
+        "The final emitted config, not the input recipe alone, is the authority for realized optimization choices."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The original explicit-false and mixed-sparse cases failed before the repair. The focused class then passed all four explicit-false, unspecified, mixed-sparse, and auto=false regressions, and exact builds retained both false values.",
+      "last_updated": "2026-08-27"
+    },
+    {
+      "id": "layoutlm-011",
+      "title": "An explicit fp16 target override must preserve recipe-owned QNN compile configuration",
+      "observation": "The required `--precision fp16` build path formerly replaced an existing recipe compile config with provider defaults. It dropped `htp_performance_mode=burst`, `htp_graph_finalization_optimization_mode=3`, changed `validate=false` to true, and failed generic random validation before producing a final artifact. The generic repair retargets provider/device fields in place, merges target-owned provider defaults, preserves recipe-owned options and compile behavior, and clears a stale resolved `ep_device` binding.",
+      "scope": {
+        "validated_on": [
+          "impira/layoutlm-document-qa@beed3c4d02d86017ebca5bd0fdf210046b907aa6 @ fp16 @ QNNExecutionProvider/npu",
+          "single-config and module-config-list CLI regressions @ QNN provider"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "runtime retargeting between different execution-provider families"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/impira_layoutlm-document-qa/qnn/npu/question-answering_fp16_config.json",
+      "gotchas": [
+        "The fp16 recipe still requires the documented `--precision fp16` exception; inspect the emitted compile block afterward.",
+        "Preserve provider-option file keys, context flags, compiler, SDK root, validation, and verbosity while changing only target-specific values."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The regression first failed with only device_type=NPU remaining, then exposed a stale GPU target binding. The repaired full TestBuildFlagPassthrough class passed 24 tests, and the exact fp16 build retained all three frozen QNN options plus validate=false.",
+      "last_updated": "2026-08-27"
+    },
+    {
+      "id": "layoutlm-012",
+      "title": "The exact fp16 QNN/NPU recipe reaches L2 with stable span argmaxes",
+      "observation": "On Snapdragon X Elite with ORT 1.24.5, QNN package 2.2480.49.0, and SDK metadata v2.48.40.260702151143, tester-v5 validated the exact fp16 recipe and retained one-EPContext artifact over four fixed valid samples. Minimum cosine was 0.999634322962559, maximum normalized RMSE was 0.027264006657588, and every start/end argmax matched. Two fresh sessions with 10 warmups and 100 measured iterations each produced mean/p50/p95 30.8760/29.8871/34.9445 ms and 32.3876 samples/s. The artifact contains 208 FLOAT16 tensors with a 0.500167 payload ratio. Reused static analysis records 444 operators/16 types, dominated by Add 129, MatMul 97, and tied Reshape/Transpose 48, with 442 mapped and 2 unmapped nodes. HTP export metadata reports 127,792,898 parameters and 89/234 traced modules rooted at LayoutLMForQuestionAnswering -> LayoutLMModel.",
+      "scope": {
+        "validated_on": [
+          "impira/layoutlm-document-qa@beed3c4d02d86017ebca5bd0fdf210046b907aa6 @ fp16 @ QNNExecutionProvider/npu @ Snapdragon X Elite"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "other LayoutLM QA checkpoints @ fp16 @ QNNExecutionProvider/npu"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/impira_layoutlm-document-qa/qnn/npu/question-answering_fp16_config.json",
+      "gotchas": [
+        "The 29.8871 ms p50 is tester-v5 exact-recipe evidence; do not substitute the W8A16 optimization champion timing.",
+        "Static analysis was hash-reused from evidence commit 6b161628 after artifact verification; safety and performance were freshly rerun on current main f5ee1267."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The exact recipe, model/context hashes, four-sample outputs, and two independent performance sessions were sealed in tester-v5; model and context remained byte-identical before and after execution.",
+      "last_updated": "2026-08-27"
+    },
+    {
+      "id": "layoutlm-013",
+      "title": "The exact W8A16 QNN/NPU recipe reaches L2 and nearly doubles fp16 throughput",
+      "observation": "On the same Snapdragon X Elite stack, tester-v5 validated the exact static UINT8-weight/UINT16-activation recipe with seed 42 and one EPContext. Four valid samples reached minimum cosine 0.996144127518274, maximum normalized RMSE 0.097549940490650, and exact start/end argmax agreement. Two fresh 100-iteration sessions produced mean/p50/p95 16.0221/15.8387/17.1269 ms and 62.4138 samples/s. Reused static analysis records 1,374 operators/17 types, dominated by DequantizeLinear 593, QuantizeLinear 387, and Add 117, with 1,156 mapped and 218 unmapped nodes. HTP export metadata reports 127,792,898 parameters and 89/234 traced modules.",
+      "scope": {
+        "validated_on": [
+          "impira/layoutlm-document-qa@beed3c4d02d86017ebca5bd0fdf210046b907aa6 @ w8a16 @ QNNExecutionProvider/npu @ Snapdragon X Elite"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "other LayoutLM QA checkpoints @ w8a16 @ QNNExecutionProvider/npu"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/impira_layoutlm-document-qa/qnn/npu/question-answering_w8a16_config.json",
+      "gotchas": [
+        "The 15.8387 ms tester-v5 p50 is the exact checked-in recipe result; the 15.734 ms optimization champion used a separate confirmation protocol.",
+        "Do not infer W8A8 support from this result; the exact W8A8 tuple is an exhausted correctness failure."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The exact recipe and one-context artifact passed structure, four-sample parity, and two fresh performance sessions under frozen provider options. Its 62.4138 samples/s is 1.927 times the measured fp16 throughput on this run.",
+      "last_updated": "2026-08-27"
+    },
+    {
+      "id": "layoutlm-014",
+      "title": "GELU fusion reduces W8A16 QNN partitioning from 13 contexts to one and yields a 65.2747% paired gain",
+      "observation": "The optimization run compared the original W8A16 graph with the GELU-fused candidate on the same fixed sample and frozen QNN provider options. Residual Erf operators fell from 12 to 0 and QNN EPContext partitions fell from 13 to 1. Across the confirmed paired A/B/B/A protocol, baseline p50 was 45.443 ms, champion p50 was 15.734 ms, and the paired gain was 65.2747% with 95% confidence interval [65.1316%,65.4115%]. Adding MatMul+Add fusion retained one context but failed the fixed span-correctness gate, so node or context count alone was not accepted as performance evidence.",
+      "scope": {
+        "validated_on": [
+          "impira/layoutlm-document-qa@beed3c4d02d86017ebca5bd0fdf210046b907aa6 @ W8A16 GELU-fused optimization run @ QNNExecutionProvider/npu"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "other LayoutLM checkpoints with Erf-based GELU partitions"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/impira_layoutlm-document-qa/qnn/npu/question-answering_w8a16_config.json",
+      "gotchas": [
+        "This paired optimization timing is separate from tester-v5's exact-recipe timing; report each with its own protocol.",
+        "A smaller node count or one context is not sufficient: every representation change still requires the fixed-input numeric and argmax gates."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The causal candidate changed GELU representation, eliminated exactly the 12 residual Erf islands, collapsed 13 contexts to one, passed correctness, and then reproduced the latency reduction under paired fresh-session ordering.",
+      "last_updated": "2026-08-27"
+    },
+    {
+      "id": "layoutlm-015",
+      "title": "The one-context W8A16 graph is HTP-saturated and dominated by Add and Softmax work",
+      "observation": "Complete QNN optrace/QHAS profiling of the one-context W8A16 champion measured graph execute time 15,415 us and HTP utilization 99.861%. Active-cycle shares were ElementWiseAdd 36.208%, Softmax 18.078%, MatMul 11.845%, FullyConnected 10.466%, Gelu 9.895%, and LayerNorm 8.688%. The profile also recorded 168,085,504 DRAM-read bytes, 1,699,840 DRAM-write bytes, and 6,922,240 peak VTCM bytes. BiasSoftmax and AttentionFusion probes were no-ops, so the profile supports bandwidth/kernel tuning rather than another ungrounded graph rewrite.",
+      "scope": {
+        "validated_on": [
+          "impira/layoutlm-document-qa@beed3c4d02d86017ebca5bd0fdf210046b907aa6 @ one-context W8A16 @ QNN optrace/QHAS @ Snapdragon X Elite"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "other samples, sequence lengths, QNN SDK versions, or Snapdragon devices"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/impira_layoutlm-document-qa/qnn/npu/question-answering_w8a16_config.json",
+      "gotchas": [
+        "QHAS graph execute time is provider attribution evidence, not interchangeable with process wall-clock latency.",
+        "The profile covers one fixed valid sample; do not generalize the exact hotspot shares to all document workloads."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The raw optrace log and matching complete schematic produced a 395-node detail trace and an `ok` QHAS summary; HTP utilization and active-cycle categories came from that provider-level trace.",
+      "last_updated": "2026-08-27"
+    },
+    {
+      "id": "layoutlm-016",
+      "title": "QNN/NPU fp32 reverses a narrow start-logit rank during HTP lowering and is an exhausted failure",
+      "observation": "For fixed sample_01, the PyTorch-derived reference ranks index 0 above index 511 by only 0.000403761864. QNN fp32 changes that margin to -0.0009765625 and changes start argmax 0 -> 511, despite minimum cosine 0.999983828425349 and maximum normalized RMSE 0.006038571607082 over the four-sample corpus. Native-GELU and Erf precompile graphs produced byte-identical QNN outputs, and explicitly setting the documented `enable_htp_fp16_precision=0` option also produced the same hashes. Running the exact optimized graph on CPU preserved argmax 0, a 0.000403165817 margin, and cosine 1.0, isolating the reversal to QNN HTP lowering. The candidate recipe was removed.",
+      "scope": {
+        "validated_on": [
+          "impira/layoutlm-document-qa@beed3c4d02d86017ebca5bd0fdf210046b907aa6 @ fp32 @ QNNExecutionProvider/npu @ ORT 1.24.5 (EXHAUSTED-FAIL)"
+        ],
+        "falsified_on": [
+          "the native GELU rewrite is the sole cause of the fp32 rank reversal",
+          "enable_htp_fp16_precision=0 restores this checkpoint's fp32 span ordering"
+        ],
+        "not_yet_tested_on": [
+          "a future QNN/ORT release with different HTP float lowering",
+          "real document rows whose best span has a wider logit margin"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "EXHAUSTED-FAIL before L1 performance",
+      "recipe_template": "N/A - the failed fp32 candidate was removed",
+      "gotchas": [
+        "High cosine and low normalized RMSE do not protect extractive QA when the top span logits are nearly tied; retain exact start/end argmax gates.",
+        "Do not reopen this precision from static support or graph-shape evidence alone; require new provider/runtime evidence that changes the QNN outputs."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The CPU/QNN boundary localizes the defect to provider lowering, and two graph representations plus the direct HTP float-precision option exhausted the bounded in-scope repairs. The specific internal HTP kernel or rounding site remains unidentified.",
+      "last_updated": "2026-08-27"
+    },
+    {
+      "id": "layoutlm-017",
+      "title": "W8A8 calibration changes do not recover LayoutLM span correctness on QNN/NPU",
+      "observation": "The exact W8A8 QNN/NPU tuple failed the fixed four-sample correctness contract under multiple calibration paths. Default/random calibration reached minimum cosine 0.709118363185076 and maximum normalized RMSE 0.764987022147052, with only sample_03 preserving both span argmaxes. Recalibration over all four valid NPZ inputs still failed every sample, with minimum cosine 0.737270516907190 and maximum normalized RMSE 0.757015889205482. The sparse one-context graph did not repair the error. The candidate recipe was removed and no performance claim was made.",
+      "scope": {
+        "validated_on": [
+          "impira/layoutlm-document-qa@beed3c4d02d86017ebca5bd0fdf210046b907aa6 @ w8a8 @ QNNExecutionProvider/npu @ ORT 1.24.5 (EXHAUSTED-FAIL)"
+        ],
+        "falsified_on": [
+          "invalid random calibration data is the sole cause of this checkpoint's W8A8 failure"
+        ],
+        "not_yet_tested_on": [
+          "selective mixed-precision tensor overrides",
+          "a larger real-document calibration corpus",
+          "future QNN quantization implementations"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "EXHAUSTED-FAIL before L1 performance",
+      "recipe_template": "N/A - the failed W8A8 candidate was removed",
+      "gotchas": [
+        "Do not infer W8A8 support from W8A16; each precision needs an exact artifact and safety verdict.",
+        "A successful quantize/compile command does not establish model support when span logits and argmaxes fail.",
+        "The model-level precision outcome is `required-tuples-contain-exhausted-failures`, not full or partial coverage; keep fp32 and W8A8 explicit and out of deferred_tuples."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "The evidence rules out calibration-input validity as the sole cause but does not localize which W8A8 tensor or region destroys span quality. Reopening requires a new bounded repair such as evidenced selective mixed precision, not another equivalent calibration rerun.",
+      "last_updated": "2026-08-27"
+    }
+  ]
+}
