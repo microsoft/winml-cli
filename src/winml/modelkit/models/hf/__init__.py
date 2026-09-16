@@ -164,6 +164,8 @@ MODEL_BUILD_CONFIGS = {
     "clip-text-model": CLIP_CONFIG,
     "clip-vision-model": CLIP_CONFIG,
     "detr": DETR_CONFIG,
+    # Bound attention-mask sentinels before calibration, as for BERT.
+    "distilbert": BERT_CONFIG,
     "layoutlmv3": LAYOUTLMV3_CONFIG,
     "marian": MARIAN_CONFIG,
     "roberta": ROBERTA_FAMILY_CONFIG,
