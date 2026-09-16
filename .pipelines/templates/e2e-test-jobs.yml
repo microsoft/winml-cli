@@ -37,6 +37,10 @@ parameters:
     type: boolean
     default: true
 
+  - name: e2eDiagnostics
+    type: string
+    default: 'off'
+
   # List of pytest e2e test short names. Each entry `<name>` runs
   # `tests/e2e/test_<name>_e2e.py`. Empty list skips the pytest phase.
   - name: pytestTargets
@@ -168,6 +172,14 @@ jobs:
         workingDirectory: $(Build.SourcesDirectory)
         displayName: 'Install dependencies'
 
+      - ${{ if ne(parameters.e2eDiagnostics, 'off') }}:
+          - powershell: |
+              uv pip install py-spy==0.4.2
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+              New-Item -ItemType Directory -Path "$(Agent.TempDirectory)/e2e-diagnostics" -Force | Out-Null
+            workingDirectory: $(Build.SourcesDirectory)
+            displayName: 'Install external stack sampler'
+
       # ----------------------------------------------------------------------
       # Phase 1: winml perf (gated by runEval).
       # One step per (model × pair); template-time expanded for granular UI.
@@ -240,8 +252,39 @@ jobs:
                           $uvArgs += "--clean-cache"
                       }
 
-                      & uv @uvArgs
-                      $code = $LASTEXITCODE
+                        $collector = $null
+                        $mode = '${{ parameters.e2eDiagnostics }}'
+                        $env:WINML_E2E_DIAGNOSTIC_DISABLE_HF_OBSERVER = '0'
+                        if ($mode -ne 'off') {
+                          $diagDir = "$(Agent.TempDirectory)/e2e-diagnostics/$name-$([guid]::NewGuid().ToString('N'))"
+                          New-Item -ItemType Directory -Path $diagDir -Force | Out-Null
+                          $stopFile = Join-Path $diagDir 'stop'
+                          @{ model = $hfModel; task = $task; pair = $name; mode = $mode; rootPid = $PID } |
+                            ConvertTo-Json | Set-Content (Join-Path $diagDir 'case.json') -Encoding UTF8
+                          if ($mode -eq 'observer-off') {
+                            $env:WINML_E2E_DIAGNOSTIC_DISABLE_HF_OBSERVER = '1'
+                          }
+                          Write-Host "E2E diagnostics: $mode; output: $diagDir"
+                          $samplerArgs = @(
+                            '-u', '"$(Build.SourcesDirectory)/scripts/e2e_eval/collect_stacks.py"',
+                            '--root-pid', "$PID", '--output-dir', "`"$diagDir`"",
+                            '--stop-file', "`"$stopFile`""
+                          )
+                          $collector = Start-Process -FilePath (Get-Command python).Source -ArgumentList $samplerArgs -PassThru -NoNewWindow `
+                            -RedirectStandardOutput (Join-Path $diagDir 'sampler.stdout.log') `
+                            -RedirectStandardError (Join-Path $diagDir 'sampler.stderr.log')
+                        }
+                        try {
+                          & uv @uvArgs
+                          $code = $LASTEXITCODE
+                        } finally {
+                          if ($null -ne $collector) {
+                            New-Item -ItemType File -Path $stopFile -Force | Out-Null
+                            if (-not $collector.WaitForExit(15000)) {
+                              Stop-Process -Id $collector.Id -Force -ErrorAction SilentlyContinue
+                            }
+                          }
+                        }
                       if ($code -ne 0) {
                           Write-Error "Eval FAILED: $hfModel (task='$task') on $($pair.displayName) (exit=$code)"
                       } else {
@@ -253,6 +296,17 @@ jobs:
                     # The job is still marked failed by ADO because of the non-zero exit.
                     condition: always()
                     displayName: 'Eval: ${{ model.hf_id }} / ${{ model.task }} on ${{ pairName }}'
+                    ${{ if ne(parameters.e2eDiagnostics, 'off') }}:
+                      # Preserve time for artifact publication after a stuck task.
+                      timeoutInMinutes: 45
+
+      - ${{ if ne(parameters.e2eDiagnostics, 'off') }}:
+          - task: PublishPipelineArtifact@1
+            condition: always()
+            inputs:
+              targetPath: '$(Agent.TempDirectory)/e2e-diagnostics'
+              artifact: 'e2e-diagnostics-${{ parameters.agentSuffix }}'
+            displayName: 'Publish external stacks and process snapshots'
 
       # ----------------------------------------------------------------------
       # Phase 2: pytest e2e suites. One step per entry in `pytestTargets`.

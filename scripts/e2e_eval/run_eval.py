@@ -705,7 +705,9 @@ class _HfDownloadTracker:
 
     def __init__(self, env: dict[str, str], now: float) -> None:
         self._env = env
-        self._previous = _snapshot_hf_downloads(env)
+        # Diagnostic A/B control only; normal runs retain download-aware timing.
+        self._enabled = env.get("WINML_E2E_DIAGNOSTIC_DISABLE_HF_OBSERVER") != "1"
+        self._previous = _snapshot_hf_downloads(env) if self._enabled else {}
         self._active_paths: set[Path] = set()
         self._pid: int | None = None
         self.last_progress = now
@@ -714,6 +716,8 @@ class _HfDownloadTracker:
         self._pid = pid
 
     def poll(self, now: float) -> bool:
+        if not self._enabled:
+            return False
         open_paths = _process_tree_open_paths(self._pid) if self._pid is not None else set()
         current = _snapshot_hf_downloads(self._env)
         progressed = {

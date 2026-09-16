@@ -132,6 +132,15 @@ parameters:
     type: number
     default: 1800
 
+  - name: e2eDiagnostics
+    displayName: 'QNN stack diagnostics (observer-off is an A/B control only)'
+    type: string
+    default: 'off'
+    values:
+      - 'off'
+      - baseline
+      - observer-off
+
   # --------------------------------------------------------------------
   # pytest e2e section — single editable list of test file short names.
   # Each entry `<name>` runs `tests/e2e/test_<name>_e2e.py`.
@@ -217,6 +226,7 @@ stages:
           models: ${{ parameters.models }}
           modelTimeout: ${{ parameters.modelTimeout }}
           runEval: ${{ parameters.runEval }}
+          e2eDiagnostics: ${{ parameters.e2eDiagnostics }}
           pytestTargets: ${{ parameters.pytestTargets }}
           pytestTimeout: ${{ parameters.pytestTimeout }}
 

@@ -229,6 +229,18 @@ class TestKillProcessTree:
 
 
 class TestRunSubprocessTimeouts:
+    def test_diagnostic_observer_off_avoids_snapshots_and_handle_scans(self, run_eval):
+        env = {"WINML_E2E_DIAGNOSTIC_DISABLE_HF_OBSERVER": "1"}
+        with (
+            patch.object(run_eval, "_snapshot_hf_downloads") as snapshot,
+            patch.object(run_eval, "_process_tree_open_paths") as open_paths,
+        ):
+            tracker = run_eval._HfDownloadTracker(env, 0.0)
+            tracker.bind(123)
+            assert tracker.poll(1.0) is False
+        snapshot.assert_not_called()
+        open_paths.assert_not_called()
+
     _HF_CACHE_ENV_VARS = (
         "HF_HOME",
         "HF_HUB_CACHE",
