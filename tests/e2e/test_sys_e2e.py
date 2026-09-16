@@ -199,6 +199,17 @@ class TestSysJsonShape:
                 r"0x[0-9A-F]{8}_0x[0-9A-F]{8}", luid
             )
 
+    def test_default_json_gpus_include_memory(self):
+        data = _run_sys_json()
+        for device in data["devices"]:
+            if device["type"] != "GPU":
+                continue
+            details = device["details"]
+            for field in ("dedicated_memory_mib", "shared_memory_mib"):
+                assert field in details
+                value = details[field]
+                assert value is None or (isinstance(value, int) and value >= 0)
+
     def test_default_json_eps_have_source_entries(self):
         data = _run_sys_json()
         eps = data["executionProviders"]

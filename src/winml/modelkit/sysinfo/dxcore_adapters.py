@@ -22,6 +22,8 @@ class DXCoreAdapterInfo:
     luid: str
     vendor_id: int
     device_id: int
+    dedicated_memory_mib: int | None = None
+    shared_memory_mib: int | None = None
 
 
 class _GUID(ctypes.Structure):
@@ -70,6 +72,8 @@ _ATTRIBUTE_NPU = _GUID.from_string("d46140c4-add7-451b-9e56-06fe8c3b58ed")
 _PROPERTY_INSTANCE_LUID = 0
 _PROPERTY_DRIVER_DESCRIPTION = 2
 _PROPERTY_HARDWARE_ID = 3
+_PROPERTY_DEDICATED_ADAPTER_MEMORY = 7
+_PROPERTY_SHARED_SYSTEM_MEMORY = 9
 _PROPERTY_HARDWARE_ID_PARTS = 14
 _PROPERTY_IS_HARDWARE = 11
 
@@ -156,6 +160,14 @@ def _get_string_property(adapter: ctypes.c_void_p, property_id: int) -> str:
     return buffer.value.decode("utf-8", errors="replace")
 
 
+def _get_memory_mib(adapter: ctypes.c_void_p, property_id: int) -> int | None:
+    if not _is_property_supported(adapter, property_id):
+        return None
+    value = ctypes.c_uint64()
+    _get_property(adapter, property_id, value)
+    return value.value // (1024 * 1024)
+
+
 def _format_luid(luid: _LUID) -> str:
     return f"0x{luid.high_part & 0xFFFFFFFF:08X}_0x{luid.low_part:08X}"
 
@@ -226,6 +238,12 @@ def _enumerate_for_type(
                         luid=_format_luid(luid),
                         vendor_id=hardware_id.vendor_id,
                         device_id=hardware_id.device_id,
+                        dedicated_memory_mib=_get_memory_mib(
+                            adapter, _PROPERTY_DEDICATED_ADAPTER_MEMORY
+                        ),
+                        shared_memory_mib=_get_memory_mib(
+                            adapter, _PROPERTY_SHARED_SYSTEM_MEMORY
+                        ),
                     )
                 )
             finally:
