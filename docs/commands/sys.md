@@ -36,8 +36,10 @@ display version, build, update build revision (UBR), build branch, and build lab
 It then probes PyTorch for CUDA availability and GPU device names.
 Backend availability checks use the installed runtime environment. GPU and NPU
 enumeration uses DXCore as the source of adapter identity and LUID, then enriches
-those native rows with WMI/PnP driver and manufacturer details. CPU enumeration
-uses WMI. Devices remain in NPU > GPU > CPU priority order, and EP enumeration
+those native rows with WMI/PnP driver and manufacturer details. GPU rows also
+report DXCore's 64-bit dedicated adapter memory and shared system memory
+capacities in MiB. CPU enumeration uses WMI. Devices remain in NPU > GPU > CPU
+priority order, and EP enumeration
 merges the WinML EP registry with ONNX Runtime's
 `get_available_providers()`. When
 `--format json` is used the full report — including devices and EPs — is emitted as
@@ -91,6 +93,7 @@ Available Devices (priority order)
              LUID: 0x00000000_0x00018393 | Driver: 1.0.0 | Manufacturer: Qualcomm
   #2  GPU   Qualcomm(R) Adreno GPU
              LUID: 0x00000000_0x00018394 | Driver: 1.0.0 | Manufacturer: Qualcomm
+             Dedicated memory: 1024 MiB | Shared memory: 8192 MiB
   #3  CPU   Snapdragon(R) X Elite
              LUID: N/A | Cores: 12 | Threads: 12 | Architecture: ARM64
 

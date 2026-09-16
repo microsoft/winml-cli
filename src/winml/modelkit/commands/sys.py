@@ -693,6 +693,19 @@ def _gather_device_info(
                     "manufacturer": getattr(metadata_item, "manufacturer", None),
                     "luid": item.luid if system_adapters else None,
                 }
+                if device_label == "GPU":
+                    entry["details"].update(
+                        {
+                            "dedicated_memory_mib": (
+                                item.dedicated_memory_mib
+                                if system_adapters
+                                else getattr(item, "vram_mib", None)
+                            ),
+                            "shared_memory_mib": (
+                                item.shared_memory_mib if system_adapters else None
+                            ),
+                        }
+                    )
             elif device_label == "CPU":
                 entry["details"] = {
                     "cores": item.core_count,
@@ -834,6 +847,16 @@ def _output_device_text(devices: list[dict[str, Any]]) -> None:
             if arch := details.get("architecture"):
                 parts.append(f"Architecture: {arch}")
             console.print(f"             {' | '.join(parts)}")
+            if dev["type"] == "GPU":
+                dedicated_memory = details.get("dedicated_memory_mib")
+                shared_memory = details.get("shared_memory_mib")
+                parts = [
+                    "Dedicated memory: "
+                    + (f"{dedicated_memory} MiB" if dedicated_memory is not None else "N/A"),
+                    "Shared memory: "
+                    + (f"{shared_memory} MiB" if shared_memory is not None else "N/A"),
+                ]
+                console.print(f"             {' | '.join(parts)}")
         elif dev["type"] == "CPU":
             console.print(
                 f"             LUID: {details.get('luid') or 'N/A'} | "
