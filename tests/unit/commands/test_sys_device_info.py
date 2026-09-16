@@ -99,6 +99,8 @@ class TestDeviceInfoEnrichment:
                 luid=format_pdh_luid(str(index)),
                 vendor_id=0x1234,
                 device_id=0x5678,
+                dedicated_memory_mib=index * 1024,
+                shared_memory_mib=16 * 1024,
             )
             for index in range(1, 4)
         ]
@@ -139,6 +141,12 @@ class TestDeviceInfoEnrichment:
 
         expected = [adapters[-1], *adapters[:-1]] if with_ep_info else adapters
         assert [row["details"]["luid"] for row in result] == [adapter.luid for adapter in expected]
+        assert [row["details"]["dedicated_memory_mib"] for row in result] == [
+            adapter.dedicated_memory_mib for adapter in expected
+        ]
+        assert [row["details"]["shared_memory_mib"] for row in result] == [
+            adapter.shared_memory_mib for adapter in expected
+        ]
         assert [row["priority"] for row in result] == list(range(1, len(adapters) + 1))
 
     def test_device_info_enriched_with_winml_device_facts(self) -> None:
@@ -275,6 +283,8 @@ class TestDeviceInfoEnrichment:
                     "driver": None,
                     "manufacturer": None,
                     "luid": "0x00000000_0x00000001",
+                    "dedicated_memory_mib": None,
+                    "shared_memory_mib": None,
                 },
             }
         ]
@@ -405,6 +415,33 @@ def test_compact_device_output_includes_luid(
     output = capsys.readouterr().out
     assert "GPU: Test GPU (LUID: 0x00000000_0x00018393)" in output
     assert "CPU: Test CPU (LUID: N/A)" in output
+
+
+def test_gpu_text_output_includes_dedicated_and_shared_memory(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from winml.modelkit.commands.sys import _output_device_text
+
+    _output_device_text(
+        [
+            {
+                "priority": 1,
+                "type": "GPU",
+                "name": "Test GPU",
+                "details": {
+                    "luid": "0x00000000_0x00018393",
+                    "driver": "1.0",
+                    "manufacturer": "Example",
+                    "dedicated_memory_mib": 8192,
+                    "shared_memory_mib": 16384,
+                },
+            }
+        ]
+    )
+
+    output = capsys.readouterr().out
+    assert "Dedicated memory: 8192 MiB" in output
+    assert "Shared memory: 16384 MiB" in output
 
 
 class TestGatherDeviceSectionEnrichment:
