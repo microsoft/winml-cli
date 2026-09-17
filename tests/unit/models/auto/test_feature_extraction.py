@@ -15,6 +15,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import numpy as np
+import pytest
 import torch
 from transformers.utils import ModelOutput
 
@@ -27,6 +28,8 @@ def create_mock_model():
     mock_session = MagicMock()
     mock_session.io_config = {
         "input_names": ["input_ids", "attention_mask", "token_type_ids"],
+        "input_types": [np.dtype("int32"), np.dtype("int32"), np.dtype("int32")],
+        "input_shapes": [[1, 8], [1, 8], [1, 8]],
         "output_names": ["last_hidden_state"],
     }
     mock_session.run.return_value = {
@@ -89,13 +92,69 @@ class TestForwardLastHiddenState:
         assert "attention_mask" in call_kwargs
         assert "token_type_ids" in call_kwargs
 
-    def test_none_inputs_excluded(self):
+    def test_missing_token_type_ids_synthesized_with_required_shape_and_dtype(self):
         model = create_mock_model()
-        model.forward(input_ids=torch.ones(1, 8, dtype=torch.long))
+        model.forward(
+            input_ids=torch.ones(1, 8, dtype=torch.long),
+            attention_mask=torch.ones(1, 8, dtype=torch.long),
+        )
 
         call_kwargs = model._session.run.call_args[0][0]
-        assert "attention_mask" not in call_kwargs
-        assert "token_type_ids" not in call_kwargs
+        np.testing.assert_array_equal(call_kwargs["token_type_ids"], np.zeros((1, 8)))
+        assert call_kwargs["token_type_ids"].dtype == np.int32
+
+    def test_provided_token_type_ids_preserved(self):
+        model = create_mock_model()
+        provided = torch.tensor([[0, 0, 0, 0, 1, 1, 1, 1]], dtype=torch.int64)
+
+        model.forward(
+            input_ids=torch.ones(1, 8, dtype=torch.long),
+            attention_mask=torch.ones(1, 8, dtype=torch.long),
+            token_type_ids=provided,
+        )
+
+        call_kwargs = model._session.run.call_args[0][0]
+        np.testing.assert_array_equal(call_kwargs["token_type_ids"], provided.numpy())
+        assert call_kwargs["token_type_ids"].dtype == provided.numpy().dtype
+
+    def test_unrelated_missing_required_input_still_fails(self):
+        from winml.modelkit.session.session import WinMLSession
+
+        model = create_mock_model()
+        model._session.run.side_effect = lambda inputs: (
+            WinMLSession._validate_inputs(model._session, inputs)
+        )
+
+        with pytest.raises(ValueError, match="attention_mask"):
+            model.forward(input_ids=torch.ones(1, 8, dtype=torch.long))
+
+    def test_incompatible_static_token_type_shape_is_not_hidden(self):
+        from winml.modelkit.session.session import WinMLSession
+
+        model = create_mock_model()
+        model._session.io_config["input_shapes"][2] = [1, 16]
+        model._session.run.side_effect = lambda inputs: (
+            WinMLSession._validate_inputs(model._session, inputs)
+        )
+
+        with pytest.raises(ValueError, match="token_type_ids"):
+            model.forward(
+                input_ids=torch.ones(1, 8, dtype=torch.long),
+                attention_mask=torch.ones(1, 8, dtype=torch.long),
+            )
+
+    def test_sentence_similarity_feature_path_synthesizes_each_single_segment(self):
+        model = create_mock_model()
+
+        for token_id in (1, 2):
+            model.forward(
+                input_ids=torch.full((1, 8), token_id, dtype=torch.long),
+                attention_mask=torch.ones(1, 8, dtype=torch.long),
+            )
+
+        assert model._session.run.call_count == 2
+        for call in model._session.run.call_args_list:
+            np.testing.assert_array_equal(call.args[0]["token_type_ids"], np.zeros((1, 8)))
 
 
 class TestForwardPreservesOnnxOutputNames:
