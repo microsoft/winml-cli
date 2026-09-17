@@ -2484,8 +2484,6 @@ def _autobuild_genai_bundle(
     existing bundle (in which case task/precision were not applied to it).
     """
     from ..cache import get_cache_dir, get_model_dir
-    from ..loader import resolve_loader_config
-    from ..models.winml import build_genai_bundle, resolve_genai_bundle
     from ..session import EPDeviceTarget, ep_to_device, resolve_device, short_ep_name
     from ..utils.constants import normalize_ep_name
 
@@ -2514,6 +2512,9 @@ def _autobuild_genai_bundle(
     if (bundle_dir / "genai_config.json").exists() and not force_rebuild:
         console.print(f"[dim]Reusing cached genai bundle:[/dim] {bundle_dir}")
         return bundle_dir, False
+
+    from ..loader import resolve_loader_config
+    from ..models.winml import build_genai_bundle, resolve_genai_bundle
 
     # Cache miss (or forced rebuild): resolve the model family so its
     # genai-bundle recipe can drive the build.

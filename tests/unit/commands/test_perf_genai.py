@@ -13,6 +13,7 @@ itself is unit-tested in ``tests/unit/session/test_genai_session.py``.)
 from __future__ import annotations
 
 import json
+import sys
 from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -1664,26 +1665,29 @@ class TestCliDispatch:
         builder.assert_not_called()
         assert "config" not in capture_run
 
+    @pytest.mark.parametrize(
+        ("arguments", "directory"),
+        [([], "genai-bundle"), (["--ep", "CPUExecutionProvider"], "genai-bundle-cpu-cpu")],
+    )
     def test_autobuild_reuses_cached_bundle(
-        self, runner: CliRunner, tmp_path: Path, capture_run: dict, monkeypatch
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict, monkeypatch,
+        arguments, directory,
     ) -> None:
-        import winml.modelkit.models.winml as winml_models
         from winml.modelkit.cache import get_model_dir
 
         monkeypatch.setenv("WINML_CACHE_DIR", str(tmp_path))
-        cached = get_model_dir("Qwen/Qwen3-0.6B", cache_dir=tmp_path) / "genai-bundle"
+        cached = get_model_dir("Qwen/Qwen3-0.6B", cache_dir=tmp_path) / directory
         cached.mkdir(parents=True)
         (cached / "genai_config.json").write_text("{}", encoding="utf-8")
 
-        build_calls: dict = {}
-        monkeypatch.setattr(
-            winml_models, "build_genai_bundle", _fake_build_genai_bundle(build_calls)
+        monkeypatch.setitem(sys.modules, "winml.modelkit.loader", None)
+        monkeypatch.setitem(sys.modules, "winml.modelkit.models.winml", None)
+        result = runner.invoke(
+            perf, ["-m", "Qwen/Qwen3-0.6B", "--runtime", "ort-genai", *arguments]
         )
 
-        result = runner.invoke(perf, ["-m", "Qwen/Qwen3-0.6B", "--runtime", "ort-genai"])
-
         assert result.exit_code == 0, result.output
-        assert "build" not in build_calls  # cache hit: never rebuilt
+        assert "Reusing cached genai bundle" in result.output
         assert capture_run["config"].bundle_dir == cached
 
     def test_rebuild_forces_autobuild(
