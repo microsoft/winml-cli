@@ -252,24 +252,26 @@ class TestDeviceInfoEnrichment:
 
     def test_dxcore_accelerator_survives_wmi_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Native identity remains visible when descriptive enrichment fails."""
-        native_gpu = DXCoreAdapterInfo(
-            device_type="GPU",
-            name="Example GPU",
+        native_npu = DXCoreAdapterInfo(
+            device_type="NPU",
+            name="Example NPU",
             luid="0x00000000_0x00000001",
             vendor_id=0x1234,
             device_id=0x5678,
+            dedicated_memory_mib=0,
+            shared_memory_mib=16384,
         )
         monkeypatch.setattr(
             "winml.modelkit.sysinfo.enumerate_compute_adapters",
-            lambda: [native_gpu],
+            lambda: [native_npu],
         )
 
         with (
-            patch("winml.modelkit.sysinfo.NPU.get_all", return_value=[]),
             patch(
-                "winml.modelkit.sysinfo.GPU.get_all",
+                "winml.modelkit.sysinfo.NPU.get_all",
                 side_effect=RuntimeError("WMI unavailable"),
             ),
+            patch("winml.modelkit.sysinfo.GPU.get_all", return_value=[]),
             patch("winml.modelkit.sysinfo.CPU.get_all", return_value=[]),
         ):
             result = _gather_device_info()
@@ -277,14 +279,14 @@ class TestDeviceInfoEnrichment:
         assert result == [
             {
                 "priority": 1,
-                "type": "GPU",
-                "name": "Example GPU",
+                "type": "NPU",
+                "name": "Example NPU",
                 "details": {
                     "driver": None,
                     "manufacturer": None,
                     "luid": "0x00000000_0x00000001",
-                    "dedicated_memory_mib": None,
-                    "shared_memory_mib": None,
+                    "dedicated_memory_mib": 0,
+                    "shared_memory_mib": 16384,
                 },
             }
         ]
@@ -417,7 +419,9 @@ def test_compact_device_output_includes_luid(
     assert "CPU: Test CPU (LUID: N/A)" in output
 
 
-def test_gpu_text_output_includes_dedicated_and_shared_memory(
+@pytest.mark.parametrize("device_type", ["NPU", "GPU"])
+def test_accelerator_text_output_includes_dedicated_and_shared_memory(
+    device_type: str,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     from winml.modelkit.commands.sys import _output_device_text
@@ -426,8 +430,8 @@ def test_gpu_text_output_includes_dedicated_and_shared_memory(
         [
             {
                 "priority": 1,
-                "type": "GPU",
-                "name": "Test GPU",
+                "type": device_type,
+                "name": f"Test {device_type}",
                 "details": {
                     "luid": "0x00000000_0x00018393",
                     "driver": "1.0",

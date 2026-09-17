@@ -693,17 +693,18 @@ def _gather_device_info(
                     "manufacturer": getattr(metadata_item, "manufacturer", None),
                     "luid": item.luid if system_adapters else None,
                 }
-                if device_label == "GPU":
+                if system_adapters:
                     entry["details"].update(
                         {
-                            "dedicated_memory_mib": (
-                                item.dedicated_memory_mib
-                                if system_adapters
-                                else getattr(item, "vram_mib", None)
-                            ),
-                            "shared_memory_mib": (
-                                item.shared_memory_mib if system_adapters else None
-                            ),
+                            "dedicated_memory_mib": item.dedicated_memory_mib,
+                            "shared_memory_mib": item.shared_memory_mib,
+                        }
+                    )
+                elif device_label == "GPU":
+                    entry["details"].update(
+                        {
+                            "dedicated_memory_mib": getattr(item, "vram_mib", None),
+                            "shared_memory_mib": None,
                         }
                     )
             elif device_label == "CPU":
@@ -847,7 +848,7 @@ def _output_device_text(devices: list[dict[str, Any]]) -> None:
             if arch := details.get("architecture"):
                 parts.append(f"Architecture: {arch}")
             console.print(f"             {' | '.join(parts)}")
-            if dev["type"] == "GPU":
+            if dev["type"] in ("NPU", "GPU"):
                 dedicated_memory = details.get("dedicated_memory_mib")
                 shared_memory = details.get("shared_memory_mib")
                 parts = [

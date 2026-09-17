@@ -199,10 +199,10 @@ class TestSysJsonShape:
                 r"0x[0-9A-F]{8}_0x[0-9A-F]{8}", luid
             )
 
-    def test_default_json_gpus_include_memory(self):
+    def test_default_json_accelerators_include_memory(self):
         data = _run_sys_json()
         for device in data["devices"]:
-            if device["type"] != "GPU":
+            if device["type"] not in ("NPU", "GPU"):
                 continue
             details = device["details"]
             for field in ("dedicated_memory_mib", "shared_memory_mib"):
