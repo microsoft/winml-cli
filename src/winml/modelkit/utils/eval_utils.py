@@ -448,6 +448,23 @@ _TEXT_GENERATION_SCHEMA = TaskSchema(
     ),
 )
 
+_AUTOMATIC_SPEECH_RECOGNITION_SCHEMA = TaskSchema(
+    columns=(
+        SchemaItem(
+            "input_column",
+            "audio bytes or path decoded by SoundFile",
+            default="audio",
+            remap_hint="<your_audio_column>",
+        ),
+        SchemaItem(
+            "label_column",
+            "reference transcription",
+            default="transcription",
+            remap_hint="<your_transcription_column>",
+        ),
+    ),
+)
+
 TASK_SCHEMAS: dict[str, TaskSchema] = {
     "image-classification": _IMAGE_CLASSIFICATION_SCHEMA,
     "text-classification": _TEXT_CLASSIFICATION_SCHEMA,
@@ -468,6 +485,7 @@ TASK_SCHEMAS: dict[str, TaskSchema] = {
     "keypoint-detection": _KEYPOINT_DETECTION_SCHEMA,
     "mask-generation": _MASK_GENERATION_SCHEMA,
     "text-generation": _TEXT_GENERATION_SCHEMA,
+    "automatic-speech-recognition": _AUTOMATIC_SPEECH_RECOGNITION_SCHEMA,
 }
 
 

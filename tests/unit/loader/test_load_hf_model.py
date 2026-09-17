@@ -271,6 +271,68 @@ class TestModelArchitectureOverrideFast:
             attn_implementation="eager",
         )
 
+    def test_target_language_adapter_is_loaded_before_export(self, monkeypatch):
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        import winml.modelkit.loader.resolution as resolution_module
+
+        model_class = MagicMock()
+        model_class.__name__ = "Wav2Vec2ForCTC"
+        model_class.config_class = None
+        model = MagicMock()
+        model.config = SimpleNamespace()
+        model.parameters.return_value = []
+        model_class.from_pretrained.return_value = model
+        config = SimpleNamespace(model_type="wav2vec2", architectures=["Wav2Vec2ForCTC"])
+        monkeypatch.setattr(
+            resolution_module,
+            "resolve_task",
+            lambda *_args, **_kwargs: SimpleNamespace(
+                task="automatic-speech-recognition",
+                model_class=model_class,
+            ),
+        )
+
+        loaded, loaded_config, _ = load_hf_model(
+            "facebook/mms-1b-all",
+            hf_config=config,
+            target_lang="deu",
+        )
+
+        assert loaded is model
+        model.load_adapter.assert_called_once_with("deu")
+        assert loaded.config.target_lang == "deu"
+        assert loaded_config.target_lang == "deu"
+
+    def test_target_language_rejects_model_without_adapter_support(self, monkeypatch):
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        import winml.modelkit.loader.resolution as resolution_module
+
+        model_class = MagicMock()
+        model_class.__name__ = "ModelWithoutAdapters"
+        model_class.config_class = None
+        model = SimpleNamespace(
+            config=SimpleNamespace(),
+            eval=lambda: None,
+            parameters=list,
+        )
+        model_class.from_pretrained.return_value = model
+        config = SimpleNamespace(model_type="unit", architectures=["ModelWithoutAdapters"])
+        monkeypatch.setattr(
+            resolution_module,
+            "resolve_task",
+            lambda *_args, **_kwargs: SimpleNamespace(
+                task="automatic-speech-recognition",
+                model_class=model_class,
+            ),
+        )
+
+        with pytest.raises(ValueError, match="cannot load requested language adapter"):
+            load_hf_model("org/model", hf_config=config, target_lang="deu")
+
     def test_bert_tiny_uses_model_specific_default_task(self, monkeypatch):
         """bert-tiny should use model-specific default task when task is omitted."""
         from unittest.mock import MagicMock

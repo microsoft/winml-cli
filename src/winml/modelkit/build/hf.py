@@ -422,6 +422,7 @@ def _load_model(
             hf_config=hf_config,
             model_type=model_type,
             attn_implementation=attn_implementation,
+            target_lang=config.loader.target_lang,
         )
         return pytorch_model
 
