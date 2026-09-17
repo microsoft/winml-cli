@@ -204,9 +204,7 @@ def _is_eval_target_available(ep: str | None, device: str | None) -> bool:
             raise WinMLEPNotDiscovered(f"No locally installed EP found for {target.ep}.")
         registry.auto_device(target)
     except (DeviceNotFound, WinMLEPNotDiscovered, WinMLEPRegistrationFailed) as exc:
-        safe_print(
-            f"[SKIP] {target.ep}/{target.device} is not available on this machine: {exc}"
-        )
+        safe_print(f"[SKIP] {target.ep}/{target.device} is not available on this machine: {exc}")
         return False
     return True
 
@@ -901,6 +899,7 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
         (log_dir / "stderr.log").open("w+b") as stderr_file,
         (log_dir / "events.jsonl").open("a", encoding="utf-8") as events_file,
     ):
+
         def report(event: str, message: str, **details) -> None:
             record = {
                 "timestamp": _utc_now(),
@@ -976,9 +975,8 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
                             last_download_progress = snapshot["last_progress"]
                             download_active = snapshot["active"]
                             download_state_known = True
-                        if (
-                            now - last_download_observation >= _HF_DOWNLOAD_MONITOR_TIMEOUT
-                            or (monitor is not None and monitor.poll() is not None)
+                        if now - last_download_observation >= _HF_DOWNLOAD_MONITOR_TIMEOUT or (
+                            monitor is not None and monitor.poll() is not None
                         ):
                             download_monitor_stalled = True
                             download_active = False
@@ -1022,9 +1020,12 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
                             last_output_progress = now
                             last_output_sizes = output_sizes
                         monitor_state = (
-                            "disabled" if download_monitor_stalled
-                            else "starting" if not download_state_known
-                            else "downloading" if download_active
+                            "disabled"
+                            if download_monitor_stalled
+                            else "starting"
+                            if not download_state_known
+                            else "downloading"
+                            if download_active
                             else "idle"
                         )
                         execution_remaining = max(0.0, timeout - execution_elapsed)
@@ -1053,8 +1054,10 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
                         else f"execution timeout ({timeout:g}s)"
                     )
                     report(
-                        "timeout", reason,
-                        timeout=timed_out, hf_download_stalled=hf_download_stalled,
+                        "timeout",
+                        reason,
+                        timeout=timed_out,
+                        hf_download_stalled=hf_download_stalled,
                     )
                     exit_code = -1
                     break
@@ -1452,32 +1455,32 @@ def _run_recipe_build(
 
 
 def _extract_onnx_path(build_proc: dict, hf_id: str, task: str | None) -> str | None:
-    """Extract ONNX path from build subprocess output."""
+    """Extract the final or reused ONNX path from build subprocess output."""
     # Rich may wrap a long artifact path across physical output lines. Rejoin
     # those fragments before falling back to cache discovery.
-    markers = ("Final artifact:", "Existing artifact found:", "Artifact:")
+    markers = ("Final artifact:", "Existing artifact found:")
     output = re.sub(
         r"\x1b\[[0-?]*[ -/]*[@-~]",
         "",
-        build_proc["stderr"] + build_proc["stdout"],
+        "\n".join((build_proc["stderr"], build_proc["stdout"])),
     )
     lines = output.splitlines()
-    for index, line in enumerate(lines):
-        for marker in markers:
+    for marker in markers:
+        for index, line in enumerate(lines):
             if marker not in line:
                 continue
-            fragments = [line.split(marker, 1)[1].strip()]
-            for continuation in lines[index + 1 : index + 11]:
-                candidate = "".join(fragments)
-                if candidate and Path(candidate).is_file():
-                    return candidate
-                if candidate.lower().endswith(".onnx"):
-                    break
-                fragments.append(continuation.strip())
-
-            candidate = "".join(fragments)
-            if candidate and Path(candidate).is_file():
-                return candidate
+            fragments = [line.split(marker, 1)[1], *lines[index + 1 : index + 11]]
+            candidate = ""
+            for fragment in fragments:
+                candidate += fragment.strip()
+                if not candidate.lower().endswith(".onnx"):
+                    continue
+                try:
+                    if Path(candidate).is_file():
+                        return candidate
+                except (OSError, ValueError):
+                    pass
+                break
 
     return _find_cached_model(hf_id, build_proc, task)
 
@@ -2223,11 +2226,7 @@ def _run_build_only(entries: list[ModelEntry], args: argparse.Namespace) -> None
 
 
 def _is_finite_number(value: object) -> bool:
-    return (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and math.isfinite(value)
-    )
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
 def _validate_single_perf_result(result: dict, context: str = "result") -> str | None:
@@ -2378,9 +2377,7 @@ def _single_physical_dml_gpu_luid() -> str:
         if adapter.device_type == "GPU"
     }
     if len(native_gpus) != 1:
-        raise RuntimeError(
-            f"DML CI pin requires exactly one DXCore GPU; found {list(native_gpus)}"
-        )
+        raise RuntimeError(f"DML CI pin requires exactly one DXCore GPU; found {list(native_gpus)}")
     luid, adapter = next(iter(native_gpus.items()))
     selected = WinMLEPRegistry.instance().auto_device(EPDeviceTarget(ep="dml", device="gpu"))
     advertised = {
@@ -2856,9 +2853,7 @@ def _run_update_baseline(entries: list[ModelEntry], args: argparse.Namespace) ->
         ds_config = get_dataset_config(entry.hf_id, entry.task) or {}
         cached = _lookup_baseline_cache(entry.hf_id, entry.task, ds_config)
         if cached is not None and not args.retry_failed:
-            safe_print(
-                f"{_progress_prefix(i, len(entries))} {label}  (cached {cached['metric']})"
-            )
+            safe_print(f"{_progress_prefix(i, len(entries))} {label}  (cached {cached['metric']})")
             continue
 
         safe_print(f"{_progress_prefix(i, len(entries))} {label}  running baseline ...")
@@ -3026,9 +3021,7 @@ def _matches_hf_fetch_retry(existing: dict) -> bool:
     accuracy = existing.get("accuracy") or {}
     perf_failed = bool(perf) and not perf.get("passed")
     accuracy_failed = (
-        bool(accuracy)
-        and not accuracy.get("skipped")
-        and accuracy_status(accuracy) != "PASS"
+        bool(accuracy) and not accuracy.get("skipped") and accuracy_status(accuracy) != "PASS"
     )
     if not perf_failed and not accuracy_failed:
         return False
@@ -3236,8 +3229,7 @@ def _build_jobs(
             # explicit per-model precision (e.g. fp16) skips this and is honored
             # by the single-fallback branch below via _resolve_precision.
             jobs.extend(
-                EvalJob(entry, None, fallback_precision=prec)
-                for prec in _NPU_FALLBACK_PRECISIONS
+                EvalJob(entry, None, fallback_precision=prec) for prec in _NPU_FALLBACK_PRECISIONS
             )
         else:
             jobs.append(EvalJob(entry, None))
@@ -3381,10 +3373,7 @@ def parse_args() -> argparse.Namespace:
         choices=["P0", "P1", "P2", "P3"],
         default=["P0", "P1", "P2", "P3"],
         metavar="{P0,P1,P2,P3}",
-        help=(
-            "Filter by priority. Pass one or more, e.g. --priority P0 P1. "
-            "Default: P0 P1 P2 P3."
-        ),
+        help=("Filter by priority. Pass one or more, e.g. --priority P0 P1. Default: P0 P1 P2 P3."),
     )
     parser.add_argument(
         "--release",
@@ -3639,10 +3628,9 @@ def main() -> None:
     clean_cache_targets = _resolve_clean_cache_targets(args.clean_cache)
     args.clean_cache_targets = clean_cache_targets
 
-    if (
-        not (args.list or args.list_json or args.update_baseline or args.build_only)
-        and not _is_eval_target_available(args.ep, args.device)
-    ):
+    if not (
+        args.list or args.list_json or args.update_baseline or args.build_only
+    ) and not _is_eval_target_available(args.ep, args.device):
         return
 
     # 1. Load registry
@@ -3922,9 +3910,7 @@ def main() -> None:
         )
         if timeout_rule is not None:
             reason = timeout_rule.get("reason") or "timeout"
-            safe_print(
-                f"\n{_progress_prefix(i, total_jobs)} {label}  (SKIP - TIMEOUT: {reason})"
-            )
+            safe_print(f"\n{_progress_prefix(i, total_jobs)} {label}  (SKIP - TIMEOUT: {reason})")
             model_dir.mkdir(parents=True, exist_ok=True)
             timeout_result = build_eval_result(
                 entry=entry,
@@ -3982,16 +3968,14 @@ def main() -> None:
                         else "?"
                     )
                     safe_print(
-                        f"\n{_progress_prefix(i, total_jobs)} {label}  "
-                        f"(RETRY - was {retry_label})"
+                        f"\n{_progress_prefix(i, total_jobs)} {label}  (RETRY - was {retry_label})"
                     )
             except (json.JSONDecodeError, KeyError):
                 pass  # Corrupted result file — re-run
 
         if backfill_existing is None:
             safe_print(
-                f"\n{_progress_prefix(i, total_jobs)} {label}  "
-                f"({entry.priority}, {entry.group})"
+                f"\n{_progress_prefix(i, total_jobs)} {label}  ({entry.priority}, {entry.group})"
             )
 
         try:

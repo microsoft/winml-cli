@@ -80,6 +80,7 @@ def _deterministic_ep_deduction(run_eval):
     deduction patch it themselves.
     """
     run_eval._deduce_ep_for_device.cache_clear()
+
     def resolve_target(ep, device):
         from winml.modelkit.session import default_device_for_ep, expand_ep_name
 
@@ -204,8 +205,13 @@ class TestEvalTargetAvailability:
     def test_main_skips_before_loading_models_or_creating_output(self, run_eval, tmp_path, release):
         output_dir = tmp_path / "results"
         argv = [
-            "run_eval.py", "--ep", "openvino", "--device", "npu",
-            "--output-dir", str(output_dir),
+            "run_eval.py",
+            "--ep",
+            "openvino",
+            "--device",
+            "npu",
+            "--output-dir",
+            str(output_dir),
         ]
         if release:
             argv.append("--release")
@@ -278,8 +284,7 @@ class TestFailureClassifier:
     )
     def test_hf_streaming_failures_are_retryable(self, classifier, output):
         assert (
-            classifier.classify_failure(output, exit_code=1)
-            is classifier.FailureType.HF_FETCH_FAIL
+            classifier.classify_failure(output, exit_code=1) is classifier.FailureType.HF_FETCH_FAIL
         )
 
     @pytest.mark.parametrize(
@@ -311,9 +316,7 @@ class TestFailureClassifier:
             "[WinError 10061] connection refused",
         ],
     )
-    def test_other_hf_failure_patterns_are_not_explicit_retry_markers(
-        self, classifier, output
-    ):
+    def test_other_hf_failure_patterns_are_not_explicit_retry_markers(self, classifier, output):
         assert classifier.matches_hf_fetch_retry(output) is False
 
 
@@ -696,7 +699,8 @@ class TestRunSubprocessTimeouts:
 
         with (
             patch.object(
-                run_eval, "_process_tree_open_paths",
+                run_eval,
+                "_process_tree_open_paths",
                 return_value={run_eval._normalized_path(incomplete)},
             ),
             patch.object(run_eval, "_snapshot_hf_downloads", return_value={incomplete: (1, 1)}),
@@ -815,8 +819,7 @@ class TestRunSubprocessTimeouts:
     def test_thread_start_cannot_block_subprocess_timeout(self, run_eval, tmp_path):
         original_start = threading.Thread.start
         script = (
-            "import sys, time; sys.stderr.write('x' * 262144); "
-            "sys.stderr.flush(); time.sleep(5)"
+            "import sys, time; sys.stderr.write('x' * 262144); sys.stderr.flush(); time.sleep(5)"
         )
 
         def delayed_start(thread):
@@ -882,12 +885,7 @@ class TestRunSubprocessTimeouts:
 
 
 def test_curated_target_models_preserve_existing_priorities(run_eval):
-    testsets_dir = (
-        Path(__file__).resolve().parents[3]
-        / "scripts"
-        / "e2e_eval"
-        / "testsets"
-    )
+    testsets_dir = Path(__file__).resolve().parents[3] / "scripts" / "e2e_eval" / "testsets"
     curated = json.loads((testsets_dir / "models_curated.json").read_text(encoding="utf-8"))
     target_entries = curated[-43:]
     target_keys = {(entry["hf_id"], entry["task"]) for entry in target_entries}
@@ -907,9 +905,7 @@ def test_curated_target_models_preserve_existing_priorities(run_eval):
     assert len(generated) == 43
     assert {entry["group"] for entry in target_entries} == {"Top200"}
     assert {
-        (entry["hf_id"], entry["task"])
-        for entry in target_entries
-        if entry["priority"] == "P2"
+        (entry["hf_id"], entry["task"]) for entry in target_entries if entry["priority"] == "P2"
     } == expected_p2
     assert sum(entry["priority"] == "P3" for entry in target_entries) == 37
     assert {
@@ -1225,20 +1221,62 @@ class TestCompositeOnnxRegistry:
 
 
 class TestExtractOnnxPath:
-    def test_rejoins_rich_wrapped_artifact_path(self, run_eval, tmp_path):
+    @pytest.mark.parametrize("width", [80, 240])
+    @pytest.mark.parametrize("with_final", [True, False])
+    def test_ignores_stage_artifacts(self, run_eval, tmp_path, monkeypatch, width, with_final):
+        from rich.console import Console
+
+        from winml.modelkit.utils.console import StageLive, print_final
+
+        export = tmp_path / "model_export.onnx"
+        artifact = tmp_path / "model_model.onnx"
+        export.touch()
+        artifact.touch()
+        console = Console(width=width, force_terminal=False, color_system=None)
+        with console.capture() as capture:
+            with StageLive("export", console) as stage:
+                stage.artifact(str(export), export.stat().st_size)
+                stage.set_done(0.1)
+            console.print("WARNING Model producer not matched: Expected pytorch")
+            with StageLive("optimize", console) as stage:
+                stage.artifact(str(artifact), artifact.stat().st_size)
+                stage.set_done(0.1)
+            if with_final:
+                print_final(console, 0.2, str(artifact))
+
+        original_is_file = run_eval.Path.is_file
+
+        def check_file(path):
+            if "WARNING" in str(path):
+                raise OSError(
+                    22,
+                    "No mapping for the Unicode character exists "
+                    "in the target multi-byte code page",
+                    str(path),
+                    1113,
+                )
+            return original_is_file(path)
+
+        monkeypatch.setattr(run_eval.Path, "is_file", check_file)
+
+        assert run_eval._extract_onnx_path(
+            {"stderr": capture.get(), "stdout": ""}, "test/model", None
+        ) == (str(artifact) if with_final else None)
+
+    @pytest.mark.parametrize("marker", ["Final artifact:", "Existing artifact found:"])
+    @pytest.mark.parametrize("stream", ["stderr", "stdout"])
+    def test_rejoins_rich_wrapped_artifact_path(self, run_eval, tmp_path, marker, stream):
         artifact = tmp_path / "model-with-a-long-name_model.onnx"
         artifact.touch()
         path = str(artifact)
         split_at = len(path) - 12
-        build_proc = {
-            "stderr": (
-                "Existing artifact found:\n"
-                f"{path[:split_at]}\n"
-                f"{path[split_at:]}\n"
-                "Use --rebuild to force rebuild.\n"
-            ),
-            "stdout": "",
-        }
+        build_proc = {"stderr": "", "stdout": ""}
+        build_proc[stream] = (
+            f"\x1b[36m{marker}\x1b[0m\n"
+            f"\x1b[1m{path[:split_at]}\n"
+            f"{path[split_at:]}\x1b[0m\n"
+            "Use --rebuild to force rebuild.\n"
+        )
 
         assert (
             run_eval._extract_onnx_path(
@@ -1249,9 +1287,45 @@ class TestExtractOnnxPath:
             == path
         )
 
-    def test_cache_fallback_rejects_multiple_task_candidates(
-        self, run_eval, tmp_path, monkeypatch
+    @pytest.mark.parametrize("cached_first", [True, False])
+    def test_prefers_final_artifact_and_separates_output_streams(
+        self, run_eval, tmp_path, cached_first
     ):
+        cached = tmp_path / "cached_model.onnx"
+        artifact = tmp_path / "final_model.onnx"
+        cached.touch()
+        artifact.touch()
+        stderr = f"Existing artifact found: {cached}\n" if cached_first else ""
+        stderr += f"Final artifact: {artifact}"
+
+        assert run_eval._extract_onnx_path(
+            {"stderr": stderr, "stdout": "Build completed successfully.\n"},
+            "test/model",
+            None,
+        ) == str(artifact)
+
+    @pytest.mark.parametrize("error_type", [OSError, ValueError])
+    @pytest.mark.parametrize("cache_exists", [True, False])
+    def test_invalid_artifact_path_uses_cache_fallback(
+        self, run_eval, tmp_path, monkeypatch, error_type, cache_exists
+    ):
+        cache_dir = tmp_path / ".cache" / "winml" / "artifacts" / "test_model"
+        cached = cache_dir / "imgcls_valid_model.onnx"
+        if cache_exists:
+            cache_dir.mkdir(parents=True)
+            cached.touch()
+        monkeypatch.setattr(run_eval.Path, "home", lambda: tmp_path)
+        build_proc = {
+            "stderr": f"Final artifact: {tmp_path / 'invalid.onnx'}\n",
+            "stdout": "",
+        }
+
+        with patch.object(run_eval.Path, "is_file", side_effect=error_type("invalid path")):
+            result = run_eval._extract_onnx_path(build_proc, "test/model", "image-classification")
+
+        assert result == (str(cached) if cache_exists else None)
+
+    def test_cache_fallback_rejects_multiple_task_candidates(self, run_eval, tmp_path, monkeypatch):
         cache_dir = tmp_path / ".cache" / "winml" / "artifacts" / "microsoft_beit"
         cache_dir.mkdir(parents=True)
         (cache_dir / "imgcls_fp32_model.onnx").touch()
@@ -1466,9 +1540,7 @@ class TestPrecisionFromBuildConfig:
         # verbatim rather than inferred as fp32 (the graph's own dtype is not
         # something the config states).
         assert run_eval._precision_from_build_config(self._write(tmp_path, {})) is None
-        assert (
-            run_eval._precision_from_build_config(self._write(tmp_path, {"quant": None})) is None
-        )
+        assert run_eval._precision_from_build_config(self._write(tmp_path, {"quant": None})) is None
 
     @pytest.mark.parametrize(
         ("weight_type", "activation_type", "expected"),
@@ -2229,9 +2301,7 @@ class TestRunModelStructuredPerfResult:
         assert proc["result"] is None
         assert "Invalid structured winml perf output" in proc["stderr"]
 
-    def test_perf_result_with_embedded_op_trace_is_copied_before_cleanup(
-        self, run_eval, tmp_path
-    ):
+    def test_perf_result_with_embedded_op_trace_is_copied_before_cleanup(self, run_eval, tmp_path):
         trace_result = {"status": "ok", "operators": []}
         perf_result = {
             **_perf_result(),
@@ -2456,9 +2526,7 @@ class TestBuildJobs:
     def test_non_npu_recipe_only_quantized_falls_back(self, run_eval, tmp_path):
         # A recipe with no non-quantized variant leaves nothing to run off-NPU,
         # so the model builds a single winml-config fallback.
-        self._make_single_recipe(
-            tmp_path, "microsoft_resnet-50", "image-classification", ["w8a16"]
-        )
+        self._make_single_recipe(tmp_path, "microsoft_resnet-50", "image-classification", ["w8a16"])
         entry = _entry()
         jobs = run_eval._build_jobs([entry], tmp_path, "cpu")
         assert len(jobs) == 1
@@ -2508,9 +2576,7 @@ class TestBuildJobs:
     def test_npu_skip_quant_ep_recipe_only_quantized_falls_back(self, run_eval, tmp_path):
         # Dropping every quantized variant leaves nothing to build, so the model
         # goes through the single unquantized winml-config fallback.
-        self._make_single_recipe(
-            tmp_path, "microsoft_resnet-50", "image-classification", ["w8a16"]
-        )
+        self._make_single_recipe(tmp_path, "microsoft_resnet-50", "image-classification", ["w8a16"])
         entry = _entry()
         jobs = run_eval._build_jobs([entry], tmp_path, "npu", ep="vitisai")
         assert len(jobs) == 1
@@ -3297,7 +3363,8 @@ def test_checked_in_recipe_filenames_match_quant_config(run_eval):
     for config_path in config_paths:
         config = json.loads(config_path.read_text(encoding="utf-8"))
         expected = (
-            "fp32" if config["quant"] is None
+            "fp32"
+            if config["quant"] is None
             else run_eval._precision_from_build_config(config_path)
         )
         assert expected is not None, f"Unknown quant configuration: {config_path}"
@@ -3316,8 +3383,11 @@ def test_release_keeps_renamed_recipe_configuration(run_eval, tmp_path):
     )
     entry = next(entry for entry in entries if entry.hf_id == "microsoft/resnet-50")
     jobs = run_eval._build_jobs(
-        [entry], testsets.parents[2] / "examples" / "recipes",
-        "gpu", ep="openvino", release=True,
+        [entry],
+        testsets.parents[2] / "examples" / "recipes",
+        "gpu",
+        ep="openvino",
+        release=True,
     )
     (job,) = jobs
     assert job.precision == "fp32"
@@ -3330,7 +3400,8 @@ def test_release_keeps_renamed_recipe_configuration(run_eval, tmp_path):
     args = argparse.Namespace(ep="openvino", device="gpu", timeout=300)
     with (
         patch.object(
-            run_eval, "_run_subprocess",
+            run_eval,
+            "_run_subprocess",
             return_value={"exit_code": 0, "stdout": "", "stderr": ""},
         ) as subprocess_call,
         patch.object(run_eval, "_extract_onnx_path", return_value=str(tmp_path / "model.onnx")),
