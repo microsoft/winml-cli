@@ -12,6 +12,7 @@ loop wiring with a mocked image processor and model.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -65,6 +66,158 @@ class TestBoxFormat:
             "test/model",
             trust_remote_code=True,
         )
+
+    @pytest.mark.parametrize(
+        ("model_type", "architectures"),
+        [
+            ("vitpose", []),
+            ("custom", ["ViTPoseForPoseEstimation"]),
+        ],
+    )
+    def test_vitpose_alias_mismatch_uses_gated_fallback(self, model_type, architectures):
+        ev = _make_evaluator()
+        ev.config = WinMLEvaluationConfig(
+            model_id="nielsr/vitpose-base-simple",
+            task="keypoint-detection",
+            trust_remote_code=True,
+        )
+        ev.model = MagicMock(
+            io_config={},
+            config=SimpleNamespace(
+                model_type=model_type,
+                architectures=architectures,
+            ),
+        )
+        fallback_processor = MagicMock()
+
+        with (
+            patch(
+                "transformers.AutoImageProcessor.from_pretrained",
+                side_effect=ValueError(
+                    "Unrecognized image processor in nielsr/vitpose-base-simple"
+                ),
+            ) as load_auto,
+            patch(
+                "transformers.VitPoseImageProcessor.from_pretrained",
+                return_value=fallback_processor,
+            ) as load_vitpose,
+        ):
+            assert ev.prepare_pipeline() is fallback_processor
+
+        load_auto.assert_called_once_with(
+            "nielsr/vitpose-base-simple",
+            trust_remote_code=True,
+        )
+        load_vitpose.assert_called_once_with(
+            "nielsr/vitpose-base-simple",
+            trust_remote_code=True,
+        )
+
+    def test_known_error_for_non_vitpose_model_is_not_swallowed(self):
+        ev = _make_evaluator()
+        ev.config = WinMLEvaluationConfig(
+            model_id="microsoft/resnet-50",
+            task="keypoint-detection",
+            trust_remote_code=False,
+        )
+        ev.model = MagicMock(
+            io_config={},
+            config=SimpleNamespace(
+                model_type="resnet", architectures=["ResNetForImageClassification"]
+            ),
+        )
+
+        with (
+            patch(
+                "transformers.AutoImageProcessor.from_pretrained",
+                side_effect=ValueError("Unrecognized image processor for resnet"),
+            ) as load_auto,
+            patch("transformers.VitPoseImageProcessor.from_pretrained") as load_vitpose,
+            pytest.raises(ValueError, match="Unrecognized image processor"),
+        ):
+            ev.prepare_pipeline()
+
+        load_auto.assert_called_once_with(
+            "microsoft/resnet-50",
+            trust_remote_code=False,
+        )
+        load_vitpose.assert_not_called()
+
+    def test_non_vitpose_success_keeps_strict_auto_path(self):
+        ev = _make_evaluator()
+        ev.config = WinMLEvaluationConfig(
+            model_id="microsoft/resnet-50",
+            task="keypoint-detection",
+            trust_remote_code=False,
+        )
+        ev.model = MagicMock(
+            io_config={},
+            config=SimpleNamespace(
+                model_type="resnet", architectures=["ResNetForImageClassification"]
+            ),
+        )
+        processor = MagicMock()
+
+        with (
+            patch(
+                "transformers.AutoImageProcessor.from_pretrained",
+                return_value=processor,
+            ) as load_auto,
+            patch("transformers.VitPoseImageProcessor.from_pretrained") as load_vitpose,
+        ):
+            assert ev.prepare_pipeline() is processor
+
+        load_auto.assert_called_once_with(
+            "microsoft/resnet-50",
+            trust_remote_code=False,
+        )
+        load_vitpose.assert_not_called()
+
+    def test_unrelated_value_error_is_not_swallowed(self):
+        ev = _make_evaluator()
+        ev.config = WinMLEvaluationConfig(
+            model_id="nielsr/vitpose-base-simple",
+            task="keypoint-detection",
+            trust_remote_code=False,
+        )
+        ev.model = MagicMock(
+            io_config={},
+            config=SimpleNamespace(
+                model_type="vitpose",
+                architectures=["ViTPoseForPoseEstimation"],
+            ),
+        )
+
+        with (
+            patch(
+                "transformers.AutoImageProcessor.from_pretrained",
+                side_effect=ValueError("network timeout while loading processor"),
+            ) as load_auto,
+            patch("transformers.VitPoseImageProcessor.from_pretrained") as load_vitpose,
+            pytest.raises(ValueError, match="network timeout"),
+        ):
+            ev.prepare_pipeline()
+
+        load_auto.assert_called_once_with(
+            "nielsr/vitpose-base-simple",
+            trust_remote_code=False,
+        )
+        load_vitpose.assert_not_called()
+
+    def test_missing_model_id_raises_before_processor_load(self):
+        ev = _make_evaluator()
+        ev.config = WinMLEvaluationConfig(task="keypoint-detection")
+        ev.model = MagicMock(io_config={})
+
+        with (
+            patch("transformers.AutoImageProcessor.from_pretrained") as load_auto,
+            patch("transformers.VitPoseImageProcessor.from_pretrained") as load_vitpose,
+            pytest.raises(ValueError, match="model_id is required"),
+        ):
+            ev.prepare_pipeline()
+
+        load_auto.assert_not_called()
+        load_vitpose.assert_not_called()
 
 
 class TestPredictionFlattening:
