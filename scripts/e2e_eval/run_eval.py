@@ -1478,8 +1478,8 @@ def _extract_onnx_path(build_proc: dict, hf_id: str, task: str | None) -> str | 
                 try:
                     if Path(candidate).is_file():
                         return candidate
-                except (OSError, ValueError):
-                    pass
+                except (OSError, ValueError) as exc:
+                    logging.debug("Skipping invalid ONNX candidate path %r: %s", candidate, exc)
                 break
 
     return _find_cached_model(hf_id, build_proc, task)
