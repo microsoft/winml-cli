@@ -56,6 +56,7 @@ if TYPE_CHECKING:
     from .monitor.qnn_monitor import QNNMonitor
     from .monitor.vitisai_monitor import VitisAIMonitor
     from .qairt.qairt_session import WinMLQairtSession
+    from .runtime_session import WinMLRuntimeSession
     from .session import InferenceError, PerfContext, SessionState, WinMLSession
     from .stats import PerfStats
 
@@ -111,6 +112,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "NvTensorRTRTXMonitor": (".monitor", "NvTensorRTRTXMonitor"),
     "VitisAIMonitor": (".monitor.vitisai_monitor", "VitisAIMonitor"),
     "WinMLQairtSession": (".qairt.qairt_session", "WinMLQairtSession"),
+    "WinMLRuntimeSession": (".runtime_session", "WinMLRuntimeSession"),
     "InferenceError": (".session", "InferenceError"),
     "PerfContext": (".session", "PerfContext"),
     "SessionState": (".session", "SessionState"),
@@ -160,6 +162,7 @@ __all__ = [
     "WinMLEPRegistrationFailed",
     "WinMLEPRegistry",
     "WinMLQairtSession",
+    "WinMLRuntimeSession",
     "WinMLSession",
     "auto_detect_device",
     "available_eps_for_device",

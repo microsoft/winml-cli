@@ -56,6 +56,7 @@ logger = logging.getLogger(__name__)
 # We exclude default=True items (ConstantFolding, IdentityElimination, etc.)
 # because ORT already enables those at Level 2 - no need to configure them.
 GRAPH_CAPABILITIES: dict[str, Any] = caps_dict(
+    graph_caps.ORT_GRAPH_OPTIMIZATION,
     # GELU fusions (all default=False)
     gelu.GELU_FUSION,
     gelu.FAST_GELU_FUSION,
@@ -345,6 +346,8 @@ class ORTGraphPipe(BasePipe[ORTGraphPipeConfig]):
         explicitly_disabled: list[str] = []
 
         for cap in cls.capabilities.values():
+            if cap is graph_caps.ORT_GRAPH_OPTIMIZATION:
+                continue
             if isinstance(cap, BoolCapability):
                 user_value = kwargs.get(cap.python_name)
                 if user_value is True:
@@ -362,6 +365,7 @@ class ORTGraphPipe(BasePipe[ORTGraphPipeConfig]):
                 cap.python_name
                 for cap in cls.capabilities.values()
                 if isinstance(cap, BoolCapability)
+                and cap is not graph_caps.ORT_GRAPH_OPTIMIZATION
                 and cap.default
                 and cap.python_name not in explicitly_disabled
             ]
@@ -371,6 +375,8 @@ class ORTGraphPipe(BasePipe[ORTGraphPipeConfig]):
             verbose=verbose,
             ep_device=kwargs.get("ep_device"),
         )
+        if kwargs.get("ort_graph_optimization") is False:
+            config.optimization_level = 0
 
         # Explicitly disable capabilities that user set to False
         # This handles default=True caps like constant_folding

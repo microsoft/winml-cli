@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 # InputTensorSpec and OutputTensorSpec live in modelkit.onnx.io (canonical home).
 from ..onnx import InputTensorSpec, OutputTensorSpec
+from ..utils.constants import EXPORT_TARGETS, ExportTarget
 from .policy import ExportCompatibilityConfig
 
 
@@ -195,6 +196,9 @@ class WinMLExportConfig:
     input_names_: InitVar[list[str] | None] = None
     output_names_: InitVar[list[str] | None] = None
 
+    target: ExportTarget = "onnx"
+    options: dict[str, Any] = field(default_factory=dict)
+
     def __post_init__(
         self,
         input_shape_: tuple[int, ...] | None,
@@ -202,6 +206,12 @@ class WinMLExportConfig:
         output_names_: list[str] | None,
     ) -> None:
         """Validate configuration after initialization."""
+        if self.target not in EXPORT_TARGETS:
+            raise ValueError(
+                f"Invalid export target {self.target!r}. Must be one of {EXPORT_TARGETS}"
+            )
+        if not isinstance(self.options, dict):
+            raise TypeError("Export options must be a JSON object")
         # Handle legacy parameters - convert to input_tensors/output_tensors if needed
         if input_shape_ is not None and self.input_tensors is None:
             # Convert legacy input_shape to input_tensors
@@ -375,6 +385,11 @@ class WinMLExportConfig:
         if self.compatibility:
             result["compatibility"] = self.compatibility.to_dict()
 
+        if self.target != "onnx":
+            result["target"] = self.target
+        if self.options:
+            result["options"] = dict(self.options)
+
         return result
 
     @classmethod
@@ -387,6 +402,9 @@ class WinMLExportConfig:
         Returns:
             WinMLExportConfig instance.
         """
+        if not isinstance(data, dict):
+            raise TypeError("Export configuration must be a JSON object")
+
         # Parse input_tensors if present
         input_tensors = None
         raw_inputs = data.get("input_tensors")
@@ -406,6 +424,8 @@ class WinMLExportConfig:
             ]
 
         return cls(
+            target=data.get("target", "onnx"),
+            options=data.get("options", {}),
             opset_version=data.get("opset_version", 17),
             batch_size=data.get("batch_size", 1),
             input_tensors=input_tensors,

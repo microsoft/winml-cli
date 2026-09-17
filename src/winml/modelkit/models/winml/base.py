@@ -31,6 +31,9 @@ if TYPE_CHECKING:
     import contextlib
     from collections.abc import Callable
 
+    from ...utils.constants import RuntimeBackend, RuntimeName
+
+from ...session.runtime_session import WinMLRuntimeSession
 from ...session.session import WinMLSession
 
 
@@ -40,6 +43,11 @@ if TYPE_CHECKING:
     from ...session import WinMLEPDevice
 
 logger = logging.getLogger(__name__)
+
+SESSION_CLASSES = {
+    "winml-ort": WinMLSession,
+    "winml-runtime": WinMLRuntimeSession,
+}
 
 
 class PreTrainedModel:
@@ -65,10 +73,12 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
     def __init__(
         self,
         onnx_path: str | Path,
-        ep_device: WinMLEPDevice,
+        ep_device: WinMLEPDevice | None,
         config: PretrainedConfig | None = None,
         provider_options: dict[str, str] | None = None,
         session_options: Callable[[], Any] | None = None,
+        runtime: RuntimeName = "winml-ort",
+        backend: RuntimeBackend | None = None,
     ) -> None:
         """Initialize inference model.
 
@@ -85,12 +95,12 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         # Set by WinMLAutoModel.from_pretrained() after construction
         self._build_config: Any = None
 
-        # Create WinMLSession (delegates ORT operations)
-        self._session = WinMLSession(
-            onnx_path=self._onnx_path,
+        self._session = SESSION_CLASSES[runtime](
+            self._onnx_path,
             ep_device=ep_device,
             provider_options=provider_options,
             session_options=session_options,
+            **({"backend": backend} if runtime == "winml-runtime" else {}),
         )
 
     @property

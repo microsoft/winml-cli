@@ -521,6 +521,9 @@ class PyPISource(EPSource):
 
         path = Path(str(dist.locate_file(rel)))
         if not path.exists():
+            # Temporary workaround: remove after WinMLCG EP is released.
+            if path.name == "WinMLCGEp.dll":
+                return
             logger.warning(
                 "PyPISource: distribution %r installed but DLL missing at %s",
                 self.distribution,
@@ -1575,6 +1578,11 @@ def _default_ep_sources() -> list[EPSource]:
     """
     return [
         # 1. Manually installed PyPI plugin wheels — BYO sources.
+        PyPISource(
+            distribution="windowsml",
+            relative_dll="windowsml/lib/WinMLCGEp.dll",
+            eps=("WinMLCGExecutionProvider",),
+        ),
         PyPISource(
             distribution="onnxruntime-ep-openvino",
             relative_dll=("onnxruntime_ep_openvino/onnxruntime_providers_openvino_plugin.dll"),

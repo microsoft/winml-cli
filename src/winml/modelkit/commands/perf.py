@@ -35,9 +35,13 @@ from ..utils import cli as cli_utils
 from ..utils.console import SafeConsole
 from ..utils.constants import (
     ACCELERATOR_DEVICE_TYPES,
+    RUNTIME_BACKENDS,
     RUNTIME_NAMES,
     EPName,
     EPNameOrAlias,
+    RuntimeBackend,
+    RuntimeName,
+    resolve_runtime_api_backend,
 )
 from ..utils.logging import (
     configure_logging,
@@ -62,7 +66,6 @@ if TYPE_CHECKING:
     from ..session.monitor.ep_monitor import WinMLEPMonitor
     from ..session.monitor.op_metrics import TraceFallbackReason
     from ..session.stats import PerfStats
-    from ..utils.constants import RuntimeName
 
 logger = logging.getLogger(__name__)
 
@@ -77,13 +80,15 @@ _RUNTIME_TYPE: RuntimeName = "winml-ort"
 
 
 def _resolve_runtime(runtime: RuntimeName, model: str) -> RuntimeName:
-    """Resolve ``auto`` from a local model folder, preserving explicit choices."""
+    """Resolve ``auto`` from the model artifact, preserving explicit choices."""
     if runtime != "auto":
         return runtime
 
     model_path = Path(model)
     if model_path.is_dir() and (model_path / "genai_config.json").is_file():
         return "ort-genai"
+    if model_path.suffix.lower() == ".mlir":
+        return "winml-runtime"
     return "winml-ort"
 
 
@@ -558,6 +563,8 @@ class BenchmarkConfig:
     """Configuration for benchmark execution."""
 
     model_id: str
+    runtime: RuntimeName = "winml-ort"
+    backend: RuntimeBackend | None = None
     task: str | None = None
     submodel: str | None = None
     device: str = "auto"
@@ -660,7 +667,10 @@ class BenchmarkResult:
         result: dict[str, Any] = {
             "schema_version": 2,
             "benchmark_info": {
-                "runtime": _RUNTIME_TYPE,
+                "runtime": self.config.runtime,
+                "backend": resolve_runtime_api_backend(
+                    self.config.runtime, self.config.model_id, self.config.backend
+                ),
                 "model_id": self.config.model_id,
                 "running_model_path": self.running_model_path,
                 "task": self.actual_task,
@@ -949,6 +959,9 @@ class PerfBenchmark:
         self._effective_batch: int = config.batch_size
         self._memory: dict[str, float | None] | None = None
         self._memory_tracker: MemoryTracker | None = None
+        self._runtime_backend = resolve_runtime_api_backend(
+            config.runtime, config.model_id, config.backend
+        )
         # Concrete device + EP resolved from the config's request, populated by
         # _resolve_device_ep() on the first call (before the build). The config
         # keeps the raw request (e.g. "auto"); these hold what actually drives
@@ -966,6 +979,11 @@ class PerfBenchmark:
         build's static analyzer target one EP instead of aggregating across all
         of them (WinMLAutoModel itself stays permissive: ep=None is a valid
         library mode).
+
+        For ``winml-runtime``, the Runtime native payload is loaded before
+        ``auto_device()`` can register an EP DLL. This pins the Runtime's matched
+        native dependencies and makes the load-order requirement part of target
+        resolution instead of relying on every caller to remember it.
 
         Raises:
             ValueError: If the requested device/EP combination is unavailable
@@ -985,7 +1003,8 @@ class PerfBenchmark:
                     ep=self.config.ep or "auto",
                     device=self.config.device or "auto",
                     source=self.config.ep_source,
-                )
+                ),
+                backend=self._runtime_backend,
             )
             self._ep_device = _resolve_perf_ep_device(
                 target, self.config.device_luid, self.config.ep_options
@@ -1177,7 +1196,11 @@ class PerfBenchmark:
         }
         assert self._ep_device is not None
         pre_bench_kwargs = _pre_bench_kwargs_from_ep_device(self._ep_device, **pre_bench_common)
-        print_pre_bench_block(SafeConsole(stderr=True), **pre_bench_kwargs)
+        print_pre_bench_block(
+            SafeConsole(stderr=True),
+            runtime_api_backend=self._runtime_backend,
+            **pre_bench_kwargs,
+        )
 
         # [3] Run benchmark
         if self.config.duration is not None:
@@ -1216,19 +1239,19 @@ class PerfBenchmark:
 
         # Resolve the concrete device + EP first so a bad combo fails fast,
         # before from_pretrained/from_onnx kick off the build pipeline.
-        # This also binds ``self._ep_device`` via auto_device (loads the DLL).
         self._resolve_device_ep()
         assert self._ep_device is not None
 
         model_id = self.config.model_id
         model_path = Path(model_id)
         is_onnx = model_path.suffix.lower() == ".onnx"
-        if is_onnx and not model_path.exists():
+        is_mlir = model_path.suffix.lower() == ".mlir"
+        if (is_onnx or is_mlir) and not model_path.exists():
             # Surface a clear error for programmatic callers. The CLI guards
             # this earlier, but without this check from_pretrained would fall
             # through to HF loading and produce a confusing "not a valid JSON
             # file" error from AutoConfig.
-            raise FileNotFoundError(f"ONNX file not found: {model_path}")
+            raise FileNotFoundError(f"Model file not found: {model_path}")
 
         # Composite auto-detection. A bare seq2seq model such as T5 auto-detects
         # to a granular single-model task (text2text-generation) and would
@@ -1245,7 +1268,7 @@ class PerfBenchmark:
         # bridges detection to that loadable pipeline task. Explicit --task and
         # ONNX inputs keep their resolved task untouched.
         resolved_task = self.config.task
-        if not is_onnx and resolved_task is None:
+        if not is_onnx and not is_mlir and resolved_task is None:
             from ..loader.resolution import resolve_composite_load_task
 
             try:
@@ -1286,6 +1309,8 @@ class PerfBenchmark:
             "shape_config": self.config.shape_config,
             "allow_unsupported_nodes": self.config.allow_unsupported_nodes,
             "no_compile": self.config.no_compile,
+            "runtime": self.config.runtime,
+            "backend": self._runtime_backend,
             # optimize/analyze/max-optim toggles, forwarded by WinMLAutoModel to
             # build_hf_model / build_onnx_model. Shared mapping with build/eval.
             **cli_utils.build_pipeline_extra_kwargs(
@@ -1302,6 +1327,15 @@ class PerfBenchmark:
                     skip_build=self.config.skip_build,
                     compile_provider_options=self.config.compile_ep_options,
                     **common_kwargs,
+                )
+        elif is_mlir:
+            with suppress_native_warnings(enabled=True):
+                self._model = WinMLAutoModel.from_mlir(
+                    mlir_path=model_path,
+                    ep_device=self._ep_device,
+                    task=resolved_task,
+                    runtime=self.config.runtime,
+                    backend="cgc",
                 )
         else:
             with suppress_native_warnings(enabled=True):
@@ -2186,7 +2220,11 @@ def generate_output_path(
     under its own directory so per-sub-model reports don't collide.
     """
     p = Path(model_id)
-    slug = p.stem if p.suffix.lower() == ".onnx" else model_id.replace("/", "_").replace("\\", "_")
+    slug = (
+        p.stem
+        if p.suffix.lower() in {".onnx", ".mlir"}
+        else model_id.replace("/", "_").replace("\\", "_")
+    )
 
     out_dir = Path.home() / ".cache" / "winml" / "perf" / slug
     if module_class:
@@ -2746,9 +2784,18 @@ def _validate_duration(
     default="auto",
     show_default=True,
     help="'auto' selects ort-genai for folders containing genai_config.json, "
-    "otherwise winml-ort. 'winml-ort' benchmarks single-shot ONNX inference; "
+    "winml-runtime for .mlir files, otherwise winml-ort. "
+    "'winml-ort' benchmarks single-shot ONNX inference; "
     "'ort-genai' benchmarks an onnxruntime-genai bundle folder "
-    "(LLM generation: TTFT + decode tokens/sec).",
+    "(LLM generation: TTFT + decode tokens/sec); 'winml-runtime' performs "
+    "online conversion for ONNX/PyTorch inputs or loads CGC MLIR directly.",
+)
+@click.option(
+    "--backend",
+    type=click.Choice(list(RUNTIME_BACKENDS)),
+    default=None,
+    help="[winml-runtime] Execution backend for ONNX inputs (default: cgc). "
+    "MLIR inputs always use cgc.",
 )
 @click.option(
     "--prompt",
@@ -2958,6 +3005,7 @@ def perf(
     ctx: click.Context,
     model: str | None,
     runtime: RuntimeName,
+    backend: RuntimeBackend | None,
     prompt: str,
     prompt_file: Path | None,
     apply_template: bool,
@@ -3068,6 +3116,10 @@ def perf(
         raise click.ClickException(f"Failed to resolve Hub-hosted ONNX path {model!r}: {e}") from e
     model = hf_model
     runtime = _resolve_runtime(runtime, model)
+    try:
+        effective_backend = resolve_runtime_api_backend(runtime, model, backend)
+    except ValueError as error:
+        raise click.UsageError(str(error)) from error
     # AC 11 (mockup spec): --top-k requires --op-tracing. Outside the
     # op-tracing section the flag is meaningless, so reject it explicitly
     # rather than silently ignoring a user's intent.
@@ -3107,6 +3159,10 @@ def perf(
                 ep = (configured_target.ep, configured_target.source)
             elif "execution_provider" in cc:
                 ep = (cc["execution_provider"], None)
+
+    if runtime == "winml-runtime" and ep_provider_options:
+        logger.warning("--ep-options are ignored with --runtime winml-runtime.")
+        ep_provider_options = None
 
     json_mode = output_format == "json"
     console = SafeConsole(stderr=True) if json_mode else SafeConsole()
@@ -3150,10 +3206,22 @@ def perf(
     # one source of truth. Rejects an invalid id up front; a path-shaped .onnx
     # that doesn't exist is caught below with a friendly "not found" message
     # (the pure classifier stays existence-agnostic).
-    model_input = classify_model_input(hf_model)
-    if model_input.kind is ModelInputKind.INVALID:
-        raise click.UsageError(model_input.error or f"Invalid model input: {hf_model}")
-    is_onnx = model_input.kind is ModelInputKind.ONNX_FILE
+    mlir_path = Path(hf_model)
+    is_mlir = mlir_path.suffix.lower() == ".mlir"
+    if is_mlir:
+        if runtime != "winml-runtime":
+            raise click.UsageError("MLIR inputs require --runtime winml-runtime.")
+        if not mlir_path.is_file():
+            raise click.UsageError(f"MLIR file not found: {hf_model}")
+        if ep is not None:
+            logger.warning("--ep is ignored for MLIR inputs.")
+            ep = None
+        is_onnx = False
+    else:
+        model_input = classify_model_input(hf_model)
+        if model_input.kind is ModelInputKind.INVALID:
+            raise click.UsageError(model_input.error or f"Invalid model input: {hf_model}")
+        is_onnx = model_input.kind is ModelInputKind.ONNX_FILE
     if is_onnx and model_input.local_path and not Path(model_input.local_path).exists():
         raise click.UsageError(f"ONNX file not found: {hf_model}")
 
@@ -3410,6 +3478,8 @@ def perf(
     # ``ep_source_part`` were unpacked once from the --ep tuple above.
     config = BenchmarkConfig(
         model_id=hf_model,
+        runtime=runtime,
+        backend=effective_backend,
         task=task,
         submodel=submodel,
         device=device.lower(),

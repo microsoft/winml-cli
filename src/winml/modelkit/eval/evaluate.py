@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from rich.console import Console
 
+from ..utils.constants import resolve_runtime_api_backend
 from .config import WinMLEvaluationConfig
 
 
@@ -37,6 +38,7 @@ class _ModelLoaderKind(Enum):
     PYTORCH = auto()
     GENAI = auto()
     EVALUATOR_MANAGED = auto()
+    MLIR = auto()
     ONNX = auto()
     PRETRAINED = auto()
 
@@ -45,6 +47,11 @@ def _select_model_loader(config: WinMLEvaluationConfig) -> _ModelLoaderKind:
     """Select the model-loading path shared by loading and CLI diagnostics."""
     if config.runtime == "pytorch":
         return _ModelLoaderKind.PYTORCH
+    if (
+        isinstance(config.model_path, str)
+        and config.model_path.lower().endswith(".mlir")
+    ):
+        return _ModelLoaderKind.MLIR
     if config.task == "text-generation":
         return _ModelLoaderKind.GENAI
     if isinstance(config.model_path, dict) and config.task == "mask-generation":
@@ -120,7 +127,7 @@ def get_evaluator_class(config: WinMLEvaluationConfig) -> type[WinMLEvaluator]:
 
 def _validate_pytorch_runtime_config(config: WinMLEvaluationConfig) -> None:
     """Validate state that cannot apply to the PyTorch runtime."""
-    if config.runtime == "winml-ort":
+    if config.runtime != "pytorch":
         return
 
     incompatible: list[str] = []
@@ -381,7 +388,10 @@ def load_model(
     )
 
     model_id = config.model_id
-    if model_id is None and loader is not _ModelLoaderKind.ONNX:
+    if model_id is None and loader not in (
+        _ModelLoaderKind.MLIR,
+        _ModelLoaderKind.ONNX,
+    ):
         raise ValueError("model_id is required.")
 
     if loader is _ModelLoaderKind.EVALUATOR_MANAGED:
@@ -392,7 +402,13 @@ def load_model(
     # config carries an optional ep field; resolve_device deduces device/ep
     # when either is 'auto'.
     device = (config.device or "auto").lower()
-    target = resolve_device(EPDeviceTarget(ep=config.ep or "auto", device=device))
+    runtime_backend = resolve_runtime_api_backend(
+        config.runtime, config.model_path, config.backend
+    )
+    target = resolve_device(
+        EPDeviceTarget(ep=config.ep or "auto", device=device),
+        backend=runtime_backend,
+    )
     registry = WinMLEPRegistry.instance()
     ep_device = (
         registry.auto_device(target, device_luid=config.device_luid)
@@ -403,6 +419,28 @@ def load_model(
     from onnxruntime.capi.onnxruntime_pybind11_state import RuntimeException
 
     try:
+        if loader is _ModelLoaderKind.MLIR:
+            hf_config = None
+            if config.model_id is not None:
+                from transformers import AutoConfig
+
+                from ..loader import load_hf_config
+
+                hf_config = load_hf_config(
+                    AutoConfig,
+                    config.model_id,
+                    trust_remote_code=config.trust_remote_code,
+                )
+            mlir_model = WinMLAutoModel.from_mlir(
+                mlir_path=cast("str", config.model_path),
+                ep_device=ep_device,
+                task=config.task,
+                runtime="winml-runtime",
+                backend="cgc",
+            )
+            mlir_model.config = hf_config
+            return mlir_model
+
         if loader is _ModelLoaderKind.ONNX:
             # Pre-built ONNX: precision is already baked into the model and is
             # ignored here (mirrors winml perf's ONNX path).
@@ -419,20 +457,22 @@ def load_model(
                 if model_id is not None
                 else None
             )
-            model = WinMLAutoModel.from_onnx(
+            onnx_model = WinMLAutoModel.from_onnx(
                 # ``model_path`` is narrowed to ``str | dict[str, str]`` here;
                 # cast bridges dict value-type invariance (str vs str | Path).
                 onnx_path=cast("str | dict[str, str | Path]", config.model_path),
                 ep_device=ep_device,
                 task=config.task,
+                runtime=config.runtime,
+                backend=runtime_backend,
                 skip_build=config.skip_build,
                 config=quant_override,
                 hf_config=hf_config,
                 **cache_kwargs,
                 **pipeline_kwargs,
             )
-            model.config = hf_config
-            return model
+            onnx_model.config = hf_config
+            return onnx_model
 
         assert model_id is not None
 
@@ -456,6 +496,8 @@ def load_model(
             task=config.task,
             device=config.device,
             ep=config.ep,
+            runtime=config.runtime,
+            backend=runtime_backend,
             precision=config.precision,
             allow_unsupported_nodes=config.allow_unsupported_nodes,
             config=build_override,
@@ -660,8 +702,17 @@ def evaluate(
     """
     from ..utils.eval_utils import EVAL_MODES
 
-    if config.runtime not in ("winml-ort", "pytorch"):
-        raise ValueError(f"Invalid runtime {config.runtime!r}; expected 'winml-ort' or 'pytorch'.")
+    if config.runtime not in ("winml-ort", "winml-runtime", "pytorch"):
+        raise ValueError(
+            f"Invalid runtime {config.runtime!r}; expected 'winml-ort', "
+            "'winml-runtime', or 'pytorch'."
+        )
+    is_mlir = (
+        isinstance(config.model_path, str)
+        and config.model_path.lower().endswith(".mlir")
+    )
+    if is_mlir and config.runtime != "winml-runtime":
+        raise ValueError("MLIR inputs require runtime='winml-runtime'.")
     if pytorch_model is not None:
         config = _prepare_supplied_pytorch_model(config, pytorch_model)
     mode = config.mode if config.mode is not None else "onnx"
@@ -755,21 +806,46 @@ def evaluate(
 def print_config(config: WinMLEvaluationConfig) -> None:
     """Print effective evaluation config to the console (quantize.py style)."""
     ds = config.dataset
+    backend = resolve_runtime_api_backend(
+        config.runtime, config.model_path, config.backend
+    )
     output_console = Console()
-    if config.model_id is not None:
+    if config.mode != "compare" and config.model_id is not None:
         output_console.print(f"[bold blue]Model:[/bold blue] {config.model_id}")
-    if config.model_path is not None:
+    if config.mode != "compare" and config.model_path is not None:
         output_console.print(f"[bold blue]Model path:[/bold blue] {config.model_path}")
     if config.input_data is not None:
         output_console.print(f"[bold blue]Input data:[/bold blue] {config.input_data}")
-    if config.reference_path is not None:
-        output_console.print(f"[bold blue]Reference:[/bold blue] {config.reference_path}")
     if config.task is not None:
         output_console.print(f"[bold blue]Task:[/bold blue] {config.task}")
-    output_console.print(f"[bold blue]Runtime:[/bold blue] {config.runtime}")
-    output_console.print(f"[bold blue]Device:[/bold blue] {config.device}")
-    if config.ep is not None:
-        output_console.print(f"[bold blue]EP:[/bold blue] {config.ep}")
+    if config.mode == "compare":
+        output_console.print(
+            f"[bold blue]Candidate:[/bold blue] {config.model_path or config.model_id}"
+        )
+        output_console.print(f"[bold blue]Candidate runtime:[/bold blue] {config.runtime}")
+        output_console.print(f"[bold blue]Candidate device:[/bold blue] {config.device}")
+        if backend != "cgc":
+            output_console.print(f"[bold blue]Candidate EP:[/bold blue] {config.ep or 'auto'}")
+        output_console.print(
+            f"[bold blue]Reference:[/bold blue] {config.reference_path or config.model_id}"
+        )
+        output_console.print(
+            f"[bold blue]Reference runtime:[/bold blue] "
+            f"{'winml-ort' if config.reference_path else 'pytorch'}"
+        )
+        output_console.print(
+            f"[bold blue]Reference device:[/bold blue] "
+            f"{config.reference_device if config.reference_path else 'cpu'}"
+        )
+        output_console.print(
+            f"[bold blue]Reference EP:[/bold blue] "
+            f"{(config.reference_ep or 'auto') if config.reference_path else 'n/a'}"
+        )
+    else:
+        output_console.print(f"[bold blue]Runtime:[/bold blue] {config.runtime}")
+        output_console.print(f"[bold blue]Device:[/bold blue] {config.device}")
+        if backend != "cgc" and config.ep is not None:
+            output_console.print(f"[bold blue]EP:[/bold blue] {config.ep}")
     if config.runtime == "winml-ort":
         output_console.print(f"[bold blue]Precision:[/bold blue] {config.precision}")
     if config.mode != "compare":

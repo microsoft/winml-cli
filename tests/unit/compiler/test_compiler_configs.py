@@ -103,6 +103,13 @@ class TestCompileConfig:
         assert config.ep_config.provider == "openvino"
         assert config.ep_config.enable_ep_context is True
 
+    def test_for_winmlcg(self):
+        """Test WinML Compute Graph factory method."""
+        config = WinMLCompileConfig.for_winmlcg()
+        assert config.ep_config.provider == "winmlcg"
+        assert config.ep_config.enable_ep_context is True
+        assert config.ep_config.device == "gpu"
+
     def test_for_vitisai(self, tmp_path, monkeypatch):
         """Test Vitis AI factory method."""
         monkeypatch.setenv("WINML_CACHE_DIR", str(tmp_path))
@@ -277,6 +284,7 @@ class TestForProvider:
             ("openvino", "openvino"),
             ("vitisai", "vitisai"),
             ("nv_tensorrt_rtx", "nvtensorrtrtx"),
+            ("winmlcg", "winmlcg"),
             # EPs with enable_ep_context=False → no offline compile step → None
             ("dml", None),
             ("cpu", None),
@@ -325,6 +333,7 @@ class TestForProvider:
             ("nv_tensorrt_rtx", "nvtensorrtrtx"),
             ("openvino", "openvino"),
             ("vitisai", "vitisai"),
+            ("winmlcg", "winmlcg"),
             ("migraphx", None),
         ],
     )

@@ -47,6 +47,7 @@ def print_pre_bench_block(
     ep_source: str,
     ep_version: str | None,
     ep_dll_path: str,
+    runtime_api_backend: str | None = None,
 ) -> None:
     """Print the pre-benchmark identity block.
 
@@ -84,6 +85,8 @@ def print_pre_bench_block(
             ``v<version>`` chunk when absent).
         ep_dll_path: Full path to the plugin DLL. Empty string signals a
             built-in EP and renders as ``(bundled with ORT)``.
+        runtime_api_backend: Runtime API backend, when applicable. CGC does
+            not expose EP information.
     """
     # --- Model panel: identity + surface ---------------------------------
     model_lines: list[Text] = []
@@ -112,16 +115,20 @@ def print_pre_bench_block(
 
     # --- Device panel: resolved device + EP + DLL -------------------------
     hw_suffix = f"  [dim]({hardware_name})[/dim]" if hardware_name else ""
-    ep_line = f"[cyan]{ep}[/cyan]@[cyan]{ep_source}[/cyan]"
-    if ep_version:
-        ep_line += f"  [green]v{ep_version}[/green]"
-    dll_display = ep_dll_path if ep_dll_path else "(bundled with ORT)"
-
     device_lines: list[Text] = [
         _labeled_line("Device:", f"[cyan]{device}[/cyan]{hw_suffix}"),
-        _labeled_line("EP:", ep_line),
-        _labeled_line("EP DLL:", f"[dim]{dll_display}[/dim]"),
     ]
+    if runtime_api_backend != "cgc":
+        ep_line = f"[cyan]{ep}[/cyan]@[cyan]{ep_source}[/cyan]"
+        if ep_version:
+            ep_line += f"  [green]v{ep_version}[/green]"
+        dll_display = ep_dll_path if ep_dll_path else "(bundled with ORT)"
+        device_lines.extend(
+            [
+                _labeled_line("EP:", ep_line),
+                _labeled_line("EP DLL:", f"[dim]{dll_display}[/dim]"),
+            ]
+        )
     console.print(Panel(Group(*device_lines), title="Device", expand=True))
 
 

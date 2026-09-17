@@ -26,17 +26,23 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 from rich.console import Console
 
 from ..utils import cli as cli_utils
+from ..utils.constants import EXPORT_TARGETS, ExportTarget
 from ..utils.logging import configure_logging
 from ..utils.model_input import ModelInputKind, classify_model_input
 
 
 logger = logging.getLogger(__name__)
 console = Console()
+
+
+if TYPE_CHECKING:
+    from ..export.cgc import CGCExporter
 
 
 def _delete_onnx_with_external_data(onnx_path: Path) -> None:
@@ -90,8 +96,26 @@ def _warn_partial_composite(completed: list[Path]) -> None:
     required=True,
     help_text="HuggingFace model name or local path (e.g., prajjwal1/bert-tiny)",
 )
-@cli_utils.output_option("Output ONNX file path (e.g., model.onnx)", required=True)
+@cli_utils.output_option("Final output path", required=True)
 @cli_utils.overwrite_option()
+@click.option(
+    "--target",
+    type=click.Choice(list(EXPORT_TARGETS), case_sensitive=False),
+    default="onnx",
+    show_default=True,
+    help="Export target.",
+)
+@click.option(
+    "--options",
+    "target_options",
+    multiple=True,
+    metavar="KEY=VALUE",
+    help=(
+        "Additional target options (repeatable). CGIR supports external-weights, "
+        "update-opset, topo-sort-nodes, and freeze-dims "
+        "(for example freeze-dims=batch=1,seq=128)."
+    ),
+)
 @click.option(
     "--batch-size",
     type=click.IntRange(min=1),
@@ -171,6 +195,8 @@ def export(
     model: str,
     output: Path,
     overwrite: bool,
+    target: ExportTarget,
+    target_options: tuple[str, ...],
     batch_size: int,
     verbose: int,
     quiet: bool,
@@ -239,17 +265,11 @@ def export(
         # Export only the encoder sub-model
         winml export -m google-t5/t5-small --task translation -o t5.onnx --submodel encoder
     """
-    # Classify the -m value once (existence-first). Export only works with
-    # HuggingFace model IDs — reject ONNX files and folders early.
+    model_input = None
     if model:
         model_input = classify_model_input(model)
         if model_input.kind is ModelInputKind.INVALID:
             raise click.UsageError(model_input.error or f"Invalid model input: {model}")
-        if model_input.kind is ModelInputKind.ONNX_FILE:
-            raise click.UsageError(
-                "export requires a HuggingFace model ID, not an ONNX file. "
-                "Use 'winml inspect -m model.onnx' to inspect an existing ONNX model."
-            )
         if model_input.kind is ModelInputKind.FOLDER:
             raise click.UsageError(
                 "export requires a HuggingFace model ID, not a directory. "
@@ -317,6 +337,33 @@ def export(
     if export_config:
         export_config_dict = cli_utils.load_json_object(export_config, "--export-config")
         console.print(f"[dim]Loaded export config: {list(export_config_dict.keys())}[/dim]")
+
+    for settings in (_build_export_dict, export_config_dict):
+        if not cli_utils.is_cli_provided(ctx, "target") and "target" in settings:
+            target = settings["target"]
+        if not cli_utils.is_cli_provided(ctx, "target_options") and "options" in settings:
+            target_options = tuple(f"{key}={value}" for key, value in settings["options"].items())
+
+    exporter = _get_exporter(target, target_options)
+
+    if model_input is not None and model_input.kind is ModelInputKind.ONNX_FILE:
+        if exporter is None:
+            raise click.UsageError(
+                "export requires a HuggingFace model ID, not an ONNX file. "
+                "Use 'winml inspect -m model.onnx' to inspect an existing ONNX model."
+            )
+        try:
+            _guard_export_output(output, exporter, overwrite)
+            output.parent.mkdir(parents=True, exist_ok=True)
+            exporter.export_onnx(
+                model=Path(model_input.local_path or model),
+                output_path=output,
+            )
+            return
+        except click.ClickException:
+            raise
+        except Exception as e:
+            raise click.ClickException(f"Export failed: {e}") from e
 
     # Load shape overrides from JSON (task-independent).
     shape_overrides = None
@@ -474,15 +521,26 @@ def export(
         else:
             console.print(f"[dim]Detected task: {detected_task}[/dim]")
 
-        export_stats = export_onnx(
-            model=pytorch_model,
-            output_path=out_path,
-            export_config=cfg,
-            model_id=model,
-            task=detected_task,
-            verbose=bool(verbose),
-            enable_reporting=with_report,
-        )
+        if exporter is None:
+            export_stats = export_onnx(
+                model=pytorch_model,
+                output_path=out_path,
+                export_config=cfg,
+                model_id=model,
+                task=detected_task,
+                verbose=bool(verbose),
+                enable_reporting=with_report,
+            )
+        else:
+            export_stats = exporter.export_pytorch(
+                model=pytorch_model,
+                output_path=out_path,
+                export_config=cfg,
+                model_id=model,
+                task=detected_task,
+                verbose=bool(verbose),
+                enable_reporting=with_report,
+            )
         logger.debug("Export stats: %s", export_stats)
 
         console.print(f"\n[bold green]Success![/bold green] Model exported to: {out_path}")
@@ -500,8 +558,8 @@ def export(
                 console.print(f"  JSON: {json_metadata}")
 
     # Detect a composite pipeline (registry-driven). A composite fans out into one
-    # ONNX per sub-component, each written next to <output> with a _<component>
-    # stem suffix; a plain model exports to the single output path as before.
+    # target artifact per sub-component, each written next to <output> with a
+    # _<component> stem suffix; a plain model uses the single output path.
     # Detection suppresses only the expected "not a resolvable HF config" case
     # (OSError — e.g. the model reference isn't a hub id / has no local config);
     # intentional loud guards (empty registry, model-task incompatibility) and any
@@ -550,7 +608,7 @@ def export(
         components = {submodel: components[submodel]}
 
     try:
-        console.print("\n[bold]Starting HTP export...[/bold]")
+        console.print("\n[bold]Starting export...[/bold]")
 
         if components:
             # A genuine multi-component fan-out can't take --input-specs (each
@@ -580,7 +638,7 @@ def export(
             # Guard every target up front so an overwrite collision on a later
             # component can't leave an earlier one already written.
             for sub_out in sub_outputs.values():
-                cli_utils.guard_output(sub_out, overwrite)
+                _guard_export_output(sub_out, exporter, overwrite)
 
             # Track sub-models this invocation actually completes. On a mid-run
             # failure we do NOT delete anything (the targets may be pre-existing
@@ -600,7 +658,7 @@ def export(
                 _warn_partial_composite(completed)
                 raise
         else:
-            cli_utils.guard_output(output_path, overwrite)
+            _guard_export_output(output_path, exporter, overwrite)
             _run_component_export(task, output_path)
 
     except (click.UsageError, click.ClickException):
@@ -613,3 +671,50 @@ def export(
         else:
             logger.error("Export failed: %s", e)
         raise click.ClickException(f"Export failed: {e}") from e
+
+
+def _get_exporter(
+    target: ExportTarget,
+    target_options: tuple[str, ...],
+) -> CGCExporter | None:
+    """Create the optional exporter for a non-default target."""
+    from ..export.cgc import CGCExporter
+
+    if target not in EXPORT_TARGETS:
+        raise click.UsageError(f"Invalid export target: {target!r}")
+
+    exporter_types = {
+        "cgir": CGCExporter,
+    }
+    exporter_type = exporter_types.get(target)
+    if exporter_type is None:
+        if target_options:
+            raise click.UsageError("--options requires --target cgir")
+        return None
+
+    try:
+        options = cli_utils.parse_options(
+            target_options,
+            exporter_type.options_type,
+            param_hint="--options",
+        )
+        return exporter_type(options)
+    except click.ClickException:
+        raise
+    except Exception as e:
+        raise click.ClickException(f"Export failed: {e}") from e
+
+
+def _guard_export_output(
+    output_path: Path,
+    exporter: CGCExporter | None,
+    overwrite: bool,
+) -> None:
+    """Guard every artifact produced by the selected exporter."""
+    artifacts = (output_path,) if exporter is None else exporter.output_artifacts(output_path)
+    for index, artifact in enumerate(artifacts):
+        cli_utils.guard_output(
+            artifact,
+            overwrite,
+            label="Output" if index == 0 else "Output sidecar",
+        )

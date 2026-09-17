@@ -9,8 +9,9 @@ from __future__ import annotations
 import json
 import os
 import re
+from dataclasses import fields, is_dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypedDict, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypedDict, TypeVar, get_type_hints
 
 import click
 from rich.console import Console
@@ -32,6 +33,9 @@ F = TypeVar("F", bound="Callable[..., Any]")
 
 # Allowed values for ``--format`` / ``-f``.
 OutputFormat: TypeAlias = Literal["text", "json", "table", "compact"]
+PrimitiveOptionType: TypeAlias = type[bool] | type[int] | type[float] | type[str]
+PrimitiveOptionValue: TypeAlias = bool | int | float | str
+OptionsT = TypeVar("OptionsT")
 
 
 class _CacheExtraKwargs(TypedDict):
@@ -534,6 +538,74 @@ def parse_ep_options(values: tuple[str, ...]) -> dict[str, str] | None:
             )
         options[key] = value.strip()
     return options
+
+
+def parse_options(
+    values: tuple[str, ...],
+    options_type: type[OptionsT],
+    *,
+    param_hint: str = "--options",
+) -> OptionsT:
+    """Parse repeatable ``KEY=VALUE`` options into a typed dataclass.
+
+    Field names use CLI spelling with hyphens in place of underscores. Supported
+    field types are ``bool``, ``int``, ``float``, and ``str``. Unspecified
+    fields retain their dataclass defaults.
+    """
+    if not is_dataclass(options_type):
+        raise TypeError("options_type must be a dataclass type")
+
+    type_hints = get_type_hints(options_type)
+    schema: dict[str, PrimitiveOptionType] = {}
+    for field in fields(options_type):
+        value_type = type_hints[field.name]
+        if value_type not in {bool, int, float, str}:
+            raise TypeError(
+                f"Unsupported option type for '{field.name}': {value_type!r}"
+            )
+        schema[field.name] = value_type
+
+    options: dict[str, PrimitiveOptionValue] = {}
+    for item in values:
+        if "=" not in item:
+            raise click.BadParameter(
+                f"Invalid option format: '{item}'. Use KEY=VALUE.",
+                param_hint=param_hint,
+            )
+
+        cli_key, raw_value = (part.strip() for part in item.split("=", 1))
+        if not cli_key:
+            raise click.BadParameter(
+                f"Invalid option format: '{item}'. Key cannot be empty.",
+                param_hint=param_hint,
+            )
+        key = cli_key.replace("-", "_")
+        if key not in schema:
+            raise click.BadParameter(
+                f"Unsupported option: '{cli_key}'.",
+                param_hint=param_hint,
+            )
+
+        value_type = schema[key]
+        if value_type is bool:
+            normalized = raw_value.lower()
+            if normalized not in {"true", "false"}:
+                raise click.BadParameter(
+                    f"Option '{cli_key}' expects true or false, got '{raw_value}'.",
+                    param_hint=param_hint,
+                )
+            options[key] = normalized == "true"
+        elif value_type in {int, float, str}:
+            try:
+                options[key] = value_type(raw_value)
+            except ValueError as e:
+                raise click.BadParameter(
+                    f"Option '{cli_key}' expects {value_type.__name__}, "
+                    f"got '{raw_value}'.",
+                    param_hint=param_hint,
+                ) from e
+
+    return options_type(**options)
 
 
 def device_option(

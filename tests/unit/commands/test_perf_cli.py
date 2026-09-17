@@ -41,6 +41,36 @@ from winml.modelkit.commands.perf import (
 from winml.modelkit.utils.console import SafeConsole
 
 
+class TestResolveRuntime:
+    def test_auto_selects_winml_runtime_for_mlir(self) -> None:
+        assert perf_module._resolve_runtime("auto", "model.mlir") == "winml-runtime"
+
+    def test_explicit_runtime_is_preserved_for_mlir(self) -> None:
+        assert perf_module._resolve_runtime("winml-ort", "model.mlir") == "winml-ort"
+
+    def test_backend_rejected_for_other_runtime(self, runner: CliRunner) -> None:
+        result = runner.invoke(
+            perf,
+            ["-m", "model.onnx", "--runtime", "winml-ort", "--backend", "cgc"],
+            obj={},
+        )
+
+        assert result.exit_code == 2
+        assert "--backend is only supported with --runtime winml-runtime" in result.output
+
+    def test_ort_backend_rejected_for_mlir(self, runner: CliRunner) -> None:
+        with runner.isolated_filesystem():
+            Path("model.mlir").touch()
+            result = runner.invoke(
+                perf,
+                ["-m", "model.mlir", "--runtime", "winml-runtime", "--backend", "ort"],
+                obj={},
+            )
+
+        assert result.exit_code == 2
+        assert "MLIR inputs require the CGC backend" in result.output
+
+
 class TestPerfCacheOptions:
     @staticmethod
     def _capture_config(
@@ -107,6 +137,26 @@ class TestPerfCacheOptions:
         assert config is not None
         assert config.use_cache is use_cache
         assert config.rebuild is rebuild
+
+    @pytest.mark.parametrize(
+        ("extra_args", "expected"),
+        [
+            (["--runtime", "winml-runtime"], "cgc"),
+            (["--runtime", "winml-runtime", "--backend", "ort"], "ort"),
+        ],
+    )
+    def test_backend_reaches_benchmark_config(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        extra_args: list[str],
+        expected: str,
+    ) -> None:
+        result, config = self._capture_config(runner, tmp_path, extra_args)
+
+        assert result.exit_code == 0, result.output
+        assert config is not None
+        assert config.backend == expected
 
 
 @pytest.fixture(autouse=True)
@@ -594,7 +644,8 @@ class TestPerfUnifiedPipeline:
         fake_ep_device.device.ep_name = "QNNExecutionProvider"
         fake_ep_device.device.device_type = "NPU"
 
-        def fake_resolve_device(target: object) -> object:
+        def fake_resolve_device(target: object, *, backend: str | None = None) -> object:
+            assert backend is None
             os.write(2, b"2026 [W:custom-native:, file.cc:1 Probe] hidden warning\n")
             return target
 
@@ -620,6 +671,95 @@ class TestPerfUnifiedPipeline:
         stderr = capfd.readouterr().err
         assert "hidden warning" not in stderr
         assert "useful error" in stderr
+
+    def test_runtime_loads_before_ep_registration(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from winml.modelkit import session as session_module
+        from winml.modelkit.session.ep_device import resolve_device
+
+        calls: list[str] = []
+        fake_ep_device = MagicMock()
+
+        def import_runtime() -> None:
+            calls.append("runtime")
+
+        class FakeRegistry:
+            def auto_device(self, _target: object) -> object:
+                calls.append("auto_device")
+                return fake_ep_device
+
+        with monkeypatch.context() as local_patch:
+            local_patch.setattr(
+                "winml.modelkit.session.runtime_session._import_runtime",
+                import_runtime,
+            )
+            local_patch.setattr(session_module, "resolve_device", resolve_device)
+            local_patch.setattr(
+                session_module.WinMLEPRegistry,
+                "instance",
+                staticmethod(FakeRegistry),
+            )
+
+            benchmark = PerfBenchmark(
+                BenchmarkConfig(
+                    model_id="model.onnx",
+                    runtime="winml-runtime",
+                    ep="openvino",
+                    device="gpu",
+                )
+            )
+            benchmark._resolve_device_ep()
+
+        assert calls == ["runtime", "auto_device"]
+
+    def test_mlir_resolves_gpu_from_winmlcg_inventory(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from winml.modelkit import session as session_module
+
+        requested_targets: list[tuple[object, str | None]] = []
+        fake_ep_device = MagicMock()
+
+        def resolve_device(target: object, *, backend: str | None = None) -> object:
+            requested_targets.append((target, backend))
+            return SimpleNamespace(ep="winmlcg", device="gpu", source=target.source)
+
+        class FakeRegistry:
+            def auto_device(self, _target: object) -> object:
+                return fake_ep_device
+
+        with monkeypatch.context() as local_patch:
+            local_patch.setattr(
+                "winml.modelkit.session.runtime_session._import_runtime",
+                lambda: None,
+            )
+            local_patch.setattr(session_module, "resolve_device", resolve_device)
+            local_patch.setattr(
+                session_module.WinMLEPRegistry,
+                "instance",
+                staticmethod(FakeRegistry),
+            )
+
+            benchmark = PerfBenchmark(
+                BenchmarkConfig(
+                    model_id="model.mlir",
+                    runtime="winml-runtime",
+                )
+            )
+            benchmark._resolve_device_ep()
+
+        requested, backend = requested_targets[0]
+        assert requested.ep == "auto"
+        assert requested.device == "auto"
+        assert requested.source is None
+        assert backend == "cgc"
+        assert benchmark._ep_device is fake_ep_device
+        assert benchmark.config.ep is None
+        assert benchmark.config.device == "auto"
+        assert benchmark.resolved_device == "gpu"
 
     def test_onnx_load_model_calls_from_onnx(self, tmp_path: Path) -> None:
         """ONNX file input should use WinMLAutoModel.from_onnx in _load_model."""
@@ -833,6 +973,49 @@ class TestPerfUnifiedPipeline:
 
         assert result.exit_code == 0, result.output
         mock_perf_cls.assert_called_once()
+
+    def test_cli_onnx_winml_runtime_preserves_explicit_target(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        onnx_file = tmp_path / "model.onnx"
+        onnx_file.write_bytes(b"fake onnx")
+        captured: dict[str, BenchmarkConfig] = {}
+
+        def capture_config(config: BenchmarkConfig) -> MagicMock:
+            captured["config"] = config
+            mock = MagicMock()
+            mock.run.return_value = MagicMock()
+            return mock
+
+        with (
+            patch(
+                "winml.modelkit.commands.perf.PerfBenchmark",
+                side_effect=capture_config,
+            ),
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            result = runner.invoke(
+                perf,
+                [
+                    "-m",
+                    str(onnx_file),
+                    "--runtime",
+                    "winml-runtime",
+                    "--ep",
+                    "openvino",
+                    "--device",
+                    "gpu",
+                    "-o",
+                    str(tmp_path / "out.json"),
+                ],
+                obj={},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert captured["config"].ep == "openvino"
+        assert captured["config"].device == "gpu"
+        assert "--ep and --ep-options are ignored" not in result.output
 
     def test_cli_onnx_preserves_shape_config(self, runner: CliRunner, tmp_path: Path) -> None:
         """ONNX input with --shape-config keeps the override for dummy inputs.
@@ -1750,6 +1933,13 @@ class TestPerfUnifiedPipeline:
 
         assert d["schema_version"] == 2
         assert d["benchmark_info"]["runtime"] == "winml-ort"
+
+    def test_to_dict_reports_configured_runtime(self) -> None:
+        config = BenchmarkConfig(model_id="m.mlir", runtime="winml-runtime")
+        result = BenchmarkResult(config=config)
+
+        info = result.to_dict()["benchmark_info"]
+        assert info["runtime"] == "winml-runtime"
 
     def test_iterations_reports_configured_count_without_duration(self) -> None:
         """Without --duration, benchmark_info.iterations is the configured value."""

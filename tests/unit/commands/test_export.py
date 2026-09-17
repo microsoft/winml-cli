@@ -77,6 +77,179 @@ class TestExportCLIInterface:
         assert "--export-config" in result.output
         assert "--dynamic-axes" in result.output
         assert "--submodel" in result.output
+        assert "--target" in result.output
+        assert "--options" in result.output
+        assert "--additional-options" not in result.output
+        assert "--exporter" not in result.output
+        assert "--cgc-option" not in result.output
+
+    def test_cgc_guards_external_weight_sidecar_before_export(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        from winml.modelkit.commands.export import export
+        from winml.modelkit.export.cgc import CGCExporter
+
+        source = tmp_path / "source.onnx"
+        output = tmp_path / "model.mlir"
+        output.with_name(f"{output.name}.data").write_bytes(b"existing")
+        source.write_bytes(b"onnx")
+
+        with patch.object(CGCExporter, "export_onnx") as backend_export:
+            result = runner.invoke(
+                export,
+                [
+                    "--model",
+                    str(source),
+                    "--output",
+                    str(output),
+                    "--target",
+                    "cgir",
+                    "--options",
+                    "external-weights=true",
+                ],
+            )
+
+        assert result.exit_code != 0
+        assert "Output sidecar" in result.output
+        assert "model.mlir.data" in result.output
+        backend_export.assert_not_called()
+
+    @pytest.mark.parametrize("onnx_input", [False, True])
+    @pytest.mark.parametrize("config_flag", ["cli", "--export-config", "-c", "both"])
+    @pytest.mark.parametrize("override", [False, True])
+    def test_target_config_and_cli_option_precedence(
+        self, runner, tmp_path, onnx_input, config_flag, override
+    ):
+        from winml.modelkit.commands.export import export
+        from winml.modelkit.export import WinMLExportConfig
+        from winml.modelkit.export.cgc import CGCExporter, CGCOptions
+
+        settings = {
+            "target": "cgir",
+            "options": {"external_weights": "invalid" if override else True, "update_opset": False},
+            "dynamo": True,
+        }
+        config_path = tmp_path / "export.json"
+        config_path.write_text(
+            json.dumps({"export": settings} if config_flag == "-c" else settings)
+        )
+        source = tmp_path / "source.onnx"
+        source.write_bytes(b"onnx")
+        args = [
+            "-m",
+            str(source) if onnx_input else "test-model",
+            "-o",
+            str(tmp_path / "model.mlir"),
+        ]
+        if config_flag == "cli":
+            args += ["--target", settings["target"]]
+            if not override:
+                for key, value in settings["options"].items():
+                    args += ["--options", f"{key}={value}"]
+        elif config_flag == "both":
+            build_path = tmp_path / "build.json"
+            build_path.write_text(json.dumps({"export": settings}))
+            config_path.write_text(json.dumps({"options": {"topo_sort_nodes": False}}))
+            args += ["-c", str(build_path), "--export-config", str(config_path)]
+        else:
+            args += [config_flag, str(config_path)]
+        if override:
+            args += ["--options", "external-weights=true", "--options", "external-weights=false"]
+        method = "export_onnx" if onnx_input else "export_pytorch"
+        with (
+            patch.object(CGCExporter, method, autospec=True) as backend,
+            patch("winml.modelkit.export.export_pytorch") as onnx_backend,
+            patch("winml.modelkit.loader.load_hf_model", return_value=(MagicMock(), None, None)),
+            patch(
+                "winml.modelkit.loader.resolution.resolve_composite_components",
+                return_value=None,
+            ),
+            patch(
+                "winml.modelkit.export.resolve_export_config",
+                return_value=(WinMLExportConfig(), None),
+            ),
+        ):
+            result = runner.invoke(export, args)
+        assert result.exit_code == 0, result.output
+        backend.assert_called_once()
+        onnx_backend.assert_not_called()
+        assert backend.call_args.args[0].options == CGCOptions(
+            external_weights=not override and config_flag != "both",
+            update_opset=override or config_flag == "both",
+            topo_sort_nodes=override or config_flag != "both",
+        )
+        if not onnx_input:
+            config = backend.call_args.kwargs["export_config"]
+            assert config.target == ("onnx" if config_flag == "cli" else settings["target"])
+            assert config.dynamo is (False if config_flag == "cli" else settings["dynamo"])
+
+    @pytest.mark.parametrize("target", ["onnx", "cgir"])
+    @pytest.mark.parametrize("config_flag", ["-c", "--export-config"])
+    def test_explicit_target_overrides_export_config(self, runner, tmp_path, target, config_flag):
+        from winml.modelkit.commands.export import export
+        from winml.modelkit.export import WinMLExportConfig
+        from winml.modelkit.export.cgc import CGCExporter
+        from winml.modelkit.utils.constants import EXPORT_TARGETS
+
+        config_path = tmp_path / "export.json"
+        configured_target = next(t for t in EXPORT_TARGETS if t != target)
+        settings = {"target": configured_target}
+        config_path.write_text(
+            json.dumps({"export": settings} if config_flag == "-c" else settings)
+        )
+        with (
+            patch.object(CGCExporter, "export_pytorch") as cgc_backend,
+            patch("winml.modelkit.export.export_pytorch") as onnx_backend,
+            patch("winml.modelkit.loader.load_hf_model", return_value=(MagicMock(), None, None)),
+            patch(
+                "winml.modelkit.loader.resolution.resolve_composite_components",
+                return_value=None,
+            ),
+            patch(
+                "winml.modelkit.export.resolve_export_config",
+                return_value=(WinMLExportConfig(), None),
+            ),
+        ):
+            result = runner.invoke(export, [
+                "-m", "test-model", "-o", str(tmp_path / "model.out"),
+                config_flag, str(config_path), "--target", target,
+            ])
+        assert result.exit_code == 0, result.output
+        selected, unused = (
+            (onnx_backend, cgc_backend) if target == "onnx" else (cgc_backend, onnx_backend)
+        )
+        selected.assert_called_once()
+        unused.assert_not_called()
+        assert selected.call_args.kwargs["export_config"].target == configured_target
+
+    @pytest.mark.parametrize(
+        "settings",
+        [
+            {"target": "invalid"},
+            {"options": {"external_weights": True}},
+            {"target": "cgir", "options": []},
+            {"target": "cgir", "options": {"unknown": True}},
+            {"target": "cgir", "options": {"external_weights": "invalid"}},
+        ],
+    )
+    def test_invalid_target_config_rejected_before_onnx_export(self, runner, tmp_path, settings):
+        from winml.modelkit.commands.export import export
+        from winml.modelkit.export.cgc import CGCExporter
+
+        config_path = tmp_path / "export.json"
+        config_path.write_text(json.dumps(settings))
+        source = tmp_path / "source.onnx"
+        source.write_bytes(b"onnx")
+        with patch.object(CGCExporter, "export_onnx") as backend:
+            result = runner.invoke(export, [
+                "-m", str(source), "-o", str(tmp_path / "model.mlir"),
+                "--export-config", str(config_path),
+            ])
+        assert result.exit_code != 0
+        assert "requires a HuggingFace model ID" not in result.output
+        backend.assert_not_called()
 
     def test_export_help_examples_run(self, runner: CliRunner, tmp_path: Path) -> None:
         """Every command example in export help should execute without crashing."""
@@ -1265,6 +1438,144 @@ class TestExportComposite:
         # The user is warned that the export did not finish (and how many were written).
         assert "did not finish" in result.output
         assert "1 sub-model" in result.output
+
+
+class TestExportCGC:
+    """Test CGC uses the shared export orchestration."""
+
+    def test_existing_onnx_uses_direct_cgc_entrypoint(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        from winml.modelkit.commands.export import export
+        from winml.modelkit.export.cgc import CGCExporter
+
+        source = tmp_path / "source.onnx"
+        output = tmp_path / "model.mlir"
+        source.write_bytes(b"onnx")
+
+        with (
+            patch.object(CGCExporter, "export_onnx") as export_onnx,
+            patch.object(CGCExporter, "export_pytorch") as export_pytorch,
+        ):
+            result = runner.invoke(
+                export,
+                [
+                    "--model",
+                    str(source),
+                    "--output",
+                    str(output),
+                    "--target",
+                    "cgir",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        export_onnx.assert_called_once_with(model=source, output_path=output)
+        export_pytorch.assert_not_called()
+
+    def test_composite_uses_cgc_entrypoint_per_component(
+        self,
+        runner: CliRunner,
+        mock_export_onnx: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        from winml.modelkit.commands.export import export
+        from winml.modelkit.export import WinMLExportConfig
+        from winml.modelkit.export.cgc import CGCExporter
+        from winml.modelkit.loader import WinMLLoaderConfig
+
+        components = {
+            "image-encoder": "image-feature-extraction",
+            "text-encoder": "feature-extraction",
+        }
+        output_path = tmp_path / "clip.mlir"
+
+        with (
+            patch(
+                "winml.modelkit.loader.resolution.resolve_composite_components",
+                return_value=components,
+            ),
+            patch(
+                "winml.modelkit.loader.load_hf_model",
+                side_effect=lambda _model, task=None, **_kwargs: (MagicMock(), None, task),
+            ),
+            patch(
+                "winml.modelkit.export.resolve_export_config",
+                return_value=(
+                    WinMLExportConfig(),
+                    WinMLLoaderConfig(task="zero-shot-image-classification"),
+                ),
+            ),
+            patch.object(CGCExporter, "export_pytorch") as export_pytorch,
+        ):
+            result = runner.invoke(
+                export,
+                [
+                    "--model",
+                    "openai/clip-vit-base-patch32",
+                    "--task",
+                    "zero-shot-image-classification",
+                    "--output",
+                    str(output_path),
+                    "--target",
+                    "cgir",
+                ],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code == 0, result.output
+        assert export_pytorch.call_count == len(components)
+        assert {Path(call.kwargs["output_path"]) for call in export_pytorch.call_args_list} == {
+            output_path.with_stem(f"{output_path.stem}_{name}") for name in components
+        }
+        assert {call.kwargs["task"] for call in export_pytorch.call_args_list} == set(
+            components.values()
+        )
+        mock_export_onnx.assert_not_called()
+
+    def test_composite_guards_all_cgc_sidecars_before_export(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+    ) -> None:
+        from winml.modelkit.commands.export import export
+        from winml.modelkit.export.cgc import CGCExporter
+
+        output_path = tmp_path / "clip.mlir"
+        blocked_output = output_path.with_stem("clip_text-encoder")
+        blocked_output.with_name(f"{blocked_output.name}.data").write_bytes(b"existing")
+
+        with (
+            patch(
+                "winml.modelkit.loader.resolution.resolve_composite_components",
+                return_value={
+                    "image-encoder": "image-feature-extraction",
+                    "text-encoder": "feature-extraction",
+                },
+            ),
+            patch.object(CGCExporter, "export_pytorch") as export_pytorch,
+        ):
+            result = runner.invoke(
+                export,
+                [
+                    "--model",
+                    "openai/clip-vit-base-patch32",
+                    "--output",
+                    str(output_path),
+                    "--target",
+                    "cgir",
+                    "--options",
+                    "external-weights=true",
+                ],
+                obj={"debug": False},
+            )
+
+        assert result.exit_code != 0
+        assert "Output sidecar" in result.output
+        assert "clip_text-encoder.mlir.data" in result.output
+        export_pytorch.assert_not_called()
 
 
 class TestExportSubmodel:

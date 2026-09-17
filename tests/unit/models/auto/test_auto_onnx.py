@@ -18,7 +18,9 @@ from pathlib import Path
 from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
+import onnx
 import pytest
+from onnx import TensorProto, helper
 
 from winml.modelkit.ep_path import BuiltinSource, EPEntry
 from winml.modelkit.models.auto import WinMLAutoModel
@@ -36,9 +38,18 @@ def cpu_ep_device():
 
 @pytest.fixture()
 def fake_onnx(tmp_path: Path) -> Path:
-    """Create a fake ONNX file for testing."""
+    """Create a minimal valid ONNX file for testing."""
     onnx_file = tmp_path / "model.onnx"
-    onnx_file.write_bytes(b"fake-onnx")
+    graph = helper.make_graph(
+        [helper.make_node("Identity", ["input"], ["output"])],
+        "test",
+        [helper.make_tensor_value_info("input", TensorProto.FLOAT, [1])],
+        [helper.make_tensor_value_info("output", TensorProto.FLOAT, [1])],
+    )
+    onnx.save_model(
+        helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)]),
+        onnx_file,
+    )
     return onnx_file
 
 
@@ -72,6 +83,63 @@ def _make_cpu_ep_device_with_bridge_name() -> WinMLEPDevice:
 
 class TestFromOnnx:
     """Test WinMLAutoModel.from_onnx()."""
+
+    def test_winml_runtime_passes_onnx_directly_to_runtime(
+        self, fake_onnx: Path, cpu_ep_device: EPDeviceTarget
+    ) -> None:
+        wrapper = MagicMock()
+        wrapper_kwargs = {}
+
+        def create_wrapper(**kwargs):
+            wrapper_kwargs.update(kwargs)
+            return wrapper
+
+        with (
+            patch("winml.modelkit.build.build_onnx_model") as build,
+            patch(
+                "winml.modelkit.models.auto.get_winml_class",
+                return_value=create_wrapper,
+            ),
+        ):
+            model = WinMLAutoModel.from_onnx(
+                fake_onnx,
+                ep_device=cpu_ep_device,
+                task="image-classification",
+                runtime="winml-runtime",
+                skip_build=True,
+            )
+
+        assert model is wrapper
+        build.assert_not_called()
+        assert wrapper_kwargs["onnx_path"] == fake_onnx
+        assert wrapper_kwargs["runtime"] == "winml-runtime"
+
+    def test_winml_cg_ep_passes_onnx_directly_to_ort(
+        self, fake_onnx: Path
+    ) -> None:
+        ep_device = MagicMock()
+        ep_device.ep_short_name = "winmlcg"
+        ep_device.device.device_type = "GPU"
+        ep_device.device.ep_name = "WinMLCGExecutionProvider"
+        wrapper = MagicMock()
+
+        with (
+            patch("winml.modelkit.build.build_onnx_model") as build,
+            patch(
+                "winml.modelkit.models.auto.get_winml_class",
+                return_value=lambda **kwargs: (wrapper, kwargs),
+            ),
+        ):
+            model, kwargs = WinMLAutoModel.from_onnx(
+                fake_onnx,
+                ep_device=ep_device,
+                task="image-classification",
+            )
+
+        build.assert_not_called()
+        assert model is wrapper
+        assert kwargs["onnx_path"] == fake_onnx
+        assert kwargs["runtime"] == "winml-ort"
 
     def test_auto_generates_config_when_none(
         self, fake_onnx: Path, tmp_path: Path, cpu_ep_device: EPDeviceTarget

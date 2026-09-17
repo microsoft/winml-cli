@@ -21,6 +21,54 @@ from click.testing import CliRunner
 from winml.modelkit.session import EPDeviceTarget
 
 
+@pytest.mark.parametrize("is_onnx", [False, True])
+@pytest.mark.parametrize("reused", [False, True])
+@pytest.mark.parametrize("convert_enabled", [False, True])
+def test_cli_convert_stage(tmp_path, is_onnx, reused, convert_enabled):
+    from winml.modelkit.commands.build import _run_single_build
+    from winml.modelkit.config import WinMLBuildConfig
+    from winml.modelkit.export import WinMLExportConfig
+    from winml.modelkit.export.cgc import CGCExporter, CGCOptions
+
+    config = WinMLBuildConfig()
+    if convert_enabled:
+        config.convert = WinMLExportConfig(target="cgir", options={"external_weights": True})
+    config = WinMLBuildConfig.from_dict(config.to_dict())
+    compile_config = config.compile
+    timings = None if reused else [("Optimize", 0.0)]
+    with (
+        patch("winml.modelkit.commands.build._build_hf_pipeline", return_value=timings) as hf,
+        patch("winml.modelkit.commands.build._build_onnx_pipeline", return_value=timings) as onnx,
+        patch.object(CGCExporter, "export_onnx", autospec=True) as convert,
+    ):
+        _run_single_build(
+            config=config,
+            config_file=None,
+            model_id=str(tmp_path / "source.onnx") if is_onnx else "test-model",
+            is_onnx=is_onnx,
+            resolved_dir=tmp_path,
+            rebuild=False,
+            cache_key=None,
+            ep=None,
+            device=None,
+            extra_kwargs={},
+        )
+    selected, unused = (onnx, hf) if is_onnx else (hf, onnx)
+    selected.assert_called_once()
+    unused.assert_not_called()
+    assert config.compile is compile_config
+    if convert_enabled:
+        convert.assert_called_once()
+        assert convert.call_args.kwargs == {
+            "model": tmp_path / "model.onnx",
+            "output_path": tmp_path / "model.mlir",
+        }
+        assert convert.call_args.args[0].options == CGCOptions(**config.convert.options)
+    else:
+        convert.assert_not_called()
+        assert "convert" not in config.to_dict()
+
+
 _DEVICE_TO_EPS = {
     "npu": ["QNNExecutionProvider"],
     "gpu": ["DmlExecutionProvider"],
