@@ -28,6 +28,8 @@ from winml.modelkit.quant.passes.static import _publish_staged_model
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from onnx import GraphProto
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -351,7 +353,7 @@ class TestFP16Conversion:
     ) -> None:
         """Large external-data models can exceed protobuf's in-memory serialize limit."""
         calls: list[dict] = []
-        model = SimpleNamespace(graph=SimpleNamespace(initializer=[], node=[]))
+        model = ModelProto()
 
         def fake_convert(model_arg, **kwargs):
             calls.append(kwargs)
@@ -818,6 +820,115 @@ class TestStaticPassQuantizationRegionHints:
         ]
         assert qdq_nodes
         assert all(node.domain == "" for node in qdq_nodes)
+
+    @pytest.mark.parametrize("depth", [1, 2])
+    def test_external_subgraph_weights_preserve_scope(
+        self,
+        tmp_path: Path,
+        depth: int,
+    ) -> None:
+        from onnxruntime import InferenceSession
+        from onnxruntime.quantization import CalibrationDataReader
+
+        generator = np.random.default_rng(7)
+
+        def make_branch(level: int) -> GraphProto:
+            weights = numpy_helper.from_array(
+                generator.normal(size=(2, 2)).astype(np.float32), "weight"
+            )
+            nodes = [
+                helper.make_node(
+                    "MatMul", ["input", "weight"],
+                    ["product" if level > 1 else "branch_output"],
+                )
+            ]
+            if level > 1:
+                nodes.extend([
+                    helper.make_node(
+                        "If", ["condition"], ["nested_output"],
+                        then_branch=make_branch(level - 1),
+                        else_branch=make_branch(level - 1),
+                    ),
+                    helper.make_node("Add", ["product", "nested_output"], ["branch_output"]),
+                ])
+            return helper.make_graph(
+                nodes, "branch", [],
+                [helper.make_tensor_value_info("branch_output", TensorProto.FLOAT, [1, 2])],
+                [weights],
+            )
+
+        graph = helper.make_graph(
+            [
+                helper.make_node("MatMul", ["input", "weight"], ["aux_output"]),
+                helper.make_node(
+                    "If", ["condition"], ["output"],
+                    then_branch=make_branch(depth), else_branch=make_branch(depth),
+                ),
+            ],
+            "external_subgraphs",
+            [
+                helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 2]),
+                helper.make_tensor_value_info("condition", TensorProto.BOOL, []),
+            ],
+            [
+                helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 2]),
+                helper.make_tensor_value_info("aux_output", TensorProto.FLOAT, [1, 2]),
+            ],
+            [numpy_helper.from_array(generator.normal(size=(2, 2)).astype(np.float32), "weight")],
+        )
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+        model_path = tmp_path / "input.onnx"
+        output_path = tmp_path / "quantized.onnx"
+        save(
+            model, model_path, save_as_external_data=True,
+            all_tensors_to_one_file=True, location="input.onnx.data", size_threshold=0,
+        )
+        checker.check_model(str(model_path), full_check=True)
+        samples = [
+            {"input": np.ones((1, 2), dtype=np.float32), "condition": np.array(condition)}
+            for condition in (True, False)
+        ]
+
+        class Reader(CalibrationDataReader):
+            def __init__(self) -> None:
+                self._iterator = iter(samples)
+
+            def get_next(self) -> dict[str, np.ndarray] | None:
+                return next(self._iterator, None)
+
+        result = StaticPass(
+            WinMLQuantizationConfig(
+                mode="static", calibration_data=Reader(),
+                activation_type="uint16", weight_type="uint8", per_channel=False,
+            )
+        ).run(model_path, output_path)
+
+        assert result.success
+        checker.check_model(str(output_path), full_check=True)
+
+        def subgraph_weights(graph: GraphProto) -> list[np.ndarray]:
+            weights = []
+            for node in graph.node:
+                for attribute in sorted(node.attribute, key=lambda attribute: attribute.name):
+                    if attribute.HasField("g"):
+                        weights.extend(
+                            numpy_helper.to_array(tensor) for tensor in attribute.g.initializer
+                        )
+                        weights.extend(subgraph_weights(attribute.g))
+            return weights
+
+        original_weights = subgraph_weights(load(model_path).graph)
+        restored_weights = subgraph_weights(load(output_path).graph)
+        assert original_weights
+        for original_weight, restored_weight in zip(
+            original_weights, restored_weights, strict=True
+        ):
+            np.testing.assert_array_equal(restored_weight, original_weight)
+        quantized = InferenceSession(str(output_path), providers=["CPUExecutionProvider"])
+        for sample in samples:
+            output = quantized.run(["output"], sample)[0]
+            assert output.shape == sample["input"].shape
+            assert np.isfinite(output).all()
 
     def test_restores_model_only_hint_and_canonicalizes_branch_outputs(
         self,

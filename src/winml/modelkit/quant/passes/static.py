@@ -19,10 +19,47 @@ from .base import BaseQuantPass
 
 
 if TYPE_CHECKING:
+    from onnx import GraphProto
+
     from ..config import QuantizeResult, WinMLQuantizationConfig
 
 
 logger = logging.getLogger(__name__)
+
+
+def _restore_external_initializers(original: GraphProto, converted: GraphProto) -> None:
+    """Restore external weights within their graph and nested attribute scopes."""
+    from onnx import external_data_helper
+
+    external_initializers = {
+        tensor.name: tensor
+        for tensor in original.initializer
+        if external_data_helper.uses_external_data(tensor)
+    }
+    for tensor in converted.initializer:
+        source = external_initializers.get(tensor.name)
+        if source is not None:
+            if tensor.data_type != source.data_type or tensor.dims != source.dims:
+                raise ValueError(f"Opset conversion changed external initializer {tensor.name!r}")
+            tensor.CopyFrom(source)
+
+    subgraphs = {
+        (tuple(node.output), attribute.name): attribute
+        for node in original.node
+        for attribute in node.attribute
+        if attribute.HasField("g") or attribute.graphs
+    }
+    for node in converted.node:
+        for attribute in node.attribute:
+            source_attribute = subgraphs.get((tuple(node.output), attribute.name))
+            if source_attribute is None:
+                continue
+            if attribute.HasField("g"):
+                _restore_external_initializers(source_attribute.g, attribute.g)
+            for source_graph, converted_graph in zip(
+                source_attribute.graphs, attribute.graphs, strict=True
+            ):
+                _restore_external_initializers(source_graph, converted_graph)
 
 
 def _publish_staged_model(staged_path: Path, output_path: Path) -> None:
@@ -177,20 +214,9 @@ class StaticPass(BaseQuantPass):
             or self._config.activation_type in ("uint16", "int16")
         ):
             logger.info("Converting QDQ input to opset 21 before loading external weights...")
-            external_initializers = {
-                tensor.name: tensor
-                for tensor in input_model.graph.initializer
-                if external_data_helper.uses_external_data(tensor)
-            }
-            input_model = version_converter.convert_version(input_model, 21)
-            for tensor in input_model.graph.initializer:
-                original = external_initializers.get(tensor.name)
-                if original is not None:
-                    if tensor.data_type != original.data_type or tensor.dims != original.dims:
-                        raise ValueError(
-                            f"Opset conversion changed external initializer {tensor.name!r}"
-                        )
-                    tensor.CopyFrom(original)
+            converted_model = version_converter.convert_version(input_model, 21)
+            _restore_external_initializers(input_model.graph, converted_model.graph)
+            input_model = converted_model
         add_pre_process_metadata(input_model)
 
         logger.info("Generating QDQ config...")

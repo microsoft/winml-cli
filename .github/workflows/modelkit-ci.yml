@@ -26,7 +26,8 @@ jobs:
               tests/unit/models tests/unit/loader tests/unit/datasets
               tests/unit/export
           - group: optim
-            paths: tests/unit/optim
+            paths: >-
+              tests/unit/optim tests/unit/test_quant_passes.py tests/unit/test_quantizer.py
           - group: commands
             paths: >-
               tests/unit/commands tests/unit/config tests/unit/build
