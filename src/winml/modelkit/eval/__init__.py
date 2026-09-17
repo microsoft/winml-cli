@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from .text_classification_evaluator import WinMLTextClassificationEvaluator
     from .text_generation_evaluator import WinMLTextGenerationEvaluator
     from .token_classification_evaluator import WinMLTokenClassificationEvaluator
+    from .translation_evaluator import WinMLTranslationEvaluator
     from .zero_shot_classification_evaluator import WinMLZeroShotClassificationEvaluator
     from .zero_shot_image_classification_evaluator import WinMLZeroShotImageClassificationEvaluator
 
@@ -73,6 +74,7 @@ _LAZY_ATTRS: dict[str, str] = {
     "WinMLTokenClassificationEvaluator": (
         ".token_classification_evaluator:WinMLTokenClassificationEvaluator"
     ),
+    "WinMLTranslationEvaluator": ".translation_evaluator:WinMLTranslationEvaluator",
     "WinMLZeroShotClassificationEvaluator": (
         ".zero_shot_classification_evaluator:WinMLZeroShotClassificationEvaluator"
     ),
@@ -140,6 +142,7 @@ __all__ = [
     "WinMLTextClassificationEvaluator",
     "WinMLTextGenerationEvaluator",
     "WinMLTokenClassificationEvaluator",
+    "WinMLTranslationEvaluator",
     "WinMLZeroShotClassificationEvaluator",
     "WinMLZeroShotImageClassificationEvaluator",
     "evaluate",
