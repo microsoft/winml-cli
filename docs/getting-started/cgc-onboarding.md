@@ -1,4 +1,4 @@
-# CGC onboarding (experimental)
+# Preparing your model for the Windows ML Runtime APIs and DX CGC
 
 CGC onboarding has two journeys:
 
@@ -56,6 +56,9 @@ Use this path when you already have an offline-converted `.mlir` model:
 ```powershell
 winml perf -m .\model.mlir --runtime winml-runtime -o .\model-mlir-perf.json
 ```
+
+> **Note:** Currently, the graph and weights must be embedded in a single
+> `.mlir` file. External weights will be supported in a future release.
 
 The Runtime API loads the model directly and runs it through DXCGC. A
 `.mlir` model can only use the Windows ML Runtime API; it cannot be loaded by
