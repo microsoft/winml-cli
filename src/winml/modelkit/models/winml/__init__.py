@@ -40,6 +40,7 @@ TASK_TO_WINML_CLASS: dict[str, str] = {
     "image-segmentation": "WinMLModelForImageSegmentation",
     "semantic-segmentation": "WinMLModelForSemanticSegmentation",
     "object-detection": "WinMLModelForObjectDetection",
+    "zero-shot-object-detection": "WinMLModelForObjectDetection",
     "depth-estimation": "WinMLModelForDepthEstimation",
     # Not yet implemented — falls back to WinMLModelForGenericTask at runtime
     "token-classification": "WinMLModelForTokenClassification",
