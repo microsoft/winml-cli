@@ -131,6 +131,41 @@ uv run python scripts/e2e_eval/run_eval.py --update-baseline --eval-type accurac
 | `--retry-failed [TYPE ...]` | — | Re-run failed jobs (implies `--continue`); unknown types are rejected as argument errors. Retry criteria are not mutually exclusive: `HF_FETCH_FAIL` also checks failed perf and accuracy logs for `WinError 10060`, `we couldn't connect to 'https://huggingface.co'`, or `thrown while requesting HEAD https://huggingface.co`, even when the primary perf classification is another type or accuracy is `FAIL`. |
 | `--build-only` | off | Build with `--no-compile`, writing each stage's ONNX (no EP needed). Loops the EP matrix when `--ep`/`--device` omitted |
 
+#### Download observation and process timeouts
+
+Each CLI invocation has a lightweight, disposable download-observer process.
+Filesystem traversal and native `psutil.open_files()` calls never run in the
+supervisor. The observer first looks for changed Hugging Face partial-download
+files; it does not enumerate process handles when there are no new candidates.
+Only files positively associated with the CLI process tree can pause execution
+time. Cache roots honor `HF_HOME`, `XDG_CACHE_HOME`, `HF_HUB_CACHE` (and its legacy
+alias), `HF_DATASETS_CACHE`, and `HF_XET_CACHE`.
+
+The observer sends bounded, nonblocking local status messages after each scan,
+normally once per second. Missing observations for five seconds, observer exit,
+or startup failure cause a warning and a fallback to the ordinary execution
+timeout. The observer is not restarted within that CLI invocation. Fresh
+heartbeats alone do not constitute download progress: the stall deadline still
+uses the partial file's size/mtime changes.
+
+When a successful scan finds that all previously owned partial files have gone,
+the download episode has ended and the execution budget resets once. The
+observer does not infer final filenames or validate cache contents; download
+success remains the CLI's responsibility. A scan error stops the observer,
+and its unavailability is included in the captured stderr/result diagnostics.
+Unknown observation never grants a fresh budget. This fallback may time out
+a slow download, but cannot disable execution-timeout enforcement.
+
+CLI and observer trees are owned separately: Windows uses Job Objects assigned
+before process resume, and POSIX uses new process groups. Normal exit, timeout,
+and interruption clean up both trees with bounded waits, including descendants
+that outlive the root. On POSIX, descendants must not deliberately leave their
+assigned group. CLI output is captured in temporary files rather than reader
+pipes, so inherited output handles cannot prevent EOF/pipe cleanup indefinitely.
+No observation is requested after the CLI exits. The outer pipeline/job deadline
+remains an additional infrastructure limit; it is not substituted for the
+download-aware execution timeout.
+
 ### `run_llm_eval.py` — Run GenAI Context Sweep
 
 Runs an existing ONNX Runtime GenAI bundle through `winml perf --runtime

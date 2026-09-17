@@ -14,14 +14,15 @@ for EPs run on the unquantized variant (currently VitisAI).
 from __future__ import annotations
 
 import argparse
+import errno
 import importlib.util
 import json
+import os
 import sys
-import time
-from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+from unittest.mock import call as mock_call
 
 import pytest
 
@@ -191,192 +192,292 @@ class TestShouldSkipWinmlQuant:
         assert run_eval._should_skip_winml_quant(ep) is False
 
 
-class TestKillProcessTree:
-    def test_access_denied_child_does_not_escape(self, run_eval):
-        import psutil
+class TestRunSubprocessDiskFullRetry:
+    """Exercise the retry boundary without launching processes or deleting caches."""
 
-        child = MagicMock()
-        child.kill.side_effect = psutil.AccessDenied(pid=456)
-        parent = MagicMock()
-        parent.children.return_value = [child]
-
+    @pytest.fixture
+    def retry_harness(self, run_eval):
+        calls = MagicMock()
+        args, timeout = ["controlled-child"], 30
+        success = {"stdout": "", "stderr": "", "exit_code": 0, "timeout": False}
         with (
-            patch.object(psutil, "Process", return_value=parent),
-            patch.object(psutil, "wait_procs") as wait_procs,
+            patch.object(run_eval, "_run_subprocess_once", calls.run_once),
+            patch.object(run_eval, "_clear_disk_caches", calls.clear_caches),
+            patch.object(run_eval, "_run_subprocess", wraps=run_eval._run_subprocess) as run,
         ):
-            run_eval._kill_process_tree(123)
+            yield SimpleNamespace(
+                calls=calls, args=args, timeout=timeout, success=success, run=run
+            )
+        # Recursive retries would re-enter the patched module-level function.
+        run.assert_called_once_with(args, timeout)
 
-        parent.kill.assert_called_once_with()
-        wait_procs.assert_called_once_with([child, parent], timeout=5)
+    @pytest.fixture(params=["enospc", "winerror112"])
+    def disk_full_errors(self, request):
+        error_number = errno.ENOSPC if request.param == "enospc" else errno.EIO
+        errors = [OSError(error_number, os.strerror(error_number)) for _ in range(2)]
+        if request.param == "winerror112":
+            for error in errors:
+                error.winerror = 112
+        return errors
 
-    def test_children_race_falls_back_to_platform_kill(self, run_eval):
-        import psutil
+    @pytest.mark.parametrize("stream", ["stdout", "stderr"])
+    def test_disk_full_output_retries_once_then_returns_result(self, retry_harness, stream):
+        harness = retry_harness
+        failure = {
+            **harness.success,
+            "exit_code": 1,
+            stream: str(OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))),
+        }
+        harness.calls.run_once.side_effect = [failure, harness.success]
 
-        parent = MagicMock()
-        parent.children.side_effect = psutil.NoSuchProcess(pid=123)
+        result = harness.run(harness.args, harness.timeout)
 
-        with (
-            patch.object(psutil, "Process", return_value=parent),
-            patch.object(run_eval.platform, "system", return_value="Windows"),
-            patch.object(run_eval.subprocess, "run") as subprocess_run,
-        ):
-            run_eval._kill_process_tree(123)
+        assert result is harness.success
+        assert harness.calls.mock_calls == [
+            mock_call.run_once(harness.args, harness.timeout),
+            mock_call.clear_caches(),
+            mock_call.run_once(harness.args, harness.timeout),
+        ]
 
-        subprocess_run.assert_called_once_with(
-            ["taskkill", "/F", "/T", "/PID", "123"],
-            capture_output=True,
-        )
+    @pytest.mark.parametrize("stream", ["stdout", "stderr"])
+    def test_repeated_disk_full_output_stops_after_two_attempts(self, retry_harness, stream):
+        harness = retry_harness
+        failures = [
+            {
+                **harness.success,
+                "exit_code": 1,
+                stream: str(OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))),
+            }
+            for _ in range(2)
+        ]
+        harness.calls.run_once.side_effect = failures
+
+        result = harness.run(harness.args, harness.timeout)
+
+        assert result is failures[-1]
+        assert harness.calls.mock_calls == [
+            mock_call.run_once(harness.args, harness.timeout),
+            mock_call.clear_caches(),
+            mock_call.run_once(harness.args, harness.timeout),
+        ]
+
+    def test_disk_full_exception_cleans_once_then_retries_successfully(
+        self, retry_harness, disk_full_errors
+    ):
+        harness = retry_harness
+        harness.calls.run_once.side_effect = [disk_full_errors[0], harness.success]
+
+        result = harness.run(harness.args, harness.timeout)
+
+        assert result is harness.success
+        assert harness.calls.mock_calls == [
+            mock_call.run_once(harness.args, harness.timeout),
+            mock_call.clear_caches(),
+            mock_call.run_once(harness.args, harness.timeout),
+        ]
+
+    def test_repeated_disk_full_exception_raises_after_two_attempts(
+        self, retry_harness, disk_full_errors
+    ):
+        harness = retry_harness
+        harness.calls.run_once.side_effect = disk_full_errors
+
+        with pytest.raises(OSError) as exc_info:
+            harness.run(harness.args, harness.timeout)
+
+        assert exc_info.value is disk_full_errors[-1]
+        assert harness.calls.mock_calls == [
+            mock_call.run_once(harness.args, harness.timeout),
+            mock_call.clear_caches(),
+            mock_call.run_once(harness.args, harness.timeout),
+        ]
+
+    @pytest.mark.parametrize("error_number", [errno.EACCES, errno.EIO])
+    def test_unrelated_oserror_is_not_retried(self, retry_harness, error_number):
+        harness = retry_harness
+        error = OSError(error_number, os.strerror(error_number))
+        harness.calls.run_once.side_effect = error
+
+        with pytest.raises(OSError) as exc_info:
+            harness.run(harness.args, harness.timeout)
+
+        assert exc_info.value is error
+        assert harness.calls.mock_calls == [mock_call.run_once(harness.args, harness.timeout)]
+
+
+class TestExecutionBudget:
+    """Keep timing assertions independent of process startup and native scans."""
+
+    @pytest.fixture
+    def protocol(self, run_eval):
+        return sys.modules[run_eval.DownloadObserver.__module__]
+
+    @pytest.mark.parametrize("state", ["IDLE", "UNKNOWN"])
+    def test_no_owned_download_uses_original_timeout(self, protocol, state):
+        budget = protocol.ExecutionBudget(timeout=2, stall_timeout=30, now=0)
+        budget.update(1, protocol.Observation(state, 1))
+        assert not budget.timed_out
+        budget.update(2, protocol.Observation(state, 2))
+        assert budget.execution_elapsed == 2
+        assert budget.timed_out
+        assert not budget.hf_download_stalled
+
+    def test_only_confirmed_completion_restarts_execution_budget_once(self, protocol):
+        budget = protocol.ExecutionBudget(timeout=2, stall_timeout=30, now=0)
+        budget.update(1, protocol.Observation("ACTIVE", 1, epoch=1, last_progress=1))
+        for now in range(2, 9):
+            budget.update(now, protocol.Observation("ACTIVE", now, epoch=1, last_progress=now))
+            assert budget.execution_elapsed == 1
+            assert not budget.timed_out
+        budget.update(9, protocol.Observation("IDLE", 9, epoch=1, completed_epoch=1))
+        assert budget.execution_elapsed == 0
+        budget.update(10, protocol.Observation("IDLE", 10, epoch=1, completed_epoch=1))
+        assert budget.execution_elapsed == 1
+        assert not budget.timed_out
+        budget.update(11, protocol.Observation("IDLE", 11, epoch=1, completed_epoch=1))
+        assert budget.timed_out
+
+    def test_slow_scan_pauses_only_until_last_observation_expires(self, protocol):
+        budget = protocol.ExecutionBudget(timeout=2, stall_timeout=30, now=0)
+        active = protocol.Observation("ACTIVE", 1, epoch=1, last_progress=1)
+        budget.update(1, active)
+        expiry = active.observed_at + protocol.FRESHNESS_SECONDS
+        budget.update(expiry, active)
+        assert budget.execution_elapsed == 1
+        assert not budget.timed_out
+        budget.update(expiry + 1, active)
+        assert budget.execution_elapsed == 2
+        assert budget.timed_out
+        assert not budget.hf_download_stalled
+
+    @pytest.mark.parametrize("state", ["UNKNOWN", "IDLE"])
+    def test_loss_of_ownership_is_not_completion(self, protocol, state):
+        budget = protocol.ExecutionBudget(timeout=2, stall_timeout=30, now=0)
+        budget.update(1, protocol.Observation("ACTIVE", 1, epoch=1, last_progress=1))
+        budget.update(2, protocol.Observation(state, 2, epoch=1))
+        assert budget.execution_elapsed == 1
+        # A delayed completion after loss of ownership must not grant more time.
+        budget.update(3, protocol.Observation("IDLE", 3, epoch=1, completed_epoch=1))
+        assert budget.execution_elapsed == 2
+        assert budget.timed_out
+
+    def test_unseen_completion_does_not_grant_a_fresh_budget(self, protocol):
+        budget = protocol.ExecutionBudget(timeout=2, stall_timeout=30, now=0)
+        budget.update(2, protocol.Observation("IDLE", 2, epoch=1, completed_epoch=1))
+        assert budget.timed_out
+        assert budget.execution_elapsed == 2
+
+    def test_download_stall_has_an_independent_deadline(self, protocol):
+        budget = protocol.ExecutionBudget(timeout=2, stall_timeout=4, now=0)
+        for now in range(1, 5):
+            budget.update(now, protocol.Observation("ACTIVE", now, epoch=1, last_progress=1))
+            assert not budget.hf_download_stalled
+            assert not budget.timed_out
+        budget.update(5, protocol.Observation("ACTIVE", 5, epoch=1, last_progress=1))
+        assert budget.hf_download_stalled
+        assert not budget.timed_out
+
+    def test_progress_advances_stall_deadline(self, protocol):
+        budget = protocol.ExecutionBudget(timeout=2, stall_timeout=4, now=0)
+        budget.update(1, protocol.Observation("ACTIVE", 1, epoch=1, last_progress=1))
+        budget.update(4, protocol.Observation("ACTIVE", 4, epoch=1, last_progress=4))
+        budget.update(7, protocol.Observation("ACTIVE", 7, epoch=1, last_progress=4))
+        assert not budget.hf_download_stalled
+        budget.update(8, protocol.Observation("ACTIVE", 8, epoch=1, last_progress=4))
+        assert budget.hf_download_stalled
+
+
+@pytest.fixture
+def subprocess_harness(run_eval, monkeypatch):
+    """Fake only the owned process and observer; use real budget and spool files."""
+    protocol = sys.modules[run_eval.DownloadObserver.__module__]
+    state = SimpleNamespace(now=0.0, finish=float("inf"), streams=[], cleanup=[])
+    proc = MagicMock(pid=123, returncode=None, stdout=None, stderr=None)
+    tree = MagicMock(process=proc)
+    tree.__enter__.return_value = tree
+    observer = MagicMock(failure=None)
+    observer.__enter__.return_value = observer
+    observer.poll.side_effect = lambda now: protocol.Observation("IDLE", now)
+
+    def poll():
+        if state.now >= state.finish:
+            proc.returncode = 0
+        return proc.returncode
+
+    def wait(timeout):
+        state.now = min(state.now + timeout, state.finish)
+        if poll() is not None:
+            return proc.returncode
+        raise run_eval.subprocess.TimeoutExpired("controlled-child", timeout)
+
+    def spawn(_args, *, stdout, stderr, env):
+        state.streams.extend([stdout, stderr])
+        assert stdout.fileno() != stderr.fileno()
+        assert env["PYTHONIOENCODING"] == "utf-8"
+        assert env["HF_HUB_DOWNLOAD_TIMEOUT"] == str(int(run_eval._HF_DOWNLOAD_STALL_TIMEOUT))
+        stdout.write(b"child output\n")
+        stderr.write(b"child diagnostic\n")
+        return tree
+
+    def exit_observer(*_exc):
+        state.cleanup.append("observer")
+
+    def exit_tree(*_exc):
+        assert all(not stream.closed for stream in state.streams)
+        state.cleanup.append("tree")
+
+    proc.poll.side_effect = poll
+    proc.wait.side_effect = wait
+    tree.__exit__.side_effect = exit_tree
+    observer.__exit__.side_effect = exit_observer
+    monkeypatch.setattr(run_eval, "ManagedProcess", MagicMock(side_effect=spawn))
+    monkeypatch.setattr(run_eval, "DownloadObserver", MagicMock(return_value=observer))
+    monkeypatch.setattr(
+        run_eval, "time",
+        SimpleNamespace(monotonic=lambda: state.now, perf_counter=lambda: state.now),
+    )
+    state.process, state.tree, state.observer, state.protocol = proc, tree, observer, protocol
+    yield state
+    assert state.cleanup == ["observer", "tree"]
+    assert all(stream.closed for stream in state.streams)
+    proc.communicate.assert_not_called()
 
 
 class TestRunSubprocessTimeouts:
-    _HF_CACHE_ENV_VARS = (
-        "HF_HOME",
-        "HF_HUB_CACHE",
-        "HUGGINGFACE_HUB_CACHE",
-        "HF_DATASETS_CACHE",
-        "HF_XET_CACHE",
-        "XDG_CACHE_HOME",
-    )
-
-    @classmethod
-    def _cache_env(cls, run_eval, **overrides):
-        env = {
-            name: value
-            for name, value in run_eval.os.environ.items()
-            if name not in cls._HF_CACHE_ENV_VARS
-        }
-        env.update({name: str(value) for name, value in overrides.items()})
-        return patch.dict(run_eval.os.environ, env, clear=True)
-
-    @staticmethod
-    def _download_script(
-        incomplete: Path,
-        delays: list[float],
-        *,
-        before_download: float = 0.0,
-        after_download: float = 0.0,
-    ) -> str:
-        return "\n".join(
-            [
-                "import time",
-                "from pathlib import Path",
-                f"path = Path({str(incomplete)!r})",
-                f"time.sleep({before_download})",
-                "path.parent.mkdir(parents=True, exist_ok=True)",
-                "with path.open('wb') as stream:",
-                *[
-                    line
-                    for delay in delays
-                    for line in (
-                        "    stream.write(b'x')",
-                        "    stream.flush()",
-                        f"    time.sleep({delay})",
-                    )
-                ],
-                "path.unlink()",
-                f"time.sleep({after_download})",
-            ]
-        )
-
-    def _run_download_timeline(
-        self, run_eval, tmp_path, *, cache_variable, after_download=0.55, scan_delay=0.0
+    @pytest.mark.parametrize("finish", [2.25, 4.0])
+    def test_execution_restarts_then_still_times_out_after_completed_download(
+        self, run_eval, subprocess_harness, finish
     ):
-        """Exercise real cache detection/accounting without subsecond OS scheduling races.
+        harness = subprocess_harness
+        harness.finish = finish
 
-        The old test allowed only 150 ms for Python startup before a 500-ms
-        deadline, and depended on Windows open_files observing a brief handle.
-        This clock controls only process wait/handle discovery; cache-root
-        resolution, snapshots, ownership matching and budget accounting are real.
-        """
-        cache_home = tmp_path / "huggingface" if cache_variable == "XDG_CACHE_HOME" else tmp_path
-        incomplete = cache_home / "hub" / "models--acme--model" / "blobs" / "model.incomplete"
-        now = 0.0
-        download_start, download_end = 0.35, 1.35
-        finish = download_end + after_download
-        observed = []
-        proc = MagicMock(pid=123, returncode=0, stdout=BytesIO(), stderr=BytesIO())
+        def observe(now):
+            if now < 0.25:
+                return harness.protocol.Observation("IDLE", now)
+            if now < 1.5:
+                return harness.protocol.Observation("ACTIVE", now, epoch=1, last_progress=now)
+            return harness.protocol.Observation("IDLE", now, epoch=1, completed_epoch=1)
 
-        def open_paths(pid):
-            nonlocal now
-            assert pid == proc.pid
-            now += scan_delay
-            if download_start <= now < download_end:
-                incomplete.parent.mkdir(parents=True, exist_ok=True)
-                with incomplete.open("ab") as stream:
-                    stream.write(b"x")
-                observed.append(incomplete)
-                return {run_eval._normalized_path(incomplete)}
-            incomplete.unlink(missing_ok=True)
-            return set()
-
-        def wait(timeout):
-            nonlocal now
-            now = min(now + timeout, max(now, finish))
-            if now >= finish:
-                return 0
-            raise run_eval.subprocess.TimeoutExpired("controlled-child", timeout)
-
-        proc.wait.side_effect = wait
-        with (
-            self._cache_env(run_eval, **{cache_variable: tmp_path}),
-            patch.object(run_eval, "time", SimpleNamespace(perf_counter=lambda: now)),
-            patch.object(run_eval.subprocess, "Popen", return_value=proc),
-            patch.object(run_eval, "_process_tree_open_paths", side_effect=open_paths),
-            patch.object(run_eval, "_kill_process_tree") as kill_tree,
-            patch.object(run_eval, "_HF_DOWNLOAD_STALL_TIMEOUT", 2.0),
-        ):
-            result = run_eval._run_subprocess(["controlled-child"], timeout=0.5)
-
-        assert observed, "The actual cache snapshot must detect the owned download"
-        if result["timeout"]:
-            kill_tree.assert_called_once_with(proc.pid)
-            proc.kill.assert_called_once()
-        else:
-            kill_tree.assert_not_called()
-            proc.kill.assert_not_called()
-        return result
-
-    @pytest.mark.parametrize("cache_variable", ["HF_HOME", "XDG_CACHE_HOME"])
-    def test_execution_timeout_restarts_after_hf_download(self, run_eval, tmp_path, cache_variable):
-        result = self._run_download_timeline(run_eval, tmp_path, cache_variable=cache_variable)
-        assert result["exit_code"] == 0, result
-        assert result["elapsed"] == 1.9
-        assert result["timeout"] is False
+        harness.observer.poll.side_effect = observe
+        result = run_eval._run_subprocess(["controlled-child"], timeout=1)
+        timed_out = finish > 2.5
+        assert result["timeout"] is timed_out
+        assert result["exit_code"] == (-1 if timed_out else 0)
         assert result["hf_download_stalled"] is False
+        assert harness.tree.terminate.call_count == int(timed_out)
+        assert result["stdout"] == "child output\n"
+        assert result["stderr"] == "child diagnostic\n"
 
-    def test_execution_timeout_restarts_after_hf_download_with_slow_handle_scan(
-        self, run_eval, tmp_path
+    def test_stalled_download_is_retryable_not_execution_timeout(
+        self, run_eval, subprocess_harness, monkeypatch
     ):
-        result = self._run_download_timeline(
-            run_eval, tmp_path, cache_variable="HF_HOME", scan_delay=0.7
+        harness = subprocess_harness
+        monkeypatch.setattr(run_eval, "_HF_DOWNLOAD_STALL_TIMEOUT", 1)
+        harness.observer.poll.side_effect = lambda now: harness.protocol.Observation(
+            "ACTIVE", now, epoch=1, last_progress=0
         )
-        assert result["exit_code"] == 0, result
-        assert result["timeout"] is False
-        assert result["hf_download_stalled"] is False
-
-    @pytest.mark.parametrize("cache_variable", ["HF_HOME", "XDG_CACHE_HOME"])
-    def test_execution_still_times_out_after_completed_download(
-        self, run_eval, tmp_path, cache_variable
-    ):
-        result = self._run_download_timeline(
-            run_eval, tmp_path, cache_variable=cache_variable, after_download=2.0
-        )
-        assert result["exit_code"] == -1, result
-        assert result["timeout"] is True
-        assert result["hf_download_stalled"] is False
-
-    def test_stalled_hf_download_uses_independent_timeout(self, run_eval, tmp_path):
-        incomplete = tmp_path / "hub" / "models--acme--model" / "blobs" / "model.incomplete"
-        script = self._download_script(incomplete, [5.0])
-
-        with (
-            self._cache_env(run_eval, HF_HOME=tmp_path),
-            patch.object(run_eval, "_HF_DOWNLOAD_STALL_TIMEOUT", 0.5),
-        ):
-            result = run_eval._run_subprocess([sys.executable, "-c", script], timeout=5)
-
+        result = run_eval._run_subprocess(["controlled-child"], timeout=0.5)
         assert result["exit_code"] == -1
-        assert result["elapsed"] < 3
         assert result["timeout"] is False
         assert result["hf_download_stalled"] is True
         assert "Hugging Face download stalled" in result["stderr"]
@@ -384,60 +485,61 @@ class TestRunSubprocessTimeouts:
         assert classifier.classify_failure(result["stderr"], result["exit_code"]) is (
             classifier.FailureType.HF_FETCH_FAIL
         )
-        assert classifier.matches_hf_fetch_retry(result["stderr"]) is True
+        assert classifier.matches_hf_fetch_retry(result["stderr"])
+        harness.tree.terminate.assert_called_once_with()
 
-    def test_unrelated_hf_download_does_not_suspend_execution_timeout(self, run_eval, tmp_path):
-        incomplete = tmp_path / "hub" / "models--acme--model" / "blobs" / "model.incomplete"
-        sibling_script = self._download_script(incomplete, [0.1] * 20)
-
-        with (
-            self._cache_env(run_eval, HF_HOME=tmp_path),
-            patch.object(run_eval, "_HF_DOWNLOAD_STALL_TIMEOUT", 1.0),
-        ):
-            sibling = run_eval.subprocess.Popen([sys.executable, "-c", sibling_script])
-            try:
-                deadline = time.perf_counter() + 2
-                while not incomplete.exists() and time.perf_counter() < deadline:
-                    time.sleep(0.01)
-                assert incomplete.exists()
-
-                result = run_eval._run_subprocess(
-                    [sys.executable, "-c", "import time; time.sleep(1.2)"],
-                    timeout=0.5,
-                )
-            finally:
-                sibling.kill()
-                sibling.wait(timeout=5)
-
-        assert result["exit_code"] == -1
-        assert result["timeout"] is True
-        assert result["hf_download_stalled"] is False
-
-    def test_stalled_xdg_hf_download_uses_independent_timeout(self, run_eval, tmp_path):
-        incomplete = (
-            tmp_path / "huggingface" / "hub" / "models--acme--model" / "blobs" / "model.incomplete"
-        )
-        script = self._download_script(incomplete, [5.0])
-
-        with (
-            self._cache_env(run_eval, XDG_CACHE_HOME=tmp_path),
-            patch.object(run_eval, "_HF_DOWNLOAD_STALL_TIMEOUT", 0.5),
-        ):
-            result = run_eval._run_subprocess([sys.executable, "-c", script], timeout=5)
-
-        assert result["exit_code"] == -1
-        assert result["timeout"] is False
-        assert result["hf_download_stalled"] is True
-
-    def test_execution_without_hf_download_uses_original_timeout(self, run_eval):
-        with patch.object(run_eval, "_HF_DOWNLOAD_STALL_TIMEOUT", 1.0):
-            result = run_eval._run_subprocess(
-                [sys.executable, "-c", "import time; time.sleep(5)"], timeout=0.5
+    @pytest.mark.parametrize("observer_failed", [False, True])
+    def test_without_download_uses_original_timeout(
+        self, run_eval, subprocess_harness, observer_failed
+    ):
+        harness = subprocess_harness
+        if observer_failed:
+            harness.observer.failure = "observer process exited"
+            harness.observer.poll.side_effect = lambda now: harness.protocol.Observation(
+                "UNKNOWN", now
             )
-
+        result = run_eval._run_subprocess(["controlled-child"], timeout=1)
         assert result["exit_code"] == -1
         assert result["timeout"] is True
         assert result["hf_download_stalled"] is False
+        assert result["elapsed"] == 1
+        if observer_failed:
+            assert harness.observer.failure in result["stderr"]
+            assert "using the execution timeout" in result["stderr"]
+        else:
+            assert "observation unavailable" not in result["stderr"]
+        harness.tree.terminate.assert_called_once_with()
+        run_eval.DownloadObserver.assert_called_once()
+
+    @pytest.mark.parametrize("finish", [0, 0.25])
+    def test_exited_child_never_triggers_postexit_observer_read(
+        self, run_eval, subprocess_harness, finish
+    ):
+        harness = subprocess_harness
+        harness.finish = finish
+
+        def observe(now):
+            assert harness.process.returncode is None, "No post-exit handle scan is allowed"
+            return harness.protocol.Observation("IDLE", now)
+
+        harness.observer.poll.side_effect = observe
+        result = run_eval._run_subprocess(["controlled-child"], timeout=1)
+        assert result["exit_code"] == 0
+        assert result["timeout"] is False
+        assert harness.observer.poll.call_count == int(finish > 0)
+        harness.tree.terminate.assert_not_called()
+
+    @pytest.mark.parametrize("interrupt_at", ["wait", "observer"])
+    def test_keyboard_interrupt_unwinds_observer_tree_and_spools(
+        self, run_eval, subprocess_harness, interrupt_at
+    ):
+        harness = subprocess_harness
+        target = harness.process.wait if interrupt_at == "wait" else harness.observer.poll
+        target.side_effect = KeyboardInterrupt
+        with pytest.raises(KeyboardInterrupt):
+            run_eval._run_subprocess(["controlled-child"], timeout=1)
+        assert harness.observer.__exit__.call_args.args[0] is KeyboardInterrupt
+        assert harness.tree.__exit__.call_args.args[0] is KeyboardInterrupt
 
 
 def test_curated_target_models_preserve_existing_priorities(run_eval):

@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import errno
 import functools
 import hashlib
 import json
@@ -56,7 +57,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
@@ -68,6 +68,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from utils.classifier import FailureType, matches_hf_fetch_retry
 from utils.dataset_config import get_dataset_config, register_from_registry
+from utils.download_observer import DownloadObserver, ExecutionBudget
+from utils.process_tree import ManagedProcess
 from utils.recipes import RecipeVariant, copy_recipe_target, discover_recipe_variants
 from utils.registry import (
     ModelEntry,
@@ -575,318 +577,82 @@ def _sanitize_output(text: str) -> str:
     return "\n".join(kept)
 
 
-def _kill_process_tree(pid: int) -> None:
-    """Kill a process and all its children.
-
-    On Windows, taskkill /T may miss grandchildren spawned without job objects.
-    We use psutil if available for reliable tree kill, falling back to taskkill.
-    """
-    try:
-        import psutil
-    except ImportError:
-        psutil = None
-
-    if psutil is not None:
-        try:
-            parent = psutil.Process(pid)
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            return
-        try:
-            children = parent.children(recursive=True)
-        except psutil.Error:
-            # The process tree may change between Process() and children().
-            # Fall through to the platform tree-kill as a best effort.
-            pass
-        else:
-            for child in children:
-                with contextlib.suppress(psutil.NoSuchProcess, psutil.AccessDenied):
-                    child.kill()
-            with contextlib.suppress(psutil.NoSuchProcess, psutil.AccessDenied):
-                parent.kill()
-            # Wait briefly for processes to terminate
-            with contextlib.suppress(psutil.Error):
-                psutil.wait_procs([*children, parent], timeout=5)
-            return
-
-    # Fallback: taskkill on Windows, killpg on Unix
-    if platform.system() == "Windows":
-        subprocess.run(  # noqa: S603
-            ["taskkill", "/F", "/T", "/PID", str(pid)],  # noqa: S607
-            capture_output=True,
-        )
-    else:
-        import signal
-
-        try:
-            os.killpg(os.getpgid(pid), signal.SIGKILL)
-        except ProcessLookupError:
-            pass  # Process already exited; nothing to kill
-
-
-def _expand_cache_path(path: str | os.PathLike[str]) -> Path:
-    return Path(os.path.expandvars(os.fspath(path))).expanduser()
-
-
-def _hf_cache_roots(env: dict[str, str]) -> tuple[Path, Path, Path]:
-    """Resolve cache roots using Hugging Face's environment precedence."""
-    if "HF_HOME" in env:
-        hf_home = _expand_cache_path(env["HF_HOME"])
-    else:
-        xdg_cache = _expand_cache_path(env.get("XDG_CACHE_HOME", Path.home() / ".cache"))
-        hf_home = xdg_cache / "huggingface"
-
-    hub_cache_value = env.get("HF_HUB_CACHE")
-    if hub_cache_value is None:
-        hub_cache_value = env.get("HUGGINGFACE_HUB_CACHE")
-    hub_cache = _expand_cache_path(hub_cache_value or hf_home / "hub")
-    datasets_cache = _expand_cache_path(env.get("HF_DATASETS_CACHE") or hf_home / "datasets")
-    xet_cache = _expand_cache_path(env.get("HF_XET_CACHE") or hf_home / "xet")
-    return hub_cache, datasets_cache, xet_cache
-
-
-def _snapshot_hf_downloads(env: dict[str, str]) -> dict[Path, tuple[int, int]]:
-    """Return observable Hugging Face partial downloads as size/mtime pairs."""
-    hub_cache, datasets_cache, xet_cache = _hf_cache_roots(env)
-    searches = (
-        (hub_cache, ("*/blobs/*.incomplete", "*.incomplete")),
-        (datasets_cache, ("downloads/*.incomplete",)),
-        (xet_cache, ("**/*.incomplete",)),
-    )
-    snapshot: dict[Path, tuple[int, int]] = {}
-    for root, patterns in searches:
-        if not root.is_dir():
-            continue
-        for pattern in patterns:
-            try:
-                candidates = root.glob(pattern)
-                for path in candidates:
-                    try:
-                        stat = path.stat()
-                    except OSError:
-                        continue
-                    snapshot[path] = (stat.st_size, stat.st_mtime_ns)
-            except OSError:
-                continue
-    return snapshot
-
-
-def _normalized_path(path: str | os.PathLike[str]) -> str:
-    return os.path.normcase(os.path.realpath(os.fspath(path)))
-
-
-def _process_tree_open_paths(pid: int) -> set[str]:
-    """Return normalized paths opened by a process and its descendants."""
-    try:
-        import psutil
-    except ImportError:
-        return set()
-
-    try:
-        root = psutil.Process(pid)
-    except psutil.Error:
-        return set()
-
-    processes = [root]
-    with contextlib.suppress(psutil.Error):
-        processes.extend(root.children(recursive=True))
-
-    paths: set[str] = set()
-    for process in processes:
-        try:
-            open_files = process.open_files()
-        except psutil.Error:
-            continue
-        paths.update(_normalized_path(open_file.path) for open_file in open_files)
-    return paths
-
-
-class _HfDownloadTracker:
-    """Detect downloads owned by the monitored subprocess tree."""
-
-    def __init__(self, env: dict[str, str], now: float) -> None:
-        self._env = env
-        self._previous = _snapshot_hf_downloads(env)
-        self._active_paths: set[Path] = set()
-        self._pid: int | None = None
-        self.last_progress = now
-
-    def bind(self, pid: int) -> None:
-        self._pid = pid
-
-    def poll(self, now: float) -> bool:
-        open_paths = _process_tree_open_paths(self._pid) if self._pid is not None else set()
-        current = _snapshot_hf_downloads(self._env)
-        progressed = {
-            path
-            for path, state in current.items()
-            if self._previous.get(path) != state and _normalized_path(path) in open_paths
-        }
-        if progressed:
-            self._active_paths.update(progressed)
-            self.last_progress = now
-        self._active_paths.intersection_update(
-            path for path in current if _normalized_path(path) in open_paths
-        )
-        self._previous = current
-        return bool(self._active_paths)
-
-
 def _run_subprocess(args: list[str], timeout: int) -> dict:
-    """Run a subprocess with execution and HF-download-stall timeouts.
+    """Run an owned CLI tree with isolated, optional HF download observation.
 
-    ``timeout`` starts normally when no Hugging Face download is observed. If a
-    Hub download starts, the execution budget is suspended and reset to its
-    full value after the download completes. Downloads get an independent
-    inactivity budget: if an ``*.incomplete`` cache file stops changing for
-    ``_HF_DOWNLOAD_STALL_TIMEOUT`` seconds, the process is terminated as an HF
-    fetch failure.
-
-    Windows fix: On Windows, child processes can inherit pipe handles, causing
-    pipe reads to block indefinitely even after ``taskkill`` kills the process
-    tree. We work around this by:
-    1. Using ``CREATE_NO_WINDOW`` to prevent console inheritance issues.
-    2. Reading stdout/stderr in background threads.
-    3. Polling process state independently of pipe EOF.
+    Only fresh positive download observations pause execution time; only an
+    explicitly completed download episode resets it. Observer failures resume
+    normal timing. File-backed output eliminates inherited-pipe EOF/close locks.
     """
+    for attempt in range(2):
+        try:
+            result = _run_subprocess_once(args, timeout)
+        except OSError as exc:
+            if attempt or (exc.errno != errno.ENOSPC and getattr(exc, "winerror", None) != 112):
+                raise
+            safe_print("  [disk-full] Clearing caches after output allocation failure...")
+            _clear_disk_caches()
+            continue
+        if result["exit_code"] == 0 or result["timeout"] or not _is_no_space_error(result):
+            break
+        if attempt == 0:
+            safe_print("  [disk-full] Clearing caches and retrying once...")
+            _clear_disk_caches()
+    return result
+
+
+def _run_subprocess_once(args: list[str], timeout: int) -> dict:
     env = {
         **os.environ,
         "PYTHONIOENCODING": "utf-8",
         "HF_HUB_DOWNLOAD_TIMEOUT": str(int(_HF_DOWNLOAD_STALL_TIMEOUT)),
     }
     start = time.perf_counter()
-    timed_out = False
-    hf_download_stalled = False
-    execution_elapsed = 0.0
-    last_poll = start
-    download_tracker = _HfDownloadTracker(env, start)
-    download_was_active = False
-
-    popen_kwargs: dict = {
-        "stdout": subprocess.PIPE,
-        "stderr": subprocess.PIPE,
-        "env": env,
-    }
-    if platform.system() == "Windows":
-        popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-    else:
-        popen_kwargs["start_new_session"] = True
-    proc = subprocess.Popen(args, **popen_kwargs)  # noqa: S603
-    download_tracker.bind(proc.pid)
-
-    # Read pipes in background threads so communicate() timeout works even
-    # when grandchild processes keep pipe handles alive (Windows issue).
-    stdout_chunks: list[bytes] = []
-    stderr_chunks: list[bytes] = []
-
-    def _reader(pipe, dest: list[bytes]) -> None:
-        try:
-            while True:
-                chunk = pipe.read(8192)
-                if not chunk:
-                    break
-                dest.append(chunk)
-        except (OSError, ValueError):
-            pass  # Pipe closed or broken; stop reading
-
-    stdout_thread = threading.Thread(target=_reader, args=(proc.stdout, stdout_chunks), daemon=True)
-    stderr_thread = threading.Thread(target=_reader, args=(proc.stderr, stderr_chunks), daemon=True)
-    stdout_thread.start()
-    stderr_thread.start()
-
-    try:
-        while True:
-            remaining = max(0.01, timeout - execution_elapsed)
-            try:
-                proc.wait(timeout=min(_SUBPROCESS_POLL_INTERVAL, remaining))
-                now = time.perf_counter()
-                download_active = download_tracker.poll(now)
-                if download_was_active and not download_active:
-                    execution_elapsed = 0.0
-                elif not download_active:
-                    execution_elapsed += now - last_poll
-                exit_code = proc.returncode
-                break
-            except subprocess.TimeoutExpired:
-                now = time.perf_counter()
-                download_active = download_tracker.poll(now)
-                if download_active:
-                    download_was_active = True
-                    if now - download_tracker.last_progress >= _HF_DOWNLOAD_STALL_TIMEOUT:
-                        hf_download_stalled = True
-                else:
-                    if download_was_active:
-                        execution_elapsed = 0.0
-                        download_was_active = False
-                    else:
-                        execution_elapsed += now - last_poll
-                    if execution_elapsed >= timeout:
-                        timed_out = True
-                last_poll = now
-
-                if not timed_out and not hf_download_stalled:
-                    continue
-
-                _kill_process_tree(proc.pid)
-                with contextlib.suppress(OSError):
-                    proc.kill()
-                exit_code = -1
-                break
-
-        # Give reader threads a moment to finish draining
-        stdout_thread.join(timeout=10)
-        stderr_thread.join(timeout=10)
-    except KeyboardInterrupt:
-        safe_print("\n  [Ctrl+C] Killing subprocess...")
-        _kill_process_tree(proc.pid)
-        with contextlib.suppress(OSError):
-            proc.kill()
-        stdout_thread.join(timeout=5)
-        stderr_thread.join(timeout=5)
-        raise
-    finally:
-        # Force-close pipes to unblock any stuck reader threads
-        for pipe in (proc.stdout, proc.stderr):
-            if pipe:
-                try:
-                    pipe.close()
-                except OSError:
-                    pass  # Pipe already closed
-        # Final attempt: if reader threads are still alive after pipe close,
-        # don't block forever — just proceed with whatever was collected.
-        if stdout_thread.is_alive():
-            stdout_thread.join(timeout=2)
-        if stderr_thread.is_alive():
-            stderr_thread.join(timeout=2)
-
-    stdout = b"".join(stdout_chunks).decode("utf-8", errors="replace")
-    stderr = b"".join(stderr_chunks).decode("utf-8", errors="replace")
-    if hf_download_stalled:
+    budget = ExecutionBudget(timeout, _HF_DOWNLOAD_STALL_TIMEOUT, time.monotonic())
+    with tempfile.TemporaryFile() as out_file, tempfile.TemporaryFile() as err_file:
+        with ManagedProcess(args, stdout=out_file, stderr=err_file, env=env) as tree:
+            proc = tree.process
+            with DownloadObserver(proc.pid, env) as observer:
+                while proc.poll() is None:
+                    now = time.monotonic()
+                    observation = observer.poll(now)
+                    budget.update(time.monotonic(), observation)
+                    if budget.timed_out or budget.hf_download_stalled:
+                        tree.terminate()
+                        break
+                    remaining = max(0.01, timeout - budget.execution_elapsed)
+                    with contextlib.suppress(subprocess.TimeoutExpired):
+                        proc.wait(timeout=min(_SUBPROCESS_POLL_INTERVAL, remaining))
+                # Never perform a final observer scan after the CLI has exited.
+                exit_code = -1 if budget.timed_out or budget.hf_download_stalled else proc.returncode
+                observer_failure = observer.failure
+        # Tree ownership ends before capturing output or removing temp files.
+        out_file.seek(0)
+        err_file.seek(0)
+        stdout = out_file.read().decode("utf-8", errors="replace")
+        stderr = err_file.read().decode("utf-8", errors="replace")
+    if budget.hf_download_stalled:
         stderr += (
             "\nError while downloading from https://huggingface.co: "
             f"no cache progress for {_HF_DOWNLOAD_STALL_TIMEOUT:g} seconds "
             "(Hugging Face download stalled).\n"
         )
+    if observer_failure:
+        stderr += (
+            f"\nWarning: HF download observation unavailable ({observer_failure}); "
+            "using the execution timeout.\n"
+        )
     elapsed = round(time.perf_counter() - start, 1)
 
-    result = {
+    return {
         "stdout": stdout,
         "stderr": stderr,
         "exit_code": exit_code,
         "elapsed": elapsed,
-        "timeout": timed_out,
-        "hf_download_stalled": hf_download_stalled,
+        "timeout": budget.timed_out,
+        "hf_download_stalled": budget.hf_download_stalled,
         "command": " ".join(str(a) for a in args),
     }
-
-    # Retry once after clearing caches if the failure was due to disk full.
-    if exit_code != 0 and not timed_out and _is_no_space_error(result):
-        safe_print("  [disk-full] Detected 'no space left' — clearing caches and retrying...")
-        _clear_disk_caches()
-        safe_print(f"  [disk-full] Retrying: {result['command']}")
-        result = _run_subprocess(args, timeout)
-
-    return result
-
 
 # ---------------------------------------------------------------------------
 # Build phase
