@@ -18,9 +18,8 @@ from pathlib import Path
 from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
-import onnx
 import pytest
-from onnx import TensorProto, helper
+from onnx import TensorProto, helper, save_model
 
 from winml.modelkit.ep_path import BuiltinSource, EPEntry
 from winml.modelkit.models.auto import WinMLAutoModel
@@ -46,7 +45,7 @@ def fake_onnx(tmp_path: Path) -> Path:
         [helper.make_tensor_value_info("input", TensorProto.FLOAT, [1])],
         [helper.make_tensor_value_info("output", TensorProto.FLOAT, [1])],
     )
-    onnx.save_model(
+    save_model(
         helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)]),
         onnx_file,
     )
@@ -665,22 +664,21 @@ class TestFromOnnxCacheDirAndKey:
     def test_onnx_model_hash_includes_external_data_metadata(self, tmp_path: Path):
         """Changing external data metadata changes the ONNX model hash."""
         import numpy as np
-        import onnx
 
         from winml.modelkit.onnx import get_onnx_model_hash
 
         onnx_path = tmp_path / "external.onnx"
         data_path = tmp_path / "external.onnx.data"
-        tensor = onnx.helper.make_tensor(
+        tensor = helper.make_tensor(
             "weight",
-            onnx.TensorProto.FLOAT,
+            TensorProto.FLOAT,
             [4],
             np.arange(4, dtype=np.float32).tobytes(),
             raw=True,
         )
-        graph = onnx.helper.make_graph([], "external-data-test", [], [], [tensor])
-        model = onnx.helper.make_model(graph)
-        onnx.save_model(
+        graph = helper.make_graph([], "external-data-test", [], [], [tensor])
+        model = helper.make_model(graph)
+        save_model(
             model,
             str(onnx_path),
             save_as_external_data=True,

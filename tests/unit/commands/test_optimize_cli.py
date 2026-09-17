@@ -305,7 +305,8 @@ class TestOptimizeInvocation:
         )
 
         assert result.exit_code != 0
-        assert "No such option: --backend" in result.output
+        assert "No such option" in result.output
+        assert "--backend" in result.output
 
 
 # =============================================================================

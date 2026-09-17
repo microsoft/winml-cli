@@ -9,9 +9,16 @@ from importlib import import_module
 from typing import TYPE_CHECKING
 
 import numpy as np
-import onnx
 import pytest
-from onnx import TensorProto, checker, helper, numpy_helper, version_converter
+from onnx import (
+    ModelProto,
+    NodeProto,
+    TensorProto,
+    checker,
+    helper,
+    numpy_helper,
+    version_converter,
+)
 from onnx.reference import ReferenceEvaluator
 
 from winml.modelkit.optim import OptimizationError, Optimizer
@@ -26,6 +33,27 @@ from winml.modelkit.pattern import PatternMatcher
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+
+def test_initializer_shape_without_value_info():
+    from winml.modelkit.pattern.cgc.cgc_constant_folding import _ConstantParameters
+
+    weights = np.random.default_rng(42).normal(size=(2, 3)).astype(np.float32)
+    model = helper.make_model(
+        helper.make_graph(
+            [helper.make_node("Shape", ["weights"], ["shape"])],
+            "initializer_shape",
+            [],
+            [helper.make_tensor_value_info("shape", TensorProto.INT64, [weights.ndim])],
+            [numpy_helper.from_array(weights, "weights")],
+        ),
+        opset_imports=[helper.make_opsetid("", 17)],
+        ir_version=10,
+    )
+    checker.check_model(model)
+    expected = ReferenceEvaluator(model).run(None, {})[0]
+    actual = _ConstantParameters(model, static_shapes=True).evaluate("shape", set(), set())
+    np.testing.assert_array_equal(actual, expected)
 
 
 @pytest.mark.parametrize("domain", ["", "com.microsoft"])
@@ -610,8 +638,8 @@ def _make_resize_model(
     use_sizes: bool,
     cast_inputs: bool = True,
     resize_count: int = 1,
-) -> onnx.ModelProto:
-    nodes: list[onnx.NodeProto] = []
+) -> ModelProto:
+    nodes: list[NodeProto] = []
     initializers = [
         numpy_helper.from_array(roi, "roi_source"),
         numpy_helper.from_array(scales, "scales_source"),
@@ -681,7 +709,7 @@ def _make_tile_model(
     repeats: np.ndarray,
     *,
     initializer_backed: bool,
-) -> onnx.ModelProto:
+) -> ModelProto:
     input_shape = [2, 3]
     output_shape = [
         dimension * int(repeat)
@@ -736,11 +764,11 @@ def _enabled_config() -> CGIRRewritePipeConfig:
     return CGIRRewritePipe.build_config(omit_empty_resize_inputs=True)
 
 
-def _resize_nodes(model: onnx.ModelProto) -> list[onnx.NodeProto]:
+def _resize_nodes(model: ModelProto) -> list[NodeProto]:
     return [node for node in model.graph.node if node.op_type == "Resize"]
 
 
-def _default_opset(model: onnx.ModelProto) -> int:
+def _default_opset(model: ModelProto) -> int:
     return next(
         int(opset.version)
         for opset in model.opset_import
@@ -810,7 +838,7 @@ def test_omit_empty_resize_inputs_rewrites_opset_13_without_conversion(
         use_sizes=True,
     )
 
-    def unexpected_conversion(*_args: object, **_kwargs: object) -> onnx.ModelProto:
+    def unexpected_conversion(*_args: object, **_kwargs: object) -> ModelProto:
         pytest.fail("opset 13 model must not be converted")
 
     monkeypatch.setattr(
@@ -883,13 +911,13 @@ def test_omit_empty_resize_inputs_preserves_effective_scales() -> None:
     ids=["nonempty-roi", "scales-and-sizes", "no-empty-inputs"],
 )
 def test_omit_empty_resize_inputs_does_not_rewrite_nonmatches(
-    model_factory: Callable[[], onnx.ModelProto],
+    model_factory: Callable[[], ModelProto],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     model = model_factory()
     original = model.SerializeToString()
 
-    def unexpected_conversion(*_args: object, **_kwargs: object) -> onnx.ModelProto:
+    def unexpected_conversion(*_args: object, **_kwargs: object) -> ModelProto:
         pytest.fail("non-matching model must not be converted")
 
     monkeypatch.setattr(
@@ -935,9 +963,9 @@ def test_omit_empty_resize_inputs_converts_once(
     convert_version = version_converter.convert_version
 
     def recorded_conversion(
-        source: onnx.ModelProto,
+        source: ModelProto,
         target_opset: int,
-    ) -> onnx.ModelProto:
+    ) -> ModelProto:
         calls.append(target_opset)
         return convert_version(source, target_opset)
 
@@ -962,7 +990,7 @@ def test_omit_empty_resize_inputs_surfaces_conversion_failure(
     )
     original = model.SerializeToString()
 
-    def failed_conversion(*_args: object, **_kwargs: object) -> onnx.ModelProto:
+    def failed_conversion(*_args: object, **_kwargs: object) -> ModelProto:
         raise RuntimeError("conversion failed")
 
     monkeypatch.setattr(
@@ -1062,7 +1090,7 @@ def test_deduplicate_opset_imports_preserves_model_content_and_domain_order() ->
     )
     assert [(opset.domain, opset.version) for opset in result.opset_import] == expected_imports
     assert result.graph.SerializeToString() == model.graph.SerializeToString()
-    without_imports = onnx.ModelProto()
+    without_imports = ModelProto()
     without_imports.CopyFrom(result)
     del without_imports.opset_import[:]
     without_imports.opset_import.extend(model.opset_import)

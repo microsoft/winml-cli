@@ -1,17 +1,21 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
-import onnx
 import pytest
-from onnx import TensorProto, helper, numpy_helper
+from onnx import ModelProto, TensorProto, helper, numpy_helper, save_model
 
 from winml.modelkit.export import WinMLExportConfig
 from winml.modelkit.export.cgc import CGCExporter, CGCExportResult, CGCOptions
 from winml.modelkit.export.cgc.foundry import FoundryCompileError
 
 
-def _make_model() -> onnx.ModelProto:
+def _make_model() -> ModelProto:
     input_info = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, 2])
     output_info = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 2])
     weight = numpy_helper.from_array(
@@ -100,7 +104,7 @@ def test_external_mlir_overwrite_replaces_sidecar(tmp_path: Path) -> None:
     output = tmp_path / "model.mlir"
     sidecar = output.with_name(f"{output.name}.data")
     metadata = tmp_path / "model_metadata.json"
-    onnx.save_model(_make_model(), str(source))
+    save_model(_make_model(), str(source))
     sidecar.write_bytes(b"old weights")
 
     with patch(
@@ -122,7 +126,7 @@ def test_external_mlir_failure_preserves_existing_bundle(tmp_path: Path) -> None
     output = tmp_path / "model.mlir"
     sidecar = output.with_name(f"{output.name}.data")
     metadata = tmp_path / "model_metadata.json"
-    onnx.save_model(_make_model(), str(source))
+    save_model(_make_model(), str(source))
     output.write_text("old mlir", encoding="utf-8")
     sidecar.write_bytes(b"old weights")
     metadata.write_text("old metadata", encoding="utf-8")
@@ -155,7 +159,7 @@ def test_mlir_bundle_publication(
 ) -> None:
     source = tmp_path / "source.onnx"
     model = _make_model()
-    onnx.save_model(model, source)
+    save_model(model, source)
     original_source = source.read_bytes()
     output = tmp_path / "model.mlir"
     exporter = CGCExporter(CGCOptions(external_weights=weights_mode != "embedded"))
@@ -178,7 +182,7 @@ def test_mlir_bundle_publication(
     before = {path.name: path.read_bytes() for path in artifacts if path.exists()}
     model.graph.input[0].name = "updated_input"
     model.graph.node[0].input[0] = "updated_input"
-    onnx.save_model(model, source)
+    save_model(model, source)
     updated_source = source.read_bytes()
     expected_dir = tmp_path / "expected"
     exporter.export_onnx(source, expected_dir / output.name)
@@ -228,7 +232,7 @@ def test_mlir_bundle_publication(
 def test_export_prints_progress(capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
     source = tmp_path / "source.onnx"
     output = tmp_path / "model.mlir"
-    onnx.save_model(_make_model(), str(source))
+    save_model(_make_model(), str(source))
 
     class FakeCompiler:
         def __enter__(self):
@@ -281,7 +285,7 @@ def test_auto_freeze_matches_input_symbol_and_preserves_options(tmp_path, dimens
         helper.make_tensor_value_info("input", TensorProto.FLOAT, [dimension, 2]),
     )
     source = tmp_path / "source.onnx"
-    onnx.save_model(model, source)
+    save_model(model, source)
     exporter = CGCExporter(CGCOptions(freeze_dims=explicit))
     with patch.object(exporter, "_export_mlir"):
         exporter.export_onnx(source, tmp_path / "model.mlir")
@@ -293,7 +297,7 @@ def test_auto_freeze_matches_input_symbol_and_preserves_options(tmp_path, dimens
             assert exporter._freeze_dims == expected
         else:
             assert exporter._freeze_dims == ({"batch_size": 1} if dimension == "batch_size" else {})
-        onnx.save_model(_make_model(), source)
+        save_model(_make_model(), source)
         exporter.export_onnx(source, tmp_path / "static.mlir")
         if explicit:
             name, size = explicit.split("=")
@@ -311,7 +315,7 @@ def test_auto_freeze_ignores_non_input_symbols(tmp_path, location):
     else:
         getattr(model.graph, location).append(value)
     source = tmp_path / "source.onnx"
-    onnx.save_model(model, source)
+    save_model(model, source)
     exporter = CGCExporter(CGCOptions())
     with patch.object(exporter, "_export_mlir"):
         exporter.export_onnx(source, tmp_path / "model.mlir")
@@ -321,7 +325,7 @@ def test_auto_freeze_ignores_non_input_symbols(tmp_path, location):
 def test_freeze_dims_are_forwarded_to_foundry(tmp_path: Path) -> None:
     source = tmp_path / "source.onnx"
     output = tmp_path / "model.mlir"
-    onnx.save_model(_make_model(), str(source))
+    save_model(_make_model(), str(source))
 
     class FakeCompiler:
         def __enter__(self):

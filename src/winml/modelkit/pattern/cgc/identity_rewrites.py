@@ -43,8 +43,8 @@ def _types(graph: GraphProto, outer: dict[str, TypeProto]) -> dict[str, TypeProt
     types = {name: value for name, value in outer.items() if name not in local}
     for value in (*graph.value_info, *graph.input, *graph.output):
         types[value.name] = value.type
-    for value in graph.initializer:
-        types.setdefault(value.name, helper.make_tensor_type_proto(value.data_type, value.dims))
+    for tensor in graph.initializer:
+        types.setdefault(tensor.name, helper.make_tensor_type_proto(tensor.data_type, tensor.dims))
     return types
 
 

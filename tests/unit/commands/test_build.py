@@ -2391,6 +2391,7 @@ class TestBuildOnnxPipelineRegressions:
         output_dir = tmp_path / "out"
 
         config = MagicMock()
+        config.is_cgc = False
         config.skip_optimize = False
         config.quant = MagicMock(name="quant_config")
         config.validate.return_value = None

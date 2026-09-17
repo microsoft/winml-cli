@@ -117,7 +117,7 @@ def find_foundry_toolbox() -> Path:
         ) from e
 
     candidate = Path(
-        distribution.locate_file("windowsml/lib/FoundryToolbox.dll")
+        str(distribution.locate_file("windowsml/lib/FoundryToolbox.dll"))
     )
     if not candidate.is_file():
         raise FoundryToolboxUnavailableError(

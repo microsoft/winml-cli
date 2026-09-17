@@ -476,7 +476,9 @@ def resolve_precision(
 
     # The policy contract uses short aliases, with CPU represented as no
     # offline compiler.
-    compile_provider = ep_short_or_none(effective_ep) if effective_ep is not None and not is_cgc else None
+    compile_provider = (
+        ep_short_or_none(effective_ep) if effective_ep is not None and not is_cgc else None
+    )
 
     # Resolve weight/activation types — supports named presets and w{x}a{y}.
     # Weight-only precisions (int4, w4a16) use RTN, not QDQ — they have no

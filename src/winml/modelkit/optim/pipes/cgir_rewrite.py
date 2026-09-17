@@ -24,7 +24,7 @@ from .cgir_rewrite_rules import (
 
 
 if TYPE_CHECKING:
-    import onnx
+    from onnx import ModelProto
 
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 class _CGIRPatternRewriter(PatternRewriter):
     """Keep subgraph captures alive during CGIR-specific constant cleanup."""
 
-    def _remove_unused_constants(self, model: onnx.ModelProto) -> None:
+    def _remove_unused_constants(self, model: ModelProto) -> None:
         graph = model.graph
         consumed = {name for node in graph.node for name in node.input if name}
         consumed.update(output.name for output in graph.output)
@@ -98,9 +98,9 @@ class CGIRRewritePipe(BasePipe[CGIRRewritePipeConfig]):
 
     def process(
         self,
-        model: onnx.ModelProto,
+        model: ModelProto,
         config: CGIRRewritePipeConfig,
-    ) -> onnx.ModelProto:
+    ) -> ModelProto:
         """Apply each enabled rule once, matching against the preceding rule's result."""
         if not config.rules:
             return model

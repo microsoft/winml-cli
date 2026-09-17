@@ -1,22 +1,31 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 """Lower 2D linear, zero-padded GridSample to indexed interpolation."""
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
-from onnx import TensorProto, helper, numpy_helper
+from onnx import ModelProto, TensorProto, helper, numpy_helper
 from onnx.defs import get_schema
 
 from ...onnx import ONNXDomain
-from .. import InputInfo, PatternMatchResult, make_single_op_pattern
+from .. import InputInfo, PatternMatchResult, SkeletonMatchResult, make_single_op_pattern
 
 
 _SCHEMA, _GridSamplePattern = make_single_op_pattern(get_schema("GridSample", 16))
 
 
-class LinearGridSamplePattern(_GridSamplePattern):
+class LinearGridSamplePattern(_GridSamplePattern):  # type: ignore[misc, valid-type]
     """Match floating-point 2D sampling with known spatial and channel dimensions."""
 
-    def check_skeleton_result(self, skeleton_match_result):
+    def check_skeleton_result(
+        self, skeleton_match_result: SkeletonMatchResult,
+    ) -> PatternMatchResult | None:
         """Reject unsupported modes, types and spatial dimensions."""
         node = skeleton_match_result.matched_nodes[0]
         matcher = skeleton_match_result.matcher
@@ -39,6 +48,8 @@ class LinearGridSamplePattern(_GridSamplePattern):
             return None
         if any(shape is None or len(shape) != 4 for shape in shapes):
             return None
+        assert shapes[0] is not None
+        assert shapes[1] is not None
         if shapes[1][-1] != 2 or any(
             not isinstance(dim, int) or dim <= 0
             for dim in [*shapes[0][1:], *shapes[1][1:3]]
@@ -60,7 +71,7 @@ class LinearGridSamplePattern(_GridSamplePattern):
         )
 
 
-class GatherLinearGridSamplePattern(_GridSamplePattern):
+class GatherLinearGridSamplePattern(_GridSamplePattern):  # type: ignore[misc, valid-type]
     """Interpolate four samples with explicit runtime batch coordinates.
 
     GatherND uses batch_dims=0 to avoid the symbolic shape inference defect in
@@ -68,9 +79,16 @@ class GatherLinearGridSamplePattern(_GridSamplePattern):
     """
 
     def get_onnx_model(
-        self, inputs, attributes, is_constant_map, output_dtypes, domain_versions,
-        prefix="", input_names=None, output_names=None,
-    ):
+        self,
+        inputs: dict[str, np.ndarray],
+        attributes: dict[str, Any],
+        is_constant_map: dict[str, bool],
+        output_dtypes: list[str],
+        domain_versions: dict[ONNXDomain, int],
+        prefix: str = "",
+        input_names: list[str] | None = None,
+        output_names: list[str] | None = None,
+    ) -> ModelProto:
         """Build batched indexed interpolation without specializing batch."""
         del inputs, is_constant_map
         data_shape, grid_shape = attributes["_shapes"]
@@ -80,18 +98,20 @@ class GatherLinearGridSamplePattern(_GridSamplePattern):
         element_type = TensorProto.FLOAT16 if fp16 else TensorProto.FLOAT
         nodes = []
 
-        def constant(label, value):
+        def constant(label: str, value: Any) -> str:
             name = f"{prefix}{label}"
             nodes.append(helper.make_node(
                 "Constant", [], [name], value=numpy_helper.from_array(np.asarray(value)),
             ))
             return name
 
-        def operation(kind, *arguments, **attrs):
+        def operation(kind: str, *arguments: str, **attrs: Any) -> str:
             name = f"{prefix}value_{len(nodes)}"
             nodes.append(helper.make_node(kind, list(arguments), [name], **attrs))
             return name
 
+        assert input_names is not None
+        assert output_names is not None
         data, grid = input_names
         if fp16:
             data = operation("Cast", data, to=TensorProto.FLOAT)
@@ -108,6 +128,7 @@ class GatherLinearGridSamplePattern(_GridSamplePattern):
             scale = constant(f"scale_{axis}", np.float32((size - 1 if align else size) / 2))
             pixel = operation("Mul", operation("Add", component, one), scale)
             if not align:
+                assert half is not None
                 pixel = operation("Sub", pixel, half)
             lower = operation("Floor", pixel)
             fraction = operation("Sub", pixel, lower)
@@ -166,7 +187,7 @@ class GatherLinearGridSamplePattern(_GridSamplePattern):
                            operation("Add", terms[2], terms[3]))
         result = operation("Transpose", result, perm=[0, 3, 1, 2])
         if fp16:
-            result = operation("Cast", result, to=TensorProto.FLOAT16)
+            operation("Cast", result, to=TensorProto.FLOAT16)
         nodes[-1].output[0] = output_names[0]
         output_shape = [data_shape[0], channels, grid_shape[1], grid_shape[2]]
         return helper.make_model(

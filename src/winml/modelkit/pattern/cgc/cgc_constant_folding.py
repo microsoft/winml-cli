@@ -1,3 +1,8 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 """Bounded constant folding for CGC Pad parameters and static shape subgraphs.
 
 FoundryToolbox currently lacks some constant folding needed by ONNX lowering.
@@ -10,10 +15,19 @@ from __future__ import annotations
 import logging
 import math
 from collections import Counter, deque
+from typing import cast
 
 import numpy as np
-import onnx
-from onnx import helper, numpy_helper
+from onnx import (
+    AttributeProto,
+    GraphProto,
+    ModelProto,
+    TensorProto,
+    ValueInfoProto,
+    helper,
+    numpy_helper,
+    shape_inference,
+)
 from onnx.reference import ReferenceEvaluator
 
 
@@ -27,14 +41,14 @@ _SHAPE_OPERATORS = _OPERATORS | {
 }
 _BROADCAST_OPERATORS = {"Mod", "Add", "Sub", "Mul", "Div", "Equal", "Where"}
 _INTEGER_TYPES = {
-    onnx.TensorProto.INT8, onnx.TensorProto.INT16, onnx.TensorProto.INT32,
-    onnx.TensorProto.INT64, onnx.TensorProto.UINT8, onnx.TensorProto.UINT16,
-    onnx.TensorProto.UINT32, onnx.TensorProto.UINT64, onnx.TensorProto.BOOL,
+    TensorProto.INT8, TensorProto.INT16, TensorProto.INT32,
+    TensorProto.INT64, TensorProto.UINT8, TensorProto.UINT16,
+    TensorProto.UINT32, TensorProto.UINT64, TensorProto.BOOL,
 }
 
 
 class _ConstantParameters:
-    def __init__(self, model: onnx.ModelProto, *, static_shapes: bool = False) -> None:
+    def __init__(self, model: ModelProto, *, static_shapes: bool = False) -> None:
         self.model = model
         self.static_shapes = static_shapes
         self.shapes = {
@@ -51,7 +65,7 @@ class _ConstantParameters:
         self.evaluated: set[str] = set()
         self.cached_elements = 0
 
-    def tensor(self, value: onnx.TensorProto) -> np.ndarray:
+    def tensor(self, value: TensorProto) -> np.ndarray:
         if value.data_type not in _INTEGER_TYPES or math.prod(value.dims) > _MAX_ELEMENTS:
             raise ValueError("Not a bounded integer tensor")
         return numpy_helper.to_array(value)
@@ -84,7 +98,9 @@ class _ConstantParameters:
                         tensor = self.initializers.get(node.input[0])
                         if tensor is None:
                             raise ValueError("Unknown tensor rank")
-                        shape = helper.make_tensor_shape_proto(list(tensor.dims))
+                        shape = helper.make_tensor_type_proto(
+                            tensor.data_type, list(tensor.dims)
+                        ).tensor_type.shape
                     attributes = {attr.name: helper.get_attribute_value(attr)
                                   for attr in node.attribute}
                     if set(attributes) - {"start", "end"}:
@@ -117,12 +133,12 @@ class _ConstantParameters:
                         if math.prod(output_shape) > _MAX_ELEMENTS:
                             raise ValueError("Gather allocation budget exceeded")
                     if node.op_type == "ConstantOfShape":
-                        shape = inputs[node.input[0]]
+                        target_shape = inputs[node.input[0]]
                         if (
-                            shape.ndim != 1 or shape.dtype != np.int64
-                            or np.any(shape < 0)
-                            or math.prod(int(dim) for dim in shape) > _MAX_ELEMENTS
-                            or len(shape) > 32
+                            target_shape.ndim != 1 or target_shape.dtype != np.int64
+                            or np.any(target_shape < 0)
+                            or math.prod(int(dim) for dim in target_shape) > _MAX_ELEMENTS
+                            or len(target_shape) > 32
                         ):
                             raise ValueError("ConstantOfShape allocation budget exceeded")
                         if not node.attribute:
@@ -138,13 +154,13 @@ class _ConstantParameters:
                     fragment = helper.make_model(
                         helper.make_graph(
                             [node], "constant_pad_parameter", [],
-                            [onnx.ValueInfoProto(name=name)],
+                            [ValueInfoProto(name=name)],
                             [numpy_helper.from_array(value, key) for key, value in inputs.items()],
                         ),
                         opset_imports=list(self.model.opset_import),
                         ir_version=self.model.ir_version,
                     )
-                    result = ReferenceEvaluator(fragment).run(None, {})[0]
+                    result = cast("list[np.ndarray]", ReferenceEvaluator(fragment).run(None, {}))[0]
                 self.evaluated.add(name)
             if result.dtype.kind not in "iub" or result.size > _MAX_ELEMENTS:
                 raise ValueError("Constant result exceeds supported type or size")
@@ -157,7 +173,7 @@ class _ConstantParameters:
             active.remove(name)
 
 
-def _referenced_names(graph: onnx.GraphProto) -> list[str]:
+def _referenced_names(graph: GraphProto) -> list[str]:
     names = [value.name for value in graph.output]
     for annotation in graph.quantization_annotation:
         names.append(annotation.tensor_name)
@@ -165,15 +181,15 @@ def _referenced_names(graph: onnx.GraphProto) -> list[str]:
     for node in graph.node:
         names.extend(name for name in node.input if name)
         for attribute in node.attribute:
-            if attribute.type == onnx.AttributeProto.GRAPH:
+            if attribute.type == AttributeProto.GRAPH:
                 names.extend(_referenced_names(attribute.g))
-            elif attribute.type == onnx.AttributeProto.GRAPHS:
+            elif attribute.type == AttributeProto.GRAPHS:
                 for child in attribute.graphs:
                     names.extend(_referenced_names(child))
     return names
 
 
-def fold_constant_pad_pads(model: onnx.ModelProto) -> onnx.ModelProto:
+def fold_constant_pad_pads(model: ModelProto) -> ModelProto:
     """Fold constant integer Pad widths without specializing runtime input shapes.
 
     Only the main graph is rewritten. Nested graph captures and quantization
@@ -235,7 +251,7 @@ def fold_constant_pad_pads(model: onnx.ModelProto) -> onnx.ModelProto:
     if not replacements:
         return model
 
-    rewritten = onnx.ModelProto()
+    rewritten = ModelProto()
     rewritten.CopyFrom(model)
     used_names = set(evaluator.producers) | set(evaluator.initializers) | evaluator.inputs
     used_names.update(_referenced_names(model.graph))
@@ -283,7 +299,7 @@ def fold_constant_pad_pads(model: onnx.ModelProto) -> onnx.ModelProto:
     return rewritten
 
 
-def cgc_constant_folding(model: onnx.ModelProto) -> onnx.ModelProto:
+def cgc_constant_folding(model: ModelProto) -> ModelProto:
     """Fill FoundryToolbox constant-folding gaps for Pad and static Shape chains.
 
     Only the main graph is changed. Pad widths use the existing bounded folder;
@@ -299,13 +315,13 @@ def cgc_constant_folding(model: onnx.ModelProto) -> onnx.ModelProto:
     versions = {item.version for item in prepared.opset_import if item.domain in {"", "ai.onnx"}}
     if len(versions) != 1 or next(iter(versions)) < 11:
         return prepared
-    rewritten = onnx.ModelProto()
+    rewritten = ModelProto()
     rewritten.CopyFrom(prepared)
     changed = False
     for _iteration in range(32):
-        for value in rewritten.graph.value_info:
-            value.type.tensor_type.ClearField("shape")
-        rewritten = onnx.shape_inference.infer_shapes(rewritten, strict_mode=True, data_prop=True)
+        for value_info in rewritten.graph.value_info:
+            value_info.type.tensor_type.ClearField("shape")
+        rewritten = shape_inference.infer_shapes(rewritten, strict_mode=True, data_prop=True)
         evaluator = _ConstantParameters(rewritten, static_shapes=True)
         folded = 0
         for node in rewritten.graph.node:

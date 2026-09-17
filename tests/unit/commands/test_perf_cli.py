@@ -692,7 +692,7 @@ class TestPerfUnifiedPipeline:
 
         with monkeypatch.context() as local_patch:
             local_patch.setattr(
-                "winml.modelkit.session.runtime_session._import_runtime",
+                "winml.modelkit.session._runtime_import.import_runtime",
                 import_runtime,
             )
             local_patch.setattr(session_module, "resolve_device", resolve_device)
@@ -733,7 +733,7 @@ class TestPerfUnifiedPipeline:
 
         with monkeypatch.context() as local_patch:
             local_patch.setattr(
-                "winml.modelkit.session.runtime_session._import_runtime",
+                "winml.modelkit.session.runtime_session.import_runtime",
                 lambda: None,
             )
             local_patch.setattr(session_module, "resolve_device", resolve_device)

@@ -22,6 +22,7 @@ from winml.modelkit.session.runtime_session import (
     _apply_io_metadata,
     _DXCoreAdapter,
     _numpy_dtype_for,
+    _ResolvedRuntimeTarget,
     _shape_with_dynamic_dims,
 )
 
@@ -174,6 +175,37 @@ def mlir_target(
     return _mlir_ep_device(), adapter
 
 
+def test_onnx_cgc_reloads_compiled_model_without_io_counts() -> None:
+    source_model = Mock()
+    compiled_model = _Model()
+    compiler = Mock()
+    loaded_paths: list[str] = []
+
+    def load_model(path: str) -> Any:
+        loaded_paths.append(path)
+        return source_model if len(loaded_paths) == 1 else compiled_model
+
+    runtime = SimpleNamespace(load_model=load_model)
+    target = _ResolvedRuntimeTarget(
+        execution_target=SimpleNamespace(model_compiler=lambda: compiler),
+        device_class="gpu",
+    )
+    session = WinMLRuntimeSession("model.onnx", ep_device=_mlir_ep_device(), backend="cgc")
+    try:
+        model, ort_schema, has_named_bindings = session._load_onnx_on_cgc(runtime, target)
+
+        assert model is compiled_model
+        assert ort_schema is source_model.ort_schema.return_value
+        assert has_named_bindings is False
+        assert loaded_paths[0] == str(session.running_model_path)
+        assert len(loaded_paths) == 2
+        compiler.compile_to_file.assert_called_once_with(source_model, loaded_paths[1])
+        compiler.close.assert_called_once_with()
+        source_model.schema.assert_not_called()
+    finally:
+        session.reset()
+
+
 def test_schema_helpers() -> None:
     assert _numpy_dtype_for(SimpleNamespace(name="FLOAT16")) == "float16"
     assert _shape_with_dynamic_dims([0, -1, (1 << 64) - 1, 4]) == [
@@ -206,8 +238,7 @@ def test_io_metadata_replaces_ordinal_names(tmp_path: Path) -> None:
 
 
 def test_onnx_io_ranges_reach_tensor_comparison(tmp_path: Path) -> None:
-    import onnx
-    from onnx import TensorProto, helper
+    from onnx import TensorProto, helper, save_model
 
     from winml.modelkit.eval.tensor_similarity_evaluator import TensorSimilarityEvaluator
     from winml.modelkit.onnx import get_io_config
@@ -224,7 +255,7 @@ def test_onnx_io_ranges_reach_tensor_comparison(tmp_path: Path) -> None:
         model,
         {"winml.io.inputs": json.dumps([{"name": "indices", "value_range": [0, 1]}])},
     )
-    onnx.save_model(model, model_path)
+    save_model(model, model_path)
     source_io = get_io_config(model_path)
     io_config = {
         "input_names": source_io["input_names"],
@@ -264,7 +295,7 @@ def test_build_failure_releases_adapter(monkeypatch, mlir_target, failure_point)
     monkeypatch.setattr(adapter, "close", close)
     runtime = _Runtime(_Stage(), _Pipeline())
     wr = SimpleNamespace(Runtime=lambda: runtime, NotSupportedError=_NotSupportedError)
-    monkeypatch.setattr("winml.modelkit.session.runtime_session._import_runtime", lambda: wr)
+    monkeypatch.setattr("winml.modelkit.session.runtime_session.import_runtime", lambda: wr)
     session = WinMLRuntimeSession("model.mlir", ep_device=ep_device, backend="cgc")
     if failure_point.startswith("_load_onnx"):
         session._is_mlir = False
@@ -302,7 +333,7 @@ def test_run_requests_all_outputs_before_each_execution(monkeypatch, mlir_target
     pipeline = _Pipeline()
     runtime = _Runtime(stage, pipeline)
     wr = SimpleNamespace(Runtime=lambda: runtime, NotSupportedError=_NotSupportedError)
-    monkeypatch.setattr("winml.modelkit.session.runtime_session._import_runtime", lambda: wr)
+    monkeypatch.setattr("winml.modelkit.session.runtime_session.import_runtime", lambda: wr)
     names = ["sum", "product"]
     named = SimpleNamespace(
         bind_input=lambda _name, tensor: stage.bind_input(0, tensor),
@@ -360,7 +391,7 @@ def test_mlir_session_builds_runs_and_resets(
         NotSupportedError=_NotSupportedError,
     )
     monkeypatch.setattr(
-        "winml.modelkit.session.runtime_session._import_runtime",
+        "winml.modelkit.session.runtime_session.import_runtime",
         lambda: wr,
     )
 
@@ -464,7 +495,7 @@ def test_cgc_target_rejects_dxcore_incompatible_device(
 
     monkeypatch.setattr(_DXCoreAdapter, "from_luid", classmethod(from_luid))
     monkeypatch.setattr(
-        "winml.modelkit.session.runtime_session._import_runtime",
+        "winml.modelkit.session.runtime_session.import_runtime",
         lambda: SimpleNamespace(Runtime=SimpleNamespace),
     )
 
@@ -575,7 +606,7 @@ def test_onnx_session_passes_resolved_ep_and_device_to_runtime(
         source_tag="winml-catalog",
     )
     monkeypatch.setattr(
-        "winml.modelkit.session.runtime_session._import_runtime",
+        "winml.modelkit.session.runtime_session.import_runtime",
         lambda: wr,
     )
     monkeypatch.setattr(
@@ -646,7 +677,7 @@ def test_onnx_session_without_ep_device_uses_request_resolution(
         return "DmlExecutionProvider", "gpu"
 
     monkeypatch.setattr(
-        "winml.modelkit.session.runtime_session._import_runtime",
+        "winml.modelkit.session.runtime_session.import_runtime",
         lambda: wr,
     )
     monkeypatch.setattr(
@@ -688,7 +719,7 @@ def test_concurrent_compile_builds_once(
     runtime.builder = BlockingBuilder(stage, pipeline)
     wr = SimpleNamespace(Runtime=lambda: runtime, NotSupportedError=_NotSupportedError)
     monkeypatch.setattr(
-        "winml.modelkit.session.runtime_session._import_runtime",
+        "winml.modelkit.session.runtime_session.import_runtime",
         lambda: wr,
     )
     ep_device, _ = mlir_target
@@ -742,7 +773,7 @@ def test_concurrent_runs_serialize_bind_run_read(
     runtime = _Runtime(stage, pipeline)
     wr = SimpleNamespace(Runtime=lambda: runtime, NotSupportedError=_NotSupportedError)
     monkeypatch.setattr(
-        "winml.modelkit.session.runtime_session._import_runtime",
+        "winml.modelkit.session.runtime_session.import_runtime",
         lambda: wr,
     )
     ep_device, _ = mlir_target
@@ -793,7 +824,7 @@ def test_close_waits_for_active_run(
     runtime = _Runtime(stage, pipeline)
     wr = SimpleNamespace(Runtime=lambda: runtime, NotSupportedError=_NotSupportedError)
     monkeypatch.setattr(
-        "winml.modelkit.session.runtime_session._import_runtime",
+        "winml.modelkit.session.runtime_session.import_runtime",
         lambda: wr,
     )
     ep_device, _ = mlir_target

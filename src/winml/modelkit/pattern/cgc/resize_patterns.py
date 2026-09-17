@@ -291,13 +291,13 @@ class _ResizeAttributesPattern(_ResizeOptionalInputsPattern):
         type_mapping = self._infer_type_mapping(skeleton_match_result)
         if "T1" not in type_mapping:
             return None
-        input_types = []
+        input_types: list[int] = []
         for name in skeleton_match_result.inputs:
             if not name:
                 input_types.append(TensorProto.UNDEFINED)
                 continue
             tensor_type = matcher.get_tensor_type_str(name)
-            if tensor_type is None:
+            if not tensor_type:
                 return None
             input_types.append(SupportedONNXType.from_onnx_type(tensor_type).tensor_proto_type)
         attributes = self._infer_schema_attributes(skeleton_match_result)

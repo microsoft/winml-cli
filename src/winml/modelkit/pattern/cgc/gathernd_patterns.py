@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 _GATHERND_SCHEMA, _SingleGatherNDPattern = make_single_op_pattern(get_schema("GatherND", 12))
 
 
-class GatherNDWithIdentityIndicesPattern(_SingleGatherNDPattern):
+class GatherNDWithIdentityIndicesPattern(_SingleGatherNDPattern):  # type: ignore[misc, valid-type]
     """Match unequal-rank GatherND that visits every input slice in storage order."""
 
     def check_skeleton_result(
@@ -110,7 +110,7 @@ class GatherNDWithIdentityIndicesPattern(_SingleGatherNDPattern):
         )
 
 
-class ReshapedGatherNDPattern(_SingleGatherNDPattern):
+class ReshapedGatherNDPattern(_SingleGatherNDPattern):  # type: ignore[misc, valid-type]
     """Replace proven identity indexing with a statically shaped Reshape."""
 
     def get_onnx_model(

@@ -731,9 +731,9 @@ def resolve_device(
             registered EP backs the requested device.
     """
     if backend is not None:
-        from .runtime_session import _import_runtime
+        from ._runtime_import import import_runtime
 
-        _import_runtime()
+        import_runtime()
         if backend == "cgc" and target.ep == "auto":
             target = EPDeviceTarget(
                 ep="dml",

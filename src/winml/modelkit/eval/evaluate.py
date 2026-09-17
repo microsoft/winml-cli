@@ -398,6 +398,8 @@ def load_model(
         # Evaluator-driven session loading; skip WinMLAutoModel entirely.
         return None
 
+    assert config.runtime != "pytorch"
+
     # Resolve EPDeviceTarget then bind a WinMLEPDevice at the boundary. Eval
     # config carries an optional ep field; resolve_device deduces device/ep
     # when either is 'auto'.

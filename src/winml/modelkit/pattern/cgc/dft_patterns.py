@@ -246,7 +246,7 @@ class MatMulDFTPattern(_DFTPattern):
         imag_out = op("Unsqueeze", [imag_out, component_axis], "imag_component")
         result = op("Concat", [real_out, imag_out], "complex_output", axis=-1)
         if transposed:
-            result = op("Transpose", [result], "restored", perm=np.argsort(permutation).tolist())
+            op("Transpose", [result], "restored", perm=np.argsort(permutation).tolist())
         nodes[-1].output[0] = output_names[0]
         output_shape = list(shape)
         output_shape[axis], output_shape[-1] = output_length, 2

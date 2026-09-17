@@ -44,7 +44,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-SESSION_CLASSES = {
+SESSION_CLASSES: dict[str, type[WinMLSession] | type[WinMLRuntimeSession]] = {
     "winml-ort": WinMLSession,
     "winml-runtime": WinMLRuntimeSession,
 }
@@ -95,12 +95,13 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         # Set by WinMLAutoModel.from_pretrained() after construction
         self._build_config: Any = None
 
+        runtime_kwargs: dict[str, Any] = {"backend": backend} if runtime == "winml-runtime" else {}
         self._session = SESSION_CLASSES[runtime](
             self._onnx_path,
             ep_device=ep_device,
             provider_options=provider_options,
             session_options=session_options,
-            **({"backend": backend} if runtime == "winml-runtime" else {}),
+            **runtime_kwargs,
         )
 
     @property

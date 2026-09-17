@@ -25,7 +25,7 @@ _PRELU_SCHEMA, _SinglePReluPattern = make_single_op_pattern(get_schema("PRelu", 
 _RELU_TYPES = set(get_schema("Relu", 6).type_constraints[0].allowed_type_strs)
 
 
-class PReluWithFiniteSlopePattern(_SinglePReluPattern):
+class PReluWithFiniteSlopePattern(_SinglePReluPattern):  # type: ignore[misc, valid-type]
     """Match floating-point PRelu with a finite, non-overridable constant slope."""
 
     def check_skeleton_result(
@@ -70,7 +70,7 @@ class PReluWithFiniteSlopePattern(_SinglePReluPattern):
         )
 
 
-class ExpandedPReluPattern(_SinglePReluPattern):
+class ExpandedPReluPattern(_SinglePReluPattern):  # type: ignore[misc, valid-type]
     """Generate Relu(x) - slope * Relu(-x) without folding or copying the slope."""
 
     def get_onnx_model(

@@ -35,11 +35,12 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import click
 
 from ..export.cgc.artifacts import cgc_metadata_path
+from ._runtime_import import import_runtime
 
 
 if TYPE_CHECKING:
@@ -50,6 +51,7 @@ if TYPE_CHECKING:
     from ..utils.constants import RuntimeBackend
     from .ep_registry import WinMLEPDevice
     from .session import PerfContext
+    from .stats import PerfStats
 
 logger = logging.getLogger(__name__)
 
@@ -256,34 +258,15 @@ def _to_numpy(value: Any) -> np.ndarray:
         return value
     # Duck-type torch tensors without importing torch: detach + cpu + numpy.
     if hasattr(value, "detach") and hasattr(value, "cpu"):
-        return value.detach().cpu().numpy()
+        return cast("np.ndarray", value.detach().cpu().numpy())
     if hasattr(value, "numpy"):
-        return value.numpy()
+        return cast("np.ndarray", value.numpy())
     return np.asarray(value)
 
 
 # =============================================================================
 # Native glue (windowsml.runtime)
 # =============================================================================
-def _import_runtime() -> Any:
-    """Import ``windowsml.runtime`` or raise an actionable ClickException."""
-    try:
-        import windowsml.runtime as wr
-    except ImportError as e:
-        raise click.ClickException(
-            "--runtime winml-runtime requires the preview 'windowsml' package with the "
-            "Runtime API. Install it with the ORT backend, e.g. "
-            "`pip install windowsml[with-ort]`."
-        ) from e
-    except FileNotFoundError as e:  # missing WinMLRuntimeCore.dll payload
-        raise click.ClickException(
-            "--runtime winml-runtime: the installed 'windowsml' package does not ship the "
-            "Runtime native library (WinMLRuntimeCore.dll). Install a preview build that "
-            "includes the Runtime API."
-        ) from e
-    return wr
-
-
 class _DXCoreAdapter:
     """Owned ``IDXCoreAdapter`` pointer kept alive with the Runtime target."""
 
@@ -313,7 +296,7 @@ class _DXCoreAdapter:
     @classmethod
     def from_luid(cls, luid_value: int) -> _DXCoreAdapter:
         """Resolve an owned adapter through ``IDXCoreAdapterFactory``."""
-        from comtypes import GUID
+        from comtypes import GUID  # type: ignore[import-not-found, import-untyped, unused-ignore]
 
         class LUID(ctypes.Structure):
             _fields_ = [("LowPart", ctypes.c_uint32), ("HighPart", ctypes.c_int32)]
@@ -678,7 +661,7 @@ class WinMLRuntimeSession:
         self._built = False
 
         # Perf tracking, enabled inside perf().
-        self._perf_stats: Any = None
+        self._perf_stats: PerfStats | None = None
 
     # -- lifecycle ----------------------------------------------------------
     def _ensure_built(self) -> None:
@@ -717,13 +700,7 @@ class WinMLRuntimeSession:
         with _translate_native_errors("load"):
             source_model = runtime.load_model(str(self._model_path))
         try:
-            model_schema = source_model.schema()
             ort_schema = source_model.ort_schema()
-            try:
-                input_count = model_schema.input_count
-                output_count = model_schema.output_count
-            finally:
-                model_schema.close()
 
             self._compiled_artifacts = TemporaryDirectory(prefix="winml-runtime-cgc-")
             artifact_path = Path(self._compiled_artifacts.name) / "model.mlir"
@@ -735,10 +712,7 @@ class WinMLRuntimeSession:
                     compiler.close()
 
             with _translate_native_errors("load"):
-                model = runtime.load_model(
-                    str(artifact_path),
-                    io_counts=(input_count, output_count),
-                )
+                model = runtime.load_model(str(artifact_path))
             return model, ort_schema, False
         except Exception:
             source_model.close()
@@ -753,7 +727,7 @@ class WinMLRuntimeSession:
         if self._built:
             return
 
-        wr = _import_runtime()
+        wr = import_runtime()
         runtime = wr.Runtime()
         resolved_target = self._resolve_target(runtime, wr)
         try:
@@ -903,6 +877,7 @@ class WinMLRuntimeSession:
         prepared = self._prepare_inputs(inputs)
         assert self._io_config is not None
         input_names = self._io_config["input_names"]
+        output_count = len(self._io_config["output_names"])
 
         def _do() -> dict[str, np.ndarray]:
             named = _bind_inputs(
@@ -914,7 +889,7 @@ class WinMLRuntimeSession:
                 use_named_bindings=self._has_named_bindings,
             )
             with _translate_native_errors("run"):
-                for index in range(len(self._io_config["output_names"])):
+                for index in range(output_count):
                     self._stage.request_output(index)
                 self._pipeline.run()
             return self._read_outputs(named)
@@ -1004,4 +979,5 @@ class WinMLRuntimeSession:
         try:
             self.close()
         except Exception:
+            # Finalization must tolerate partial construction and interpreter shutdown.
             pass

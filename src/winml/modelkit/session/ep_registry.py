@@ -491,10 +491,10 @@ class WinMLEPRegistry:
             # which the caller renders to the console.
             with _suppress_dll_load_dialogs():
                 if entry.ep_name == "WinMLCGExecutionProvider":
-                    from .runtime_session import _import_runtime
+                    from ._runtime_import import import_runtime
 
                     # Preload WinMLRuntimeCore and WinMLCG's delay-loaded dependencies.
-                    _import_runtime()
+                    import_runtime()
                 ort.register_execution_provider_library(arg0, str(entry.dll_path))
                 logger.info(
                     "Registered EP %r from %r (arg0=%r)", entry.ep_name, entry.dll_path, arg0

@@ -521,6 +521,7 @@ def export(
         else:
             console.print(f"[dim]Detected task: {detected_task}[/dim]")
 
+        export_stats: object
         if exporter is None:
             export_stats = export_onnx(
                 model=pytorch_model,

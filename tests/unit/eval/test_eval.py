@@ -1781,7 +1781,7 @@ class TestLoadModel:
                 "sys.modules",
                 {"winml.modelkit.models": MagicMock(WinMLAutoModel=mock_auto)},
             ),
-            patch("winml.modelkit.session.runtime_session._import_runtime"),
+            patch("winml.modelkit.session.runtime_session.import_runtime"),
         ):
             result = eval_mod.load_model(config)
 

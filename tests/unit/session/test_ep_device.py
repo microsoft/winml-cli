@@ -245,7 +245,7 @@ def test_resolve_device_cgc_loads_runtime_before_resolving_with_dml() -> None:
 
     with (
         patch(
-            "winml.modelkit.session.runtime_session._import_runtime",
+            "winml.modelkit.session._runtime_import.import_runtime",
             side_effect=lambda: calls.append("runtime"),
         ),
         patch(

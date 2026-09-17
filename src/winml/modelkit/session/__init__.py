@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..ep_path import VALID_SOURCE_TAGS, DirectorySource, EPEntry
+    from ._runtime_import import import_runtime
     from .ep_device import (
         DEVICE_TO_DEVICE_TYPE,
         DEVICE_TYPE_TO_DEVICE,
@@ -62,6 +63,7 @@ if TYPE_CHECKING:
 
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+    "import_runtime": ("._runtime_import", "import_runtime"),
     "VALID_SOURCE_TAGS": ("..ep_path", "VALID_SOURCE_TAGS"),
     "DirectorySource": ("..ep_path", "DirectorySource"),
     "EPEntry": ("..ep_path", "EPEntry"),
@@ -173,6 +175,7 @@ __all__ = [
     "ep_to_device",
     "eps_for_device",
     "expand_ep_name",
+    "import_runtime",
     "known_ep_short_names",
     "lookup_device_spec",
     "resolve_device",

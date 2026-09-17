@@ -353,7 +353,7 @@ class WinMLAutoModel:
             raise ValueError("MLIR inputs require runtime='winml-runtime'.")
         if task == "text-generation":
             raise ValueError("from_mlir does not support task='text-generation'.")
-        backend = resolve_runtime_api_backend(runtime, mlir_path, backend)
+        resolved_backend = resolve_runtime_api_backend(runtime, mlir_path, backend)
 
         mlir_path = Path(mlir_path)
         if not mlir_path.is_file():
@@ -365,7 +365,7 @@ class WinMLAutoModel:
             config=None,
             ep_device=ep_device,
             runtime=runtime,
-            backend=backend,
+            backend=resolved_backend,
         )
 
     @classmethod
