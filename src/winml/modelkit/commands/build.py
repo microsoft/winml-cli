@@ -2068,6 +2068,7 @@ def _build_hf_pipeline(
 
     max_iters: int = extra_kwargs.pop("hack_max_optim_iterations", 3)
     allow_unsupported_nodes: bool = extra_kwargs.pop("allow_unsupported_nodes", False)
+    skip_optimize: bool = extra_kwargs.pop("skip_optimize", False)
     model_label = model_id or "random-init"
 
     # ── Validate + setup ─────────────────────────────────────────
@@ -2153,6 +2154,7 @@ def _build_hf_pipeline(
         show_io_first=False,
         analyze_output_path=analyze_result_path,
         allow_unsupported_nodes=allow_unsupported_nodes,
+        skip_optimize=skip_optimize or config.skip_optimize,
     )
 
     # Persist config after autoconf
@@ -2209,6 +2211,7 @@ def _build_onnx_pipeline(
 
     max_iters: int = extra_kwargs.pop("hack_max_optim_iterations", 3)
     allow_unsupported_nodes: bool = extra_kwargs.pop("allow_unsupported_nodes", False)
+    skip_optimize: bool = extra_kwargs.pop("skip_optimize", False)
 
     # ── Validate + setup ─────────────────────────────────────────
     if not onnx_path.exists():
@@ -2264,7 +2267,7 @@ def _build_onnx_pipeline(
         show_io_first=True,
         analyze_output_path=analyze_result_path,
         allow_unsupported_nodes=allow_unsupported_nodes,
-        skip_optimize=config.skip_optimize,
+        skip_optimize=skip_optimize or config.skip_optimize,
     )
 
     config_path.write_text(json.dumps(config.to_dict(), indent=2))
