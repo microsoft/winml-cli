@@ -271,9 +271,7 @@ def test_onnx_io_ranges_reach_tensor_comparison(tmp_path: Path) -> None:
     assert io_config["input_types"] == ["int64"]
     evaluator = object.__new__(TensorSimilarityEvaluator)
     evaluator.model = SimpleNamespace(io_config=io_config)
-    evaluator.config = SimpleNamespace(
-        input_data=None, dataset=SimpleNamespace(samples=2, seed=42)
-    )
+    evaluator.config = SimpleNamespace(input_data=None, dataset=SimpleNamespace(samples=2, seed=42))
 
     dataset = evaluator.prepare_data()
 
@@ -286,8 +284,14 @@ def test_onnx_io_ranges_reach_tensor_comparison(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     "failure_point",
-    ["_load_mlir", "_load_onnx_on_cgc", "_load_onnx_on_ort",
-     "create_pipeline_builder", "build", "_stage_diagnostics"],
+    [
+        "_load_mlir",
+        "_load_onnx_on_cgc",
+        "_load_onnx_on_ort",
+        "create_pipeline_builder",
+        "build",
+        "_stage_diagnostics",
+    ],
 )
 def test_build_failure_releases_adapter(monkeypatch, mlir_target, failure_point):
     ep_device, adapter = mlir_target
@@ -301,17 +305,24 @@ def test_build_failure_releases_adapter(monkeypatch, mlir_target, failure_point)
         session._is_mlir = False
         if failure_point == "_load_onnx_on_ort":
             session._backend = "ort"
-            monkeypatch.setattr(session, "_resolve_target", lambda *_args: SimpleNamespace(
-                adapter=adapter, execution_target=adapter.pointer,
-                provider_name=None, device_class="gpu",
-            ))
+            monkeypatch.setattr(
+                session,
+                "_resolve_target",
+                lambda *_args: SimpleNamespace(
+                    adapter=adapter,
+                    execution_target=adapter.pointer,
+                    provider_name=None,
+                    device_class="gpu",
+                ),
+            )
     failure = RuntimeError("adapter cleanup probe")
     failing_call = Mock(side_effect=failure)
     if failure_point.startswith("_load_"):
         monkeypatch.setattr(session, failure_point, failing_call)
     elif failure_point == "_stage_diagnostics":
         monkeypatch.setattr(
-            "winml.modelkit.session.runtime_session._stage_diagnostics", failing_call,
+            "winml.modelkit.session.runtime_session._stage_diagnostics",
+            failing_call,
         )
     elif failure_point == "build":
         monkeypatch.setattr(runtime.builder, failure_point, failing_call)
@@ -376,6 +387,25 @@ def test_run_requests_all_outputs_before_each_execution(monkeypatch, mlir_target
         session.close()
 
 
+def test_older_projection_materializes_outputs_without_request_api(monkeypatch, mlir_target):
+    stage = _Stage()
+    monkeypatch.delattr(_Stage, "request_output")
+    monkeypatch.setattr(stage, "output", lambda index: _Tensor(stage.bound[index].to_numpy()))
+    pipeline = _Pipeline()
+    wr = SimpleNamespace(
+        Runtime=lambda: _Runtime(stage, pipeline), NotSupportedError=_NotSupportedError
+    )
+    monkeypatch.setattr("winml.modelkit.session.runtime_session.import_runtime", lambda: wr)
+    session = WinMLRuntimeSession("model.mlir", ep_device=mlir_target[0], backend="cgc")
+    try:
+        values = np.random.default_rng(42).normal(size=(2, 3, 8, 8)).astype(np.float32)
+        actual = session.run({"input_0": values})
+        np.testing.assert_array_equal(actual["output_0"], values)
+        assert pipeline.runs == 1
+    finally:
+        session.close()
+
+
 def test_mlir_session_builds_runs_and_resets(
     monkeypatch: pytest.MonkeyPatch,
     mlir_target: tuple[SimpleNamespace, _AdapterHandle],
@@ -405,9 +435,7 @@ def test_mlir_session_builds_runs_and_resets(
     assert session.device == "gpu"
     assert session.io_config["input_names"] == ["input_0"]
 
-    outputs = session.run(
-        {"input_0": np.zeros((2, 3, 8, 8), dtype=np.float64)}
-    )
+    outputs = session.run({"input_0": np.zeros((2, 3, 8, 8), dtype=np.float64)})
     assert outputs["output_0"].shape == (2, 5)
     assert stage.bound[0].to_numpy().dtype == np.float32
     assert pipeline.runs == 1
@@ -427,7 +455,9 @@ def test_mlir_session_builds_runs_and_resets(
     ids=["scalar", "vector", "matrix", "noncontiguous"],
 )
 def test_prepare_inputs_preserves_shape(
-    dtype: type, shape: tuple[int, ...], transpose: bool,
+    dtype: type,
+    shape: tuple[int, ...],
+    transpose: bool,
 ) -> None:
     values = np.random.default_rng(0).standard_normal(shape).astype(dtype)
     if transpose:
@@ -559,9 +589,7 @@ def test_runtime_session_rejects_provider_options() -> None:
 def test_onnx_session_passes_resolved_ep_and_device_to_runtime(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        "winml.modelkit.onnx.get_io_config", lambda _path: {"value_ranges": {}}
-    )
+    monkeypatch.setattr("winml.modelkit.onnx.get_io_config", lambda _path: {"value_ranges": {}})
     stage = _Stage()
     pipeline = _Pipeline()
 
@@ -640,9 +668,7 @@ def test_onnx_session_passes_resolved_ep_and_device_to_runtime(
 def test_onnx_session_without_ep_device_uses_request_resolution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        "winml.modelkit.onnx.get_io_config", lambda _path: {"value_ranges": {}}
-    )
+    monkeypatch.setattr("winml.modelkit.onnx.get_io_config", lambda _path: {"value_ranges": {}})
     stage = _Stage()
     pipeline = _Pipeline()
 
@@ -781,9 +807,7 @@ def test_concurrent_runs_serialize_bind_run_read(
     outputs: dict[str, float] = {}
 
     def run(name: str, value: float) -> None:
-        result = session.run(
-            {"input_0": np.full((1, 3, 8, 8), value, dtype=np.float32)}
-        )
+        result = session.run({"input_0": np.full((1, 3, 8, 8), value, dtype=np.float32)})
         outputs[name] = float(result["output_0"][0, 0])
 
     first = threading.Thread(target=run, args=("first", 1.0))
@@ -850,8 +874,6 @@ def test_close_waits_for_active_run(
 
 
 def test_perf_rejects_monitor_without_loading_runtime() -> None:
-    session = WinMLRuntimeSession(
-        "model.mlir", ep_device=_mlir_ep_device(), backend="cgc"
-    )
+    session = WinMLRuntimeSession("model.mlir", ep_device=_mlir_ep_device(), backend="cgc")
     with pytest.raises(click.ClickException, match="monitor"), session.perf(monitor=object()):
         pass

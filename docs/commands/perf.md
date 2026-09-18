@@ -53,6 +53,81 @@ Both runtime reports include `schema_version: 2` and a `benchmark_info.runtime` 
 
 When `--memory` is enabled, both `winml-ort` and `ort-genai` reports use the same `memory` field names for shared concepts: RSS baseline, after-compile/load, after-inference, peak, model-load delta, inference/generation delta, and total delta; VRAM local/shared baseline, after-compile/load, after-inference, peak, model-load delta, inference/generation delta, and total delta.
 
+### Classic memory lifecycle
+
+#### Model loading from a user's perspective
+
+`load_memory` is the load-only view (block `version: 1`). It answers how much
+additional memory was observed while this artifact became ready in this
+runtime, and how much remained at readiness. Runtime/EP setup precedes its
+baseline; its endpoint is after session compilation but before allocating
+benchmark inputs, warmup or inference. If the selected path requires online
+compilation, that temporary cost is included because the user must get through
+it to load the model. A precompiled artifact is a different configuration.
+
+Each RSS/local/shared block records baseline, absolute peak, absolute ready
+value, `peak_extra_mb` and `ready_extra_mb`, plus the peak method and availability.
+RSS uses the Windows high-water when a **new** process high-water occurs inside
+the load window; otherwise only observed load samples/endpoints can be used.
+GPU peaks are sampled. No inference peak or larger pre-existing process peak
+is substituted into this view. Unknown baselines produce null increments.
+
+This is an **observed load footprint**, not a certified minimum device-memory
+capacity: RSS is resident memory, allocator caches can remain, sampling may
+miss short GPU allocations, and unified RAM/GPU counters may overlap. Report
+the load peak and ready increment separately; do not reduce this to parameter
+file size or sum local/shared GPU counters. Already-loaded composite children
+cannot provide this window and return an explicit unavailable status.
+
+The enclosing perf document still uses schema version 2; the optional
+`load_memory` block is explicitly versioned. Consumers must support nullable
+memory values and use the recorded scope rather than comparing older deltas
+as if they covered the same interval.
+
+For `winml-ort` and `winml-runtime`, RSS baseline is captured **before model
+loading**, including eager session construction and Runtime pipeline creation.
+GPU baseline is captured after resolving the bound EP/adapter but before
+constructing the model. Adapter discovery must not read lazy model properties.
+The added `*_after_load_mb` checkpoint separates loading from the explicit
+compile step. Input generation follows compilation/readiness. `*_after_compile_mb` and `*_after_inference_mb`
+retain their existing names.
+
+`memory_measurement` records PID, adapter LUID, lifecycle scope, units and
+per-checkpoint missing reasons. Fields with the legacy `_mb` suffix use MiB
+(bytes / 1,048,576). Deltas are signed process changes, not model-only allocation;
+negative values can reflect released buffers or working-set changes. Library
+imports, build caches and input preparation can contribute to the measured span.
+
+`process_memory` separately records sampled RSS/local/shared peaks, actual
+sample counts, interval and duration over loading, compilation and inference.
+These are sampled peaks, not an exact continuous maximum. The configured
+polling delay is not a sampling frequency: `configured_poll_delay_sec` records
+the wait after each observation. `observed_mean_interval_sec` and
+`observed_max_interval_sec` record elapsed time between completed observations
+(null with fewer than two observations). GPU discovery/retries also delay RSS
+sampling; these intervals include that overhead and scheduling delays. The legacy
+`*_checkpoint_peak_mb` remains the maximum of the three original checkpoints,
+and is `null` if any required checkpoint is unavailable.
+
+On Windows, `process_memory.os_rss_peak_before_mb` and
+`os_rss_peak_after_mb` also record the OS working-set high-water marks. These
+catch short allocations missed by polling, including native code holding the
+Python GIL. They cover the **process lifetime**, cannot be reset at baseline,
+and do not replace the benchmark-scoped sampled peak. On unsupported systems
+they are `null` with an explicit reason.
+
+Missing GPU counters produce `null`, not zero; deltas with missing endpoints
+also remain `null`. A GPU process-memory instance may not exist before model
+allocation, so valid later absolute readings do not establish a zero baseline.
+Local/shared counters can overlap on unified-memory devices and must not be
+summed. GenAI's shared GPU-memory consumer also preserves unavailable values.
+
+Composite components are already loaded when measured. Their explicit scope
+is `already_loaded_component_through_inference`; their values include the
+shared process and do not claim an independent component-load footprint.
+`--no-memory` disables this collector. Background sampling adds overhead and
+is separate from the native inference timer.
+
 With `--runtime ort-genai`, `winml perf` benchmarks the onnxruntime-genai decoder pipeline rather than a single `session.run()`. The JSON report uses a phase-based schema: `load` contains startup spans, `requests` contains one warmup or timed generation sample per request, `aggregate` summarizes timed requests only, `memory` contains optional RAM/VRAM deltas, and `hw_monitor` contains optional monitor output. The optional `memory` and `hw_monitor` top-level names match the classic `winml-ort` perf report; GenAI keeps `load`/`requests`/`aggregate` instead of classic `latency_ms`/`throughput` because generation has distinct prompt, first-token, and decode phases.
 
 For model-ID auto-builds, the selected EP/device must be supported by the model's
@@ -79,34 +154,19 @@ target validation.
 
 ### Memory measurement contract
 
-With --memory, the legacy baseline stays **after the model factory, before
-input generation and explicit session.compile()**, as on main. Existing
-baseline/load/inference/total delta fields and the maximum-of-three checkpoint
-peak keep that boundary. Eager model loading before this baseline is excluded.
+With `--memory`, classic and Runtime runs use the lifecycle boundaries described
+above: process RSS starts before model construction, while the load-only window
+starts after runtime/device setup and ends before benchmark input allocation.
+Preloaded composite components cannot claim a load baseline; their `load_memory`
+block is unavailable and their process scope explicitly starts after loading.
 
-Single-model runs also take an earlier, separately named before_model_load
-snapshot after device resolution and before the model factory. For each of
-rss, vram_local and vram_shared, additive fields are:
-
-- *_before_model_load_mb: earlier absolute snapshot.
-- *_model_factory_delta_mb: legacy baseline minus earlier snapshot.
-- *_total_from_before_model_load_delta_mb: inference end minus earlier snapshot.
-
-The new total includes model factory/build and input/session overhead. It is
-not weights-only memory or a continuous peak. Preloaded composite components
-have no observation before loading: all added fields are null with an explicit
-reason. They must not inherit the parent's aggregate baseline.
-
-Legacy *_mb fields use MiB. memory_measurement schema_version 2 retains the
-legacy baseline definition and adds the earlier boundary definition, PID,
-process creation time, selected LUID and timestamped byte/status/source records.
-Private commit is separate from RSS. The legacy checkpoint peak excludes the
-new earlier snapshot, even if that snapshot is larger. Signed deltas can be negative.
-
-Unavailable readings and dependent deltas are null, never zero. If the earlier
-GPU process instance is absent, only metrics needing that point are unavailable;
-a valid legacy baseline and its deltas remain usable. CPU GPU memory is
-not_applicable. Performance success does not certify memory.
+The outer result remains `schema_version: 2`; `load_memory.version` is 1.
+Classic `memory_measurement.schema_version` is now 3 (replacing the version 2
+byte-checkpoint structure). It describes PID, selected LUID, lifecycle scope and missing
+counter reasons. The old after-factory baseline and its additive
+`*_before_model_load_mb` fields are superseded by these explicit blocks.
+Signed deltas can be negative. Missing readings and dependent deltas stay null.
+Performance success does not certify memory requirements.
 
 GPU memory uses main's effective EP-device binding, including --device-luid and
 provider selectors resolved through the advertised device options. Unresolved
@@ -120,6 +180,28 @@ of zero is measured_zero; an empty successful enumeration is absent_unconfirmed,
 not proof of zero; enumeration errors and invalid readings are separate states.
 The CLI cannot certify that a process has never used the GPU merely from an
 absent PDH instance, so it never fabricates a zero baseline from that condition.
+
+For a Windows GPU target with a resolved LUID, if process memory instances are
+absent before model loading, the CLI creates a model-free D3D12 device on that
+exact adapter and retries counter discovery for up to two seconds. It creates
+no model, buffers or command queue and submits no GPU work. The device is kept
+alive through the final checkpoint and released on success or failure, so its
+setup footprint is present in both endpoints rather than appearing as model
+allocation. Load-only RAM is captured after this preparation too; process RSS
+still starts before generic runtime setup. Already valid counters,
+CPU/NPU targets, unresolved adapters and preloaded components do not create this
+device. Initialization errors never prevent the model's own provider from running.
+
+This is a prepared-device measurement, not cold GPU initialization. The
+process delta includes model/provider/input allocations and is
+not a minimum VRAM requirement. The load-only delta excludes inputs and inference.
+Legacy-named baseline and delta fields use the new boundaries documented above;
+they must not be compared directly with version 2 memory measurements. The optional
+memory_measurement.gpu_baseline_preparation block records method, timing,
+initial/prepared observations, selected adapter and failures. If the subsequent
+checkpoint remains unavailable, dependent deltas remain null. A later valid
+checkpoint never replaces a missing pre-model baseline. Historical results
+cannot be repaired without recollection.
 
 The hardware monitor refreshes PID/LUID memory instances every 200 ms, including
 when monitoring starts before model load. Counter registration is deduplicated,

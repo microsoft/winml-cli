@@ -30,7 +30,6 @@ import numpy as np
 from rich.markup import escape
 from rich.table import Table
 
-from ..session.monitor.memory_tracker import MemoryTracker
 from ..utils import cli as cli_utils
 from ..utils.console import SafeConsole
 from ..utils.constants import (
@@ -63,6 +62,7 @@ if TYPE_CHECKING:
     from ..models.winml.base import WinMLPreTrainedModel
     from ..models.winml.composite_model import WinMLCompositeModel
     from ..session import EPDeviceTarget, WinMLDevice, WinMLEPDevice
+    from ..session.monitor import ProcessMemoryTracker
     from ..session.monitor.ep_monitor import WinMLEPMonitor
     from ..session.monitor.op_metrics import TraceFallbackReason
     from ..session.stats import PerfStats
@@ -661,6 +661,8 @@ class BenchmarkResult:
     # Memory profile dict (rss deltas from memory_tracker)
     memory_profile: dict[str, float | None] | None = None
     memory_measurement: dict[str, Any] | None = None
+    process_memory: dict[str, Any] | None = None
+    load_memory: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -725,6 +727,10 @@ class BenchmarkResult:
             result["memory"] = self.memory_profile
         if self.memory_measurement:
             result["memory_measurement"] = self.memory_measurement
+        if self.process_memory:
+            result["process_memory"] = self.process_memory
+        if self.load_memory:
+            result["load_memory"] = self.load_memory
         return result
 
 
@@ -958,7 +964,10 @@ class PerfBenchmark:
         self._ep_device: WinMLEPDevice | None = None
         self._effective_batch: int = config.batch_size
         self._memory: dict[str, float | None] | None = None
-        self._memory_tracker: MemoryTracker | None = None
+        self._memory_measurement: dict[str, Any] | None = None
+        self._process_memory: dict[str, Any] | None = None
+        self._memory_tracker: ProcessMemoryTracker | None = None
+        self._load_memory: dict[str, Any] | None = None
         self._runtime_backend = resolve_runtime_api_backend(
             config.runtime, config.model_id, config.backend
         )
@@ -1081,6 +1090,14 @@ class PerfBenchmark:
         return cast("WinMLPreTrainedModel", self._model)
 
     def run(self) -> BenchmarkResult | dict[str, BenchmarkResult]:
+        """Run with the model-free baseline device retained through final measurements."""
+        try:
+            return self._run_with_memory()
+        finally:
+            if self._memory_tracker is not None:
+                self._memory_tracker.close()
+
+    def _run_with_memory(self) -> BenchmarkResult | dict[str, BenchmarkResult]:
         """Execute full benchmark pipeline.
 
         Returns:
@@ -1090,34 +1107,45 @@ class PerfBenchmark:
             ORT session, so each sub-model is benchmarked individually rather
             than timing the aggregate ``forward()`` pass.
         """
-        # Capture before an eager model factory or lazy property can build.
+        self._memory = self._memory_measurement = self._process_memory = None
+        self._load_memory = None
         if self.config.memory:
-            self._resolve_device_ep()
-            self._start_memory(
-                "after_model_factory_before_inputs_and_explicit_compile; legacy baseline",
-                phase="before_model_load",
-            )
+            from ..session.monitor import ProcessMemoryTracker
 
-        # [1] Load model (build pipeline: optimize, cache, etc.)
-        logger.info("Loading model: %s", self.config.model_id)
-        self._load_model()
-        assert self._model is not None
+            self._memory_tracker = ProcessMemoryTracker()
+            self._memory_tracker.start()
+        try:
+            # [1] Load model (build pipeline: optimize, cache, etc.)
+            logger.info("Loading model: %s", self.config.model_id)
+            self._load_model()
+            if self._memory_tracker is not None:
+                self._memory_tracker.checkpoint("after_load")
+            assert self._model is not None
 
-        if self._is_composite:
-            # Composite-ness is only known after _load_model, so this guard
-            # can't live with the up-front --module / --runtime checks. Without
-            # it, each sub-model's child benchmark calls load_input_data with a
-            # single .npz that can't match two different encoders' input names,
-            # surfacing as a re-wrapped "Sub-model '…' failed" RuntimeError
-            # instead of a clean up-front error.
-            if self.config.input_data is not None:
-                raise click.UsageError(
-                    "--input-data is not supported for composite (dual-encoder) "
-                    "models; each sub-model has its own inputs that a single "
-                    ".npz cannot address."
-                )
-            return self._run_sub_models()
-        return self._run_single()
+            if self._is_composite:
+                # Composite-ness is only known after _load_model, so this guard
+                # can't live with the up-front --module / --runtime checks. Without
+                # it, each sub-model's child benchmark calls load_input_data with a
+                # single .npz that can't match two different encoders' input names,
+                # surfacing as a re-wrapped "Sub-model '…' failed" RuntimeError
+                # instead of a clean up-front error.
+                if self.config.input_data is not None:
+                    raise click.UsageError(
+                        "--input-data is not supported for composite (dual-encoder) "
+                        "models; each sub-model has its own inputs that a single "
+                        ".npz cannot address."
+                    )
+                # Components were constructed together; do not attribute the parent
+                # model-load baseline to each already-loaded child.
+                if self._memory_tracker is not None:
+                    self._memory_tracker.stop()
+                    self._memory_tracker = None
+                return self._run_sub_models()
+            return self._run_single()
+        finally:
+            if self._memory_tracker is not None:
+                self._memory_tracker.stop()
+                self._memory_tracker = None
 
     def _run_sub_models(self) -> dict[str, BenchmarkResult]:
         """Benchmark each sub-model of a composite individually.
@@ -1149,36 +1177,39 @@ class PerfBenchmark:
         return results
 
     def _run_single(self) -> BenchmarkResult:
-        """Benchmark the loaded single-session model.
-
-        Returns:
-            BenchmarkResult with timing statistics
-        """
-        import gc
-
-        assert self._model is not None
-
+        """Benchmark a single session and clean up memory tracking on failure."""
         if self.config.memory and self._memory_tracker is None:
-            # Preloaded components cannot claim a pre-model baseline.
-            self._start_memory(
-                "preloaded_component_before_inputs; excludes existing models; process scope"
-            )
-        elif self._memory_tracker is not None:
-            # Preserve the original baseline and all deltas derived from it.
-            gc.collect()
-            self._memory_tracker.capture("baseline")
+            from ..session.monitor import ProcessMemoryTracker
 
-        # [2] Generate inputs
-        logger.info("Generating benchmark inputs")
-        self._generate_inputs()
+            self._memory_tracker = ProcessMemoryTracker(
+                adapter_luid=self._resolve_adapter_luid(),
+                scope="already_loaded_component_through_inference",
+            )
+            self._memory_tracker.start()
+            self._memory_tracker.checkpoint("after_load")
+        try:
+            return self._run_single_impl()
+        finally:
+            if self._memory_tracker is not None:
+                self._memory_tracker.stop()
+                self._memory_tracker = None
+
+    def _run_single_impl(self) -> BenchmarkResult:
+        """Run with the lifecycle baseline captured before model construction."""
+        assert self._model is not None
 
         # Compile session early so model.device is resolved for display
         with suppress_native_warnings(enabled=True):
             self._single._session.compile()
 
         if self._memory_tracker is not None:
-            gc.collect()
-            self._memory_tracker.capture("after_compile")
+            self._memory_tracker.record_model_ready()
+            self._load_memory = self._memory_tracker.load_memory()
+            self._memory_tracker.checkpoint("after_compile")
+
+        # Inputs must not inflate the model load footprint.
+        logger.info("Generating benchmark inputs")
+        self._generate_inputs()
 
         # Pre-benchmark identity block (model + device sub-blocks).
         # opset is not currently extracted on this path; pass None.
@@ -1218,8 +1249,11 @@ class PerfBenchmark:
         stats = self._run_benchmark()
 
         if self._memory_tracker is not None:
-            self._memory_tracker.capture("after_inference")
-            self._memory = self._memory_tracker.profile()
+            self._memory_tracker.checkpoint("after_inference")
+            self._memory_tracker.stop()
+            self._memory = self._memory_tracker.to_dict()
+            self._memory_measurement = self._memory_tracker.metadata()
+            self._process_memory = self._memory_tracker.sampled()
 
         # [4] Collect results
         logger.info("Collecting results")
@@ -1240,6 +1274,12 @@ class PerfBenchmark:
         # Resolve the concrete device + EP first so a bad combo fails fast,
         # before from_pretrained/from_onnx kick off the build pipeline.
         self._resolve_device_ep()
+        if self._memory_tracker is not None:
+            _, bound_device = _get_ep_device_binding(self._ep_device, self.config.ep_options)
+            self._memory_tracker.bind_before_load(
+                self._resolve_adapter_luid(),
+                device=bound_device or self._resolved_device or self.config.device or "auto",
+            )
         assert self._ep_device is not None
 
         model_id = self.config.model_id
@@ -1391,20 +1431,6 @@ class PerfBenchmark:
             self.config.ep_options,
         )
         return bound_luid
-
-    def _start_memory(self, baseline: str, *, phase: str = "baseline") -> None:
-        import gc
-
-        luid, bound_device = _get_ep_device_binding(self._ep_device, self.config.ep_options)
-        reason = None if luid else "selected_device_has_no_monitorable_luid"
-        self._memory_tracker = MemoryTracker(
-            luid,
-            baseline=baseline,
-            device=bound_device or self._resolved_device or self.config.device or "auto",
-            adapter_reason=reason,
-        )
-        gc.collect()
-        self._memory_tracker.capture(phase)
 
     def _run_benchmark(self) -> PerfStats:
         """Execute benchmark iterations with timing.
@@ -1594,7 +1620,9 @@ class PerfBenchmark:
             hw_monitor=getattr(self, "_hw_metrics", None),
             # Memory profile (only present when --memory is used)
             memory_profile=self._memory,
-            memory_measurement=self._memory_tracker.evidence() if self._memory_tracker else None,
+            memory_measurement=self._memory_measurement,
+            process_memory=self._process_memory,
+            load_memory=self._load_memory,
         )
 
 
@@ -2087,6 +2115,24 @@ def display_console_report(result: BenchmarkResult, console: SafeConsole) -> Non
             console.print(f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  RAM: {ram_text} MiB")
 
     # Memory section (only when --memory is enabled)
+    if result.load_memory and result.load_memory.get("status") == "measured":
+        console.print()
+        console.print("[bold]Model loading memory (observed):[/bold]")
+        for family, label in (
+            ("rss", "RAM (RSS)"),
+            ("vram_local", "GPU local"),
+            ("vram_shared", "GPU shared"),
+        ):
+            observation = result.load_memory[family]
+            peak, ready = observation["peak_extra_mb"], observation["ready_extra_mb"]
+            peak_text = "N/A" if peak is None else f"{peak:.1f}"
+            ready_text = "N/A" if ready is None else f"{ready:+.1f}"
+            console.print(
+                f"  {label}: peak extra {peak_text} MiB | ready net change {ready_text} MiB"
+            )
+        console.print(
+            "  Includes this path's required load/compile work; excludes inputs/inference."
+        )
     if result.memory_profile:
         mem = result.memory_profile
         console.print()
@@ -2094,34 +2140,25 @@ def display_console_report(result: BenchmarkResult, console: SafeConsole) -> Non
 
         def memory_value(key: str, *, signed: bool = False) -> str:
             value = mem.get(key)
-            if value is None:
-                return "unavailable"
-            return f"{value:+.1f}" if signed else f"{value:.1f}"
+            return "N/A" if value is None else format(value, "+.1f" if signed else ".1f")
 
         console.print(
-            f"  RAM: {memory_value('rss_after_inference_mb')} MiB  |  "
-            f"total delta: {memory_value('rss_total_delta_mb', signed=True)} MiB"
+            f"  RAM (RSS): {memory_value('rss_after_inference_mb')} MiB | "
+            f"load/build net change: {memory_value('rss_model_load_delta_mb', signed=True)} MiB | "
+            f"inference net change: {memory_value('rss_inference_delta_mb', signed=True)} MiB | "
+            f"total net change: {memory_value('rss_total_delta_mb', signed=True)} MiB"
         )
         console.print(
-            f"  GPU local/shared: {memory_value('vram_local_after_inference_mb')}/"
-            f"{memory_value('vram_shared_after_inference_mb')} MiB  |  total delta: "
-            f"{memory_value('vram_local_total_delta_mb', signed=True)}/"
+            f"  GPU memory L/S: {memory_value('vram_local_after_inference_mb')}/"
+            f"{memory_value('vram_shared_after_inference_mb')} MiB | "
+            f"net change: {memory_value('vram_local_total_delta_mb', signed=True)}/"
             f"{memory_value('vram_shared_total_delta_mb', signed=True)} MiB"
         )
-        if "rss_before_model_load_mb" in mem:
-            console.print(
-                "  From before model load (additional): RAM delta "
-                f"{memory_value('rss_total_from_before_model_load_delta_mb', signed=True)} MiB; "
-                "GPU local/shared delta "
-                f"{memory_value('vram_local_total_from_before_model_load_delta_mb', signed=True)}/"
-                f"{memory_value('vram_shared_total_from_before_model_load_delta_mb', signed=True)}"
-                " MiB"
-            )
         if result.memory_measurement:
-            console.print(f"  Baseline: {escape(result.memory_measurement['baseline'])}")
-            console.print(
-                "  Phase snapshots; unavailable counters are not zero. Not a continuous peak."
-            )
+            console.print(f"  Memory scope: {result.memory_measurement['scope']}")
+            missing = result.memory_measurement.get("missing_reasons", {})
+            if any(missing.values()):
+                console.print("  N/A memory counters: see memory_measurement.missing_reasons")
 
     console.print()
 

@@ -187,14 +187,14 @@ def _round_stats(values: dict[str, float]) -> dict[str, float]:
 
 def _get_rss_mb() -> float:
     """Return current process RSS in MB."""
-    from ..session.monitor.memory_tracker import get_rss_mb
+    from ..session.monitor import get_rss_mb
 
     return get_rss_mb()
 
 
 def _get_vram_mb(adapter_luid: str | None) -> tuple[float | None, float | None]:
     """Return current process device-memory usage as local/shared MB."""
-    from ..session.monitor.memory_tracker import get_vram_mb
+    from ..session.monitor import get_vram_mb
 
     return get_vram_mb(adapter_luid)
 

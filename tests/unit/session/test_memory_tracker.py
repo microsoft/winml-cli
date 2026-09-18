@@ -138,12 +138,8 @@ def test_perf_baseline_precedes_eager_factory(monkeypatch):
 
     events = []
     bench = PerfBenchmark(BenchmarkConfig(model_id="test"))
-    monkeypatch.setattr(bench, "_resolve_device_ep", lambda: events.append("resolve"))
-    monkeypatch.setattr(
-        bench,
-        "_start_memory",
-        lambda baseline, **kwargs: events.append(kwargs.get("phase", "baseline")),
-    )
+    monkeypatch.setattr(mt.ProcessMemoryTracker, "start", lambda self: events.append("baseline"))
+    monkeypatch.setattr(mt.ProcessMemoryTracker, "checkpoint", lambda *args: None)
 
     def load():
         events.append("eager_load")
@@ -153,7 +149,7 @@ def test_perf_baseline_precedes_eager_factory(monkeypatch):
     monkeypatch.setattr(PerfBenchmark, "_is_composite", property(lambda self: False))
     monkeypatch.setattr(bench, "_run_single", lambda: events.append("inference"))
     bench.run()
-    assert events == ["resolve", "before_model_load", "eager_load", "inference"]
+    assert events == ["baseline", "eager_load", "inference"]
 
 
 def test_adapter_resolution_never_reads_lazy_model(monkeypatch):
@@ -271,8 +267,17 @@ def test_perf_records_both_boundaries_around_factory_and_inputs(monkeypatch):
     bench = perf_module.PerfBenchmark(perf_module.BenchmarkConfig(model_id="test"))
     monkeypatch.setattr(bench, "_resolve_device_ep", lambda: None)
     monkeypatch.setattr(perf_module, "_get_ep_device_binding", lambda *args: (None, "cpu"))
-    monkeypatch.setattr(mt.MemoryTracker, "capture", lambda self, phase: events.append(phase))
-    monkeypatch.setattr(mt.MemoryTracker, "profile", lambda self: {})
+    monkeypatch.setattr(mt.ProcessMemoryTracker, "_sample", lambda self: None)
+    original_checkpoint = mt.ProcessMemoryTracker.checkpoint
+
+    def checkpoint(self, phase):
+        events.append(phase)
+        original_checkpoint(self, phase)
+
+    monkeypatch.setattr(mt.ProcessMemoryTracker, "checkpoint", checkpoint)
+    monkeypatch.setattr(
+        mt.ProcessMemoryTracker, "record_model_ready", lambda self: events.append("model_ready")
+    )
     single = MagicMock()
     single._session.compile.side_effect = lambda: events.append("compile")
 
@@ -290,12 +295,13 @@ def test_perf_records_both_boundaries_around_factory_and_inputs(monkeypatch):
     monkeypatch.setattr(perf_module, "print_pre_bench_block", lambda *a, **k: None)
     bench.run()
     assert events == [
-        "before_model_load",
-        "factory",
         "baseline",
-        "inputs",
+        "factory",
+        "after_load",
         "compile",
+        "model_ready",
         "after_compile",
+        "inputs",
         "inference",
         "after_inference",
     ]

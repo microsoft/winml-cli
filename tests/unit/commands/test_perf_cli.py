@@ -2156,10 +2156,10 @@ class TestClassicMemoryProfile:
         stats.samples_ms = [10.0]
         stats.all_samples_ms = [10.0]
 
-        rss_values = iter([100.0, 150.0, 180.0])
-        vram_values = iter([(10.0, 20.0), (30.0, 50.0), (40.0, 70.0)])
+        rss_values = iter([100.0, 100.0, 150.0, 180.0])
+        vram_values = iter([(10.0, 20.0), (10.0, 20.0), (30.0, 50.0), (40.0, 70.0)])
 
-        monkeypatch.setattr(perf_module, "_get_ep_device_binding", lambda *args: ("luid", "npu"))
+        monkeypatch.setattr(benchmark, "_resolve_adapter_luid", lambda: "luid")
         monkeypatch.setattr(benchmark, "_run_benchmark", lambda: stats)
         monkeypatch.setattr(
             benchmark,
@@ -2170,28 +2170,28 @@ class TestClassicMemoryProfile:
                 {"pixel_values": MagicMock(shape=(1, 3, 224, 224))},
             ),
         )
-        from winml.modelkit.session.monitor import memory_tracker
-
-        process = MagicMock()
-        process.create_time.return_value = 123.0
-        process.memory_info.side_effect = lambda: SimpleNamespace(
-            rss=int(next(rss_values) * 1048576)
+        monkeypatch.setattr(
+            "winml.modelkit.session.monitor.memory_tracker.get_rss_mb",
+            lambda: next(rss_values),
         )
-        monkeypatch.setattr(memory_tracker.psutil, "Process", lambda *_: process)
-
-        def sample_vram(_luid):
-            local, shared = next(vram_values)
-            return {
-                key: memory_tracker.metric(int(value * 1048576), "test")
-                for key, value in (("local", local), ("shared", shared))
-            }
-
-        monkeypatch.setattr(memory_tracker, "sample_vram", sample_vram)
+        monkeypatch.setattr(
+            "winml.modelkit.session.monitor.memory_tracker._device_memory",
+            lambda _adapter_luid: (
+                dict(zip(("vram_local", "vram_shared"), next(vram_values), strict=True)),
+                {},
+            ),
+        )
+        monkeypatch.setattr(
+            "winml.modelkit.session.monitor.ProcessMemoryTracker._sample", lambda _: None
+        )
         monkeypatch.setattr("winml.modelkit.commands.perf._print_model_info", lambda *_, **__: None)
 
         result = benchmark._run_single()
 
         assert result.memory_profile == {
+            "rss_after_load_mb": 100.0,
+            "vram_local_after_load_mb": 10.0,
+            "vram_shared_after_load_mb": 20.0,
             "rss_baseline_mb": 100.0,
             "rss_after_compile_mb": 150.0,
             "rss_after_inference_mb": 180.0,
@@ -2213,15 +2213,6 @@ class TestClassicMemoryProfile:
             "vram_shared_inference_delta_mb": 20.0,
             "vram_local_total_delta_mb": 30.0,
             "vram_shared_total_delta_mb": 50.0,
-            **{
-                f"{key}_{suffix}_mb": None
-                for key in ("rss", "vram_local", "vram_shared")
-                for suffix in (
-                    "before_model_load",
-                    "model_factory_delta",
-                    "total_from_before_model_load_delta",
-                )
-            },
         }
 
 
@@ -2641,6 +2632,27 @@ class TestPerfFormatJson:
 
 
 class TestDisplayConsoleReport:
+    @pytest.mark.parametrize(
+        "ram, expected",
+        [
+            ({}, "unavailable"),
+            ({"used_mb": None}, "unavailable"),
+            ({"used_mb": 0.0}, "0"),
+            ({"used_mb": 1024.0}, "1024"),
+        ],
+    )
+    @pytest.mark.parametrize("device_kind", [None, "gpu"])
+    def test_ram_availability(self, ram, expected, device_kind) -> None:
+        result = BenchmarkResult(
+            config=BenchmarkConfig(model_id="test"),
+            hw_monitor={"device_kind": device_kind, "ram": ram},
+        )
+        console = Console(file=StringIO(), width=200, record=True)
+
+        display_console_report(result, console)
+
+        assert f"RAM: {expected} MiB" in console.export_text()
+
     class _FailingConsoleFile:
         encoding = "utf-8"
 

@@ -179,13 +179,9 @@ def _apply_io_metadata(io_config: dict[str, Any], model_path: Path) -> None:
     input_names = [item["name"] for item in metadata.get("inputs", [])]
     output_names = [item["name"] for item in metadata.get("outputs", [])]
     if len(input_names) != len(io_config["input_names"]):
-        raise click.ClickException(
-            f"Runtime input count does not match {metadata_path.name}."
-        )
+        raise click.ClickException(f"Runtime input count does not match {metadata_path.name}.")
     if len(output_names) != len(io_config["output_names"]):
-        raise click.ClickException(
-            f"Runtime output count does not match {metadata_path.name}."
-        )
+        raise click.ClickException(f"Runtime output count does not match {metadata_path.name}.")
     io_config["input_names"] = input_names
     io_config["output_names"] = output_names
 
@@ -288,9 +284,7 @@ class _DXCoreAdapter:
         restype: Any,
         *argtypes: Any,
     ) -> Any:
-        vtable = ctypes.cast(
-            interface, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))
-        ).contents
+        vtable = ctypes.cast(interface, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
         return ctypes.WINFUNCTYPE(restype, ctypes.c_void_p, *argtypes)(vtable[index])
 
     @classmethod
@@ -302,9 +296,7 @@ class _DXCoreAdapter:
             _fields_ = [("LowPart", ctypes.c_uint32), ("HighPart", ctypes.c_int32)]
 
         if not 0 <= luid_value <= 0xFFFFFFFFFFFFFFFF:
-            raise click.ClickException(
-                f"Adapter LUID is outside uint64 range: {luid_value!r}."
-            )
+            raise click.ClickException(f"Adapter LUID is outside uint64 range: {luid_value!r}.")
 
         try:
             dxcore = ctypes.WinDLL("dxcore.dll")
@@ -346,8 +338,7 @@ class _DXCoreAdapter:
             )
             if hr < 0:
                 raise click.ClickException(
-                    f"DXCore could not resolve adapter LUID {luid_value} "
-                    f"(0x{hr & 0xFFFFFFFF:08X})."
+                    f"DXCore could not resolve adapter LUID {luid_value} (0x{hr & 0xFFFFFFFF:08X})."
                 )
             return cls(adapter, dxcore)
         finally:
@@ -635,9 +626,7 @@ class WinMLRuntimeSession:
         self._ep_req = ep
         self._ep_source = ep_source
         if session_options is not None:
-            raise ValueError(
-                "session_options are not supported by the Windows ML Runtime backend."
-            )
+            raise ValueError("session_options are not supported by the Windows ML Runtime backend.")
         if provider_options:
             raise click.ClickException(
                 "--ep-options are not supported with --runtime winml-runtime because "
@@ -889,8 +878,12 @@ class WinMLRuntimeSession:
                 use_named_bindings=self._has_named_bindings,
             )
             with _translate_native_errors("run"):
-                for index in range(output_count):
-                    self._stage.request_output(index)
+                # Older projections (including 2.7.9) materialize outputs automatically.
+                # Newer projections require an explicit request on every execution.
+                request_output = getattr(self._stage, "request_output", None)
+                if callable(request_output):
+                    for index in range(output_count):
+                        request_output(index)
                 self._pipeline.run()
             return self._read_outputs(named)
 
