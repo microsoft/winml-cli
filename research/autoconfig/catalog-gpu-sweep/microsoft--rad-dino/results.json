@@ -1,0 +1,219 @@
+{
+  "model_id": "microsoft/rad-dino",
+  "task": "image-feature-extraction",
+  "model_type": "dinov2",
+  "timestamp": "2026-06-17T21:21:07",
+  "ep": "qnn",
+  "device": "gpu",
+  "baseline_opset": 17,
+  "hypotheses": {
+    "h0": {
+      "status": "OK",
+      "label": "baseline FP32 (no quant, no compile)",
+      "opset": 17,
+      "extra_optim": null,
+      "screen_p50_ms": 311.746,
+      "screen_cv": 0.07637307295041477,
+      "full_p50s_ms": [
+        318.508,
+        324.031,
+        321.256
+      ],
+      "median_p50_ms": 321.256,
+      "verdict": "BASELINE"
+    },
+    "h1": {
+      "status": "OK",
+      "label": "opset 17 explicit",
+      "opset": 17,
+      "extra_optim": null,
+      "screen_p50_ms": 321.096,
+      "screen_cv": 0.13311595286144953,
+      "full_p50s_ms": [
+        420.756,
+        338.659,
+        331.4
+      ],
+      "median_p50_ms": 338.659,
+      "gain_vs_baseline_pct": -5.42,
+      "verdict": "DISCARD"
+    },
+    "h2": {
+      "status": "OK",
+      "label": "opset 19",
+      "opset": 19,
+      "extra_optim": null,
+      "screen_p50_ms": 334.966,
+      "screen_cv": 0.11764776126532245,
+      "full_p50s_ms": [
+        337.958,
+        331.58,
+        328.045
+      ],
+      "median_p50_ms": 331.58,
+      "gain_vs_baseline_pct": -3.21,
+      "verdict": "DISCARD"
+    },
+    "h3": {
+      "status": "OK",
+      "label": "opset 21 (tests gpu-006)",
+      "opset": 21,
+      "extra_optim": null,
+      "screen_p50_ms": 328.867,
+      "screen_cv": 0.09647060969936173,
+      "full_p50s_ms": [
+        326.329,
+        334.932,
+        329.704
+      ],
+      "median_p50_ms": 329.704,
+      "gain_vs_baseline_pct": -2.63,
+      "verdict": "DISCARD"
+    },
+    "h4": {
+      "status": "OK",
+      "label": "opset 17 + matmul_transpose_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "matmul_transpose_fusion": true
+      },
+      "screen_p50_ms": 321.486,
+      "screen_cv": 0.1220675239357235,
+      "full_p50s_ms": [
+        324.795,
+        324.376,
+        326.365
+      ],
+      "median_p50_ms": 324.795,
+      "gain_vs_baseline_pct": -1.1,
+      "verdict": "DISCARD"
+    },
+    "h5": {
+      "status": "OK",
+      "label": "opset 17 + attention_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "attention_fusion": true
+      },
+      "screen_p50_ms": 327.99,
+      "screen_cv": 0.11450958870697277,
+      "full_p50s_ms": [
+        321.67,
+        332.714,
+        329.006
+      ],
+      "median_p50_ms": 329.006,
+      "gain_vs_baseline_pct": -2.41,
+      "verdict": "DISCARD"
+    },
+    "h6": {
+      "status": "OK",
+      "label": "opset 17 + bias_softmax_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "bias_softmax_fusion": true
+      },
+      "screen_p50_ms": 326.056,
+      "screen_cv": 0.11823429104202961,
+      "full_p50s_ms": [
+        331.665,
+        327.97,
+        329.607
+      ],
+      "median_p50_ms": 329.607,
+      "gain_vs_baseline_pct": -2.6,
+      "verdict": "DISCARD"
+    },
+    "h7": {
+      "status": "OK",
+      "label": "opset 17 + layer_norm_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "layer_norm_fusion": true
+      },
+      "screen_p50_ms": 320.193,
+      "screen_cv": 0.12970302286433497,
+      "full_p50s_ms": [
+        327.267,
+        324.65,
+        327.859
+      ],
+      "median_p50_ms": 327.267,
+      "gain_vs_baseline_pct": -1.87,
+      "verdict": "DISCARD"
+    },
+    "h8": {
+      "status": "BENCH_FAIL",
+      "label": "opset 17 + skip_layer_norm_fusion"
+    },
+    "h9": {
+      "status": "OK",
+      "label": "opset 21 + matmul_transpose + attention_fusion",
+      "opset": 21,
+      "extra_optim": {
+        "matmul_transpose_fusion": true,
+        "attention_fusion": true
+      },
+      "screen_p50_ms": 320.802,
+      "screen_cv": 0.12593125978017594,
+      "full_p50s_ms": [
+        319.641,
+        324.735,
+        328.564
+      ],
+      "median_p50_ms": 324.735,
+      "gain_vs_baseline_pct": -1.08,
+      "verdict": "DISCARD"
+    },
+    "h10": {
+      "status": "BENCH_FAIL",
+      "label": "opset 17 + ln + skip_ln + matmul_transpose"
+    },
+    "h11": {
+      "status": "OK",
+      "label": "opset 17 + gelu_fusion explicit",
+      "opset": 17,
+      "extra_optim": {
+        "gelu_fusion": true
+      },
+      "screen_p50_ms": 312.178,
+      "screen_cv": 0.12257750385997732,
+      "full_p50s_ms": [
+        314.865,
+        314.838,
+        313.876
+      ],
+      "median_p50_ms": 314.838,
+      "gain_vs_baseline_pct": 2.0,
+      "verdict": "MARGINAL"
+    },
+    "h12": {
+      "status": "OK",
+      "label": "opset 17 + transpose_optimizer",
+      "opset": 17,
+      "extra_optim": {
+        "transpose_optimizer": true
+      },
+      "screen_p50_ms": 314.241,
+      "screen_cv": 0.12399082233063159,
+      "full_p50s_ms": [
+        320.636,
+        316.974,
+        311.984
+      ],
+      "median_p50_ms": 316.974,
+      "gain_vs_baseline_pct": 1.33,
+      "verdict": "MARGINAL"
+    }
+  },
+  "best_hypothesis": null,
+  "baseline_p50_ms": 321.256,
+  "best_p50_ms": null,
+  "best_gain_pct": null,
+  "opset21_gain_pct": -2.63,
+  "feature_gaps": [],
+  "errors": [
+    "h8: screen bench failed",
+    "h10: screen bench failed"
+  ]
+}

@@ -1,0 +1,276 @@
+{
+  "model_id": "microsoft/resnet-18",
+  "task": "image-classification",
+  "model_type": "resnet",
+  "timestamp": "2026-06-18T09:05:04",
+  "ep": "qnn",
+  "device": "gpu",
+  "baseline_opset": 17,
+  "hypotheses": {
+    "h0": {
+      "status": "OK",
+      "label": "baseline FP32 (no quant, no compile)",
+      "opset": 17,
+      "extra_optim": null,
+      "screen_p50_ms": 7.266,
+      "screen_cv": 0.713047068538398,
+      "full_p50s_ms": [
+        6.823,
+        6.916,
+        6.04
+      ],
+      "median_p50_ms": 6.823,
+      "verdict": "BASELINE"
+    },
+    "h1": {
+      "status": "OK",
+      "label": "opset 17 explicit",
+      "opset": 17,
+      "extra_optim": null,
+      "screen_p50_ms": 7.584,
+      "screen_cv": 0.2866561181434599,
+      "full_p50s_ms": [
+        6.638,
+        6.738,
+        6.012
+      ],
+      "median_p50_ms": 6.638,
+      "gain_vs_baseline_pct": 2.71,
+      "verdict": "MARGINAL"
+    },
+    "h2": {
+      "status": "OK",
+      "label": "opset 19",
+      "opset": 19,
+      "extra_optim": null,
+      "screen_p50_ms": 7.013,
+      "screen_cv": 0.348353058605447,
+      "full_p50s_ms": [
+        7.392,
+        6.557,
+        6.884
+      ],
+      "median_p50_ms": 6.884,
+      "gain_vs_baseline_pct": -0.89,
+      "verdict": "DISCARD"
+    },
+    "h3": {
+      "status": "OK",
+      "label": "opset 21 (tests gpu-006)",
+      "opset": 21,
+      "extra_optim": null,
+      "screen_p50_ms": 7.382,
+      "screen_cv": 0.38715795177458684,
+      "full_p50s_ms": [
+        6.6,
+        6.775,
+        6.409
+      ],
+      "median_p50_ms": 6.6,
+      "gain_vs_baseline_pct": 3.27,
+      "verdict": "MARGINAL"
+    },
+    "h4": {
+      "status": "OK",
+      "label": "opset 17 + matmul_transpose_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "matmul_transpose_fusion": true
+      },
+      "screen_p50_ms": 7.024,
+      "screen_cv": 0.3361332574031891,
+      "full_p50s_ms": [
+        6.562,
+        6.53,
+        7.551
+      ],
+      "median_p50_ms": 6.562,
+      "gain_vs_baseline_pct": 3.83,
+      "verdict": "MARGINAL"
+    },
+    "h5": {
+      "status": "OK",
+      "label": "opset 17 + attention_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "attention_fusion": true
+      },
+      "screen_p50_ms": 7.344,
+      "screen_cv": 0.6030773420479303,
+      "full_p50s_ms": [
+        6.574,
+        7.504,
+        6.594
+      ],
+      "median_p50_ms": 6.594,
+      "gain_vs_baseline_pct": 3.36,
+      "verdict": "MARGINAL"
+    },
+    "h6": {
+      "status": "OK",
+      "label": "opset 17 + bias_softmax_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "bias_softmax_fusion": true
+      },
+      "screen_p50_ms": 7.052,
+      "screen_cv": 0.34160521837776514,
+      "full_p50s_ms": [
+        6.114,
+        6.516,
+        6.682
+      ],
+      "median_p50_ms": 6.516,
+      "gain_vs_baseline_pct": 4.5,
+      "verdict": "MARGINAL"
+    },
+    "h7": {
+      "status": "OK",
+      "label": "opset 17 + layer_norm_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "layer_norm_fusion": true
+      },
+      "screen_p50_ms": 6.483,
+      "screen_cv": 0.9310504396112911,
+      "full_p50s_ms": [
+        7.109,
+        6.881,
+        7.234
+      ],
+      "median_p50_ms": 7.109,
+      "gain_vs_baseline_pct": -4.19,
+      "verdict": "DISCARD"
+    },
+    "h8": {
+      "status": "OK",
+      "label": "opset 17 + skip_layer_norm_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "skip_layer_norm_fusion": true
+      },
+      "screen_p50_ms": 6.841,
+      "screen_cv": 0.2964478877357111,
+      "full_p50s_ms": [
+        6.339,
+        6.777,
+        7.058
+      ],
+      "median_p50_ms": 6.777,
+      "gain_vs_baseline_pct": 0.67,
+      "verdict": "MARGINAL"
+    },
+    "h9": {
+      "status": "OK",
+      "label": "opset 21 + matmul_transpose + attention_fusion",
+      "opset": 21,
+      "extra_optim": {
+        "matmul_transpose_fusion": true,
+        "attention_fusion": true
+      },
+      "screen_p50_ms": 6.98,
+      "screen_cv": 0.6378223495702006,
+      "full_p50s_ms": [
+        7.448,
+        6.432,
+        7.368
+      ],
+      "median_p50_ms": 7.368,
+      "gain_vs_baseline_pct": -7.99,
+      "verdict": "DISCARD"
+    },
+    "h10": {
+      "status": "OK",
+      "label": "opset 17 + ln + skip_ln + matmul_transpose",
+      "opset": 17,
+      "extra_optim": {
+        "layer_norm_fusion": true,
+        "skip_layer_norm_fusion": true,
+        "matmul_transpose_fusion": true
+      },
+      "screen_p50_ms": 5.897,
+      "screen_cv": 0.9113108360183143,
+      "full_p50s_ms": [
+        6.756,
+        8.163,
+        6.381
+      ],
+      "median_p50_ms": 6.756,
+      "gain_vs_baseline_pct": 0.98,
+      "verdict": "MARGINAL"
+    },
+    "h11": {
+      "status": "OK",
+      "label": "opset 17 + gelu_fusion explicit",
+      "opset": 17,
+      "extra_optim": {
+        "gelu_fusion": true
+      },
+      "screen_p50_ms": 6.974,
+      "screen_cv": 0.8368224835101807,
+      "full_p50s_ms": [
+        6.482,
+        6.175,
+        6.386
+      ],
+      "median_p50_ms": 6.386,
+      "gain_vs_baseline_pct": 6.4,
+      "verdict": "MARGINAL_UNCONFIRMED",
+      "confirm_p50s_ms": [
+        6.48,
+        6.348
+      ],
+      "all_p50s_ms": [
+        6.482,
+        6.175,
+        6.386,
+        6.48,
+        6.348
+      ],
+      "overall_median_p50_ms": 6.386,
+      "overall_gain_pct": 6.4,
+      "sessions_above_threshold": 4,
+      "total_sessions": 5
+    },
+    "h12": {
+      "status": "OK",
+      "label": "opset 17 + transpose_optimizer",
+      "opset": 17,
+      "extra_optim": {
+        "transpose_optimizer": true
+      },
+      "screen_p50_ms": 5.992,
+      "screen_cv": 0.3384512683578104,
+      "full_p50s_ms": [
+        6.437,
+        6.251,
+        6.224
+      ],
+      "median_p50_ms": 6.251,
+      "gain_vs_baseline_pct": 8.38,
+      "verdict": "MARGINAL_UNCONFIRMED",
+      "confirm_p50s_ms": [
+        8.718,
+        6.869
+      ],
+      "all_p50s_ms": [
+        6.437,
+        6.251,
+        6.224,
+        8.718,
+        6.869
+      ],
+      "overall_median_p50_ms": 6.437,
+      "overall_gain_pct": 5.66,
+      "sessions_above_threshold": 3,
+      "total_sessions": 5
+    }
+  },
+  "best_hypothesis": "h12",
+  "baseline_p50_ms": 6.823,
+  "best_p50_ms": 6.251,
+  "best_gain_pct": 8.38,
+  "opset21_gain_pct": 3.27,
+  "feature_gaps": [],
+  "errors": []
+}
