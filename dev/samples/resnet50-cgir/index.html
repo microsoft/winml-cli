@@ -10,13 +10,9 @@
       
       
       
-        <link rel="canonical" href="https://microsoft.github.io/winml-cli/dev/commands/optimize/">
+        <link rel="canonical" href="https://microsoft.github.io/winml-cli/dev/samples/resnet50-cgir/">
       
       
-        <link rel="prev" href="../analyze/">
-      
-      
-        <link rel="next" href="../quantize/">
       
       
         
@@ -27,7 +23,7 @@
     
     
       
-        <title>optimize - Windows ML CLI</title>
+        <title>ResNet-50 - PyTorch to CGIR (experimental) - Windows ML CLI</title>
       
     
     
@@ -80,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#winml-optimize" class="md-skip">
+        <a href="#resnet-50-pytorch-to-cgir-experimental" class="md-skip">
           Skip to content
         </a>
       
@@ -118,7 +114,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              optimize
+              ResNet-50 - PyTorch to CGIR (experimental)
             
           </span>
         </div>
@@ -298,13 +294,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../overview/" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../../commands/overview/" class="md-tabs__link">
           
   
   
@@ -324,7 +318,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../samples/bert-config-build/" class="md-tabs__link">
+        <a href="../bert-config-build/" class="md-tabs__link">
           
   
   
@@ -1195,31 +1189,26 @@
       
   
   
-    
   
   
-  
     
     
     
     
-      
-        
-        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
         
           
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
             
   
   
@@ -1237,7 +1226,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1255,7 +1244,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../overview/" class="md-nav__link">
+      <a href="../../commands/overview/" class="md-nav__link">
         
   
   
@@ -1289,20 +1278,17 @@
       
       
         
-          
-          
-        
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
         <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
         
           
-          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="">
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
             
   
   
@@ -1338,7 +1324,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sys/" class="md-nav__link">
+      <a href="../../commands/sys/" class="md-nav__link">
         
   
   
@@ -1366,7 +1352,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../inspect/" class="md-nav__link">
+      <a href="../../commands/inspect/" class="md-nav__link">
         
   
   
@@ -1394,7 +1380,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../catalog/" class="md-nav__link">
+      <a href="../../commands/catalog/" class="md-nav__link">
         
   
   
@@ -1436,20 +1422,17 @@
       
       
         
-          
-          
-        
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
         <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" >
         
           
-          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="">
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
             
   
   
@@ -1485,7 +1468,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../config/" class="md-nav__link">
+      <a href="../../commands/config/" class="md-nav__link">
         
   
   
@@ -1518,31 +1501,26 @@
                 
   
   
-    
   
   
-  
     
     
     
     
       
       
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_4" >
         
           
-          
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_4" checked>
-        
-          
-          <label class="md-nav__link" for="__nav_4_4" id="__nav_4_4_label" tabindex="">
+          <label class="md-nav__link" for="__nav_4_4" id="__nav_4_4_label" tabindex="0">
             
   
   
@@ -1560,7 +1538,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_4_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_4_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_4_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1578,7 +1556,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../export/" class="md-nav__link">
+      <a href="../../commands/export/" class="md-nav__link">
         
   
   
@@ -1606,7 +1584,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../analyze/" class="md-nav__link">
+      <a href="../../commands/analyze/" class="md-nav__link">
         
   
   
@@ -1631,37 +1609,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    optimize
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../commands/optimize/" class="md-nav__link">
         
   
   
@@ -1677,131 +1628,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#when-to-use-this" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        When to use this
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#synopsis" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Synopsis
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#flags" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Flags
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Flags">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#configuration-precedence" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Configuration precedence
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#how-it-works" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        How it works
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#examples" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Examples
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#cgc-compatibility-rewrites" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        CGC compatibility rewrites
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#common-pitfalls" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Common pitfalls
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#see-also" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        See also
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1814,7 +1640,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../quantize/" class="md-nav__link">
+      <a href="../../commands/quantize/" class="md-nav__link">
         
   
   
@@ -1842,7 +1668,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../compile/" class="md-nav__link">
+      <a href="../../commands/compile/" class="md-nav__link">
         
   
   
@@ -1870,7 +1696,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../build/" class="md-nav__link">
+      <a href="../../commands/build/" class="md-nav__link">
         
   
   
@@ -1912,20 +1738,17 @@
       
       
         
-          
-          
-        
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
         <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_5" >
         
           
-          <label class="md-nav__link" for="__nav_4_5" id="__nav_4_5_label" tabindex="">
+          <label class="md-nav__link" for="__nav_4_5" id="__nav_4_5_label" tabindex="0">
             
   
   
@@ -1961,7 +1784,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../perf/" class="md-nav__link">
+      <a href="../../commands/perf/" class="md-nav__link">
         
   
   
@@ -1989,7 +1812,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../eval/" class="md-nav__link">
+      <a href="../../commands/eval/" class="md-nav__link">
         
   
   
@@ -2084,7 +1907,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../samples/bert-config-build/" class="md-nav__link">
+      <a href="../bert-config-build/" class="md-nav__link">
         
   
   
@@ -2112,7 +1935,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../samples/clip-composite/" class="md-nav__link">
+      <a href="../clip-composite/" class="md-nav__link">
         
   
   
@@ -2140,7 +1963,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../samples/qwen3-genai-bundle/" class="md-nav__link">
+      <a href="../qwen3-genai-bundle/" class="md-nav__link">
         
   
   
@@ -2590,10 +2413,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#when-to-use-this" class="md-nav__link">
+  <a href="#prerequisites" class="md-nav__link">
     <span class="md-ellipsis">
       
-        When to use this
+        Prerequisites
       
     </span>
   </a>
@@ -2601,10 +2424,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#synopsis" class="md-nav__link">
+  <a href="#step-1-check-the-cgc-environment" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Synopsis
+        Step 1: Check the CGC environment
       
     </span>
   </a>
@@ -2612,22 +2435,33 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#flags" class="md-nav__link">
+  <a href="#step-2-generate-a-cgc-build-config" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Flags
+        Step 2: Generate a CGC build config
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Flags">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-3-build-onnx-and-cgir-artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 3: Build ONNX and CGIR artifacts
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Step 3: Build ONNX and CGIR artifacts">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#configuration-precedence" class="md-nav__link">
+  <a href="#how-the-pipeline-works" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Configuration precedence
+        How the pipeline works
       
     </span>
   </a>
@@ -2640,10 +2474,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#how-it-works" class="md-nav__link">
+  <a href="#step-4-measure-cgir-performance" class="md-nav__link">
     <span class="md-ellipsis">
       
-        How it works
+        Step 4: Measure CGIR performance
       
     </span>
   </a>
@@ -2651,10 +2485,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#examples" class="md-nav__link">
+  <a href="#step-5-evaluate-model-accuracy" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Examples
+        Step 5: Evaluate model accuracy
       
     </span>
   </a>
@@ -2662,21 +2496,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#cgc-compatibility-rewrites" class="md-nav__link">
+  <a href="#what-you-built" class="md-nav__link">
     <span class="md-ellipsis">
       
-        CGC compatibility rewrites
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#common-pitfalls" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Common pitfalls
+        What you built
       
     </span>
   </a>
@@ -2711,7 +2534,7 @@
 
 
   
-    <a href="https://github.com/microsoft/winml-cli/edit/main/docs/commands/optimize.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+    <a href="https://github.com/microsoft/winml-cli/edit/main/docs/samples/resnet50-cgir.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
       
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
     </a>
@@ -2719,270 +2542,109 @@
   
 
 
-<h1 id="winml-optimize">winml optimize<a class="headerlink" href="#winml-optimize" title="Permanent link">&para;</a></h1>
-<blockquote>
-<p>Apply graph optimizations and fusions to an ONNX model to reduce node count and improve inference speed.</p>
-</blockquote>
-<h2 id="when-to-use-this">When to use this<a class="headerlink" href="#when-to-use-this" title="Permanent link">&para;</a></h2>
-<p>Use <code>winml optimize</code> after exporting an ONNX model and before quantization or compilation. Graph fusions reduce operator count, improve memory locality, and can make downstream quantization more accurate by presenting cleaner subgraphs to the calibration pass. It is also useful as a standalone step when you want to optimize a pre-exported ONNX file without running the full build pipeline.</p>
-<h2 id="synopsis">Synopsis<a class="headerlink" href="#synopsis" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>$<span class="w"> </span>winml<span class="w"> </span>optimize<span class="w"> </span><span class="o">[</span>options<span class="o">]</span>
-</span></code></pre></div>
-<h2 id="flags">Flags<a class="headerlink" href="#flags" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Flag</th>
-<th>Short</th>
-<th>Type</th>
-<th>Default</th>
-<th>Description</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>--model</code></td>
-<td><code>-m</code></td>
-<td><code>PATH</code></td>
-<td><em>(required unless listing)</em></td>
-<td>Input ONNX model file. Not required when <code>--list-capabilities</code> or <code>--list-rewrites</code> is used.</td>
-</tr>
-<tr>
-<td><code>--output</code></td>
-<td><code>-o</code></td>
-<td><code>PATH</code></td>
-<td><code>{input}_opt.onnx</code></td>
-<td>Output path for the optimized model. Defaults to the input filename with <code>_opt</code> inserted before the extension.</td>
-</tr>
-<tr>
-<td><code>--config</code></td>
-<td><code>-c</code></td>
-<td><code>PATH</code></td>
-<td><em>(none)</em></td>
-<td>YAML or JSON configuration file. Fields in the file override capability defaults; CLI flags override the file.</td>
-</tr>
-<tr>
-<td><code>--enable-ort-graph-optimization</code> / <code>--disable-ort-graph-optimization</code></td>
-<td></td>
-<td>flag</td>
-<td>enabled</td>
-<td>Run or skip ORTGraphPipe. Disabling it does not implicitly enable compatibility rewrites or disable other pipes. Config key: <code>ort-graph-optimization</code> (boolean).</td>
-</tr>
-<tr>
-<td><code>--verbose</code></td>
-<td><code>-v</code></td>
-<td>flag</td>
-<td>off</td>
-<td>Enable verbose output.</td>
-</tr>
-<tr>
-<td><code>--list-capabilities</code></td>
-<td><code>-l</code></td>
-<td>flag</td>
-<td>off</td>
-<td>Print all registered optimization capabilities grouped by category and exit. Add <code>--verbose</code> for descriptions and ORT names.</td>
-</tr>
-<tr>
-<td><code>--list-rewrites</code></td>
-<td></td>
-<td>flag</td>
-<td>off</td>
-<td>Print all available pattern-rewrite families with their source-to-target mappings and exit.</td>
-</tr>
-<tr>
-<td><code>--check-optim</code></td>
-<td></td>
-<td>flag</td>
-<td>off</td>
-<td>Analyze which optimizations would apply to <code>--model</code> and the nodes/constants they affect, then exit <strong>without writing any output</strong>. Probes every capability independently.</td>
-</tr>
-<tr>
-<td><em>(dynamic)</em></td>
-<td></td>
-<td>flag</td>
-<td><em>(per capability)</em></td>
-<td>Each registered capability generates a <code>--enable-&lt;name&gt;</code> / <code>--disable-&lt;name&gt;</code> pair. Run <code>--list-capabilities</code> to see the full current list. Examples: <code>--enable-gelu-fusion</code>, <code>--disable-constant-folding</code>. Pattern-rewrite flags follow the form <code>--enable-&lt;source-slug&gt;-&lt;target-slug&gt;</code>; run <code>--list-rewrites</code> to discover all names.</td>
-</tr>
-</tbody>
-</table>
-<h3 id="configuration-precedence">Configuration precedence<a class="headerlink" href="#configuration-precedence" title="Permanent link">&para;</a></h3>
-<p>When multiple sources are provided, settings are resolved in this order (highest wins):</p>
-<ol>
-<li>Explicit CLI flags (<code>--enable-X</code> / <code>--disable-X</code>)</li>
-<li>Config file (<code>-c</code>)</li>
-<li>Capability defaults</li>
-</ol>
-<h2 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
-<p><code>winml optimize</code> loads the ONNX model, builds a final capability configuration by merging capability defaults, an optional config file, and any explicit CLI flags, then runs all enabled passes through the <code>Optimizer</code>. Each capability maps to a named optimization or fusion pipe in the <code>winml.modelkit.optim</code> registry. The capability flags are auto-generated at startup from that registry — adding a new optimization to the registry automatically makes it available as a CLI flag without any change to this command's source. After optimization, the command prints the before-and-after node count and percentage reduction so you can quantify the effect.</p>
-<h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h2>
-<p>Optimize a model with all capability defaults:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>$<span class="w"> </span>winml<span class="w"> </span>optimize<span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50.onnx
-</span></code></pre></div>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>Input:  microsoft/resnet-50.onnx
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>Output: microsoft/resnet-50_opt.onnx
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>Loading model...
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>Running optimizer...
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>Saving optimized model...
-</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>
-</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>Success! Model optimized: microsoft/resnet-50_opt.onnx
-</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>Nodes: 312 -&gt; 289 (7.4% reduction)
-</span></code></pre></div>
-<p>Enable specific fusions for a BERT model:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>$<span class="w"> </span>winml<span class="w"> </span>optimize<span class="w"> </span>-m<span class="w"> </span>bert-base-uncased.onnx<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">    </span>--enable-layer-norm-fusion<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span>--enable-attention-fusion<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span>-o<span class="w"> </span>bert_layernorm_attn.onnx
-</span></code></pre></div>
-<p>Use a config file to set capabilities and save the result for downstream compilation:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>$<span class="w"> </span>winml<span class="w"> </span>optimize<span class="w"> </span>-m<span class="w"> </span>facebook/convnext-tiny-224.onnx<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">    </span>-c<span class="w"> </span>optimize_config.yaml<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span>-o<span class="w"> </span>convnext_opt.onnx
-</span></code></pre></div>
-<p>List all available optimization capabilities:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>$<span class="w"> </span>winml<span class="w"> </span>optimize<span class="w"> </span>--list-capabilities
-</span></code></pre></div>
-<p>Discover pattern-rewrite families and their flag names:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>$<span class="w"> </span>winml<span class="w"> </span>optimize<span class="w"> </span>--list-rewrites
-</span></code></pre></div>
-<p>Check which optimizations apply to a model before committing to a run (writes nothing):</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>$<span class="w"> </span>winml<span class="w"> </span>optimize<span class="w"> </span>-m<span class="w"> </span>bert-base-uncased.onnx<span class="w"> </span>--check-optim
-</span></code></pre></div>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>Input: bert-base-uncased.onnx
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>--check-optim — analyzing applicable optimizations (no output written).
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
-</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>Loading model...
-</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>Probing 61 optimization capabilities... (this can take a while on large models)
-</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>
-</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>2 applicable optimization(s):
-</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>
-</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>--enable-matmul-add-fusion  (matmul)
-</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>  Fuse MatMul+Add operations into single kernel
-</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>  nodes: -1 ~1
-</span><span id="__span-8-12"><a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a>    removed: MatMul (1)
-</span><span id="__span-8-13"><a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a>      - MatMul 'mm'
-</span><span id="__span-8-14"><a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a>    modified: Gemm (1)
-</span><span id="__span-8-15"><a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a>      - Gemm 'mm/MatMulAddFusion'
-</span><span id="__span-8-16"><a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a>
-</span><span id="__span-8-17"><a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a>--enable-clamp-constant-values  (surgery)
-</span><span id="__span-8-18"><a id="__codelineno-8-18" name="__codelineno-8-18" href="#__codelineno-8-18"></a>  Clamp extreme float constants (e.g., -inf -&gt; -1e3) to prevent quantization issues
-</span><span id="__span-8-19"><a id="__codelineno-8-19" name="__codelineno-8-19" href="#__codelineno-8-19"></a>  constants: ~1
-</span><span id="__span-8-20"><a id="__codelineno-8-20" name="__codelineno-8-20" href="#__codelineno-8-20"></a>      - BIG
-</span><span id="__span-8-21"><a id="__codelineno-8-21" name="__codelineno-8-21" href="#__codelineno-8-21"></a>
-</span><span id="__span-8-22"><a id="__codelineno-8-22" name="__codelineno-8-22" href="#__codelineno-8-22"></a>Enable any of the above with its --enable-* flag (dependencies are auto-enabled).
-</span></code></pre></div>
-<p>Add <code>-v</code> to list every affected node and constant instead of a sample.</p>
-<h2 id="cgc-compatibility-rewrites">CGC compatibility rewrites<a class="headerlink" href="#cgc-compatibility-rewrites" title="Permanent link">&para;</a></h2>
-<p>For an existing ONNX model, explicitly enable the required compatibility rules before
-exporting CGIR MLIR. These rules are all <strong>default off</strong> and are independent of the
-ordinary optimization/fusion defaults.</p>
-<p>CGC-specific patterns are isolated in <code>src\winml\modelkit\pattern\cgc</code>, with
-private matching helpers in <code>cgc\utils.py</code> and public pattern exports in
-<code>cgc\__init__.py</code>. The CGIR compatibility pipe owns rule selection and execution;
-the shared pattern package does not re-export these backend-specific patterns.</p>
-<table>
-<thead>
-<tr>
-<th>Capability</th>
-<th>Transformation and scope</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>normalize-int32-dq</code></td>
-<td>Normalize initializer-backed INT32 <code>DequantizeLinear</code> in the standard domain (opset &gt;= 10) and <code>com.microsoft</code> (opset 1): omit immutable all-zero scalar/singleton zero points and clone singleton scales as scalars. Preserve shared initializers and domains; skip overridable parameters, per-axis vectors, unsupported attributes and nonlocal inputs. Handles nested graphs, not local functions. Enabled by CGC build configuration, disabled by default elsewhere.</td>
-</tr>
-<tr>
-<td><code>deduplicate-opset-imports</code></td>
-<td>Remove repeated model-level opset declarations with identical domain and version, retaining the first declaration and domain order. Reject conflicting versions for the same domain. Run before operator rewrites and opset upgrades; do not alter graph content, local functions, or the retained versions.</td>
-</tr>
-<tr>
-<td><code>eliminate-identity</code></td>
-<td>Remove safe internal tensor Identity aliases. Additionally replace top-level standard-domain FP32 graph-output Identities with same-shape Reshape when input/output types match exactly, all dimensions are positive static integers, opset &gt;= 5, and the model has no subgraphs. Preserve output names/order, annotated aliases, unknown or conflicting types, scalar/dynamic/zero-size outputs and protected captures. Does not rewrite local functions. Workaround for <a href="https://github.com/microsoft/ix/issues/1198">microsoft/ix#1198</a>.</td>
-</tr>
-<tr>
-<td><code>gridsample-to-gather</code></td>
-<td>Decompose 2D <code>GridSample</code> with linear interpolation and zero padding into four <code>GatherND</code> reads, bounds masks and weighted sums. Supports both <code>align_corners</code> settings, FP16/FP32 IO and dynamic batch, with known positive channel, input spatial and grid spatial dimensions. Rank-3 indices contain explicit batch and spatial coordinates; <code>batch_dims=0</code> avoids the ORT symbolic shape inference defect tracked in <a href="https://github.com/microsoft/onnxruntime/pull/24206">onnxruntime#24206</a>. Batch coordinates are generated dynamically and shared across the four reads; sampled values are reshaped back to the grid layout. FP16 interpolation is computed in FP32 and cast back. Requires opset &gt;= 16 (<code>bilinear</code> before opset 20); other modes are unchanged. Enabled by CGC builds, disabled in ordinary optimization. Floating-point rounding may differ from native sampling.</td>
-</tr>
-<tr>
-<td><code>omit-empty-resize-inputs</code></td>
-<td>Replace statically empty Resize ROI/scales with omitted inputs. Do not rely on graph-input defaults or rewrite crop-and-resize semantics. Requires opset 13; upgrade older matching models using ONNX version conversion.</td>
-</tr>
-<tr>
-<td><code>cgc-constant-folding</code></td>
-<td>Fill FoundryToolbox constant-folding gaps without an ORT Session. Fold standard <code>Pad.pads</code> constant integer chains; in graphs containing <code>Shape</code>, also fold statically known selected dimensions and bounded constant integer/boolean expressions (<code>Gather</code>, <code>Concat</code>, <code>Reshape</code>, <code>Slice</code>, <code>Transpose</code>, <code>Squeeze</code>, <code>Unsqueeze</code>, integer <code>Cast</code>, <code>ConstantOfShape</code>, arithmetic, <code>Equal</code>, <code>Where</code>). Iterate with shape inference, up to 32 rounds. Requires opset &gt;= 11. Only the main graph is rewritten; preserve tensor names for shared uses and subgraph captures. Runtime floating-point computations and unresolved dimensions remain unchanged. This rule does not freeze inputs: specialize dimensions before optimization when needed; later Foundry <code>freeze-dims</code> does not retroactively affect this rule. Limits: 128 dependency values per traversal, 65,536 elements per operation and 1,048,576 cached elements per round. Enabled by CGC builds; disabled in ordinary optimization. <code>fold-constant-pad-pads</code> remains a compatibility alias.</td>
-</tr>
-<tr>
-<td><code>resize-tf-half-pixel-for-nn-to-asymmetric</code></td>
-<td>Change only the coordinate mode for nearest/floor Resize with static, non-overridable, positive integer scales. Dynamic/fractional scales and sizes-based inference are outside this rule.</td>
-</tr>
-<tr>
-<td><code>approximate-cubic-resize-with-linear</code></td>
-<td><strong>Lossy</strong>, explicit cubic-to-linear approximation. Excludes antialiasing, outside exclusion, and crop-and-resize semantics. Prints a warning when applied.</td>
-</tr>
-<tr>
-<td><code>gathernd-to-reshape</code></td>
-<td>Replace GatherND only when data/indices/output ranks are not all equal and static, non-overridable int64 indices visit every input slice exactly once in storage order. Require positive static data dimensions; support batch dimensions, multi-coordinate indices, and equivalent negative indices. Dynamic data shapes or indices, overridable defaults, empty tensors, partial selection, repetition, and reordering are outside this rule.</td>
-</tr>
-<tr>
-<td><code>prelu-to-relu</code></td>
-<td>Decompose <code>PRelu(x, slope)</code> into <code>Relu(x) - slope * Relu(-x)</code> for FP16/FP32/FP64 and opset 7+. Require a direct, non-overridable initializer or Constant slope containing only finite values; preserve slope broadcasting and sharing. Dynamic data shapes are supported. Dynamic/non-finite slopes, integer types, and BF16 are outside this rule.</td>
-</tr>
-<tr>
-<td><code>dft-to-matmul</code></td>
-<td>Decompose DFT into real-valued sine/cosine matrix multiplications for FP16/FP32/FP64. Support opset 17+ axis attributes and opset 20+ scalar axis inputs; require known rank, static positive signal length, real/complex component count, and static optional axis/length parameters. Support forward/inverse full transforms, real forward onesided transforms, truncation, zero-padding, and dynamic batch dimensions. Dynamic transform parameters, BF16, and inverse onesided transforms are outside this rule.</td>
-</tr>
-</tbody>
-</table>
-<p>Configuration keys can use underscores in place of hyphens.</p>
-<p>Add <code>--enable-deduplicate-opset-imports</code> (configuration: <code>"deduplicate_opset_imports": true</code>)
-when repeated identical opset declarations leave a stale version during conversion.
-This is an optimize rule, not an exporter fix: the saved optimized ONNX can be used
-either for explicit CGIR export or directly by WinML Runtime's CGC backend.
-It neither upgrades an opset nor resolves conflicting versions.</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>winml optimize -m model.onnx -o model.opt.onnx --disable-ort-graph-optimization --enable-omit-empty-resize-inputs --enable-resize-tf-half-pixel-for-nn-to-asymmetric
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>winml export -m model.opt.onnx -o model.mlir --target cgir
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>winml perf -m model.mlir --runtime winml-runtime --backend cgc --device gpu
-</span></code></pre></div>
-<p>Add <code>--enable-approximate-cubic-resize-with-linear</code> to optimize only when an accuracy-changing
-approximation is acceptable. This option is not included in the example's preserving rewrites.</p>
-<p>Add <code>--enable-gathernd-to-reshape</code> (configuration: <code>"gathernd_to_reshape": true</code>) for
-equivalent GatherND elimination. Rank mismatch alone is not sufficient: if identity
-indexing cannot be proved, GatherND is retained. This bypasses CGC's DirectML descriptor
-rank-alignment limitation; it does not implement general GatherND rank alignment.</p>
-<p>Add <code>--enable-prelu-to-relu</code> (configuration: <code>"prelu_to_relu": true</code>) to bypass IX's
-missing ONNX PRelu legalization. CGC already has a parameterized-ReLU implementation;
-the missing mapping is in IX. This is an algebraic decomposition, not an interpolation
-approximation, but it does not guarantee preservation of the sign bit of zero.
-Non-finite slopes are excluded because multiplying them by zero on the inactive
-branch could introduce NaNs.</p>
-<p>Add <code>--enable-dft-to-matmul</code> (configuration: <code>"dft_to_matmul": true</code>) for DFT legalization.
-The rewrite implements the DFT equation, including inverse normalization, without
-requiring power-of-two lengths. It uses dense Fourier bases rather than an FFT:
-constant storage and per-vector arithmetic are quadratic in the transform length.
-It is intended as a compatibility workaround, not a performance replacement for a
-native FFT. Different accumulation order and rounded coefficients mean floating-point
-results are not bit-identical to the original DFT implementation.</p>
-<p>The CGIR compatibility pipe applies each enabled rule once, matching the result of the
-preceding rule. This lets different rewrites affect the same Resize without changing
-the shared rewrite pipe's conflict policy. Rewrites retain the original model IR version;
-an opset upgrade may affect the whole model. These capabilities do not provide
-general GatherND replacement, dynamic-length DFT decomposition, or general control-flow folding.
-An upstream conversion/runtime limitation can still prevent export or execution.</p>
-<h2 id="common-pitfalls">Common pitfalls<a class="headerlink" href="#common-pitfalls" title="Permanent link">&para;</a></h2>
+<h1 id="resnet-50-pytorch-to-cgir-experimental">ResNet-50 - PyTorch to CGIR (experimental)<a class="headerlink" href="#resnet-50-pytorch-to-cgir-experimental" title="Permanent link">&para;</a></h1>
+<p>This tutorial starts with the
+<a href="https://huggingface.co/microsoft/resnet-50"><code>microsoft/resnet-50</code></a> PyTorch
+model on Hugging Face, exports it to ONNX, converts it to a reusable CGIR
+<code>.mlir</code> artifact, and measures it through the Windows ML Runtime API.</p>
+<p>You will use a generated build configuration so the complete PyTorch → ONNX →
+CGIR workflow can be reviewed, repeated, and checked into source control.</p>
+<h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong><code>--model</code> is required for actual optimization</strong> — it can be omitted only when using <code>--list-capabilities</code> or <code>--list-rewrites</code>. Missing <code>--model</code> in any other case raises a usage error.</li>
-<li><strong>Config file and CLI flags interact via precedence</strong> — a <code>--disable-X</code> CLI flag always wins over a config file value that enables the same capability, but omitting the flag leaves the config file value in effect. To turn off a capability set by a config file, pass the explicit <code>--disable-X</code> flag.</li>
-<li><strong>Config file validation errors abort the run</strong> — if the config file contains keys that fail capability validation or dependency checks, the command prints all errors and exits with code 1 without touching the model. Fix the config before retrying.</li>
-<li><strong>The dynamic flag list changes between releases</strong> — new capabilities are added as the optimizer registry grows. Always use <code>--list-capabilities</code> to confirm the current set of flags rather than relying on a cached list.</li>
-<li><strong>Output path default may overwrite a sibling file</strong> — if you run optimize twice on the same input without specifying <code>-o</code>, the second run silently overwrites <code>{input}_opt.onnx</code>. Specify an explicit output path in scripts.</li>
+<li>A Windows device with a GPU.</li>
+<li>An activated Python 3.11 environment with winml-cli and the experimental
+    wheels from <a href="../../getting-started/cgc-onboarding/#environment-setup">CGC environment setup</a>.</li>
+<li>A network connection to download the model and evaluation dataset.</li>
+</ul>
+<h2 id="step-1-check-the-cgc-environment">Step 1: Check the CGC environment<a class="headerlink" href="#step-1-check-the-cgc-environment" title="Permanent link">&para;</a></h2>
+<p>Inspect the devices and execution providers available on your machine:</p>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">winml</span> <span class="n">sys</span> <span class="p">-</span><span class="n">-list-device</span> <span class="p">-</span><span class="n">-list-ep</span>
+</span></code></pre></div>
+<p>Verify that the WinMLCG EP and target GPU are listed. Discovery alone does
+not prove that the driver supports CGC execution; the benchmark below checks
+that path on your device.</p>
+<h2 id="step-2-generate-a-cgc-build-config">Step 2: Generate a CGC build config<a class="headerlink" href="#step-2-generate-a-cgc-build-config" title="Permanent link">&para;</a></h2>
+<p>Generate a reusable configuration for the Hugging Face model:</p>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">winml</span> <span class="n">config</span> <span class="n">-m</span> <span class="n">microsoft</span><span class="p">/</span><span class="n">resnet</span><span class="p">-</span><span class="n">50</span> <span class="p">-</span><span class="n">-backend</span> <span class="n">cgc</span> <span class="n">-o</span> <span class="p">.\</span><span class="n">resnet50-cgir</span><span class="p">\</span><span class="n">config</span><span class="p">.</span><span class="n">json</span>
+</span></code></pre></div>
+<p><code>--backend cgc</code> configures the pipeline to export the PyTorch model to ONNX,
+prepare it for CGC, and convert the final ONNX model to CGIR. The generated
+configuration uses FP16 conversion and does not run a separate EP compilation
+stage.</p>
+<p>Open <code>resnet50-cgir\config.json</code> if you want to review the detected
+image-classification task, model loader, ONNX export settings, and
+<code>convert.target: "cgir"</code> before building.</p>
+<h2 id="step-3-build-onnx-and-cgir-artifacts">Step 3: Build ONNX and CGIR artifacts<a class="headerlink" href="#step-3-build-onnx-and-cgir-artifacts" title="Permanent link">&para;</a></h2>
+<p>Run the configured build:</p>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">winml</span> <span class="n">build</span> <span class="n">-m</span> <span class="n">microsoft</span><span class="p">/</span><span class="n">resnet</span><span class="p">-</span><span class="n">50</span> <span class="n">-c</span> <span class="p">.\</span><span class="n">resnet50-cgir</span><span class="p">\</span><span class="n">config</span><span class="p">.</span><span class="n">json</span> <span class="n">-o</span> <span class="p">.\</span><span class="n">resnet50-cgir</span><span class="p">\</span><span class="n">build</span>
+</span></code></pre></div>
+<p>The first run downloads the model from Hugging Face. The build exports the
+PyTorch model to ONNX, applies the configured transformations, and writes the
+CGIR model. The primary artifacts are:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>resnet50-cgir/
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>├── config.json
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>└── build/
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    ├── model.onnx
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>    └── model.mlir
+</span></code></pre></div>
+<p>The build directory can contain additional reports and intermediate files.
+Keep any weight sidecars beside <code>model.mlir</code> when moving the CGIR model.</p>
+<h3 id="how-the-pipeline-works">How the pipeline works<a class="headerlink" href="#how-the-pipeline-works" title="Permanent link">&para;</a></h3>
+<p><code>winml config</code> does not transform the model. It detects the Hugging Face task,
+model class, and ONNX export settings, then writes the pipeline configuration
+consumed by <code>winml build</code>. For <code>--backend cgc</code>, that configuration enables FP16
+preparation, disables EP compilation, and adds <code>convert.target: "cgir"</code>.</p>
+<p><code>winml build</code> combines these primitive stages:</p>
+<ol>
+<li><code>winml export</code> converts the PyTorch model to ONNX.</li>
+<li><code>winml optimize</code> rewrites ONNX operators to better align with the current
+   CGC IR.</li>
+<li><code>winml quantize</code> converts the model from FP32 to FP16.</li>
+<li>The CGIR export stage converts the optimized ONNX model to <code>.mlir</code>.</li>
+</ol>
+<p>FP16 conversion can affect model accuracy. If accuracy drops, rebuild with
+<code>--no-quant</code> and compare the results.</p>
+<div class="admonition important">
+<p class="admonition-title">Important</p>
+<p>The <code>.mlir</code> artifact cannot be used directly by ONNX Runtime. Load it
+through the Windows ML Runtime API for CGC inference.</p>
+</div>
+<h2 id="step-4-measure-cgir-performance">Step 4: Measure CGIR performance<a class="headerlink" href="#step-4-measure-cgir-performance" title="Permanent link">&para;</a></h2>
+<p>Run the CGIR artifact through the Windows ML Runtime API and save the
+performance results:</p>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">winml</span> <span class="n">perf</span> <span class="n">-m</span> <span class="p">.\</span><span class="n">resnet50-cgir</span><span class="p">\</span><span class="n">build</span><span class="p">\</span><span class="n">model</span><span class="p">.</span><span class="n">mlir</span> <span class="p">-</span><span class="n">-runtime</span> <span class="n">winml-runtime</span> <span class="p">-</span><span class="n">-output</span> <span class="p">.\</span><span class="n">resnet50-cgir</span><span class="p">\</span><span class="n">perf</span><span class="p">.</span><span class="n">json</span>
+</span></code></pre></div>
+<p>The report includes warm-up and timed iteration counts, latency percentiles,
+throughput, and the resolved device. For <code>.mlir</code> input, <code>winml perf</code>
+automatically selects <code>winml-runtime</code>; the explicit option documents the
+intended runtime path.</p>
+<h2 id="step-5-evaluate-model-accuracy">Step 5: Evaluate model accuracy<a class="headerlink" href="#step-5-evaluate-model-accuracy" title="Permanent link">&para;</a></h2>
+<p>First measure the source PyTorch model on a fixed sample from mini-ImageNet:</p>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">winml</span> <span class="n">eval</span> <span class="n">-m</span> <span class="n">microsoft</span><span class="p">/</span><span class="n">resnet</span><span class="p">-</span><span class="n">50</span> <span class="p">-</span><span class="n">-runtime</span> <span class="n">pytorch</span> <span class="p">-</span><span class="n">-device</span> <span class="n">cpu</span> <span class="p">-</span><span class="n">-dataset</span> <span class="n">timm</span><span class="p">/</span><span class="n">mini-imagenet</span> <span class="p">-</span><span class="n">-split</span> <span class="n">test</span> <span class="p">-</span><span class="n">-samples</span> <span class="n">100</span> <span class="p">-</span><span class="n">-no-shuffle</span> <span class="n">-o</span> <span class="p">.\</span><span class="n">resnet50-cgir</span><span class="p">\</span><span class="n">pytorch-eval</span><span class="p">.</span><span class="n">json</span>
+</span></code></pre></div>
+<p>Evaluate the CGIR artifact on the same samples. <code>--model-id</code> provides the
+Hugging Face image processor and label configuration associated with the local
+<code>.mlir</code> model:</p>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">winml</span> <span class="n">eval</span> <span class="n">-m</span> <span class="p">.\</span><span class="n">resnet50-cgir</span><span class="p">\</span><span class="n">build</span><span class="p">\</span><span class="n">model</span><span class="p">.</span><span class="n">mlir</span> <span class="p">-</span><span class="n">-model-id</span> <span class="n">microsoft</span><span class="p">/</span><span class="n">resnet</span><span class="p">-</span><span class="n">50</span> <span class="p">-</span><span class="n">-runtime</span> <span class="n">winml-runtime</span> <span class="p">-</span><span class="n">-dataset</span> <span class="n">timm</span><span class="p">/</span><span class="n">mini-imagenet</span> <span class="p">-</span><span class="n">-split</span> <span class="n">test</span> <span class="p">-</span><span class="n">-samples</span> <span class="n">100</span> <span class="p">-</span><span class="n">-no-shuffle</span> <span class="n">-o</span> <span class="p">.\</span><span class="n">resnet50-cgir</span><span class="p">\</span><span class="n">cgir-eval</span><span class="p">.</span><span class="n">json</span>
+</span></code></pre></div>
+<p>Compare the accuracy in <code>pytorch-eval.json</code> and <code>cgir-eval.json</code>. Both commands
+use the same ordered 100-sample slice, so a difference reflects the exported
+runtime path rather than a different random sample.</p>
+<h2 id="what-you-built">What you built<a class="headerlink" href="#what-you-built" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>config.json</code>: the repeatable CGC build configuration.</li>
+<li><code>build\model.onnx</code>: the optimized, FP16-prepared ONNX model used for CGIR conversion.</li>
+<li><code>build\model.mlir</code>: the reusable CGIR model for Windows ML Runtime.</li>
+<li><code>perf.json</code>: GPU latency and throughput results.</li>
+<li><code>pytorch-eval.json</code> and <code>cgir-eval.json</code>: source and CGIR accuracy results.</li>
 </ul>
 <h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
 <ul>
-<li><a href="../../concepts/how-it-works/">how-it-works.md</a> — where optimization fits in the full winml-cli pipeline</li>
-<li><a href="../export/">export.md</a> — produce an ONNX file to optimize from a HuggingFace model</li>
-<li><a href="../quantize/">quantize.md</a> — quantize the optimized model for lower-precision inference</li>
-<li><a href="../config/">config.md</a> — generate a <code>WinMLBuildConfig</code> that includes optimization settings</li>
+<li><a href="../../getting-started/cgc-onboarding/">CGC Onboarding (experimental)</a></li>
+<li><a href="../../commands/config/">winml config</a></li>
+<li><a href="../../commands/build/">winml build</a></li>
+<li><a href="../../commands/perf/">winml perf</a></li>
+<li><a href="../../commands/eval/">winml eval</a></li>
 </ul>
 
 

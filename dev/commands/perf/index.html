@@ -2755,7 +2755,7 @@
 
 <h1 id="winml-perf">winml perf<a class="headerlink" href="#winml-perf" title="Permanent link">&para;</a></h1>
 <blockquote>
-<p>Benchmark an ONNX model's latency and throughput on a target device.</p>
+<p>Benchmark a model's latency and throughput on a target device.</p>
 </blockquote>
 <h2 id="when-to-use-this">When to use this<a class="headerlink" href="#when-to-use-this" title="Permanent link">&para;</a></h2>
 <p>Use <code>winml perf</code> when you want a quantitative latency and throughput baseline for a model on a specific device, or when you need to compare the performance impact of different precision settings, execution providers, or batch sizes.</p>
@@ -2779,14 +2779,14 @@
 <td><code>-m</code></td>
 <td><code>TEXT</code></td>
 <td>—</td>
-<td>HuggingFace model ID or path to a local <code>.onnx</code> file. Required. With <code>--runtime ort-genai</code>, also accepts a prebuilt genai <strong>bundle directory</strong>, or a HuggingFace model ID that is auto-built into a bundle on demand.</td>
+<td>HuggingFace model ID or path to a local <code>.onnx</code> file. With <code>--runtime winml-runtime</code>, also accepts a prebuilt CGC <code>.mlir</code> file. Required. With <code>--runtime ort-genai</code>, also accepts a prebuilt genai <strong>bundle directory</strong>, or a HuggingFace model ID that is auto-built into a bundle on demand.</td>
 </tr>
 <tr>
 <td><code>--runtime</code></td>
 <td></td>
-<td><code>winml-ort\|ort-genai</code></td>
-<td><code>winml-ort</code></td>
-<td>Inference runtime. <code>winml-ort</code> benchmarks single-shot ONNX inference; <code>ort-genai</code> benchmarks an onnxruntime-genai bundle (LLM generation: time-to-first-token + decode tokens/sec). With <code>ort-genai</code>, a model ID that is not a bundle directory is auto-built into one before benchmarking. An explicit <code>--ep</code> or <code>--device</code> selects both the transformer build and runtime target; without an override, the auto-build defaults to QNN/NPU. Bundles are cached under <code>~/.cache/winml/</code>, separately for each explicit EP/device target. GenAI cache controls are tracked in issue #1275.</td>
+<td><code>auto\|winml-ort\|ort-genai\|winml-runtime</code></td>
+<td><code>auto</code></td>
+<td>Inference runtime. <code>auto</code> selects <code>ort-genai</code> for local folders containing <code>genai_config.json</code>, <code>winml-runtime</code> for <code>.mlir</code> files, otherwise <code>winml-ort</code>; <code>winml-ort</code> benchmarks single-shot ONNX inference; <code>ort-genai</code> benchmarks an onnxruntime-genai bundle (LLM generation: time-to-first-token + decode tokens/sec); <code>winml-runtime</code> runs ONNX or prebuilt CGC MLIR through Windows ML Runtime. With <code>ort-genai</code>, a model ID that is not a bundle directory is auto-built into one before benchmarking. An explicit <code>--ep</code> or <code>--device</code> selects both the transformer build and runtime target; without an override, the auto-build defaults to QNN/NPU. Bundles are cached under <code>~/.cache/winml/</code>, separately for each explicit EP/device target. GenAI cache controls are tracked in issue #1275.</td>
 </tr>
 <tr>
 <td><code>--task</code></td>
@@ -2835,14 +2835,14 @@
 <td></td>
 <td><code>TEXT</code></td>
 <td>—</td>
-<td>Force a specific execution provider (e.g., <code>qnn</code>, <code>dml</code>, <code>vitisai</code>, <code>openvino</code>, <code>cpu</code>). Overrides the device-to-provider mapping.</td>
+<td>Force a specific execution provider (e.g., <code>qnn</code>, <code>dml</code>, <code>vitisai</code>, <code>openvino</code>, <code>cpu</code>). Overrides the device-to-provider mapping. With ONNX input and <code>--runtime winml-runtime</code>, the provider and <code>--device</code> class are passed to the Runtime execution target. Ignored for MLIR input.</td>
 </tr>
 <tr>
 <td><code>--ep-options</code></td>
 <td></td>
 <td><code>KEY=VALUE</code> (multiple)</td>
 <td>—</td>
-<td>Runtime EP provider option forwarded to the inference session (e.g., <code>--ep-options htp_performance_mode=burst</code>). Repeatable. Applies to both HuggingFace model IDs and ONNX file inputs. When detail op-tracing automatically compiles a raw ONNX model, these options are also applied to that compilation.</td>
+<td>Runtime EP provider option forwarded to the inference session (e.g., <code>--ep-options htp_performance_mode=burst</code>). Repeatable. Applies to both HuggingFace model IDs and ONNX file inputs. When detail op-tracing automatically compiles a raw ONNX model, these options are also applied to that compilation. Ignored with <code>--runtime winml-runtime</code>.</td>
 </tr>
 <tr>
 <td><code>--output</code></td>
@@ -3112,15 +3112,20 @@ labels or a rerun with a compatible collector.</p>
 <p>Benchmark a pre-exported ONNX file on CPU with more iterations:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--device<span class="w"> </span>cpu<span class="w"> </span>--iterations<span class="w"> </span><span class="m">500</span>
 </span></code></pre></div>
+<p>Benchmark a prebuilt CGC MLIR model with Windows ML Runtime:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.mlir<span class="w"> </span>--runtime<span class="w"> </span>winml-runtime<span class="w"> </span>--device<span class="w"> </span>gpu
+</span></code></pre></div>
+<p>For MLIR input, the resolved physical device is passed to Runtime as a DXCore
+adapter target; the resolved EP is used only to identify that device.</p>
 <p>Benchmark a text model with an explicit task, targeting the NPU:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>--task<span class="w"> </span>text-classification<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--precision<span class="w"> </span>w8a16
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>--task<span class="w"> </span>text-classification<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--precision<span class="w"> </span>w8a16
 </span></code></pre></div>
 <p>Benchmark with live hardware monitoring enabled:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--monitor
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--monitor
 </span></code></pre></div>
 <p>Select one of multiple GPUs supported by the same EP:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>$<span class="w"> </span>winml<span class="w"> </span>sys
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--ep<span class="w"> </span>dml<span class="w"> </span>--device<span class="w"> </span>gpu<span class="w"> </span>--device-luid<span class="w"> </span>0x00000000_0x00012C8B<span class="w"> </span>--monitor
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>$<span class="w"> </span>winml<span class="w"> </span>sys
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--ep<span class="w"> </span>dml<span class="w"> </span>--device<span class="w"> </span>gpu<span class="w"> </span>--device-luid<span class="w"> </span>0x00000000_0x00012C8B<span class="w"> </span>--monitor
 </span></code></pre></div>
 <p>Replace the example LUID with the adapter's value from <code>winml sys</code>. LUIDs are
 local to the current Windows boot, not portable hardware IDs. The flag narrows
@@ -3156,23 +3161,23 @@ options that redirect the binding away from the pinned adapter are rejected.
 The requested pin is saved in
 <code>benchmark_info.device_luid</code> in the single-model report.</p>
 <p>Pass runtime EP provider options to tune the session (repeatable):</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">    </span>--ep-options<span class="w"> </span><span class="nv">htp_performance_mode</span><span class="o">=</span>burst<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span>--ep-options<span class="w"> </span><span class="nv">htp_graph_finalization_optimization_mode</span><span class="o">=</span><span class="m">3</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">    </span>--ep-options<span class="w"> </span><span class="nv">htp_performance_mode</span><span class="o">=</span>burst<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">    </span>--ep-options<span class="w"> </span><span class="nv">htp_graph_finalization_optimization_mode</span><span class="o">=</span><span class="m">3</span>
 </span></code></pre></div>
 <p>Per-module benchmarking to find latency hot-spots across all attention blocks:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>--module<span class="w"> </span>BertAttention<span class="w"> </span>--iterations<span class="w"> </span><span class="m">200</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>--module<span class="w"> </span>BertAttention<span class="w"> </span>--iterations<span class="w"> </span><span class="m">200</span>
 </span></code></pre></div>
 <p>Benchmark with real inputs from a <code>.npz</code> file instead of random data:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--input-data<span class="w"> </span>inputs.npz
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--input-data<span class="w"> </span>inputs.npz
 </span></code></pre></div>
 <p>Benchmark a Hugging Face model with dynamic export axes before measuring:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>--dynamic-axes<span class="w"> </span>dynamic_axes.json
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>--dynamic-axes<span class="w"> </span>dynamic_axes.json
 </span></code></pre></div>
 <p>The archive must contain one array per model input, keyed by the input name —
 for example:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="n">np</span><span class="o">.</span><span class="n">savez</span><span class="p">(</span><span class="s2">"inputs.npz"</span><span class="p">,</span> <span class="n">pixel_values</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="mi">4</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">224</span><span class="p">,</span> <span class="mi">224</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">))</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="n">np</span><span class="o">.</span><span class="n">savez</span><span class="p">(</span><span class="s2">"inputs.npz"</span><span class="p">,</span> <span class="n">pixel_values</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="mi">4</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">224</span><span class="p">,</span> <span class="mi">224</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">))</span>
 </span></code></pre></div>
 <p>Array dtypes are cast to the model's expected dtype (with a warning) if they
 differ, so <code>.npz</code> files saved with default integer/float widths still work.</p>
@@ -3190,7 +3195,7 @@ iterations</strong> when <code>--iterations</code> is omitted, reducing timing v
 the default tracing run performs 20 inferences in total. Explicit <code>--iterations</code>
 and <code>--warmup</code> values are honored.</p>
 <h3 id="tensorrt-rtx-operator-tracing">TensorRT RTX operator tracing<a class="headerlink" href="#tensorrt-rtx-operator-tracing" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--device<span class="w"> </span>gpu<span class="w"> </span>--ep<span class="w"> </span>nv_tensorrt_rtx<span class="w"> </span>--op-tracing<span class="w"> </span>basic
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--device<span class="w"> </span>gpu<span class="w"> </span>--ep<span class="w"> </span>nv_tensorrt_rtx<span class="w"> </span>--op-tracing<span class="w"> </span>basic
 </span></code></pre></div>
 <p>TensorRT RTX supports <code>basic</code> tracing on GPU with EP
 <a href="https://dev.azure.com/WSSI/COMPUTE/_artifacts/feed/WCR/UPack/nvtensorrtrtx2-ep-msix/overview/2.30.49">2.30.49</a>

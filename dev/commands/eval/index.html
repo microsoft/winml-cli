@@ -2687,7 +2687,7 @@
 
 <h1 id="winml-eval">winml eval<a class="headerlink" href="#winml-eval" title="Permanent link">&para;</a></h1>
 <blockquote>
-<p>Evaluate ONNX or native Hugging Face PyTorch model accuracy on a standard dataset.</p>
+<p>Evaluate ONNX, CGC MLIR, or native Hugging Face PyTorch models.</p>
 </blockquote>
 <h2 id="when-to-use-this">When to use this<a class="headerlink" href="#when-to-use-this" title="Permanent link">&para;</a></h2>
 <p>Use <code>winml eval</code> to measure how accurately a model performs on real data — especially after quantization, where comparing the quantized model against the floating-point baseline reveals any accuracy regression introduced by precision reduction.</p>
@@ -2711,14 +2711,14 @@
 <td><code>-m</code></td>
 <td><code>TEXT</code></td>
 <td>—</td>
-<td>HuggingFace model ID, or path to a local <code>.onnx</code> file. Required (unless <code>--model-id</code> is provided directly).</td>
+<td>HuggingFace model ID, or path to a local <code>.onnx</code> or <code>.mlir</code> file. Required (unless <code>--model-id</code> is provided directly).</td>
 </tr>
 <tr>
 <td><code>--model-id</code></td>
 <td></td>
 <td><code>TEXT</code></td>
 <td>—</td>
-<td>HuggingFace model ID used for preprocessor and config resolution when <code>-m</code> points to an <code>.onnx</code> file. Required when <code>-m</code> is an ONNX file.</td>
+<td>HuggingFace model ID used for preprocessor and config resolution when <code>-m</code> points to an ONNX or MLIR file.</td>
 </tr>
 <tr>
 <td><code>--task</code></td>
@@ -2786,9 +2786,9 @@
 <tr>
 <td><code>--runtime</code></td>
 <td></td>
-<td><code>winml-ort\|pytorch</code></td>
+<td><code>winml-ort\|winml-runtime\|pytorch</code></td>
 <td><code>winml-ort</code></td>
-<td>Evaluation runtime. <code>winml-ort</code> exports Hugging Face checkpoints to ONNX; <code>pytorch</code> evaluates the original checkpoint and supports <code>auto</code>, <code>cpu</code>, or CUDA-backed <code>gpu</code> devices.</td>
+<td>Evaluation runtime. <code>winml-ort</code> exports Hugging Face checkpoints to ONNX; <code>winml-runtime</code> loads pre-built CGC MLIR; <code>pytorch</code> evaluates the original checkpoint and supports <code>auto</code>, <code>cpu</code>, or CUDA-backed <code>gpu</code> devices.</td>
 </tr>
 <tr>
 <td><code>--dataset</code></td>
@@ -2886,7 +2886,7 @@
 <td></td>
 <td><code>onnx\|compare</code></td>
 <td><code>onnx</code></td>
-<td>Evaluation mode. <code>onnx</code> evaluates the ONNX candidate on a dataset. <code>compare</code> runs the ONNX candidate and a reference on identical random inputs and reports per-tensor similarity metrics — no dataset required. The reference is the HuggingFace model from <code>--model-id</code> by default, or a second ONNX file when <code>--reference</code> is given.</td>
+<td>Evaluation mode. <code>onnx</code> evaluates the candidate model on a dataset. <code>compare</code> runs the candidate and a reference on identical random inputs and reports per-tensor similarity metrics — no dataset required. The reference is the HuggingFace model from <code>--model-id</code> by default, or an ONNX file when <code>--reference</code> is given.</td>
 </tr>
 <tr>
 <td><code>--input-data</code></td>
@@ -2900,7 +2900,7 @@
 <td></td>
 <td><code>TEXT</code></td>
 <td>—</td>
-<td>Reference <code>.onnx</code> file to compare the candidate against (used with <code>--mode compare</code>). Compares two ONNX models on identical random inputs; <code>--model-id</code> and <code>--task</code> are not required in this mode.</td>
+<td>Reference <code>.onnx</code> file to compare against (used with <code>--mode compare</code>). <code>--model-id</code> and <code>--task</code> are not required in this mode.</td>
 </tr>
 <tr>
 <td><code>--reference-device</code></td>
@@ -2926,7 +2926,7 @@
 </tbody>
 </table>
 <h2 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
-<p><code>winml eval</code> loads the model and runs the evaluation pipeline via the internal <code>evaluate</code> function, then pulls the requested number of samples from a HuggingFace dataset. By default, Hugging Face model IDs and local checkpoints use the <code>winml-ort</code> runtime: they are exported to ONNX and evaluated through WinML. With <code>--runtime pytorch</code>, the task-resolved PyTorch model and stored dtype are preserved and the same dataset preprocessing, evaluator, and metrics run directly against that model. PyTorch <code>auto</code> selects CUDA when available and otherwise CPU; <code>gpu</code> requires CUDA. The JSON report identifies the effective runtime as <code>winml-ort</code> or <code>pytorch</code>.</p>
+<p><code>winml eval</code> loads the model and runs the evaluation pipeline via the internal <code>evaluate</code> function, then pulls the requested number of samples from a HuggingFace dataset. By default, Hugging Face model IDs and local checkpoints use the <code>winml-ort</code> runtime: they are exported to ONNX and evaluated through WinML. Pre-built CGC MLIR artifacts use <code>winml-runtime</code>. With <code>--runtime pytorch</code>, the task-resolved PyTorch model and stored dtype are preserved and the same dataset preprocessing, evaluator, and metrics run directly against that model. PyTorch <code>auto</code> selects CUDA when available and otherwise CPU; <code>gpu</code> requires CUDA. The JSON report identifies the effective runtime as <code>winml-ort</code>, <code>winml-runtime</code>, or <code>pytorch</code>.</p>
 <p>Python callers can pass an existing model directly with <code>evaluate(config, pytorch_model=model)</code>. An explicit <code>config.model_id</code> selects the tokenizer or processor; otherwise evaluation infers it from <code>model.config._name_or_path</code> and reports an error if neither source is available.</p>
 <p>PyTorch text-generation evaluation adapts the checkpoint to the existing causal-LM evaluator contract and reports perplexity without ONNX export. Pre-built ONNX files, composite <code>role=path</code> models, GenAI bundles, compare mode, references, and tensor input archives remain on their existing WinML paths. <code>--runtime pytorch</code> rejects those forms, along with ONNX build, export, EP, precision, quantization, optimization, analysis, and cache-related options.</p>
 <h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h2>
