@@ -8,7 +8,10 @@
 Evaluates image embedding models (e.g. DINOv2, DINO, ViT-in21k) by:
   1. Extracting the CLS token embedding for each image via the pipeline.
   2. Running a leave-one-out k-Nearest Neighbor classifier.
-  3. Reporting kNN top-1 and top-5 accuracy.
+  3. Reporting kNN top-1 and top-5 accuracy alongside standard retrieval
+     metrics (Recall@K and MRR) computed on the same cosine ranking --
+     the numbers the SSL / embedding-quality literature (DINO, DINOv2,
+     MoCo, MAE) actually reports.
 
 Pipeline output contract (HF image-feature-extraction):
     pipe(image) -> [[[float, ...]]]   shape: [1, num_tokens, hidden_dim]
@@ -70,7 +73,17 @@ class WinMLImageFeatureExtractionEvaluator(WinMLEvaluator):
         return dataset
 
     def compute(self) -> dict[str, Any]:
-        """Run kNN evaluation and return accuracy metrics."""
+        """Run kNN evaluation and return accuracy + retrieval metrics.
+
+        Returns:
+            ``knn_top1_accuracy`` and ``knn_top5_accuracy`` (classification
+            accuracy via distance-weighted kNN majority vote), plus
+            ``recall_at_1`` / ``recall_at_5`` / ``recall_at_10`` (fraction
+            of queries whose top-K cosine neighbours contain a same-class
+            item) and ``mrr`` (mean reciprocal rank of the first same-class
+            neighbour).  All accuracy figures are percentages in
+            ``[0, 100]``; recall and MRR are in ``[0, 1]``.
+        """
         from .metrics.knn_accuracy import KNNAccuracyMetric
 
         embeddings: list[np.ndarray] = []
@@ -95,8 +108,62 @@ class WinMLImageFeatureExtractionEvaluator(WinMLEvaluator):
         embeddings_array = np.array(embeddings)
         labels_array = np.array(labels)
 
-        metric = KNNAccuracyMetric(k=10)
-        return metric.compute(embeddings_array, labels_array)
+        knn_result = KNNAccuracyMetric(k=10).compute(embeddings_array, labels_array)
+        retrieval_result = self._compute_retrieval_metrics(embeddings_array, labels_array)
+        return {**knn_result, **retrieval_result}
+
+    @staticmethod
+    def _compute_retrieval_metrics(
+        embeddings: np.ndarray,
+        labels: np.ndarray,
+    ) -> dict[str, Any]:
+        """Compute Recall@{1, 5, 10} + MRR on the leave-one-out cosine ranking.
+
+        Uses the same L2-normalisation and self-exclusion as
+        :class:`~winml.modelkit.eval.metrics.KNNAccuracyMetric` so the
+        rankings driving the two report families are consistent -- the
+        retrieval numbers describe *the same neighbour ordering* the kNN
+        classifier voted on.
+
+        For every query, a same-class neighbour is treated as the single
+        relevant match (hit@K / rank-of-first-hit).  This matches the
+        classification-as-retrieval convention used across DINO, DINOv2,
+        MoCo and MAE evaluations.
+        """
+        from .metrics.mean_reciprocal_rank import MeanReciprocalRankMetric
+        from .metrics.recall_at_k import RecallAtKMetric
+
+        # L2-normalise with an eps floor to guard degenerate embeddings.
+        # Matches KNNAccuracyMetric so the ranking is bit-identical.
+        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+        norms = np.maximum(norms, 1e-9)
+        normalized = embeddings / norms
+
+        similarity = normalized @ normalized.T
+        np.fill_diagonal(similarity, -np.inf)  # exclude self
+
+        # Full descending sort so MRR can find hits at arbitrary rank.
+        # Self naturally sits at the last position (its -inf became +inf
+        # under negation) so slicing off the tail drops the self entry.
+        ranked_indices = np.argsort(-similarity, axis=1)[:, :-1]
+        ranked_labels = labels[ranked_indices]
+
+        recall = RecallAtKMetric(k_values=(1, 5, 10))
+        mrr = MeanReciprocalRankMetric()
+        for i in range(len(labels)):
+            query_label = int(labels[i])
+            recall.update(ranked_labels[i], query_label)
+            mrr.update(ranked_labels[i], query_label)
+
+        # Merge into a flat dict; drop the duplicate ``n_samples`` keys
+        # (both metrics report the same count -- the outer evaluator
+        # already reports it via KNNAccuracyMetric-adjacent bookkeeping).
+        result = recall.compute()
+        result.pop("n_samples", None)
+        mrr_result = mrr.compute()
+        mrr_result.pop("n_samples", None)
+        result.update(mrr_result)
+        return result
 
     @staticmethod
     def _extract_image_embedding(raw: Any) -> np.ndarray:
