@@ -24,7 +24,7 @@ class TestPyTorchRuntimeCli:
         result = CliRunner().invoke(eval, ["--help"])
 
         assert result.exit_code == 0
-        assert "--runtime [winml-ort|pytorch]" in result.output
+        assert "--runtime [winml-ort|winml-runtime|pytorch]" in result.output
 
     def test_pytorch_runtime_dispatches_pytorch(self, tmp_path) -> None:
         captured: dict[str, WinMLEvaluationConfig] = {}

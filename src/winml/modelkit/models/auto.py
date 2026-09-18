@@ -33,6 +33,7 @@ from ..cache import get_cache_dir, get_cache_key, get_model_dir
 from ..config import WinMLBuildConfig
 from ..loader.task import get_task_abbrev
 from ..session import short_ep_name
+from ..utils.constants import resolve_runtime_api_backend
 
 # Import task mapping from winml/ subpackage
 from .winml import get_supported_tasks, get_winml_class
@@ -45,6 +46,7 @@ if TYPE_CHECKING:
 
     from ..build import BuildResult
     from ..session import WinMLEPDevice
+    from ..utils.constants import RuntimeBackend, RuntimeName
     from .winml.base import WinMLPreTrainedModel
     from .winml.composite_model import WinMLCompositeModel
 
@@ -53,11 +55,14 @@ logger = logging.getLogger(__name__)
 
 def _get_cache_build_controls(
     *,
+    skip_build: bool = False,
     skip_optimize: bool = False,
     hack_max_optim_iterations: int | None = None,
 ) -> dict[str, Any]:
     """Return only the non-default artifact-changing build controls."""
     build_controls: dict[str, Any] = {}
+    if skip_build:
+        build_controls["skip_build"] = True
     if skip_optimize:
         build_controls["skip_optimize"] = True
     if hack_max_optim_iterations is not None and hack_max_optim_iterations != 3:
@@ -71,6 +76,15 @@ def _resolved_ep_short_name(ep_device: WinMLEPDevice) -> str:
     if isinstance(ep_short_name, str):
         return ep_short_name
     return short_ep_name(ep_device.device.ep_name)
+
+
+def _uses_cgc_online(
+    runtime: RuntimeName, backend: RuntimeBackend | None, ep_device: WinMLEPDevice
+) -> bool:
+    """Return whether the execution layer handles CGC conversion from ONNX."""
+    return (runtime == "winml-runtime" and backend == "cgc") or (
+        runtime == "winml-ort" and _resolved_ep_short_name(ep_device) == "winmlcg"
+    )
 
 
 @dataclass(frozen=True)
@@ -153,6 +167,8 @@ class WinMLAutoModel:
         compile_provider_options: dict[str, str] | None = None,
         session_options: Callable[[], Any] | None = None,
         hf_config: PretrainedConfig | None = None,
+        runtime: RuntimeName = "winml-ort",
+        backend: RuntimeBackend | None = None,
         **kwargs: Any,
     ) -> WinMLPreTrainedModel | WinMLCompositeModel:
         """Build from a pre-exported ONNX file.
@@ -179,12 +195,15 @@ class WinMLAutoModel:
         Returns:
             WinMLPreTrainedModel inference wrapper.
         """
+        backend = resolve_runtime_api_backend(runtime, onnx_path, backend)
+
         # Ergonomic path: resolve ep_device from device/ep shortcuts.
         if ep_device is None:
             from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
 
             target = resolve_device(
-                EPDeviceTarget(ep=ep or "auto", device=(device or "auto").lower())
+                EPDeviceTarget(ep=ep or "auto", device=(device or "auto").lower()),
+                backend=backend,
             )
             ep_device = WinMLEPRegistry.instance().auto_device(target)
 
@@ -205,6 +224,8 @@ class WinMLAutoModel:
                 provider_options=provider_options,
                 compile_provider_options=compile_provider_options,
                 session_options=session_options,
+                runtime=runtime,
+                backend=backend,
                 **kwargs,
             )
 
@@ -219,6 +240,7 @@ class WinMLAutoModel:
         # If user provides config, treat it as an override (merged on top).
         from ..config import generate_onnx_build_config
 
+        skip_build = skip_build or _uses_cgc_online(runtime, backend, ep_device)
         config = generate_onnx_build_config(
             onnx_path,
             task=task,
@@ -227,8 +249,10 @@ class WinMLAutoModel:
             ep=_resolved_ep_short_name(ep_device),
             override=config,
             no_compile=no_compile,
+            backend=backend,
         )
-        if compile_provider_options:
+
+        if compile_provider_options and not skip_build:
             if config.compile is None:
                 raise ValueError("compile_provider_options requires compilation to be enabled.")
             config.compile.ep_config.provider_options = {
@@ -254,6 +278,8 @@ class WinMLAutoModel:
                 ep_device=ep_device,
                 provider_options=provider_options,
                 session_options=session_options,
+                runtime=runtime,
+                backend=backend,
             )
 
         # Resolve output directory
@@ -308,6 +334,38 @@ class WinMLAutoModel:
             ep_device=ep_device,
             provider_options=provider_options,
             session_options=session_options,
+            runtime=runtime,
+            backend=backend,
+        )
+
+    @classmethod
+    def from_mlir(
+        cls,
+        mlir_path: str | Path,
+        *,
+        ep_device: WinMLEPDevice,
+        task: str | None = None,
+        runtime: RuntimeName = "winml-runtime",
+        backend: RuntimeBackend = "cgc",
+    ) -> WinMLPreTrainedModel:
+        """Load a pre-built CGC MLIR artifact."""
+        if runtime != "winml-runtime":
+            raise ValueError("MLIR inputs require runtime='winml-runtime'.")
+        if task == "text-generation":
+            raise ValueError("from_mlir does not support task='text-generation'.")
+        resolved_backend = resolve_runtime_api_backend(runtime, mlir_path, backend)
+
+        mlir_path = Path(mlir_path)
+        if not mlir_path.is_file():
+            raise FileNotFoundError(f"CGC MLIR model not found: {mlir_path}")
+
+        winml_class = get_winml_class(None, task)
+        return winml_class(
+            onnx_path=mlir_path,
+            config=None,
+            ep_device=ep_device,
+            runtime=runtime,
+            backend=resolved_backend,
         )
 
     @classmethod
@@ -324,6 +382,7 @@ class WinMLAutoModel:
         cache_dir: str | Path | None = None,
         use_cache: bool = True,
         force_rebuild: bool = False,
+        skip_build: bool = False,
         trust_remote_code: bool = False,
         shape_config: dict | None = None,
         model_type: str | None = None,
@@ -333,6 +392,8 @@ class WinMLAutoModel:
         no_compile: bool = False,
         skip_optimize: bool = False,
         hack_max_optim_iterations: int = 3,
+        runtime: RuntimeName = "winml-ort",
+        backend: RuntimeBackend | None = None,
         **kwargs: Any,
     ) -> WinMLPreTrainedModel | WinMLCompositeModel:
         """Load appropriate WinML model based on task detection.
@@ -360,6 +421,7 @@ class WinMLAutoModel:
             use_cache: If True (default), use persistent cache directory.
                 If False, build in a temp directory and always rebuild.
             force_rebuild: If True, rebuild even if cached model exists.
+            skip_build: Use the original ONNX or HF export without further build stages.
             trust_remote_code: Whether to trust remote code in HF models
             shape_config: Shape overrides passed to generate_build_config().
                 Valid keys -- text: sequence_length; vision: height, width;
@@ -378,6 +440,7 @@ class WinMLAutoModel:
 
         model_input = resolve_model_input(str(model_id_or_path))
         model_id = model_input.local_path or model_input.raw
+        backend = resolve_runtime_api_backend(runtime, model_id, backend)
         logger.info("Loading WinML model from: %s", model_id)
         request_device = (device or "auto").lower()
         request_ep = ep
@@ -388,7 +451,8 @@ class WinMLAutoModel:
             from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
 
             target = resolve_device(
-                EPDeviceTarget(ep=ep or "auto", device=(device or "auto").lower())
+                EPDeviceTarget(ep=ep or "auto", device=(device or "auto").lower()),
+                backend=backend,
             )
             ep_device = WinMLEPRegistry.instance().auto_device(target)
 
@@ -408,9 +472,12 @@ class WinMLAutoModel:
                 cache_dir=cache_dir,
                 use_cache=use_cache,
                 force_rebuild=force_rebuild,
+                skip_build=skip_build,
                 no_compile=no_compile,
                 provider_options=provider_options,
                 session_options=session_options,
+                runtime=runtime,
+                backend=backend,
                 allow_unsupported_nodes=allow_unsupported_nodes,
                 skip_optimize=skip_optimize,
                 hack_max_optim_iterations=hack_max_optim_iterations,
@@ -462,8 +529,11 @@ class WinMLAutoModel:
                     device=request_device,
                     ep=request_ep,
                     ep_device=ep_device,
+                    runtime=runtime,
+                    backend=backend,
                     use_cache=use_cache,
                     force_rebuild=force_rebuild,
+                    skip_build=skip_build,
                     trust_remote_code=trust_remote_code,
                     shape_config=shape_config,
                     precision=precision,
@@ -492,6 +562,7 @@ class WinMLAutoModel:
             cache_dir=cache_dir,
             use_cache=use_cache,
             force_rebuild=force_rebuild,
+            skip_build=skip_build,
             trust_remote_code=trust_remote_code,
             shape_config=shape_config,
             model_type=model_type,
@@ -499,6 +570,8 @@ class WinMLAutoModel:
             no_compile=no_compile,
             skip_optimize=skip_optimize,
             hack_max_optim_iterations=hack_max_optim_iterations,
+            runtime=runtime,
+            backend=backend,
             **kwargs,
         )
         onnx_path = artifact.result.final_onnx_path
@@ -515,6 +588,8 @@ class WinMLAutoModel:
             ep_device=ep_device,
             provider_options=provider_options,
             session_options=session_options,
+            runtime=runtime,
+            backend=backend,
         )
         model._build_config = artifact.build_config
         return model
@@ -533,6 +608,7 @@ class WinMLAutoModel:
         cache_dir: str | Path | None = None,
         use_cache: bool = True,
         force_rebuild: bool = False,
+        skip_build: bool = False,
         trust_remote_code: bool = False,
         shape_config: dict | None = None,
         model_type: str | None = None,
@@ -540,22 +616,29 @@ class WinMLAutoModel:
         no_compile: bool = False,
         skip_optimize: bool = False,
         hack_max_optim_iterations: int = 3,
+        runtime: RuntimeName = "winml-ort",
+        backend: RuntimeBackend | None = None,
         **_kwargs: Any,
     ) -> _PretrainedArtifact:
         from ..utils.model_input import resolve_model_input
 
         model_input = resolve_model_input(str(model_id_or_path))
         model_id = model_input.local_path or model_input.raw
+        backend = resolve_runtime_api_backend(runtime, model_id, backend)
         request_device = (device or "auto").lower()
         request_ep = ep
 
         if ep_device is None:
             from ..session import EPDeviceTarget, WinMLEPRegistry, resolve_device
 
-            target = resolve_device(EPDeviceTarget(ep=request_ep or "auto", device=request_device))
+            target = resolve_device(
+                EPDeviceTarget(ep=request_ep or "auto", device=request_device),
+                backend=backend,
+            )
             ep_device = WinMLEPRegistry.instance().auto_device(target)
         runtime_device = ep_device.device.device_type.lower()
         runtime_ep = _resolved_ep_short_name(ep_device)
+        skip_build = skip_build or _uses_cgc_online(runtime, backend, ep_device)
 
         from ..config import generate_hf_build_config
 
@@ -572,6 +655,7 @@ class WinMLAutoModel:
             trust_remote_code=trust_remote_code,
             policy_overrides_config=True,
             no_compile=no_compile,
+            backend=backend,
         )
 
         resolved_task = cast("str", build_config.loader.task)
@@ -605,6 +689,7 @@ class WinMLAutoModel:
             get_task_abbrev(resolved_task),
             build_config.generate_cache_key(),
             _get_cache_build_controls(
+                skip_build=skip_build,
                 skip_optimize=skip_optimize,
                 hack_max_optim_iterations=hack_max_optim_iterations,
             ),
@@ -623,6 +708,7 @@ class WinMLAutoModel:
             output_dir=output_dir,
             model_id=model_id,
             rebuild=force_rebuild,
+            skip_build=skip_build,
             trust_remote_code=trust_remote_code,
             cache_key=cache_key,
             ep=resolved_ep,

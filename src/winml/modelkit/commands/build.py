@@ -37,6 +37,7 @@ from ..utils.console import (
     print_setup,
     print_stages_header,
 )
+from ..utils.constants import RUNTIME_BACKENDS, RuntimeBackend
 from ..utils.logging import configure_logging
 from ..utils.model_input import ModelInputKind, classify_model_input
 from ._ep_arg import EpAtSourceParamType
@@ -837,6 +838,12 @@ def _maybe_build_genai_bundle(
     optional_message="With -c, applied only when --device or --precision is passed.",
 )
 @click.option(
+    "--backend",
+    type=click.Choice(list(RUNTIME_BACKENDS)),
+    default=None,
+    help="Backend used when auto-generating config, as in winml config --backend.",
+)
+@click.option(
     "--export-type",
     type=click.Choice(["generic", "optimized"], case_sensitive=False),
     default="generic",
@@ -904,6 +911,7 @@ def build(
     submodel: str | None,
     verbose: int,
     quiet: bool,
+    backend: RuntimeBackend | None = None,
 ) -> None:
     r"""Build a WinML-optimized ONNX model from a HuggingFace model or .onnx file.
 
@@ -917,6 +925,9 @@ def build(
     Examples:
         # Auto-generate config (no -c needed)
         winml build -m microsoft/resnet-50 -o output/
+
+        # One-step CGIR build, preserving the existing ONNX precision
+        winml build -m model.onnx -o output/ --backend cgc --no-quant
 
         # Full pipeline with explicit config
         winml build -c config.json -m microsoft/resnet-50 -o output/
@@ -950,6 +961,9 @@ def build(
         #  are needed, or pin --ep qnn --device npu to build it on any host)
         winml build -m Qwen/Qwen3-0.6B -o out/ --export-type optimized
     """
+    if backend == "cgc" and ep is not None:
+        raise click.UsageError("--backend cgc cannot be combined with --ep.")
+
     # Merge top-level -v/-q with subcommand-level flags so either position works.
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
     configure_logging(verbosity=verbose, quiet=quiet)
@@ -1087,6 +1101,7 @@ def build(
                     device=runtime_device,
                     precision=precision,
                     ep=runtime_ep_value,
+                    backend=backend,
                 )
             else:
                 config_or_configs = generate_build_config(
@@ -1095,6 +1110,7 @@ def build(
                     device=runtime_device,
                     precision=precision,
                     ep=runtime_ep_value,
+                    backend=backend,
                     export_policy_target=(request_device, request_ep_value),
                     shape_config=shape_overrides,
                     override={"export": export_overrides} if export_overrides else None,
@@ -1125,7 +1141,7 @@ def build(
                 from ..config import resolve_quant_compile_config
 
                 resolved_quant, _ = resolve_quant_compile_config(
-                    device=runtime_device, precision=precision, ep=runtime_ep_value
+                    device=runtime_device, precision=precision, ep=runtime_ep_value, backend=backend
                 )
                 if not quant or resolved_quant is None or is_pre_quantized_onnx_input:
                     cfg.quant = None
@@ -1419,6 +1435,7 @@ def build(
                             device=runtime_device,
                             precision=precision,
                             ep=runtime_ep_value,
+                            backend=backend,
                             export_policy_target=(request_device, request_ep_value),
                             shape_config=shape_overrides,
                             override={"export": export_overrides} if export_overrides else None,
@@ -1464,6 +1481,7 @@ def build(
                             component_config.compile = None
                         else:
                             component_config.compile = copy.deepcopy(config.compile)
+                        component_config.convert = copy.deepcopy(config.convert)
 
                         try:
                             component_config.validate()
@@ -1627,9 +1645,15 @@ def _run_single_build(
                 preloaded_hf_config=preloaded_hf_config,
             )
 
-        elapsed = time.monotonic() - start_time
         final_name = f"{cache_key}_model.onnx" if cache_key else "model.onnx"
         final_path = resolved_dir / final_name
+        stage_timings = stage_timings or []
+        final_path = _run_convert_stage(
+            config=config,
+            current_path=final_path,
+            stage_timings=stage_timings,
+        )
+        elapsed = time.monotonic() - start_time
         if final_path.exists() and stage_timings:
             config_json = resolved_dir / (
                 f"{cache_key}_winml_build_config.json" if cache_key else "winml_build_config.json"
@@ -2039,6 +2063,35 @@ def _run_compile_stage(
     return current_path
 
 
+def _run_convert_stage(
+    *,
+    config: WinMLBuildConfig,
+    current_path: Path,
+    stage_timings: list[tuple[str, float | None]],
+) -> Path:
+    """Convert the final ONNX artifact to MLIR when configured."""
+    if config.convert is None:
+        return current_path
+
+    from ..export.cgc import CGCExporter
+    from ..utils.console import StageLive
+
+    options = cli_utils.parse_options(
+        tuple(f"{key}={value}" for key, value in config.convert.options.items()),
+        CGCExporter.options_type,
+    )
+    output_path = current_path.with_suffix(".mlir")
+    with StageLive("convert", console) as sl:
+        sl.set_status("Converting ONNX to MLIR...")
+        started = time.monotonic()
+        CGCExporter(options).export_onnx(model=current_path, output_path=output_path)
+        elapsed = time.monotonic() - started
+        sl.set_done(elapsed)
+        sl.artifact(str(output_path), _safe_size(output_path))
+    stage_timings.append(("Convert", elapsed))
+    return output_path
+
+
 # =============================================================================
 # PIPELINE FUNCTIONS
 # =============================================================================
@@ -2205,7 +2258,7 @@ def _build_onnx_pipeline(
     or None if build was reused.
     """
     from ..build.common import ensure_pre_quantized_stamped
-    from ..onnx import copy_onnx_model
+    from ..onnx import copy_onnx_model, is_quantized_onnx
 
     max_iters: int = extra_kwargs.pop("hack_max_optim_iterations", 3)
     allow_unsupported_nodes: bool = extra_kwargs.pop("allow_unsupported_nodes", False)
@@ -2246,11 +2299,14 @@ def _build_onnx_pipeline(
     if current_path.resolve() != onnx_path.resolve():
         copy_onnx_model(onnx_path, current_path)
 
-    # Keep the CLI ONNX path aligned with the library build paths: if a user
-    # supplies a pre-quantized model via ``-c config.json`` we must stamp the
-    # config before any stage reads it, otherwise the optimize stage will still
-    # run on integer ops and the quantize stage may try to re-quantize.
-    ensure_pre_quantized_stamped(config, current_path)
+    if not config.is_cgc:
+        # Keep the CLI ONNX path aligned with the library build paths: if a user
+        # supplies a pre-quantized model via ``-c config.json`` we must stamp the
+        # config before any stage reads it, otherwise the optimize stage will still
+        # run on integer ops and the quantize stage may try to re-quantize.
+        ensure_pre_quantized_stamped(config, current_path)
+    elif config.quant is not None and is_quantized_onnx(current_path):
+        config.quant = None
 
     # ── Optimize stage (first stage for ONNX — show I/O here) ────
     current_path, _ = _run_optimize_stage(

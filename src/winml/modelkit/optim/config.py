@@ -21,6 +21,16 @@ class WinMLOptimizationConfig(dict):
     def __init__(self, **kwargs: bool) -> None:
         super().__init__(kwargs)
 
+    @classmethod
+    def for_cgc(cls) -> WinMLOptimizationConfig:
+        """Enable the registered CGIR compatibility rules without ORT graph optimization."""
+        from .pipes import CGIRRewritePipe
+
+        return cls(
+            ort_graph_optimization=False,
+            **CGIRRewritePipe.get_compatibility_options(),
+        )
+
     def to_dict(self) -> dict:
         """Convert to dictionary (sorted keys for deterministic serialization)."""
         return dict(sorted(self.items()))

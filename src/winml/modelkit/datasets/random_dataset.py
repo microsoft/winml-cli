@@ -32,7 +32,7 @@ class RandomDataset:
         model_path: Path to ONNX model file
         max_samples: Maximum number of samples to generate (default: 100)
         seed: Random seed for reproducible data generation (default: 42)
-        **kwargs: Additional keyword arguments (ignored)
+        **kwargs: Additional keyword arguments
     """
 
     TASK_TYPE = "random"
@@ -40,7 +40,7 @@ class RandomDataset:
 
     def __init__(
         self,
-        model_path: str,
+        model_path: str | None,
         max_samples: int = 100,
         seed: int = 42,
         **kwargs: Any,
@@ -52,7 +52,9 @@ class RandomDataset:
         # Cache io_config (loads ONNX once)
         from ..onnx import get_io_config
 
-        self._io_config = get_io_config(model_path)
+        self._io_config = (
+            get_io_config(model_path) if model_path is not None else kwargs["io_config"]
+        )
 
         # Build InputTensorSpec list for reuse across samples
         from ..onnx import InputTensorSpec

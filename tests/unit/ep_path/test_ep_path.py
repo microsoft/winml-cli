@@ -131,6 +131,20 @@ class TestPublicAPI:
             "NvTensorRTRTXExecutionProvider",
         }
 
+    def test_winmlcg_uses_pypi_source(self) -> None:
+        sources = [
+            source
+            for source in _default_ep_sources()
+            if "WinMLCGExecutionProvider" in source.iter_eps()
+        ]
+        assert sources == [
+            PyPISource(
+                distribution="windowsml",
+                relative_dll="windowsml/lib/WinMLCGEp.dll",
+                eps=("WinMLCGExecutionProvider",),
+            )
+        ]
+
     def test_ep_catalog_uses_canonical_casing_for_nvidia(self) -> None:
         assert EP_CATALOG.dll_name_for("NvTensorRTRTXExecutionProvider") is not None
         assert EP_CATALOG.dll_name_for("NvTensorRtRtxExecutionProvider") is None

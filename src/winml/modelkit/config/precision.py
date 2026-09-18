@@ -33,7 +33,7 @@ from ..utils.constants import (
 if TYPE_CHECKING:
     # Referenced only from the quoted ``cast()`` below, so importing it at
     # runtime would leave an unused import behind.
-    from ..utils.constants import EPNameOrAlias
+    from ..utils.constants import EPNameOrAlias, RuntimeBackend
 
 
 logger = logging.getLogger(__name__)
@@ -346,6 +346,7 @@ def resolve_precision(
     ep: str | None = None,
     available_devices: list[str] | None = None,
     task: str | None = None,
+    backend: RuntimeBackend | None = None,
 ) -> PrecisionPolicy:
     """Resolve precision into a concrete PrecisionPolicy.
 
@@ -367,6 +368,8 @@ def resolve_precision(
         available_devices: Prioritized device list from sysinfo.get_available_devices().
             Used when device="auto" + precision is explicit.
         task: Optional task name for LLM-specific warnings.
+        backend: CGC defaults auto precision to FP16 and disables offline compilation.
+            Explicit precision choices are preserved.
 
     Returns:
         PrecisionPolicy with all fields resolved.
@@ -402,6 +405,10 @@ def resolve_precision(
             logger.info("Inferred device '%s' from EP '%s'", device, ep)
         elif device not in supported_devices:
             raise ValueError(f"EP '{ep}' does not support device '{device}'.")
+
+    is_cgc = backend == "cgc" or ep == "WinMLCGExecutionProvider"
+    if is_cgc and resolved_precision == "auto":
+        resolved_precision = "fp16"
 
     # --- Both auto: no-op, keep config defaults ---
     if device == "auto" and resolved_precision == "auto":
@@ -469,7 +476,9 @@ def resolve_precision(
 
     # The policy contract uses short aliases, with CPU represented as no
     # offline compiler.
-    compile_provider = ep_short_or_none(effective_ep) if effective_ep is not None else None
+    compile_provider = (
+        ep_short_or_none(effective_ep) if effective_ep is not None and not is_cgc else None
+    )
 
     # Resolve weight/activation types — supports named presets and w{x}a{y}.
     # Weight-only precisions (int4, w4a16) use RTN, not QDQ — they have no

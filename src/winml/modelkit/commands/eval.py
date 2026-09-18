@@ -17,7 +17,12 @@ import click
 from rich.console import Console
 
 from ..utils import cli as cli_utils
-from ..utils.constants import ALL_EP_NAMES, SUPPORTED_DEVICES
+from ..utils.constants import (
+    ALL_EP_NAMES,
+    RUNTIME_BACKENDS,
+    SUPPORTED_DEVICES,
+    resolve_runtime_api_backend,
+)
 from ..utils.eval_utils import EVAL_MODES, TASK_SCHEMAS, EvalMode, TaskSchema
 from ..utils.logging import configure_logging
 
@@ -35,12 +40,12 @@ logger = logging.getLogger(__name__)
     required=False,
     multiple=True,
     help_text=(
-        "Model to evaluate. Accepts a HuggingFace model ID, an ONNX file path "
+        "Model to evaluate. Accepts a HuggingFace model ID, an ONNX or MLIR file path "
         "(requires --model-id), or split-encoder role=path pairs (see --schema)."
     ),
 )
 @cli_utils.model_id_option(
-    help_text="HuggingFace model ID when .onnx model file is provided in --model.",
+    help_text="HuggingFace model ID when an ONNX or MLIR file is provided in --model.",
 )
 @click.option(
     "--dataset",
@@ -119,11 +124,18 @@ logger = logging.getLogger(__name__)
 )
 @click.option(
     "--runtime",
-    type=click.Choice(["winml-ort", "pytorch"]),
+    type=click.Choice(["winml-ort", "winml-runtime", "pytorch"]),
     default="winml-ort",
     show_default=True,
     help="Evaluation runtime. 'winml-ort' exports Hugging Face checkpoints to ONNX; "
-    "'pytorch' evaluates the original checkpoint.",
+    "'winml-runtime' loads pre-built MLIR; 'pytorch' evaluates the original checkpoint.",
+)
+@click.option(
+    "--backend",
+    type=click.Choice(list(RUNTIME_BACKENDS)),
+    default=None,
+    help="[winml-runtime] Execution backend for ONNX inputs (default: cgc). "
+    "MLIR inputs always use cgc.",
 )
 @click.option(
     "--samples",
@@ -194,8 +206,8 @@ logger = logging.getLogger(__name__)
     show_default=True,
     help=(
         "Evaluation mode. "
-        "'onnx' (default): evaluate the ONNX candidate on the dataset. "
-        "'compare': compare ONNX vs HF reference output tensors on identical "
+        "'onnx' (default): evaluate the candidate model on the dataset. "
+        "'compare': compare candidate vs reference output tensors on identical "
         "random inputs and report tensor-similarity metrics per output tensor."
     ),
 )
@@ -218,7 +230,7 @@ logger = logging.getLogger(__name__)
     default=None,
     help=(
         "Reference ONNX file to compare the candidate against (use with "
-        "--mode compare). Compares two ONNX models on identical random inputs; "
+        "--mode compare). Compares two models on identical random inputs; "
         "--model-id / --task are not required in this mode."
     ),
 )
@@ -269,6 +281,7 @@ def eval(
     export_config: Path | None,
     dynamic_axes: Path | None,
     runtime: EvalRuntime,
+    backend: str | None,
     ep: EPNameOrAlias | None,
     samples: int,
     split: str,
@@ -339,9 +352,10 @@ def eval(
     # ── 1. Build config: defaults ← config file ← CLI ──
     cfg, config_fields = _build_eval_config(ctx, config_file, column, label_mapping_path)
 
-    if cfg.runtime not in ("winml-ort", "pytorch"):
+    if cfg.runtime not in ("winml-ort", "winml-runtime", "pytorch"):
         raise click.UsageError(
-            f"Invalid eval runtime {cfg.runtime!r}; expected 'winml-ort' or 'pytorch'."
+            f"Invalid eval runtime {cfg.runtime!r}; expected 'winml-ort', "
+            "'winml-runtime', or 'pytorch'."
         )
     if cfg.runtime == "pytorch":
         _validate_pytorch_runtime_options(ctx, cfg, config_fields)
@@ -368,6 +382,16 @@ def eval(
 
     # ── 2. Resolve in place ──
     _resolve_model(cfg, model, model_id, allow_missing_model_id=cfg.reference_path is not None)
+    is_mlir = (
+        isinstance(cfg.model_path, str)
+        and Path(cfg.model_path).suffix.lower() == ".mlir"
+    )
+    if is_mlir and cfg.runtime != "winml-runtime":
+        raise click.UsageError("MLIR inputs require --runtime winml-runtime.")
+    try:
+        cfg.backend = resolve_runtime_api_backend(cfg.runtime, cfg.model_path, cfg.backend)
+    except ValueError as error:
+        raise click.UsageError(str(error)) from error
     if cfg.runtime == "pytorch" and cfg.model_path is not None:
         raise click.UsageError(
             "--runtime pytorch requires a Hugging Face model ID or local Hugging Face "
@@ -668,9 +692,9 @@ def _resolve_model(
 
 
 def _resolve_reference(cfg: WinMLEvaluationConfig) -> None:
-    """Validate and normalize ``cfg.reference_path`` for two-ONNX compare.
+    """Validate and normalize ``cfg.reference_path`` for ONNX compare.
 
-    Requires the candidate (``-m``) to be a single ONNX file (composite
+    Requires the candidate (``-m``) to be a single model file (composite
     ``role=path`` candidates and build-from-id are not supported with
     ``--reference`` yet). Resolves Hub-hosted ONNX refs to local paths.
     """
@@ -679,7 +703,7 @@ def _resolve_reference(cfg: WinMLEvaluationConfig) -> None:
 
     if not isinstance(cfg.model_path, str):
         raise click.UsageError(
-            "--reference requires the candidate (-m) to be a single ONNX file. "
+            "--reference requires the candidate (-m) to be a single model file. "
             "Composite (role=path) candidates and build-from-id are not "
             "supported with --reference."
         )
@@ -780,7 +804,8 @@ def _resolve_device(cfg: WinMLEvaluationConfig) -> None:
     console = Console(stderr=True)
     console.print("[bold]Detecting available devices...[/bold]")
     resolved_target = resolve_device(
-        EPDeviceTarget(ep=cfg.ep or "auto", device=cfg.device or "auto")
+        EPDeviceTarget(ep=cfg.ep or "auto", device=cfg.device or "auto"),
+        backend=resolve_runtime_api_backend(cfg.runtime, cfg.model_path, cfg.backend),
     )
     cfg.device = resolved_target.device
     console.print(f"[dim]Using device:[/dim] {resolved_target.device}")
@@ -953,9 +978,9 @@ def _resolve_model_path(
         )
 
     value = plain[0]
-    if Path(value).suffix.lower() == ".onnx":
-        # Hub-hosted ONNX (e.g. ``onnx-community/sam3-tracker-ONNX/onnx/...``)
-        # is downloaded once and treated as a local .onnx path thereafter.
+    model_suffix = Path(value).suffix.lower()
+    if model_suffix in (".onnx", ".mlir"):
+        # Hub-hosted artifacts are resolved once; local paths pass through.
         try:
             value = cli_utils.normalize_model_arg(value) or value
         except Exception as e:
@@ -964,14 +989,14 @@ def _resolve_model_path(
             ) from e
         if not Path(value).exists():
             raise click.BadParameter(
-                f"ONNX file not found: {value}",
+                f"{model_suffix.removeprefix('.').upper()} file not found: {value}",
                 param_hint="-m/--model",
             )
         if model_id is None:
             if allow_missing_model_id:
                 return value, None
             raise click.UsageError(
-                "When using an ONNX file, --model-id is required "
+                f"When using a {model_suffix} file, --model-id is required "
                 "for preprocessor and config resolution."
             )
         return value, model_id
@@ -988,7 +1013,7 @@ def _resolve_model_path(
     if model_id is not None and model_id != value:
         raise click.UsageError(
             "Cannot pass both `-m <hf_id>` and `--model-id`. "
-            "Use `--model-id` only together with an ONNX file path in `-m`."
+            "Use `--model-id` only together with an ONNX or MLIR file path in `-m`."
         )
     return None, model_id or value
 
@@ -1014,6 +1039,7 @@ def display_eval_report(result: EvalResult, console: Console) -> None:
     cfg = result.config
     ds = cfg.dataset
     metrics = result.metrics
+    backend = resolve_runtime_api_backend(cfg.runtime, cfg.model_path, cfg.backend)
     # For --input-data compare the effective sample count comes from the
     # archive (via EvalResult.num_samples), not the unused config default.
     samples = result.num_samples if result.num_samples is not None else ds.samples
@@ -1039,23 +1065,38 @@ def display_eval_report(result: EvalResult, console: Console) -> None:
     # Info section
     console.print()
     console.print(f"[dim]Task:[/dim]       {cfg.task}")
-    console.print(f"[dim]Runtime:[/dim]    {cfg.runtime}")
-    console.print(f"[dim]Device:[/dim]     {cfg.device}")
     if cfg.input_data:
         console.print(f"[dim]Input data:[/dim] {cfg.input_data}")
     elif ds.path:
         console.print(f"[dim]Dataset:[/dim]    {ds.path}")
     console.print(f"[dim]Samples:[/dim]    {samples}")
-    if isinstance(cfg.model_path, dict):
+    if cfg.mode == "compare":
+        console.print(f"[dim]Candidate:[/dim]  {cfg.model_path or cfg.model_id}")
+        console.print(f"[dim]Candidate runtime:[/dim] {cfg.runtime}")
+        console.print(f"[dim]Candidate device:[/dim] {cfg.device}")
+        if backend != "cgc":
+            console.print(f"[dim]Candidate EP:[/dim] {cfg.ep or 'auto'}")
+        console.print(f"[dim]Reference:[/dim]  {cfg.reference_path or cfg.model_id}")
+        console.print(
+            f"[dim]Reference runtime:[/dim] "
+            f"{'winml-ort' if cfg.reference_path else 'pytorch'}"
+        )
+        console.print(
+            f"[dim]Reference device:[/dim] "
+            f"{cfg.reference_device if cfg.reference_path else 'cpu'}"
+        )
+        console.print(
+            f"[dim]Reference EP:[/dim] "
+            f"{(cfg.reference_ep or 'auto') if cfg.reference_path else 'n/a'}"
+        )
+    else:
+        console.print(f"[dim]Runtime:[/dim]    {cfg.runtime}")
+        console.print(f"[dim]Device:[/dim]     {cfg.device}")
+    if cfg.mode != "compare" and isinstance(cfg.model_path, dict):
         for role, path in cfg.model_path.items():
-            console.print(f"[dim]ONNX ({role}):[/dim] {path}")
-    elif cfg.model_path:
-        console.print(f"[dim]ONNX:[/dim]       {cfg.model_path}")
-    if cfg.reference_path:
-        console.print(f"[dim]Reference:[/dim]  {cfg.reference_path}")
-        console.print(f"[dim]Reference device:[/dim] {cfg.reference_device}")
-        if cfg.reference_ep:
-            console.print(f"[dim]Reference EP:[/dim] {cfg.reference_ep}")
+            console.print(f"[dim]Model ({role}):[/dim] {path}")
+    elif cfg.mode != "compare" and cfg.model_path:
+        console.print(f"[dim]Model:[/dim]      {cfg.model_path}")
 
     # Metrics table
     console.print()

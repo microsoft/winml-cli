@@ -133,6 +133,52 @@ class TestRandomDataset:
         assert "A" in sample  # Input name from ONNX model
         assert sample["A"].shape == (1, 4)
 
+    def test_random_dataset_with_io_config(self) -> None:
+        from unittest.mock import patch
+
+        from winml.modelkit.datasets import RandomDataset
+
+        io_config = {
+            "input_names": ["input"],
+            "input_shapes": [[1, 3]],
+            "input_types": [np.dtype("float32")],
+            "value_ranges": {"input": (-1.0, 1.0)},
+        }
+        with patch(
+            "winml.modelkit.onnx.get_io_config",
+            side_effect=AssertionError("artifact must not be parsed"),
+        ):
+            dataset = RandomDataset(model_path=None, io_config=io_config, max_samples=2)
+
+        assert len(dataset) == 2
+        assert dataset[0]["input"].shape == (1, 3)
+
+    def test_model_path_remains_authoritative(self, simple_onnx_model: Path) -> None:
+        from unittest.mock import patch
+
+        from winml.modelkit.datasets import RandomDataset
+
+        conflicting_io_config = {
+            "input_names": ["wrong_input"],
+            "input_shapes": [[1, 99]],
+            "input_types": [np.dtype("int64")],
+        }
+        with patch("winml.modelkit.onnx.get_io_config") as get_io_config:
+            get_io_config.return_value = {
+                "input_names": ["A"],
+                "input_shapes": [[1, 4]],
+                "input_types": [np.dtype("float32")],
+            }
+            dataset = RandomDataset(
+                model_path=str(simple_onnx_model),
+                io_config=conflicting_io_config,
+                max_samples=1,
+            )
+
+        get_io_config.assert_called_once_with(str(simple_onnx_model))
+        assert set(dataset[0]) == {"A", "sample_id"}
+        assert dataset[0]["A"].shape == (1, 4)
+
     def test_random_dataset_generates_correct_dtype(self, simple_onnx_model: Path) -> None:
         """RandomDataset should generate data with correct dtype."""
         import torch

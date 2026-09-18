@@ -78,6 +78,7 @@ class TestOptimizeCliInterface:
             "-m",
             "--output",
             "-o",
+            "--disable-ort-graph-optimization",
             "--ep",
             "--device",
             "-d",
@@ -267,6 +268,45 @@ class TestOptimizeInvocation:
             mock_opt_cls.return_value.optimize.call_args.kwargs["ep_device"]
             is resolved_ep_device
         )
+
+    def test_disable_graph_optimization_without_enabling_rewrites(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        model_file = tmp_path / "model.onnx"
+        model_file.touch()
+        mock_model = _make_mock_model()
+
+        with (
+            patch(_LOAD_ONNX, return_value=mock_model),
+            patch(_SAVE_ONNX),
+            patch(_OPTIMIZER) as mock_opt_cls,
+        ):
+            mock_opt_cls.return_value.optimize.return_value = mock_model
+            result = runner.invoke(
+                optimize,
+                ["-m", str(model_file), "--disable-ort-graph-optimization"],
+            )
+
+        assert result.exit_code == 0, result.output
+        kwargs = mock_opt_cls.return_value.optimize.call_args.kwargs
+        assert kwargs["ort_graph_optimization"] is False
+        assert "backend" not in kwargs
+        assert kwargs["omit_empty_resize_inputs"] is False
+
+    def test_backend_option_removed(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        model_file = tmp_path / "model.onnx"
+        model_file.touch()
+
+        result = runner.invoke(
+            optimize,
+            ["-m", str(model_file), "--backend", "cgc", "--device", "gpu"],
+        )
+
+        assert result.exit_code != 0
+        assert "No such option" in result.output
+        assert "--backend" in result.output
 
 
 # =============================================================================

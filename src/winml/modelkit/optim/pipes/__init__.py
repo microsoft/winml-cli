@@ -17,6 +17,7 @@ from .algebraic import (
     AlgebraicRewritePipeConfig,
 )
 from .base import BasePipe, OptimizationError, PipeConfig, caps_dict
+from .cgir_rewrite import CGIRRewritePipe, CGIRRewritePipeConfig
 from .fusion import ORTFusionPipe, ORTFusionPipeConfig
 from .graph import GRAPH_CAPABILITIES, ORTGraphPipe, ORTGraphPipeConfig
 from .rewrite import RewritePipe, RewritePipeConfig
@@ -24,9 +25,10 @@ from .surgery import SURGERY_CAPABILITIES, SurgeryPipe, SurgeryPipeConfig
 
 
 # Optimization pipes to run in sequence
+# - CGIRRewritePipe: Explicit target-specific rewrites before an EP can compile the graph.
 # - ORTGraphPipe: ORT graph-level optimizations (C++ optimizer), including constant folding.
-#   Runs first so downstream pipes see a constant-folded graph (e.g. Reshape shape inputs
-#   become literal constants, enabling skeleton-based pattern matching).
+#   Runs before general downstream pipes so they see a constant-folded graph (e.g. Reshape
+#   shape inputs become literal constants, enabling skeleton-based pattern matching).
 # - AlgebraicRewritePipe: Exact topology-based algebraic rewrites (after ORT folding).
 # - RewritePipe: Pattern-based subgraph rewriting (runs after ORT constant folding so that
 #   shape constants are visible, but before ORTFusionPipe so normalised patterns are
@@ -34,6 +36,7 @@ from .surgery import SURGERY_CAPABILITIES, SurgeryPipe, SurgeryPipeConfig
 # - ORTFusionPipe: ORT transformer fusions (Python optimizer)
 # - SurgeryPipe: Post-optimization model surgery (runs last to clamp constants after folding)
 PIPES: list[type[BasePipe]] = [
+    CGIRRewritePipe,
     ORTGraphPipe,
     AlgebraicRewritePipe,
     RewritePipe,
@@ -62,6 +65,8 @@ __all__ = [
     "AlgebraicRewritePipe",
     "AlgebraicRewritePipeConfig",
     "BasePipe",
+    "CGIRRewritePipe",
+    "CGIRRewritePipeConfig",
     "ORTFusionPipe",
     "ORTFusionPipeConfig",
     "ORTGraphPipe",

@@ -40,6 +40,7 @@ from ..utils.console import (
     print_kv,
     print_success,
 )
+from ..utils.constants import RUNTIME_BACKENDS, RuntimeBackend
 from ..utils.logging import configure_logging
 from ..utils.model_input import ModelInputKind, classify_model_input
 from ._ep_arg import EpAtSourceParamType
@@ -147,6 +148,13 @@ def _merge_export_overrides(cfg: Any, export_overrides: dict[str, Any]) -> Any:
     "takes a bare EP short-name.)",
 )
 @cli_utils.precision_option()
+@click.option(
+    "--backend",
+    type=click.Choice(list(RUNTIME_BACKENDS)),
+    default=None,
+    help="Build backend. cgc generates FP16 and CGIR conversion without compilation; "
+    "ort or omission preserves the existing configuration behavior.",
+)
 @cli_utils.output_option("Output JSON file path (default: stdout)")
 @cli_utils.overwrite_option()
 @click.option(
@@ -190,6 +198,7 @@ def config(
     quant: bool,
     no_compile: bool,
     trust_remote_code: bool,
+    backend: RuntimeBackend | None = None,
 ) -> None:
     r"""Generate WinMLBuildConfig for a HuggingFace model or .onnx file.
 
@@ -239,6 +248,9 @@ def config(
         # Generate configs for submodules
         winml config -m microsoft/resnet-50 --module ResNetConvLayer
     """
+    if backend == "cgc" and ep is not None:
+        raise click.UsageError("--backend cgc cannot be combined with --ep.")
+
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
     configure_logging(verbosity=verbose, quiet=quiet)
 
@@ -364,6 +376,7 @@ def config(
                 device=device,
                 precision=precision,
                 ep=ep_name,
+                backend=backend,
                 override=onnx_override,
             )
 
@@ -414,6 +427,7 @@ def config(
                     ep=ep_name,
                     no_quant=not quant,
                     no_compile=no_compile,
+                    backend=backend,
                     policy_overrides_config=policy_overrides_config,
                     output=output,
                     overwrite=overwrite,
@@ -447,6 +461,7 @@ def config(
                 precision=precision,
                 trust_remote_code=trust_remote_code,
                 ep=ep_name,
+                backend=backend,
                 policy_overrides_config=policy_overrides_config,
             )
             if isinstance(result, list):
@@ -650,6 +665,7 @@ def _generate_pipeline_configs(
     output: Path | None,
     overwrite: bool,
     console: Any,
+    backend: RuntimeBackend | None = None,
 ) -> None:
     """Generate and save one config file per pipeline sub-component."""
     from ..config import generate_hf_build_config
@@ -672,6 +688,7 @@ def _generate_pipeline_configs(
             precision=precision,
             trust_remote_code=trust_remote_code,
             ep=ep,
+            backend=backend,
             policy_overrides_config=policy_overrides_config,
         )
         _apply_stage_overrides(cfg, no_quant=no_quant, no_compile=no_compile)

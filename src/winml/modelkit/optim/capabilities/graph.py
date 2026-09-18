@@ -14,6 +14,15 @@ from __future__ import annotations
 from ..registry import BoolCapability, CapabilityCategory
 
 
+ORT_GRAPH_OPTIMIZATION = BoolCapability(
+    name="ort-graph-optimization",
+    ort_name=None,
+    description="Run ORT graph optimization, including basic optimizations and graph fusions",
+    category=CapabilityCategory.GRAPH,
+    default=True,
+)
+
+
 # Concat-slice elimination - remove concat followed by slice
 CONCAT_SLICE_ELIMINATION = BoolCapability(
     name="concat-slice-elimination",

@@ -221,7 +221,7 @@ class TestGeneratedExportCompatibilityPolicy:
         )
         monkeypatch.setattr(
             "winml.modelkit.config.build._apply_target_policy",
-            lambda config, *, device, precision, ep: target_policy_calls.append(
+            lambda config, *, device, precision, ep, backend: target_policy_calls.append(
                 (device, precision, ep)
             ),
         )

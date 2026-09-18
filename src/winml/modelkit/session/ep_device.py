@@ -392,6 +392,7 @@ EP_DEVICE_SPECS: Final[tuple[EPDeviceSpec, ...]] = (
     EPDeviceSpec(ep="MIGraphXExecutionProvider", device="gpu"),
     EPDeviceSpec(ep="TensorrtExecutionProvider", device="gpu"),
     EPDeviceSpec(ep="NvTensorRTRTXExecutionProvider", device="gpu"),
+    EPDeviceSpec(ep="WinMLCGExecutionProvider", device="gpu"),
     EPDeviceSpec(ep="OpenVINOExecutionProvider", device="cpu"),
     # ---- QNN secondary (Snapdragon boxes without vendor-optimal alternatives) ----
     EPDeviceSpec(
@@ -685,7 +686,11 @@ def auto_detect_device() -> str:
 
 
 # --- resolution ------------------------------------------------------------
-def resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
+def resolve_device(
+    target: EPDeviceTarget,
+    *,
+    backend: str | None = None,
+) -> EPDeviceTarget:
     """Resolve an EP/device intent to a concrete target.
 
     Takes a typed :class:`EPDeviceTarget` intent (possibly carrying
@@ -712,6 +717,9 @@ def resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
         target: User intent. ``target.ep`` and ``target.device`` may be
             the literal ``"auto"``; ``target.source`` may be ``None`` or
             a canonical source tag.
+        backend: Runtime API backend. When set, loads the Runtime native
+            payload before probing EP devices. The CGC backend uses DML
+            internally to discover device metadata.
 
     Returns:
         Resolved :class:`EPDeviceTarget` with no ``"auto"`` values.
@@ -722,6 +730,17 @@ def resolve_device(target: EPDeviceTarget) -> EPDeviceTarget:
         ValueError: Unknown EP or device after deduction, or no
             registered EP backs the requested device.
     """
+    if backend is not None:
+        from ._runtime_import import import_runtime
+
+        import_runtime()
+        if backend == "cgc" and target.ep == "auto":
+            target = EPDeviceTarget(
+                ep="dml",
+                device=target.device,
+                source=None,
+            )
+
     ep = target.ep
     device = target.device
 
@@ -906,6 +925,17 @@ class WinMLDevice:
             or self._ort.device.metadata.get("Description")
             or "<unknown>"
         )
+
+    @property
+    def adapter_luid(self) -> int | None:
+        """Unsigned DXCore/DXGI adapter LUID, or ``None`` when unavailable."""
+        raw = self._ort.device.metadata.get("LUID")
+        if not raw:
+            return None
+        try:
+            return int(raw, 16) if raw.lower().startswith("0x") else int(raw)
+        except ValueError:
+            raise ValueError(f"Invalid adapter LUID metadata: {raw!r}") from None
 
     @property
     def vendor(self) -> str:
