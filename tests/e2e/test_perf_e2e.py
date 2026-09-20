@@ -396,7 +396,7 @@ class _PerfBenchmarkSuite:
 
         # Console output should contain Memory section
         assert "Memory:" in result.output
-        assert "RAM:" in result.output
+        assert "RAM (RSS):" in result.output
 
     def test_benchmark_cpu_no_memory(self, tmp_path: Path, model_arg: str):
         """Benchmark with --no-memory omits memory profile from JSON output."""
