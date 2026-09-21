@@ -29,7 +29,6 @@ from ...pattern.cgc import (
     ResizeWithTfHalfPixelForNNPattern,
     cgc_constant_folding,
     deduplicate_opset_imports,
-    eliminate_identity,
     normalize_int32_dq,
 )
 from ..registry import BoolCapability, CapabilityCategory
@@ -73,26 +72,10 @@ OMIT_EMPTY_RESIZE_INPUTS = BoolCapability(
     default=False,
 )
 
-ELIMINATE_IDENTITY = BoolCapability(
-    name="eliminate-identity",
-    ort_name=None,
-    description="Eliminate internal tensor Identity aliases without changing graph IO for CGIR",
-    category=CapabilityCategory.REWRITE,
-    default=False,
-)
-
-FOLD_CONSTANT_PAD_PADS = BoolCapability(
-    name="fold-constant-pad-pads",
-    ort_name=None,
-    description="Alias for cgc-constant-folding",
-    category=CapabilityCategory.REWRITE,
-    default=False,
-)
-
 CGC_CONSTANT_FOLDING = BoolCapability(
     name="cgc-constant-folding",
     ort_name=None,
-    description="Fill FoundryToolbox folding gaps for Pad parameters and static shape subgraphs",
+    description="Fill FoundryToolbox folding gaps for static shape subgraphs",
     category=CapabilityCategory.REWRITE,
     default=False,
 )
@@ -169,7 +152,6 @@ CGIR_REWRITE_RULES = (
     CGIRModelRewriteRule(
         capability=CGC_CONSTANT_FOLDING,
         transform=cgc_constant_folding,
-        aliases=(FOLD_CONSTANT_PAD_PADS,),
     ),
     CGIRModelRewriteRule(
         capability=DEDUPLICATE_OPSET_IMPORTS,
@@ -214,10 +196,6 @@ CGIR_REWRITE_RULES = (
         target=MatMulDFTPattern,
         minimum_opset=17,
     ),
-    CGIRModelRewriteRule(
-        capability=ELIMINATE_IDENTITY,
-        transform=eliminate_identity,
-    ),
     CGIRRewriteRule(
         capability=GRIDSAMPLE_TO_GATHER,
         source=LinearGridSamplePattern,
@@ -240,8 +218,6 @@ __all__ = [
     "CGIR_REWRITE_RULES",
     "DEDUPLICATE_OPSET_IMPORTS",
     "DFT_TO_MATMUL",
-    "ELIMINATE_IDENTITY",
-    "FOLD_CONSTANT_PAD_PADS",
     "GATHERND_TO_RESHAPE",
     "GRIDSAMPLE_TO_GATHER",
     "OMIT_EMPTY_RESIZE_INPUTS",

@@ -4,12 +4,11 @@
 # --------------------------------------------------------------------------
 """Opt-in CGC compatibility patterns and model metadata rewrites."""
 
-from .cgc_constant_folding import cgc_constant_folding, fold_constant_pad_pads
+from .cgc_constant_folding import cgc_constant_folding
 from .dft_patterns import DFTWithStaticParametersPattern, MatMulDFTPattern
 from .dq_rewrites import normalize_int32_dq
 from .gathernd_patterns import GatherNDWithIdentityIndicesPattern, ReshapedGatherNDPattern
 from .gridsample_patterns import GatherLinearGridSamplePattern, LinearGridSamplePattern
-from .identity_rewrites import eliminate_identity
 from .opset_rewrites import deduplicate_opset_imports
 from .prelu_patterns import ExpandedPReluPattern, PReluWithFiniteSlopePattern
 from .resize_patterns import (
@@ -39,7 +38,5 @@ __all__ = [
     "ResizeWithTfHalfPixelForNNPattern",
     "cgc_constant_folding",
     "deduplicate_opset_imports",
-    "eliminate_identity",
-    "fold_constant_pad_pads",
     "normalize_int32_dq",
 ]
