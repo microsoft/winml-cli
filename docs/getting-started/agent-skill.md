@@ -5,6 +5,9 @@ drive the entire model-building pipeline on your behalf. When a coding agent has
 this skill attached, it can inspect models, generate configs, run builds, and
 interpret results — without you having to remember exact flags or stage ordering.
 
+For an evidence-driven ONNX latency optimization search or validation of an
+existing candidate, see [Auto Optimize with AI](auto-optimize.md).
+
 ---
 
 ## What the skill provides
