@@ -856,6 +856,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="auto-optimize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Auto Optimize
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2661,9 +2689,9 @@
 
 
 <h1 id="use-winml-cli-with-ai-agents">Use WinML CLI with AI Agents<a class="headerlink" href="#use-winml-cli-with-ai-agents" title="Permanent link">&para;</a></h1>
-<p>This section documents two complementary agent workflows: using the CLI to
-build and run models, and contributing support for models the CLI does not yet
-handle.</p>
+<p>This section documents three complementary agent workflows: using the CLI to
+build and run models, contributing missing model support, and investigating
+ONNX inference latency.</p>
 <h2 id="choose-a-skill">Choose a skill<a class="headerlink" href="#choose-a-skill" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -2684,6 +2712,11 @@ handle.</p>
 <td><code>adding-model-support</code></td>
 <td><a href="adding-model-support/">Add model support with an AI agent</a></td>
 </tr>
+<tr>
+<td>Investigate latency or validate optimization candidates on an EP/device</td>
+<td><code>auto-optimize</code></td>
+<td><a href="auto-optimize/">Auto Optimize</a></td>
+</tr>
 </tbody>
 </table>
 <p>Use <code>use-winml-cli</code> for normal model workflows, including targeting available
@@ -2692,6 +2725,10 @@ CPU, GPU, and NPU execution providers.</p>
 task mapping, dataset adapter, evaluator, or shared CLI fix. It handles one
 model per run and drives the contribution through independent validation and
 review.</p>
+<p>Use <code>auto-optimize</code> for an experimental optimization search or validation of
+an existing candidate. It checks correctness before paired performance
+measurements and publishes a validated replayable bundle. Routine optimization
+with existing CLI features remains part of <code>use-winml-cli</code>.</p>
 <h2 id="how-to-use-a-skill">How to use a skill<a class="headerlink" href="#how-to-use-a-skill" title="Permanent link">&para;</a></h2>
 <p>Make the selected directory under
 <a href="https://github.com/microsoft/winml-cli/tree/main/skills"><code>skills/</code></a> available
