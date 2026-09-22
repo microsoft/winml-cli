@@ -2008,6 +2008,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#concrete-input-shapes-for-cgc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Concrete input shapes for CGC
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#see-also" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2774,6 +2785,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#concrete-input-shapes-for-cgc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Concrete input shapes for CGC
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#see-also" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3364,6 +3386,16 @@ not supported.</p>
 <li><strong>Random inputs do not represent real data distributions.</strong> Latency numbers are accurate, but memory access patterns may differ from production because the generated tensors are uniform random values. For memory-bandwidth-sensitive models this can understate real-world latency.</li>
 <li><strong>Cross-device comparison.</strong> To compare performance across devices, run <code>winml perf</code> separately with different <code>--device</code> values and compare the resulting JSON reports.</li>
 </ul>
+<h2 id="concrete-input-shapes-for-cgc">Concrete input shapes for CGC<a class="headerlink" href="#concrete-input-shapes-for-cgc" title="Permanent link">&para;</a></h2>
+<p>For local ONNX models, Runtime CGC and WinMLCG receive concrete named input
+dimensions before compilation. With --input-data, shapes come from NPZ headers
+without allocating input tensors. Otherwise, the existing --shape-config and
+batch-size resolution rules apply. Rank, static axes, positive dimensions and
+shared symbolic names must agree. The source ONNX is not rewritten.</p>
+<p>Runtime CGC requires a Runtime compiler that supports symbolic-dimension
+options. Anonymous dynamic axes are rejected rather than guessed, and these
+overrides do not resolve internal data-dependent shapes. Input payload loading
+and dtype conversion still occur at the normal input-allocation boundary.</p>
 <h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
 <ul>
 <li><a href="../eval/">winml eval</a> — measure accuracy after benchmarking</li>
