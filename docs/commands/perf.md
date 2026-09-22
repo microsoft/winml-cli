@@ -413,7 +413,6 @@ not supported.
 
 ## Common pitfalls
 
-- **Provider discovery and installation.** Discovery lists already-ready catalog providers without preparing unrelated providers. An explicit provider request such as `--ep qnn` retries that provider's catalog with preparation enabled when no installed source is available. `WINMLCLI_EP_PATH` adds source precedence; it does not disable the other discovery sources.
 - **Warm-up too low on NPU.** The first several inferences on an NPU EP can be significantly slower due to kernel compilation and caching. The default of 10 warm-up iterations is usually enough for vision models, but transformer models with many operators may need `--warmup 30` or higher to reach steady-state latency.
 - **Hidden third-party diagnostics.** Normal `winml perf` output suppresses noisy native warning-level diagnostics and Hugging Face download/progress chatter so benchmark results stay readable. Use `-v`/`-vv` or set `WINMLCLI_SHOW_ALL_WARNINGS=1` to show those warnings when debugging provider or Hub issues.
 - **`--input-data` keys must match; dtypes are cast.** The `.npz` keys must equal the model's input names — a missing or unexpected key is a hard error (typo protection). Array dtypes are cast to the model's expected dtype with a warning (matching normal inference), so you don't have to hand-match widths. `.npy` files are not supported — save named arrays as `.npz`. When `--input-data` is set, `--batch-size` and `--shape-config` are ignored (the tensors define their own shapes). It is also rejected for `--module` mode, `--runtime ort-genai`, and composite (dual-encoder) models such as CLIP/SigLIP, where each sub-model has its own inputs that a single `.npz` cannot address.
@@ -438,6 +437,6 @@ and dtype conversion still occur at the normal input-allocation boundary.
 ## See also
 
 - [winml eval](eval.md) — measure accuracy after benchmarking
-- [winml build](build.md) — build the quantized artifact that perf benchmarks
-- [Load and export concept](../concepts/load-and-export.md) — module benchmarking
-- [ONNX & Execution Providers](../concepts/eps-and-devices.md) — devices and EPs
+- [winml build](build.md) — build the quantized artifact that `perf` benchmarks
+- [Load and export concept](../concepts/load-and-export.md) — how `--module` per-instance benchmarking works
+- [ONNX & Execution Providers](../concepts/eps-and-devices.md) — understand `--device` vs `--ep`
