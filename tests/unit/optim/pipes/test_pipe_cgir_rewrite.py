@@ -129,19 +129,26 @@ def test_normalize_int32_dq_preserves_unsupported(guard):
 
 @pytest.mark.parametrize("opset", [11, 17, 18])
 @pytest.mark.parametrize("shared", [False, True])
-def test_fold_constant_pad_pads(opset, shared):
-    from winml.modelkit.pattern.cgc import fold_constant_pad_pads
+@pytest.mark.parametrize("has_shape", [False, True])
+def test_cgc_constant_folding_pad_parameters(opset, shared, has_shape):
+    from winml.modelkit.pattern.cgc import cgc_constant_folding
 
     seed = np.random.default_rng(42)
     widths = seed.integers(0, 3, size=4, dtype=np.int32)
+    nodes = [
+        helper.make_node("Cast", ["widths"], ["pads"], to=TensorProto.INT64),
+        helper.make_node("Pad", ["source", "pads"], ["result"]),
+    ]
     outputs = [helper.make_tensor_value_info("result", TensorProto.FLOAT, [None, None])]
+    if has_shape:
+        nodes.append(helper.make_node("Shape", ["result"], ["shape"]))
+        outputs.append(helper.make_tensor_value_info("shape", TensorProto.INT64, [2]))
     if shared:
         outputs.append(helper.make_tensor_value_info("pads", TensorProto.INT64, [4]))
     model = helper.make_model(
         helper.make_graph(
-            [helper.make_node("Cast", ["widths"], ["pads"], to=TensorProto.INT64),
-             helper.make_node("Pad", ["source", "pads"], ["result"])],
-            "constant_pad", [helper.make_tensor_value_info("source", TensorProto.FLOAT, [2, 3])],
+            nodes, "constant_pad",
+            [helper.make_tensor_value_info("source", TensorProto.FLOAT, [2, 3])],
             outputs, [numpy_helper.from_array(widths, "widths")],
         ),
         opset_imports=[helper.make_opsetid("", opset)], ir_version=10,
@@ -150,14 +157,22 @@ def test_fold_constant_pad_pads(opset, shared):
     feeds = {"source": seed.normal(size=(2, 3)).astype(np.float32)}
     expected = ReferenceEvaluator(model).run(None, feeds)
     result = CGIRRewritePipe().process(
-        model, CGIRRewritePipe.build_config(fold_constant_pad_pads=True),
+        model, CGIRRewritePipe.build_config(cgc_constant_folding=True),
     )
     checker.check_model(result)
     assert model.SerializeToString() == original
     assert list(result.graph.input) == list(model.graph.input)
-    assert list(result.graph.output) == list(model.graph.output)
-    assert sum(node.op_type == "Cast" for node in result.graph.node) == int(shared)
-    assert fold_constant_pad_pads(result) is result
+    assert [(value.name, value.type.tensor_type.elem_type) for value in result.graph.output] == [
+        (value.name, value.type.tensor_type.elem_type) for value in model.graph.output
+    ]
+    if has_shape:
+        for output, reference in zip(result.graph.output, expected, strict=True):
+            assert tuple(dim.dim_value for dim in output.type.tensor_type.shape.dim) == (
+                reference.shape
+            )
+    assert (result is model) == (not has_shape)
+    assert sum(node.op_type == "Cast" for node in result.graph.node) == int(not has_shape)
+    assert cgc_constant_folding(result) is result
     for actual, reference in zip(
         ReferenceEvaluator(result).run(None, feeds), expected, strict=True,
     ):
@@ -234,141 +249,12 @@ def test_gridsample_to_gather_preserves_unsupported_modes(mode, padding):
     assert result is model
 
 
-def _constant_pad_chain(*, axes=False):
-    rank = 2
-    nodes = []
-    constants = {
-        "count": np.asarray([rank], dtype=np.int64),
-        "widths": np.random.default_rng(7).integers(0, 3, rank, dtype=np.int64),
-        "matrix": np.asarray([-1, 2], dtype=np.int64),
-        "start": np.asarray([-1], dtype=np.int64),
-        "end": np.asarray([np.iinfo(np.int64).min], dtype=np.int64),
-        "axis": np.asarray([0], dtype=np.int64),
-        "step": np.asarray([-1], dtype=np.int64),
-        "vector": np.asarray([-1], dtype=np.int64),
-    }
-    for name, value in constants.items():
-        nodes.append(helper.make_node("Constant", [], [name], value=numpy_helper.from_array(value)))
-    nodes.extend([
-        helper.make_node(
-            "ConstantOfShape", ["count"], ["zeros"],
-            value=numpy_helper.from_array(np.zeros(1, dtype=np.int64)),
-        ),
-        helper.make_node("Concat", ["widths", "zeros"], ["joined"], axis=0),
-        helper.make_node("Reshape", ["joined", "matrix"], ["pairs"]),
-        helper.make_node("Slice", ["pairs", "start", "end", "axis", "step"], ["reversed"]),
-        helper.make_node("Transpose", ["reversed"], ["transposed"], perm=[1, 0]),
-        helper.make_node("Reshape", ["transposed", "vector"], ["flattened"]),
-        helper.make_node("Cast", ["flattened"], ["pads"], to=TensorProto.INT64),
-    ])
-    pad_inputs = ["source", "pads"]
-    if axes:
-        nodes.append(helper.make_node(
-            "Constant", [], ["pad_axes"],
-            value=numpy_helper.from_array(np.arange(rank, dtype=np.int64)),
-        ))
-        pad_inputs.extend(["", "pad_axes"])
-    nodes.append(helper.make_node("Pad", pad_inputs, ["result"]))
-    return helper.make_model(
-        helper.make_graph(
-            nodes, "pad_chain",
-            [helper.make_tensor_value_info("source", TensorProto.FLOAT, [2, 3])],
-            [helper.make_tensor_value_info("result", TensorProto.FLOAT, [None, None])],
-        ), opset_imports=[helper.make_opsetid("", 18 if axes else 17)], ir_version=10,
-    )
-
-
-@pytest.mark.parametrize("axes", [False, True])
-@pytest.mark.parametrize("protected", ["none", "capture", "annotation"])
-def test_pad_constant_chain_preserves_values_and_references(axes, protected):
-    from winml.modelkit.pattern.cgc import fold_constant_pad_pads
-
-    model = _constant_pad_chain(axes=axes)
-    if protected == "capture":
-        model.graph.input.append(helper.make_tensor_value_info("condition", TensorProto.BOOL, []))
-        branch = helper.make_graph(
-            [helper.make_node("Identity", ["pads"], ["captured"])], "capture", [],
-            [helper.make_tensor_value_info("captured", TensorProto.INT64, [4])],
-        )
-        model.graph.node.append(helper.make_node(
-            "If", ["condition"], ["observed"], then_branch=branch, else_branch=branch,
-        ))
-        model.graph.output.append(helper.make_tensor_value_info("observed", TensorProto.INT64, [4]))
-    if protected == "annotation":
-        annotation = model.graph.quantization_annotation.add(tensor_name="source")
-        annotation.quant_parameter_tensor_names.add(key="SCALE_TENSOR", value="pads")
-    feeds = {"source": np.random.default_rng(21).normal(size=(2, 3)).astype(np.float32)}
-    if protected == "capture":
-        feeds["condition"] = np.asarray(True)
-    expected = ReferenceEvaluator(model).run(None, feeds)
-    original = model.SerializeToString()
-    result = fold_constant_pad_pads(model)
-    checker.check_model(result)
-    assert result is not model
-    assert original == model.SerializeToString()
-    assert any("pads" in node.output for node in result.graph.node) == (protected != "none")
-    assert fold_constant_pad_pads(result) is result
-    for actual, reference in zip(
-        ReferenceEvaluator(result).run(None, feeds), expected, strict=True,
-    ):
-        np.testing.assert_array_equal(actual, reference)
-
-
-@pytest.mark.parametrize("reason", [
-    "runtime", "overridable", "unsupported", "float", "length", "domain",
-    "allocation", "nodes", "cache", "invalid_axes", "direct",
-])
-def test_pad_constant_folding_rejects_unsafe_candidates(reason, monkeypatch):
-    from winml.modelkit.pattern.cgc import fold_constant_pad_pads
-
-    folding_module = import_module("winml.modelkit.pattern.cgc.cgc_constant_folding")
-
-    model = _constant_pad_chain(axes=reason == "invalid_axes")
-    producers = {name: node for node in model.graph.node for name in node.output}
-    if reason in {"runtime", "overridable"}:
-        model.graph.node.remove(producers["widths"])
-        model.graph.input.append(helper.make_tensor_value_info("widths", TensorProto.INT64, [2]))
-        if reason == "overridable":
-            model.graph.initializer.append(numpy_helper.from_array(np.zeros(2, np.int64), "widths"))
-    elif reason == "unsupported":
-        producers["pads"].CopyFrom(helper.make_node("Identity", ["flattened"], ["pads"]))
-    elif reason == "float":
-        producers["pads"].attribute[0].i = TensorProto.FLOAT
-    elif reason == "length":
-        model.graph.input[0].type.tensor_type.shape.dim.add(dim_value=2)
-    elif reason == "domain":
-        model.graph.node[-1].domain = "custom"
-    elif reason == "allocation":
-        producers["count"].attribute[0].t.CopyFrom(
-            numpy_helper.from_array(np.asarray([folding_module._MAX_ELEMENTS + 1], np.int64)),
-        )
-    elif reason == "nodes":
-        monkeypatch.setattr(folding_module, "_MAX_NODES", 2)
-    elif reason == "cache":
-        monkeypatch.setattr(folding_module, "_MAX_CACHED_ELEMENTS", 1)
-    elif reason == "invalid_axes":
-        producers["pad_axes"].attribute[0].t.CopyFrom(
-            numpy_helper.from_array(np.zeros(2, np.int64)),
-        )
-    elif reason == "direct":
-        producers["pads"].CopyFrom(helper.make_node(
-            "Constant", [], ["pads"], value=numpy_helper.from_array(np.zeros(4, np.int64)),
-        ))
-    original = model.SerializeToString()
-    assert fold_constant_pad_pads(model) is model
-    assert original == model.SerializeToString()
-
-
-def test_pad_folding_is_enabled_only_by_cgc_defaults():
+def test_cgc_constant_folding_is_enabled_only_by_cgc_defaults():
     from winml.modelkit.optim import WinMLOptimizationConfig
 
     assert not CGIRRewritePipe.build_config().rules
     assert WinMLOptimizationConfig.for_cgc()["cgc_constant_folding"] is True
-    canonical = CGIRRewritePipe.build_config(cgc_constant_folding=True)
-    assert canonical == CGIRRewritePipe.build_config(fold_constant_pad_pads=True)
-    assert canonical == CGIRRewritePipe.build_config(
-        cgc_constant_folding=True, fold_constant_pad_pads=True,
-    )
+    assert len(CGIRRewritePipe.build_config(cgc_constant_folding=True).rules) == 1
 
 
 @pytest.mark.parametrize("dynamic", [False, True])
@@ -480,7 +366,7 @@ def test_cgir_reuses_matcher_without_skipping_rules(source_op, model_barrier, mo
     prelu_rule = CGIRRewritePipe.build_config(prelu_to_relu=True).rules[0]
     rules = [resize_rule]
     if model_barrier:
-        rules.extend(CGIRRewritePipe.build_config(eliminate_identity=True).rules)
+        rules.extend(CGIRRewritePipe.build_config(deduplicate_opset_imports=True).rules)
     rules.extend([prelu_rule, resize_rule])
     original = model.SerializeToString()
     feeds = {"source": np.exp(np.random.default_rng(42).normal(size=(2, 3))).astype(np.float32)}
@@ -506,6 +392,8 @@ def test_cgir_reuses_matcher_without_skipping_rules(source_op, model_barrier, mo
     "log-to-reduce-log-sum",
     "materialize-initializer-parameters",
     "fold-scalar-initializer-casts",
+    "eliminate-identity",
+    "fold-constant-pad-pads",
 ])
 def test_retired_cgir_rules_are_not_registered(capability):
     from click.testing import CliRunner
@@ -520,114 +408,6 @@ def test_retired_cgir_rules_are_not_registered(capability):
     assert result.exit_code == 0
     assert f"--enable-{capability}" not in result.output
     assert f"--disable-{capability}" not in result.output
-
-
-@pytest.mark.parametrize("enabled", [False, True])
-@pytest.mark.parametrize("protected_output", [False, True])
-def test_eliminate_identity_preserves_results_and_model(
-    enabled: bool, protected_output: bool,
-) -> None:
-    shape = [2, 3]
-    nodes = [
-        helper.make_node("Identity", ["source"], ["alias"]),
-        helper.make_node("Identity", ["alias"], ["second_alias"]),
-        helper.make_node("Add", ["second_alias", "source"], ["result"]),
-    ]
-    outputs = [helper.make_tensor_value_info("result", TensorProto.FLOAT, shape)]
-    if protected_output:
-        outputs.append(helper.make_tensor_value_info("alias", TensorProto.FLOAT, shape))
-    model = helper.make_model(
-        helper.make_graph(
-            nodes, "aliases",
-            [helper.make_tensor_value_info("source", TensorProto.FLOAT, shape)],
-            outputs,
-            value_info=[
-                helper.make_tensor_value_info("alias", TensorProto.FLOAT, shape),
-                helper.make_tensor_value_info("second_alias", TensorProto.FLOAT, shape),
-            ],
-        ),
-        opset_imports=[helper.make_opsetid("", 18)],
-        ir_version=11,
-    )
-    original = model.SerializeToString()
-    feeds = {"source": np.random.default_rng(42).standard_normal(shape).astype(np.float32)}
-    expected = ReferenceEvaluator(model).run(None, feeds)
-
-    result = CGIRRewritePipe().process(
-        model, CGIRRewritePipe.build_config(eliminate_identity=enabled),
-    )
-
-    checker.check_model(result)
-    assert model.SerializeToString() == original
-    assert result.graph.input == model.graph.input
-    assert result.graph.output == model.graph.output
-    retained = [node for node in result.graph.node if node.op_type == "Identity"]
-    assert len(retained) == (0 if enabled else 2)
-    assert sum(node.op_type == "Reshape" for node in result.graph.node) == int(
-        enabled and protected_output,
-    )
-    for actual, reference in zip(
-        ReferenceEvaluator(result).run(None, feeds), expected, strict=True,
-    ):
-        np.testing.assert_array_equal(actual, reference)
-    repeated = CGIRRewritePipe().process(
-        result, CGIRRewritePipe.build_config(eliminate_identity=enabled),
-    )
-    assert repeated.SerializeToString() == result.SerializeToString()
-
-
-@pytest.mark.parametrize("guard", ["none", "dynamic", "zero", "scalar", "fp16", "annotation",
-                                  "subgraph", "mismatch", "unknown", "opset"])
-def test_identity_output_scope_and_bits(guard):
-    from winml.modelkit.pattern.cgc import eliminate_identity
-
-    shape = {"dynamic": ["batch"], "zero": [0], "scalar": []}.get(guard, [8])
-    dtype = TensorProto.FLOAT16 if guard == "fp16" else TensorProto.FLOAT
-    model = helper.make_model(helper.make_graph(
-        [helper.make_node("Identity", ["source"], ["result"])], "output_alias",
-        [helper.make_tensor_value_info("source", dtype, shape)],
-        [helper.make_tensor_value_info("result", dtype, shape)],
-    ), opset_imports=[helper.make_opsetid("", 4 if guard == "opset" else 18)], ir_version=10)
-    if guard == "annotation":
-        model.graph.quantization_annotation.add(tensor_name="result")
-    elif guard == "subgraph":
-        branch = helper.make_graph([], "branch", [], [])
-        model.graph.node.append(helper.make_node("If", ["cond"], ["other"], then_branch=branch))
-    elif guard == "mismatch":
-        model.graph.value_info.append(helper.make_tensor_value_info("source", dtype, [9]))
-    elif guard == "unknown":
-        model.graph.input[0].type.tensor_type.ClearField("shape")
-    original = model.SerializeToString()
-    result = eliminate_identity(model)
-    assert model.SerializeToString() == original
-    if guard != "none":
-        assert result is model
-        return
-    checker.check_model(result, full_check=True)
-    assert result.graph.output == model.graph.output
-    assert result.graph.input == model.graph.input
-    assert result.graph.node[0].op_type == "Reshape"
-    assert eliminate_identity(result) is result
-    random = np.random.default_rng(42)
-    values = [random.normal(size=shape).astype(np.float32)]
-    values.extend(np.full(shape, special, dtype=np.float32) for special in (
-        0.0, -0.0, np.inf, -np.inf, np.nan,
-        np.nextafter(np.float32(0), np.float32(1)),
-    ))
-    for data in values:
-        expected = ReferenceEvaluator(model).run(None, {"source": data})[0]
-        actual = ReferenceEvaluator(result).run(None, {"source": data})[0]
-        assert actual.tobytes() == expected.tobytes()
-
-
-
-
-
-
-
-
-
-
 
 
 def _make_resize_model(

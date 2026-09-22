@@ -31,7 +31,7 @@ class CGCOptions:
     """Configuration shared by CGC export steps."""
 
     external_weights: bool = False
-    topo_sort_nodes: bool = True
+    topo_sort_nodes: bool = False
     update_opset: bool = True
     freeze_dims: str = ""
 

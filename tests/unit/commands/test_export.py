@@ -151,7 +151,7 @@ class TestExportCLIInterface:
         elif config_flag == "both":
             build_path = tmp_path / "build.json"
             build_path.write_text(json.dumps({"export": settings}))
-            config_path.write_text(json.dumps({"options": {"topo_sort_nodes": False}}))
+            config_path.write_text(json.dumps({"options": {"topo_sort_nodes": True}}))
             args += ["-c", str(build_path), "--export-config", str(config_path)]
         else:
             args += [config_flag, str(config_path)]
@@ -178,7 +178,7 @@ class TestExportCLIInterface:
         assert backend.call_args.args[0].options == CGCOptions(
             external_weights=not override and config_flag != "both",
             update_opset=override or config_flag == "both",
-            topo_sort_nodes=override or config_flag != "both",
+            topo_sort_nodes=not override and config_flag == "both",
         )
         if not onnx_input:
             config = backend.call_args.kwargs["export_config"]
