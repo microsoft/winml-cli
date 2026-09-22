@@ -1,16 +1,81 @@
-# Agent Skill
+# Use with AI Agent
+
+WinML CLI provides skills for running supported models, contributing missing
+model support, and investigating ONNX latency. Choose the workflow that matches
+your goal.
+
+## Choose a skill
+
+| Your goal | Skill | Result |
+|---|---|---|
+| Build, optimize, quantize, compile, or benchmark a supported model | [`use-winml-cli`](https://github.com/microsoft/winml-cli/tree/main/skills/use-winml-cli) | Model artifacts and measurements through existing CLI features |
+| Add or repair a recipe, exporter, resolver, task, dataset adapter, or evaluator | [`adding-model-support`](https://github.com/microsoft/winml-cli/tree/main/skills/adding-model-support) | A validated model-support contribution and independently reviewed draft PR |
+| Investigate latency or validate optimization candidates on an EP/device | [`auto-optimize`](auto-optimize.md) | Correctness and paired performance evidence, a replayable bundle, and an optimizer draft PR when needed |
+
+Routine optimization with existing CLI features belongs to `use-winml-cli`.
+Choose `auto-optimize` for an experimental search or candidate validation.
+
+## Add model support
+
+Use `adding-model-support` for one unsupported or partially supported model.
+A model ID is enough to start; include a known failure or target when available.
+
+```text
+Add winml support for <organization>/<model>. Export currently fails;
+validate the fix on the execution providers available on this machine.
+```
+
+The workflow diagnoses current-main behavior, implements a reusable fix,
+validates it, and prepares a draft PR with independent review. It requires a
+WinML CLI checkout, Python 3.11 with `uv`, authenticated GitHub CLI with push
+access, and an agent runtime that can delegate fresh subagents. Missing required
+capabilities stop the workflow as `BLOCKED`.
+
+A successful contribution includes relevant Pytest coverage, per-target
+validation evidence, and a bounded FP32 CPU functional smoke evaluation. That
+smoke evaluation does not certify representative accuracy. The PR remains draft
+even when the workflow's review verdict is `APPROVE`.
+
+## Optimize ONNX latency
+
+Use `auto-optimize` to profile bottlenecks and test candidates on a specified
+EP/device. Provide the model, target, goal, working directory, and WinML CLI
+checkout (`WINML_CLI_REPO`); the agent asks for missing values.
+
+```text
+Optimize ./model.onnx for QNN on the NPU without changing I/O or correctness.
+Use ./optimization-run for artifacts and <path-to-winml-cli> as WINML_CLI_REPO.
+```
+
+Correctness is checked before performance. Paired measurements distinguish
+confirmed gains from noise, and the final bundle is replayed before publication.
+Existing candidates can be validated without starting another search. See
+[Auto Optimize with AI](auto-optimize.md) for prerequisites, outputs, and resume
+behavior.
+
+## Make a skill available
+
+Use your agent runtime's skill-loading mechanism with the selected directory
+under [`skills/`](https://github.com/microsoft/winml-cli/tree/main/skills).
+The entry point is `SKILL.md`. Keep the complete folder available: contribution
+and optimization workflows also load roles, references, knowledge, and scripts.
+Text context alone does not provide command execution, hardware access, or
+independent agent delegation. Target measurements require the actual requested
+provider/device; a cloud agent cannot infer them from a different host.
+
+For CLI setup, see [Installation](installation.md). The following sections
+describe the general-purpose `use-winml-cli` skill.
+
+## Run a supported model
 
 winml-cli ships a **Copilot Skill** (`use-winml-cli`) that lets AI coding agents
 drive the entire model-building pipeline on your behalf. When a coding agent has
 this skill attached, it can inspect models, generate configs, run builds, and
 interpret results — without you having to remember exact flags or stage ordering.
 
-For an evidence-driven ONNX latency optimization search or validation of an
-existing candidate, see [Auto Optimize with AI](auto-optimize.md).
-
 ---
 
-## What the skill provides
+### What the skill provides
 
 The skill teaches the agent:
 
@@ -25,16 +90,16 @@ The skill teaches the agent:
 
 ---
 
-## How to use it
+### How to use it
 
-### With GitHub Copilot Coding Agent
+#### With GitHub Copilot Coding Agent
 
 To make the [Copilot Coding Agent](https://docs.github.com/en/copilot/how-tos/copilot-on-github/use-copilot-agents/overview)
 (the cloud agent that creates PRs) follow the skill's guidance, reference it in
 `.github/copilot-instructions.md`. The Coding Agent reads that file automatically
 when working on this repository.
 
-### With other AI agents
+#### With other AI agents
 
 For agents that support custom instructions (e.g., Copilot Extensions, Claude,
 ChatGPT with file uploads, or custom MCP tool servers), attach the skill file
@@ -51,7 +116,7 @@ any agent that accepts text context can benefit from it.
 
 ---
 
-## Skill location
+### Skill location
 
 ```
 winml-cli/
@@ -62,7 +127,7 @@ winml-cli/
 
 ---
 
-## Example agent interaction
+### Example agent interaction
 
 ```
 User: Can I run ConvNeXt on my Snapdragon X Elite NPU?
