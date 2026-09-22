@@ -1,4 +1,4 @@
-# Agent Skill
+# Use WinML CLI with an AI Agent
 
 winml-cli ships a **Copilot Skill** (`use-winml-cli`) that lets AI coding agents
 drive the entire model-building pipeline on your behalf. When a coding agent has
