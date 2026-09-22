@@ -182,6 +182,7 @@ include = [ "winml", "winml.*" ]
   "rules/**/*.json",
   "rules/**/*.parquet",
   "runtime_checker/need_rerun_errors.json",
+  "utils/avalizble_ep_device_ops/avaliable_providers.json",
 ]
 "winml.modelkit.export" = [
   "compatibility_rules.json",
