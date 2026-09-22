@@ -117,10 +117,6 @@
          <lastmod>2026-09-22</lastmod>
     </url>
     <url>
-         <loc>https://microsoft.github.io/winml-cli/dev/getting-started/agent-skill/</loc>
-         <lastmod>2026-09-22</lastmod>
-    </url>
-    <url>
          <loc>https://microsoft.github.io/winml-cli/dev/getting-started/cgc-onboarding/</loc>
          <lastmod>2026-09-22</lastmod>
     </url>
@@ -134,6 +130,18 @@
     </url>
     <url>
          <loc>https://microsoft.github.io/winml-cli/dev/getting-started/ui-quickstart/</loc>
+         <lastmod>2026-09-22</lastmod>
+    </url>
+    <url>
+         <loc>https://microsoft.github.io/winml-cli/dev/getting-started/agent-skill/</loc>
+         <lastmod>2026-09-22</lastmod>
+    </url>
+    <url>
+         <loc>https://microsoft.github.io/winml-cli/dev/getting-started/agent-skill/adding-model-support/</loc>
+         <lastmod>2026-09-22</lastmod>
+    </url>
+    <url>
+         <loc>https://microsoft.github.io/winml-cli/dev/getting-started/agent-skill/use-winml-cli/</loc>
          <lastmod>2026-09-22</lastmod>
     </url>
     <url>
