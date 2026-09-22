@@ -11,7 +11,7 @@ reusable findings for future model families.
 
 > This is a contribution workflow, not a command for building an already
 > supported model. For normal model builds, optimization, or benchmarking, use
-> the [`use-winml-cli`](../use-winml-cli/SKILL.md) skill instead.
+> the [`use-winml-cli`](../getting-started/agent-skill.md) skill instead.
 
 ## When to use this skill
 
@@ -36,9 +36,11 @@ Do not use it to:
 
 ## Quick start
 
-Make this directory available to your agent runtime as a skill, then ask it to
-add support for one model. The model ID is enough to start; a known failure,
-target device, or execution provider is useful but optional.
+Make the
+[`skills/adding-model-support`](https://github.com/microsoft/winml-cli/tree/main/skills/adding-model-support)
+directory available to your agent runtime as a skill, then ask it to add
+support for one model. The model ID is enough to start; a known failure, target
+device, or execution provider is useful but optional.
 
 For example:
 
@@ -92,8 +94,9 @@ A successful run produces:
 - A pushed branch and draft pull request labeled `model-scale-by-skill`.
 - An independent verdict for the exact final commit.
 - Reusable, scoped findings in the
-  [model knowledge base](./model_knowledge/README.md) or
-  [skill meta-findings](./skill_meta/README.md).
+  [model knowledge base](https://github.com/microsoft/winml-cli/tree/main/skills/adding-model-support/model_knowledge)
+  or
+  [skill meta-findings](https://github.com/microsoft/winml-cli/tree/main/skills/adding-model-support/skill_meta).
 
 The final result is `APPROVE`, `REJECT`, or `BLOCKED`, with the supporting
 evidence and next action. A smoke evaluation proves bounded end-to-end
@@ -101,9 +104,10 @@ operability; it is not presented as representative model accuracy.
 
 ## Maintainer resources
 
-The entry point is [`SKILL.md`](./SKILL.md). It dispatches the internal role
-contracts and defines the workflow boundaries. Users do not need to invoke the
-roles directly.
+The entry point is
+[`SKILL.md`](https://github.com/microsoft/winml-cli/blob/main/skills/adding-model-support/SKILL.md).
+It dispatches the internal role contracts and defines the workflow boundaries.
+Users do not need to invoke the roles directly.
 
 The root files are organized by responsibility:
 
@@ -120,8 +124,9 @@ adding-model-support/
 
 The skill can use `model-breakdown` when it is available and falls back to
 pinned source and model metadata when it is not. The
-[`auto-optimize`](../auto-optimize/SKILL.md) integration applies only to
-explicit promotion handoffs; normal model-support runs do not depend on it.
+[`auto-optimize`](https://github.com/microsoft/winml-cli/blob/main/skills/auto-optimize/SKILL.md)
+integration applies only to explicit promotion handoffs; normal model-support
+runs do not depend on it.
 
 When changing the skill:
 
@@ -130,4 +135,5 @@ When changing the skill:
    this README.
 3. Run the relevant Pytest contract tests.
 4. Run the trigger or response evaluations when changing the skill description
-   or behavior. See the [evaluation guide](./evals/README.md).
+   or behavior. See the
+   [evaluation guide](https://github.com/microsoft/winml-cli/blob/main/skills/adding-model-support/evals/README.md).

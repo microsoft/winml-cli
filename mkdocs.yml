@@ -136,5 +136,7 @@ nav:
       - Supported Models: reference/supported-models.md
       - Python API: reference/python-api.md
   - Troubleshooting: troubleshooting.md
-  - Contributing: contributing.md
+  - Contributing:
+      - Overview: contributing.md
+      - Add model support with AI agent: contributing/add-model-support.md
   - Privacy: Privacy.md
