@@ -11,7 +11,7 @@ reusable findings for future model families.
 
 > This is a contribution workflow, not a command for building an already
 > supported model. For normal model builds, optimization, or benchmarking, use
-> the [`use-winml-cli`](../getting-started/agent-skill.md) skill instead.
+> the [`use-winml-cli`](use-winml-cli.md) skill instead.
 
 ## When to use this skill
 
