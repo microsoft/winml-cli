@@ -4,9 +4,11 @@
 # --------------------------------------------------------------------------
 """Concrete compilation shape handoff, with no native execution."""
 
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
+from zipfile import ZipFile
 
 import click
 import numpy as np
@@ -53,6 +55,39 @@ def test_shape_config_resolves_symbols_without_inputs(tmp_path):
     shapes, dimensions = _runtime_input_shapes(_model(tmp_path), None, {"batch": 4}, 1)
     assert shapes == {"left": (4, 3), "right": (4, 3)}
     assert dimensions == {"batch": 4}
+
+
+@pytest.mark.parametrize(
+    "unused_shape, actual_shape", [([None, 3], (2, 3)), (["extent", 0], (2, 0))]
+)
+def test_unused_input_preserves_anonymous_and_static_zero_axes(
+    tmp_path, unused_shape, actual_shape
+):
+    path = _model(tmp_path)
+    model = onnx.load(path)
+    model.graph.input.append(
+        onnx.helper.make_tensor_value_info("unused", onnx.TensorProto.FLOAT, unused_shape)
+    )
+    onnx.save(model, path)
+    data = tmp_path / "inputs.npz"
+    np.savez(data, left=np.zeros((2, 3)), right=np.zeros((2, 3)), unused=np.zeros(actual_shape))
+    shapes, dimensions = _runtime_input_shapes(path, data, None, 1)
+    assert shapes["unused"] == actual_shape
+    assert dimensions == ({"batch": 2, "extent": 2} if actual_shape[1] == 0 else {"batch": 2})
+
+
+@pytest.mark.parametrize("version", [(1, 0), (2, 0), (3, 0)])
+def test_npz_header_versions_without_reading_payload(tmp_path, version):
+    data = tmp_path / "headers.npz"
+    with ZipFile(data, "w") as archive:
+        for name in ("left", "right"):
+            stream = BytesIO()
+            np.lib.format.write_array(stream, np.zeros((2, 3), dtype=np.float32), version=version)
+            # Omit the payload: shape discovery must only read the header.
+            archive.writestr(name + ".npy", stream.getvalue()[:-24])
+    shapes, dimensions = _runtime_input_shapes(_model(tmp_path), data, None, 1)
+    assert shapes == {"left": (2, 3), "right": (2, 3)}
+    assert dimensions == {"batch": 2}
 
 
 @pytest.mark.parametrize("right_shape", [(3, 3), (2, 4), (2, 3, 1)])

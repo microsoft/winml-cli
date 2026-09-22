@@ -268,18 +268,21 @@ def _symbolic_dimensions_for_inputs(
                 raise click.ClickException(
                     f"Input {name!r} axis {axis} must be an integer."
                 ) from exc
-            if isinstance(value, bool) or not 0 < extent <= (1 << 63) - 1:
-                raise click.ClickException(f"Input {name!r} axis {axis} must be a positive int64.")
+            if isinstance(value, bool) or not 0 <= extent <= (1 << 63) - 1:
+                raise click.ClickException(
+                    f"Input {name!r} axis {axis} must be a nonnegative int64."
+                )
             if fixed is not None:
                 if extent != fixed:
                     raise click.ClickException(
                         f"Input {name!r} axis {axis} is {extent}; ONNX requires {fixed}."
                     )
             elif not isinstance(symbol, str) or not symbol:
-                raise click.ClickException(
-                    f"Input {name!r} axis {axis} has no symbolic dimension name; "
-                    "the compiler's named-dimension API cannot bind it."
-                )
+                # Anonymous axes cannot be bound by name. Let the compiler decide
+                # whether they need specialization (unused inputs may not).
+                continue
+            elif extent == 0:
+                raise click.ClickException(f"Input {name!r} axis {axis} must be a positive int64.")
             elif symbol in overrides and overrides[symbol] != extent:
                 raise click.ClickException(
                     f"Conflicting concrete sizes for symbolic dimension {symbol!r}."

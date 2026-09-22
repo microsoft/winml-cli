@@ -65,7 +65,6 @@ if TYPE_CHECKING:
     from ..session.monitor import ProcessMemoryTracker
     from ..session.monitor.ep_monitor import WinMLEPMonitor
     from ..session.monitor.op_metrics import TraceFallbackReason
-    from ..session.runtime_session import WinMLRuntimeSession
     from ..session.stats import PerfStats
 
 logger = logging.getLogger(__name__)
@@ -933,12 +932,12 @@ def _runtime_input_shapes(
                 for name in io_config["input_names"]:
                     with archive.open(name + ".npy") as stream:
                         version = np.lib.format.read_magic(stream)
-                        if version == (1, 0):
-                            shape, _, dtype = np.lib.format.read_array_header_1_0(stream)
-                        elif version == (2, 0):
-                            shape, _, dtype = np.lib.format.read_array_header_2_0(stream)
-                        else:
-                            raise ValueError(f"Unsupported NPY header version {version}")
+                        # NumPy has no public v3 header reader. Use the same
+                        # version-aware, size-limited reader as np.load, without
+                        # reading or allocating the array payload.
+                        shape, _, dtype = np.lib.format._read_array_header(  # type: ignore[attr-defined]
+                            stream, version
+                        )
                         if dtype.hasobject:
                             raise ValueError("object input arrays are unsupported")
                         shapes[name] = shape
@@ -1451,7 +1450,11 @@ class PerfBenchmark:
                     **common_kwargs,
                 )
             if runtime_cgc and runtime_shapes:
-                cast("WinMLRuntimeSession", self._single._session).set_input_shapes(runtime_shapes)
+                from ..session.runtime_session import WinMLRuntimeSession
+
+                # Keep the lazy import visible to CodeQL as well as type checkers.
+                runtime_session = cast(WinMLRuntimeSession, self._single._session)  # noqa: TC006
+                runtime_session.set_input_shapes(runtime_shapes)
         elif is_mlir:
             with suppress_native_warnings(enabled=True):
                 self._model = WinMLAutoModel.from_mlir(
