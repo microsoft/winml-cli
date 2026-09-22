@@ -24,6 +24,7 @@ from winml.modelkit.session.runtime_session import (
     _numpy_dtype_for,
     _ResolvedRuntimeTarget,
     _shape_with_dynamic_dims,
+    _symbolic_dimensions_for_inputs,
 )
 
 
@@ -204,6 +205,52 @@ def test_onnx_cgc_reloads_compiled_model_without_io_counts() -> None:
         source_model.schema.assert_not_called()
     finally:
         session.reset()
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_cgc_compile_uses_public_symbolic_options_and_closes_them(monkeypatch, fails):
+    io = {
+        "input_names": ["x"],
+        "input_shapes": [[None, 3]],
+        "input_symbolic_shapes": [["batch", 3]],
+    }
+    monkeypatch.setattr("winml.modelkit.onnx.get_io_config", lambda _path: io)
+    options = SimpleNamespace(
+        supports_symbolic_dimensions=True, symbolic_dimensions={}, close=Mock()
+    )
+    source = Mock()
+    compiler = Mock(create_options=Mock(return_value=options))
+    if fails:
+        compiler.compile_to_file.side_effect = RuntimeError("compile failed")
+    runtime = Mock(load_model=Mock(side_effect=[source, _Model()]))
+    target = _ResolvedRuntimeTarget(
+        execution_target=SimpleNamespace(model_compiler=lambda: compiler), device_class="gpu"
+    )
+    session = WinMLRuntimeSession("source.onnx", ep_device=_mlir_ep_device(), backend="cgc")
+    session.set_input_shapes({"x": (2, 3)})
+    try:
+        if fails:
+            with pytest.raises(RuntimeError, match="compile failed"):
+                session._load_onnx_on_cgc(runtime, target)
+        else:
+            session._load_onnx_on_cgc(runtime, target)
+        assert options.symbolic_dimensions == {"batch": 2}
+        assert compiler.compile_to_file.call_args.kwargs == {"options": options}
+        options.close.assert_called_once_with()
+        compiler.close.assert_called_once_with()
+    finally:
+        session.reset()
+
+
+@pytest.mark.parametrize("shape", [(True, 3), (1.5, 3), (0, 3), (1 << 63, 3)])
+def test_symbolic_dimensions_reject_invalid_extents(shape):
+    io = {
+        "input_names": ["x"],
+        "input_shapes": [[None, 3]],
+        "input_symbolic_shapes": [["batch", 3]],
+    }
+    with pytest.raises(click.ClickException):
+        _symbolic_dimensions_for_inputs(io, {"x": shape})
 
 
 def test_schema_helpers() -> None:

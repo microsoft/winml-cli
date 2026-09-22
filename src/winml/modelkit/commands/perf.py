@@ -907,6 +907,70 @@ def load_input_data(
     return _load_input_data(path, io_config)
 
 
+def _runtime_input_shapes(
+    model_path: Path, input_data: Path | None, shape_config: dict | None, batch_size: int
+) -> tuple[dict[str, tuple[int, ...]], dict[str, int]]:
+    """Resolve source-ONNX shapes before compilation without allocating input tensors."""
+    import zipfile
+
+    from ..onnx import get_io_config
+    from ..session.runtime_session import _symbolic_dimensions_for_inputs
+
+    io_config = get_io_config(model_path)
+    if not any(dim is None for shape in io_config["input_shapes"] for dim in shape):
+        return {}, {}
+    shapes: dict[str, tuple[int, ...]] = {}
+    if input_data is not None:
+        if input_data.suffix.lower() != ".npz":
+            raise click.UsageError("--input-data must be a named .npz archive.")
+        try:
+            with zipfile.ZipFile(input_data) as archive:
+                members = archive.namelist()
+                expected = [name + ".npy" for name in io_config["input_names"]]
+                if len(members) != len(expected) or set(members) != set(expected):
+                    raise ValueError("archive keys must exactly match ONNX input names")
+                for name in io_config["input_names"]:
+                    with archive.open(name + ".npy") as stream:
+                        version = np.lib.format.read_magic(stream)
+                        # NumPy has no public v3 header reader. Use the same
+                        # version-aware, size-limited reader as np.load, without
+                        # reading or allocating the array payload.
+                        shape, _, dtype = np.lib.format._read_array_header(  # type: ignore[attr-defined]
+                            stream, version
+                        )
+                        if dtype.hasobject:
+                            raise ValueError("object input arrays are unsupported")
+                        shapes[name] = shape
+        except (OSError, ValueError, EOFError, zipfile.BadZipFile) as exc:
+            raise click.UsageError(f"Cannot read concrete --input-data shapes: {exc}") from exc
+    else:
+        for name, shape, symbolic in zip(
+            io_config["input_names"],
+            io_config["input_shapes"],
+            io_config["input_symbolic_shapes"],
+            strict=True,
+        ):
+            full_shape = (shape_config or {}).get(name)
+            if isinstance(full_shape, (list, tuple)):
+                # Preserve original values for strict integer/static-axis validation.
+                shapes[name] = tuple(full_shape)
+            else:
+                shapes[name] = _resolve_shape(
+                    shape, name, batch_size, symbolic_shape=symbolic, shape_config=shape_config
+                )
+    return shapes, _symbolic_dimensions_for_inputs(io_config, shapes)
+
+
+def _ort_options_for_dimensions(dimensions: dict[str, int]) -> Any:
+    """Create fresh ORT options with concrete dimensions before eager session creation."""
+    import onnxruntime as ort
+
+    options = ort.SessionOptions()
+    for name, extent in dimensions.items():
+        options.add_free_dimension_override_by_name(name, extent)
+    return options
+
+
 def effective_batch_size(
     inputs: dict[str, np.ndarray],
     input_names: list[str],
@@ -1361,6 +1425,23 @@ class PerfBenchmark:
         }
 
         if is_onnx:
+            runtime_shapes: dict[str, tuple[int, ...]] = {}
+            runtime_cgc = self.config.runtime == "winml-runtime" and self._runtime_backend == "cgc"
+            ort_cgc = (
+                self.config.runtime == "winml-ort"
+                and self._ep_device.device.ep_name == "WinMLCGExecutionProvider"
+            )
+            if runtime_cgc or ort_cgc:
+                runtime_shapes, dimensions = _runtime_input_shapes(
+                    model_path,
+                    self.config.input_data,
+                    self.config.shape_config,
+                    self.config.batch_size,
+                )
+                if ort_cgc and dimensions:
+                    common_kwargs["session_options"] = lambda: _ort_options_for_dimensions(
+                        dimensions
+                    )
             with suppress_native_warnings(enabled=True):
                 self._model = WinMLAutoModel.from_onnx(
                     onnx_path=model_path,
@@ -1368,6 +1449,12 @@ class PerfBenchmark:
                     compile_provider_options=self.config.compile_ep_options,
                     **common_kwargs,
                 )
+            if runtime_cgc and runtime_shapes:
+                from ..session.runtime_session import WinMLRuntimeSession
+
+                # Keep the lazy import visible to CodeQL as well as type checkers.
+                runtime_session = cast(WinMLRuntimeSession, self._single._session)  # noqa: TC006
+                runtime_session.set_input_shapes(runtime_shapes)
         elif is_mlir:
             with suppress_native_warnings(enabled=True):
                 self._model = WinMLAutoModel.from_mlir(

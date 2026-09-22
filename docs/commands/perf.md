@@ -421,6 +421,19 @@ not supported.
 - **Random inputs do not represent real data distributions.** Latency numbers are accurate, but memory access patterns may differ from production because the generated tensors are uniform random values. For memory-bandwidth-sensitive models this can understate real-world latency.
 - **Cross-device comparison.** To compare performance across devices, run `winml perf` separately with different `--device` values and compare the resulting JSON reports.
 
+## Concrete input shapes for CGC
+
+For local ONNX models, Runtime CGC and WinMLCG receive concrete named input
+dimensions before compilation. With --input-data, shapes come from NPZ headers
+without allocating input tensors. Otherwise, the existing --shape-config and
+batch-size resolution rules apply. Rank, static axes, positive dimensions and
+shared symbolic names must agree. The source ONNX is not rewritten.
+
+Runtime CGC requires a Runtime compiler that supports symbolic-dimension
+options. Anonymous dynamic axes are rejected rather than guessed, and these
+overrides do not resolve internal data-dependent shapes. Input payload loading
+and dtype conversion still occur at the normal input-allocation boundary.
+
 ## See also
 
 - [winml eval](eval.md) — measure accuracy after benchmarking
