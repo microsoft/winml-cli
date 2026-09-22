@@ -30,6 +30,7 @@ from __future__ import annotations
 import ctypes
 import json
 import logging
+import operator
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -244,6 +245,48 @@ def _stage_schema(wr: Any, stage: Any) -> Any:
 
     interface = stage.interface.QueryInterface(bindings.IWinMLStageSchema)
     return schema_type(interface, stage)
+
+
+def _symbolic_dimensions_for_inputs(
+    io_config: dict[str, Any], input_shapes: Mapping[str, Any]
+) -> dict[str, int]:
+    """Validate concrete input shapes and resolve shared ONNX dimension names."""
+    names = io_config["input_names"]
+    if set(input_shapes) != set(names):
+        raise click.ClickException("Concrete input shapes must match the ONNX input names exactly.")
+    overrides: dict[str, int] = {}
+    for name, declared, symbolic in zip(
+        names, io_config["input_shapes"], io_config["input_symbolic_shapes"], strict=True
+    ):
+        actual = input_shapes[name]
+        if len(actual) != len(declared):
+            raise click.ClickException(f"Input {name!r} rank does not match the ONNX schema.")
+        for axis, (value, fixed, symbol) in enumerate(zip(actual, declared, symbolic, strict=True)):
+            try:
+                extent = operator.index(value)
+            except TypeError as exc:
+                raise click.ClickException(
+                    f"Input {name!r} axis {axis} must be an integer."
+                ) from exc
+            if isinstance(value, bool) or not 0 < extent <= (1 << 63) - 1:
+                raise click.ClickException(f"Input {name!r} axis {axis} must be a positive int64.")
+            if fixed is not None:
+                if extent != fixed:
+                    raise click.ClickException(
+                        f"Input {name!r} axis {axis} is {extent}; ONNX requires {fixed}."
+                    )
+            elif not isinstance(symbol, str) or not symbol:
+                raise click.ClickException(
+                    f"Input {name!r} axis {axis} has no symbolic dimension name; "
+                    "the compiler's named-dimension API cannot bind it."
+                )
+            elif symbol in overrides and overrides[symbol] != extent:
+                raise click.ClickException(
+                    f"Conflicting concrete sizes for symbolic dimension {symbol!r}."
+                )
+            else:
+                overrides[symbol] = extent
+    return overrides
 
 
 def _to_numpy(value: Any) -> np.ndarray:
@@ -647,12 +690,26 @@ class WinMLRuntimeSession:
         self._is_pinned: bool = False
         self._has_named_bindings = False
         self._compiled_artifacts: TemporaryDirectory[str] | None = None
+        self._symbolic_dimensions: dict[str, int] = {}
         self._built = False
 
         # Perf tracking, enabled inside perf().
         self._perf_stats: PerfStats | None = None
 
     # -- lifecycle ----------------------------------------------------------
+    def set_input_shapes(self, input_shapes: Mapping[str, Any]) -> None:
+        """Set validated ONNX dimensions before compiling; never rewrite the model."""
+        from ..onnx import get_io_config
+
+        with self._lock:
+            if self._built:
+                raise ValueError("Input shapes must be configured before Runtime compilation.")
+            if self._is_mlir or self._backend != "cgc":
+                raise ValueError("Concrete compilation shapes require source ONNX and backend=cgc.")
+            self._symbolic_dimensions = _symbolic_dimensions_for_inputs(
+                get_io_config(self._model_path), input_shapes
+            )
+
     def _ensure_built(self) -> None:
         """Import the runtime, resolve the target, load and build the pipeline.
 
@@ -695,9 +752,23 @@ class WinMLRuntimeSession:
             artifact_path = Path(self._compiled_artifacts.name) / "model.mlir"
             with _translate_native_errors("build", device_class="gpu"):
                 compiler = resolved_target.execution_target.model_compiler()
+                options = None
                 try:
-                    compiler.compile_to_file(source_model, str(artifact_path))
+                    if self._symbolic_dimensions:
+                        options = compiler.create_options()
+                        if not options.supports_symbolic_dimensions:
+                            raise click.ClickException(
+                                "The installed Runtime compiler does not support "
+                                "symbolic dimensions."
+                            )
+                        for name, extent in self._symbolic_dimensions.items():
+                            options.symbolic_dimensions[name] = extent
+                        compiler.compile_to_file(source_model, str(artifact_path), options=options)
+                    else:
+                        compiler.compile_to_file(source_model, str(artifact_path))
                 finally:
+                    if options is not None:
+                        options.close()
                     compiler.close()
 
             with _translate_native_errors("load"):

@@ -409,7 +409,9 @@ class TestWithFakeCatalog:
         catalog = _FakeCatalog([_StuckProvider()])  # type: ignore[list-item]
         _install_windowsml_module(monkeypatch, catalog)
 
-        source = WinMLCatalogSource(catalog_name="VitisAI", eps=("VitisAIExecutionProvider",))
+        source = WinMLCatalogSource(
+            catalog_name="VitisAI", eps=("VitisAIExecutionProvider",), auto_download=True
+        )
         with caplog.at_level(logging.WARNING, logger="winml.modelkit.ep_path"):
             assert list(source.resolve()) == []
         warn_messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
@@ -443,7 +445,9 @@ class TestWithFakeCatalog:
         )
         _install_windowsml_module(monkeypatch, catalog)
 
-        source = WinMLCatalogSource(catalog_name="OpenVINO", eps=("OpenVINOExecutionProvider",))
+        source = WinMLCatalogSource(
+            catalog_name="OpenVINO", eps=("OpenVINOExecutionProvider",), auto_download=True
+        )
         with caplog.at_level(logging.WARNING, logger="winml.modelkit.ep_path"):
             results = list(source.resolve())
         # The good provider should still yield.
@@ -490,7 +494,7 @@ class TestWithFakeCatalog:
 # ---------------------------------------------------------------------------
 
 
-def test_not_ready_provider_is_prepared_and_yielded(
+def test_not_ready_provider_is_prepared_and_yielded_with_opt_in(
     reset_catalog_singleton: None,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -504,6 +508,7 @@ def test_not_ready_provider_is_prepared_and_yielded(
         WinMLCatalogSource(
             catalog_name="QNNExecutionProvider",
             eps=("QNNExecutionProvider",),
+            auto_download=True,
         ).resolve()
     )
 
@@ -532,14 +537,20 @@ def test_ready_provider_is_not_prepared_again(
     assert len(entries) == 1
 
 
-def test_not_present_provider_is_not_downloaded_by_default(
+@pytest.mark.parametrize(
+    "ready_state", ["NotPresent", "NOT_PRESENT", "NotReady", "NOT_READY", None]
+)
+def test_non_ready_provider_is_not_prepared_by_default(
     reset_catalog_singleton: None,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    ready_state: str | None,
 ) -> None:
     dll = tmp_path / "qnn.dll"
     dll.write_bytes(b"")
-    provider = _FakeProvider("QNNExecutionProvider", "NotPresent", str(dll))
+    provider = _FakeProvider("QNNExecutionProvider", ready_state or "Unknown", str(dll))
+    if ready_state is None:
+        provider.ready_state = None  # type: ignore[assignment]
     catalog = _FakeCatalog([provider])
     _install_windowsml_module(monkeypatch, catalog)
 
@@ -570,19 +581,23 @@ def test_not_present_provider_downloads_with_opt_in(
     assert provider.ensure_ready_calls == 1
 
 
+@pytest.mark.parametrize("ready_state", ["NotPresent", "NotReady"])
 def test_explicit_catalog_resolution_downloads_requested_provider(
     reset_catalog_singleton: None,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    ready_state: str,
 ) -> None:
     dll = tmp_path / "qnn.dll"
     dll.write_bytes(b"")
-    provider = _FakeProvider("QNNExecutionProvider", "NotPresent", str(dll))
-    _install_windowsml_module(monkeypatch, _FakeCatalog([provider]))
+    provider = _FakeProvider("QNNExecutionProvider", ready_state, str(dll))
+    unrelated = _FakeProvider("OpenVINOExecutionProvider", "NotReady", "unrelated.dll")
+    _install_windowsml_module(monkeypatch, _FakeCatalog([provider, unrelated]))
 
     entries = _ep._resolve_requested_winml_catalog_ep("QNNExecutionProvider")
 
     assert provider.ensure_ready_calls == 1
+    assert unrelated.ensure_ready_calls == 0
     assert [entry.dll_path for entry in entries] == [dll]
     assert all(
         isinstance(entry.source, WinMLCatalogSource) and entry.source.auto_download
@@ -593,6 +608,28 @@ def test_explicit_catalog_resolution_downloads_requested_provider(
 # ---------------------------------------------------------------------------
 # _is_ready helper.
 # ---------------------------------------------------------------------------
+
+
+def test_discovery_keeps_ready_provider_without_preparing_unrelated_catalog(
+    reset_catalog_singleton: None,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    ready_dll = tmp_path / "ready.dll"
+    ready_dll.write_bytes(b"")
+    unrelated = _FakeProvider("QNNExecutionProvider", "NotReady", "unrelated.dll")
+    ready = _FakeProvider("WinMLCGExecutionProvider", "Ready", str(ready_dll))
+    _install_windowsml_module(monkeypatch, _FakeCatalog([unrelated, ready]))
+    sources = [WinMLCatalogSource(catalog_name=p.name, eps=(p.name,)) for p in (unrelated, ready)]
+    monkeypatch.setattr(_ep, "_default_ep_sources", lambda: sources)
+    monkeypatch.delenv("WINMLCLI_EP_PATH", raising=False)
+
+    entries = _ep.discover_all_eps()
+
+    assert [entry.ep_name for entry in entries] == [ready.name]
+    assert entries[0].dll_path == ready_dll
+    assert unrelated.ensure_ready_calls == 0
+    assert ready.ensure_ready_calls == 0
 
 
 @pytest.mark.parametrize(

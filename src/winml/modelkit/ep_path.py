@@ -1124,8 +1124,8 @@ class WinMLCatalogSource(EPSource):
         eps: Canonical EP names this source provides. Typically a single
             name, but listed as a tuple for symmetry with the other
             sources.
-        auto_download: If ``True``, providers in the ``NotPresent`` ready
-            state will be downloaded by ``ensure_ready()``.
+        auto_download: If ``True``, non-ready providers may be prepared or
+            downloaded by ``ensure_ready()``.
             Defaults to ``False`` to avoid surprising the user with a
             multi-second to multi-minute network operation on first call;
             see ``docs/ep-path-design.md`` Interaction section.
@@ -1183,14 +1183,13 @@ class WinMLCatalogSource(EPSource):
         if getattr(provider, "name", None) != self.catalog_name:
             return
 
-        # Skip providers that are not present on this machine. The design
-        # doc explicitly forbids auto-downloading hundreds of MB without
-        # opt-in; we honor that via auto_download=False (the default).
+        # Discovery must not prepare unrelated providers. NotReady can also
+        # require installation; reserve every readiness transition for the
+        # explicit-provider acquisition path (auto_download=True).
         ready_state = getattr(provider, "ready_state", None)
-        if ready_state is not None and not self.auto_download and self._is_not_present(ready_state):
+        if not self.auto_download and not self._is_ready(ready_state):
             logger.debug(
-                "WinMLCatalogSource(%s): provider in NotPresent state; "
-                "skipping (auto_download=False)",
+                "WinMLCatalogSource(%s): provider is not ready; skipping (auto_download=False)",
                 self.catalog_name,
             )
             return

@@ -413,6 +413,7 @@ not supported.
 
 ## Common pitfalls
 
+- **Provider discovery and installation.** Discovery lists already-ready catalog providers without preparing unrelated providers. An explicit provider request such as `--ep qnn` retries that provider's catalog with preparation enabled when no installed source is available. `WINMLCLI_EP_PATH` adds source precedence; it does not disable the other discovery sources.
 - **Warm-up too low on NPU.** The first several inferences on an NPU EP can be significantly slower due to kernel compilation and caching. The default of 10 warm-up iterations is usually enough for vision models, but transformer models with many operators may need `--warmup 30` or higher to reach steady-state latency.
 - **Hidden third-party diagnostics.** Normal `winml perf` output suppresses noisy native warning-level diagnostics and Hugging Face download/progress chatter so benchmark results stay readable. Use `-v`/`-vv` or set `WINMLCLI_SHOW_ALL_WARNINGS=1` to show those warnings when debugging provider or Hub issues.
 - **`--input-data` keys must match; dtypes are cast.** The `.npz` keys must equal the model's input names — a missing or unexpected key is a hard error (typo protection). Array dtypes are cast to the model's expected dtype with a warning (matching normal inference), so you don't have to hand-match widths. `.npy` files are not supported — save named arrays as `.npz`. When `--input-data` is set, `--batch-size` and `--shape-config` are ignored (the tensors define their own shapes). It is also rejected for `--module` mode, `--runtime ort-genai`, and composite (dual-encoder) models such as CLIP/SigLIP, where each sub-model has its own inputs that a single `.npz` cannot address.
@@ -421,9 +422,22 @@ not supported.
 - **Random inputs do not represent real data distributions.** Latency numbers are accurate, but memory access patterns may differ from production because the generated tensors are uniform random values. For memory-bandwidth-sensitive models this can understate real-world latency.
 - **Cross-device comparison.** To compare performance across devices, run `winml perf` separately with different `--device` values and compare the resulting JSON reports.
 
+## Concrete input shapes for CGC
+
+For local ONNX models, Runtime CGC and WinMLCG receive concrete named input
+dimensions before compilation. With --input-data, shapes come from NPZ headers
+without allocating input tensors. Otherwise, the existing --shape-config and
+batch-size resolution rules apply. Rank, static axes, positive dimensions and
+shared symbolic names must agree. The source ONNX is not rewritten.
+
+Runtime CGC requires a Runtime compiler that supports symbolic-dimension
+options. Anonymous dynamic axes are rejected rather than guessed, and these
+overrides do not resolve internal data-dependent shapes. Input payload loading
+and dtype conversion still occur at the normal input-allocation boundary.
+
 ## See also
 
 - [winml eval](eval.md) — measure accuracy after benchmarking
-- [winml build](build.md) — build the quantized artifact that `perf` benchmarks
-- [Load and export concept](../concepts/load-and-export.md) — how `--module` per-instance benchmarking works
-- [ONNX & Execution Providers](../concepts/eps-and-devices.md) — understand `--device` vs `--ep`
+- [winml build](build.md) — build the quantized artifact that perf benchmarks
+- [Load and export concept](../concepts/load-and-export.md) — module benchmarking
+- [ONNX & Execution Providers](../concepts/eps-and-devices.md) — devices and EPs
