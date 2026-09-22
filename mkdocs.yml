@@ -92,6 +92,7 @@ nav:
           - Overview: getting-started/agent-skill/index.md
           - Use WinML CLI: getting-started/agent-skill/use-winml-cli.md
           - Add model support: getting-started/agent-skill/adding-model-support.md
+          - Auto Optimize: getting-started/agent-skill/auto-optimize.md
   - Concepts:
       - Fundamentals:
           - How winml-cli works: concepts/how-it-works.md
