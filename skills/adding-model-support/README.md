@@ -34,74 +34,53 @@ Do not use it to:
 - Add a new execution provider backend.
 - Process multiple models as one contribution.
 
-## Requirements
-
-Run the skill from a current
-[`microsoft/winml-cli`](https://github.com/microsoft/winml-cli) checkout with:
-
-- Python 3.11 and [`uv`](https://docs.astral.sh/uv/).
-- [GitHub CLI](https://cli.github.com/) installed and authenticated.
-- Permission to push a branch to the target remote.
-- An agent runtime that supports fresh subagent delegation.
-
-The workflow deliberately assigns planning, implementation, testing, reporting,
-and review to separate agents. If the runtime cannot create fresh subagents,
-the skill stops as `BLOCKED` rather than presenting self-review as independent
-validation.
-
 ## Quick start
 
-Make this directory available to your agent runtime as a skill, then describe
-one model-support goal in natural language. Include the model ID and any known
-failure or target hardware when available.
+Make this directory available to your agent runtime as a skill, then ask it to
+add support for one model. The model ID is enough to start; a known failure,
+target device, or execution provider is useful but optional.
 
 For example:
 
 ```text
-Add winml support for <organization>/<model>. The current build fails during
-export. Target CPU first, then validate the execution providers available on
-this machine.
+Add winml support for <organization>/<model>.
 ```
 
-The skill entry point is [`SKILL.md`](./SKILL.md). The agent begins by loading
-the [orchestrator contract](./agents/orchestrator.md), checking the repository
-and GitHub prerequisites, and reproducing the problem on the current `main`
-branch before proposing a change.
-
-## What the workflow does
-
-Each run handles exactly one model and delegates seven roles:
-
-| Stage | Responsibility |
-|---|---|
-| Orchestrator | Verifies prerequisites, dispatches fresh agents, drives repair loops, and cleans up run-owned state |
-| Planner | Reproduces the current-main baseline and freezes the contribution scope and success criteria |
-| Producer | Implements the narrowest reusable code, configuration, or recipe change |
-| Tester | Runs the repair loop and records exact validation evidence for each required target |
-| Learner | Captures model-family findings and workflow lessons with their evidence and limits |
-| Explainer | Creates or updates the draft pull request and presents the tested evidence |
-| Reviewer | Independently verifies the final pushed commit and reports a verdict |
+You can include more context when you have it:
 
 ```text
-planner -> producer -> tester -> learner -> explainer -> reviewer
-   ^           ^                                      |
-   |           +--------- artifact fixes -------------+
-   +---------------- scope corrections ---------------+
+Add winml support for <organization>/<model>. Export currently fails, and I
+need it validated on the execution providers available on this machine.
 ```
 
-The orchestrator continues these loops until the run reaches one terminal
-state:
+The skill handles one model per run.
 
-- `APPROVE` — independent review accepts the exact final commit; the pull
-  request remains a draft.
-- `REJECT` — the contribution has a structural or evidence-integrity failure.
-- `BLOCKED` — an external dependency, environment limitation, or user decision
-  prevents completion.
+## What the skill handles automatically
 
-`REQUEST_CHANGES` is not terminal. It routes the contribution back to the role
-that owns the problem.
+The skill drives the contribution from diagnosis through review:
 
-## Expected output
+- Checks the checkout, Python tooling, GitHub authentication, push access, and
+  agent delegation support before starting expensive work.
+- Reproduces the problem against the current `main` branch and determines
+  whether the gap is in a recipe, exporter, resolver, task, dataset adapter,
+  evaluator, or shared infrastructure.
+- Chooses the narrowest reusable fix and avoids model-name-specific logic.
+- Implements the change and adds relevant Pytest coverage.
+- Validates the required build, analysis, runtime, performance, and functional
+  smoke evidence without inferring one target's result from another.
+- Uses separate agents for planning, implementation, testing, reporting, and
+  final review, then handles review feedback until the run reaches a final
+  result.
+- Pushes the contribution and creates a draft pull request. If the GitHub API
+  cannot create the pull request, it provides the branch link and prepared body
+  for the user to submit in the browser.
+- Records reusable findings with their evidence and scope.
+
+If a required capability is unavailable, the skill stops early as `BLOCKED`
+and explains the action needed. Users do not need to run the preflight checks
+themselves.
+
+## What you get
 
 A successful run produces:
 
@@ -116,23 +95,15 @@ A successful run produces:
   [model knowledge base](./model_knowledge/README.md) or
   [skill meta-findings](./skill_meta/README.md).
 
-The skill does not claim broad model quality from a smoke test, infer support
-for one execution-provider tuple from another, or convert blocked evidence into
-a successful result.
+The final result is `APPROVE`, `REJECT`, or `BLOCKED`, with the supporting
+evidence and next action. A smoke evaluation proves bounded end-to-end
+operability; it is not presented as representative model accuracy.
 
-## Optional integrations
+## Maintainer resources
 
-- **`model-breakdown`** can provide a structured model profile when a compatible
-  version is installed. The planner falls back to pinned source, configuration,
-  and model-card evidence when it is unavailable.
-- **[`auto-optimize`](../auto-optimize/SKILL.md)** is required only for a
-  `--promotion-handoff <absolute path>` run. Normal model-support contributions
-  do not depend on it.
-
-See [`SKILL.md`](./SKILL.md) for the integration contracts and non-negotiable
-workflow boundaries.
-
-## Skill development
+The entry point is [`SKILL.md`](./SKILL.md). It dispatches the internal role
+contracts and defines the workflow boundaries. Users do not need to invoke the
+roles directly.
 
 The root files are organized by responsibility:
 
@@ -146,6 +117,11 @@ adding-model-support/
 ├── scripts/                 # bounded workflow utilities
 └── tests/                   # skill contract tests
 ```
+
+The skill can use `model-breakdown` when it is available and falls back to
+pinned source and model metadata when it is not. The
+[`auto-optimize`](../auto-optimize/SKILL.md) integration applies only to
+explicit promotion handoffs; normal model-support runs do not depend on it.
 
 When changing the skill:
 
