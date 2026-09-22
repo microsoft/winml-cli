@@ -21,13 +21,13 @@ Use it when you want to:
 - Turn a proven optimization into reusable CLI behavior.
 
 For routine builds, optimization commands, or benchmarks without an experimental
-search, use [`use-winml-cli`](../use-winml-cli/SKILL.md). For an unsupported model,
+search, use [`use-winml-cli`](use-winml-cli.md). For an unsupported model,
 missing exporter, or model-support recipe contribution, use
-[`adding-model-support`](../adding-model-support/SKILL.md).
+[`adding-model-support`](adding-model-support.md).
 
 ## Quick start
 
-Make this directory available to your agent runtime as a skill. Provide the
+Make the [skills/auto-optimize directory](https://github.com/microsoft/winml-cli/tree/main/skills/auto-optimize) available to your agent runtime as a skill. Provide the
 model, target EP/device, optimization goal, working directory, and WinML CLI
 checkout (`WINML_CLI_REPO`). The agent asks for missing values.
 
@@ -100,7 +100,7 @@ code are marked `requires-unmerged-pr`.
 
 ## Maintainer resources
 
-[`SKILL.md`](./SKILL.md) is the entry point. Keep operational rules in their
+[`SKILL.md`](https://github.com/microsoft/winml-cli/blob/main/skills/auto-optimize/SKILL.md) is the entry point. Keep operational rules in their
 owning contracts rather than duplicating them in this README.
 
 ```text
@@ -114,13 +114,13 @@ auto-optimize/
 └── evals/         # live-agent behavioral evaluations
 ```
 
-See [resume behavior](./references/resume.md),
-[PR routing](./references/pr-routing.md), and the
-[check-in review gates](./roles/checkin-reviewer.md) for the detailed contracts.
+See [resume behavior](https://github.com/microsoft/winml-cli/blob/main/skills/auto-optimize/references/resume.md),
+[PR routing](https://github.com/microsoft/winml-cli/blob/main/skills/auto-optimize/references/pr-routing.md), and the
+[check-in review gates](https://github.com/microsoft/winml-cli/blob/main/skills/auto-optimize/roles/checkin-reviewer.md) for the detailed contracts.
 Model identities, source paths, tensors, and generated artifacts stay run-local.
 Only reviewed, reusable, model-agnostic findings enter bundled knowledge.
 
 When changing the skill, run the relevant Pytest tests. For workflow behavior
-changes, also use the [behavioral evaluation guide](./evals/README.md). Those
+changes, also use the [behavioral evaluation guide](https://github.com/microsoft/winml-cli/blob/main/skills/auto-optimize/evals/README.md). Those
 evaluations simulate hardware and GitHub actions; they do not measure actual
 model performance or certify reproduction on a target device.
