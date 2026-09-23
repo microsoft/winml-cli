@@ -970,18 +970,21 @@ class TestCapabilityOnRealHardware:
             adapters = list_adapters()
         except click.ClickException as exc:  # DXCore unavailable
             pytest.skip(f"DXCore unavailable: {exc}")
-        if not adapters:
-            close_adapters(adapters)
-            pytest.skip("no D3D12 adapters")
-        try:
-            for adapter in adapters:
-                try:
-                    release(probe_mlir_support(adapter, _REDIST, _SDK or 0))
-                except RedistUnusable as exc:  # an environment limit, not a code defect
-                    pytest.skip(f"D3D12 cannot use the redist found here: {exc.format_message()}")
-                assert adapter["mlir"] in (True, False)
-        finally:
-            close_adapters(adapters)
+        else:
+            if not adapters:
+                close_adapters(adapters)
+                pytest.skip("no D3D12 adapters")
+            try:
+                for adapter in adapters:
+                    try:
+                        release(probe_mlir_support(adapter, _REDIST, _SDK or 0))
+                    except RedistUnusable as exc:  # an environment limit, not a code defect
+                        pytest.skip(
+                            f"D3D12 cannot use the redist found here: {exc.format_message()}"
+                        )
+                    assert adapter["mlir"] in (True, False)
+            finally:
+                close_adapters(adapters)
 
 
 # ---------------------------------------------------------------------------

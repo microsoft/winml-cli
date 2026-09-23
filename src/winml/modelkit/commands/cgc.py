@@ -33,6 +33,7 @@ drivers can read a loss where the matching surface actually grew.
 from __future__ import annotations
 
 import ctypes
+import ctypes.wintypes
 import json
 import logging
 import os
@@ -43,7 +44,6 @@ import sysconfig
 import tempfile
 import uuid
 import webbrowser
-from ctypes import POINTER, byref, c_size_t, c_uint32, c_uint64, c_void_p, wintypes
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
@@ -66,7 +66,7 @@ class GUID(ctypes.Structure):
     """A Windows GUID, laid out for ``ctypes``."""
 
     _fields_ = (
-        ("Data1", c_uint32),
+        ("Data1", ctypes.c_uint32),
         ("Data2", ctypes.c_uint16),
         ("Data3", ctypes.c_uint16),
         ("Data4", ctypes.c_ubyte * 8),
@@ -85,7 +85,7 @@ def guid(text: str) -> GUID:
     return GUID.from_buffer_copy(uuid.UUID(text).bytes_le)
 
 
-def vcall(this: c_void_p, index: int, restype: Any, *argtypes: Any) -> Callable[..., Any]:
+def vcall(this: ctypes.c_void_p, index: int, restype: Any, *argtypes: Any) -> Callable[..., Any]:
     """Bind vtable slot *index* of COM pointer *this*.
 
     Replaces a comtypes dependency with six lines.
@@ -99,14 +99,14 @@ def vcall(this: c_void_p, index: int, restype: Any, *argtypes: Any) -> Callable[
     Returns:
         A callable that invokes the method, passing ``this`` automatically.
     """
-    vtbl = ctypes.cast(this, POINTER(POINTER(c_void_p)))[0]
-    proto = ctypes.WINFUNCTYPE(restype, c_void_p, *argtypes)
+    vtbl = ctypes.cast(this, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)))[0]
+    proto = ctypes.WINFUNCTYPE(restype, ctypes.c_void_p, *argtypes)
     fn = proto(vtbl[index])
 
     return lambda *args: fn(this, *args)
 
 
-def release(p: c_void_p | None) -> None:
+def release(p: ctypes.c_void_p | None) -> None:
     """Call ``IUnknown::Release`` on *p* when it is non-NULL.
 
     Args:
@@ -177,7 +177,7 @@ PREF_HARDWARE, PREF_HIGH_PERFORMANCE = 0, 2
 Adapter = dict[str, Any]
 
 
-def read_adapter_props(ad: c_void_p) -> Adapter:
+def read_adapter_props(ad: ctypes.c_void_p) -> Adapter:
     """Read every property the listing shows from one ``IDXCoreAdapter``.
 
     ``IsPropertySupported`` returns a C++ bool, one byte.
@@ -188,17 +188,17 @@ def read_adapter_props(ad: c_void_p) -> Adapter:
     Returns:
         The adapter record, without ``index``, ``ptr``, ``mlir`` or ``ir_version``.
     """
-    is_prop = vcall(ad, 5, ctypes.c_bool, c_uint32)
-    get_prop = vcall(ad, 6, ctypes.c_long, c_uint32, c_size_t, c_void_p)
-    get_size = vcall(ad, 7, ctypes.c_long, c_uint32, POINTER(c_size_t))
-    is_attr = vcall(ad, 4, ctypes.c_bool, POINTER(GUID))
+    is_prop = vcall(ad, 5, ctypes.c_bool, ctypes.c_uint32)
+    get_prop = vcall(ad, 6, ctypes.c_long, ctypes.c_uint32, ctypes.c_size_t, ctypes.c_void_p)
+    get_size = vcall(ad, 7, ctypes.c_long, ctypes.c_uint32, ctypes.POINTER(ctypes.c_size_t))
+    is_attr = vcall(ad, 4, ctypes.c_bool, ctypes.POINTER(GUID))
 
     def read(pid: int, label: str) -> Any:
         # The size DXCore reports is honoured rather than assumed. The two flags are 1
         # byte, not a 4-byte BOOL; reading them as BOOL marks every adapter "software",
         # which silently changes which adapter the default -a selects.
-        n = c_size_t()
-        hr(f"GetPropertySize({label})", get_size(pid, byref(n)))
+        n = ctypes.c_size_t()
+        hr(f"GetPropertySize({label})", get_size(pid, ctypes.byref(n)))
         buf = ctypes.create_string_buffer(n.value)
         hr(f"GetProperty({label})", get_prop(pid, n.value, buf))
         return buf
@@ -214,15 +214,15 @@ def read_adapter_props(ad: c_void_p) -> Adapter:
         description = read(PROP_DRIVER_DESCRIPTION, "DriverDescription").value
         p["description"] = description.decode("utf-8", "replace")
     if is_prop(PROP_DRIVER_VERSION):
-        v = c_uint64()
-        hr("GetProperty(DriverVersion)", get_prop(PROP_DRIVER_VERSION, 8, byref(v)))
+        v = ctypes.c_uint64()
+        hr("GetProperty(DriverVersion)", get_prop(PROP_DRIVER_VERSION, 8, ctypes.byref(v)))
         p["driver_version"] = format_driver_version(v.value)
     for key, pid in (("is_hardware", PROP_IS_HARDWARE), ("is_integrated", PROP_IS_INTEGRATED)):
         if is_prop(pid):
             p[key] = any(read(pid, key).raw)
-    p["generic_ml"] = bool(is_attr(byref(ATTR_GENERIC_ML)))
-    p["core_compute"] = bool(is_attr(byref(ATTR_CORE_COMPUTE)))
-    p["d3d12_graphics"] = bool(is_attr(byref(ATTR_D3D12_GRAPHICS)))
+    p["generic_ml"] = bool(is_attr(ctypes.byref(ATTR_GENERIC_ML)))
+    p["core_compute"] = bool(is_attr(ctypes.byref(ATTR_CORE_COMPUTE)))
+    p["d3d12_graphics"] = bool(is_attr(ctypes.byref(ATTR_D3D12_GRAPHICS)))
     return p
 
 
@@ -252,39 +252,67 @@ def list_adapters() -> list[Adapter]:
     except OSError as e:
         raise click.ClickException(f"dxcore.dll could not be loaded: {e}") from e
     dxcore.DXCoreCreateAdapterFactory.restype = ctypes.c_long
-    dxcore.DXCoreCreateAdapterFactory.argtypes = [POINTER(GUID), POINTER(c_void_p)]
+    dxcore.DXCoreCreateAdapterFactory.argtypes = [
+        ctypes.POINTER(GUID),
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
 
-    factory = c_void_p()
+    factory = ctypes.c_void_p()
     hr(
         "DXCoreCreateAdapterFactory",
-        dxcore.DXCoreCreateAdapterFactory(byref(IID_IDXCoreAdapterFactory), byref(factory)),
+        dxcore.DXCoreCreateAdapterFactory(
+            ctypes.byref(IID_IDXCoreAdapterFactory), ctypes.byref(factory)
+        ),
     )
     create_list = vcall(
-        factory, 3, ctypes.c_long, c_uint32, POINTER(GUID), POINTER(GUID), POINTER(c_void_p)
+        factory,
+        3,
+        ctypes.c_long,
+        ctypes.c_uint32,
+        ctypes.POINTER(GUID),
+        ctypes.POINTER(GUID),
+        ctypes.POINTER(ctypes.c_void_p),
     )
 
-    alist = c_void_p()
+    alist = ctypes.c_void_p()
     hr(
         "CreateAdapterList(GENERIC_ML)",
-        create_list(1, byref(ATTR_GENERIC_ML), byref(IID_IDXCoreAdapterList), byref(alist)),
+        create_list(
+            1,
+            ctypes.byref(ATTR_GENERIC_ML),
+            ctypes.byref(IID_IDXCoreAdapterList),
+            ctypes.byref(alist),
+        ),
     )
-    if vcall(alist, 4, c_uint32)() == 0:
+    if vcall(alist, 4, ctypes.c_uint32)() == 0:
         release(alist)
-        alist = c_void_p()
+        alist = ctypes.c_void_p()
         hr(
             "CreateAdapterList(CORE_COMPUTE)",
-            create_list(1, byref(ATTR_CORE_COMPUTE), byref(IID_IDXCoreAdapterList), byref(alist)),
+            create_list(
+                1,
+                ctypes.byref(ATTR_CORE_COMPUTE),
+                ctypes.byref(IID_IDXCoreAdapterList),
+                ctypes.byref(alist),
+            ),
         )
 
-    prefs = (c_uint32 * 2)(PREF_HARDWARE, PREF_HIGH_PERFORMANCE)
-    vcall(alist, 7, ctypes.c_long, c_uint32, POINTER(c_uint32))(2, prefs)
+    prefs = (ctypes.c_uint32 * 2)(PREF_HARDWARE, PREF_HIGH_PERFORMANCE)
+    vcall(alist, 7, ctypes.c_long, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32))(2, prefs)
 
-    count = vcall(alist, 4, c_uint32)()
-    get_adapter = vcall(alist, 3, ctypes.c_long, c_uint32, POINTER(GUID), POINTER(c_void_p))
+    count = vcall(alist, 4, ctypes.c_uint32)()
+    get_adapter = vcall(
+        alist,
+        3,
+        ctypes.c_long,
+        ctypes.c_uint32,
+        ctypes.POINTER(GUID),
+        ctypes.POINTER(ctypes.c_void_p),
+    )
     adapters: list[Adapter] = []
     for i in range(count):
-        ad = c_void_p()
-        hr("GetAdapter", get_adapter(i, byref(IID_IDXCoreAdapter), byref(ad)))
+        ad = ctypes.c_void_p()
+        hr("GetAdapter", get_adapter(i, ctypes.byref(IID_IDXCoreAdapter), ctypes.byref(ad)))
         props = read_adapter_props(ad)
         props["index"] = i
         props["ptr"] = ad
@@ -653,7 +681,7 @@ CGC_MAX_IR_VERSION = (0, 7, 0, 0)  # cmake/version.cmake CGC_VERSION; an upper b
 class FeatureDataMLIRComputeGraphVersion(ctypes.Structure):
     """``D3D12_FEATURE_DATA_MLIR_COMPUTE_GRAPH_VERSION``, the 721 capability query."""
 
-    _fields_ = (("HighestVersion", c_uint64),)
+    _fields_ = (("HighestVersion", ctypes.c_uint64),)
 
 
 class FeatureDataMLIRExchange721(ctypes.Structure):
@@ -665,12 +693,12 @@ class FeatureDataMLIRExchange721(ctypes.Structure):
     """
 
     _fields_ = (
-        ("Type", c_uint32),
-        ("IRVersion", c_uint64),  # D3D12_VERSION_NUMBER, a UINT64 union
-        ("pInputData", c_void_p),
-        ("InputDataSizeInBytes", c_size_t),
-        ("pOutputData", c_void_p),
-        ("OutputDataSizeInBytes", POINTER(c_size_t)),
+        ("Type", ctypes.c_uint32),
+        ("IRVersion", ctypes.c_uint64),  # D3D12_VERSION_NUMBER, a UINT64 union
+        ("pInputData", ctypes.c_void_p),
+        ("InputDataSizeInBytes", ctypes.c_size_t),
+        ("pOutputData", ctypes.c_void_p),
+        ("OutputDataSizeInBytes", ctypes.POINTER(ctypes.c_size_t)),
     )
 
 
@@ -679,10 +707,10 @@ class FeatureDataMLIRExchange720(ctypes.Structure):
 
     _fields_ = (
         ("MlirInterface", GUID),
-        ("pInputData", c_void_p),
-        ("InputDataSizeInBytes", c_size_t),
-        ("pOutputData", c_void_p),
-        ("OutputDataSizeInBytes", POINTER(c_size_t)),
+        ("pInputData", ctypes.c_void_p),
+        ("InputDataSizeInBytes", ctypes.c_size_t),
+        ("pOutputData", ctypes.c_void_p),
+        ("OutputDataSizeInBytes", ctypes.POINTER(ctypes.c_size_t)),
     )
 
 
@@ -690,9 +718,9 @@ class FeatureDataMLIRInterfaceSupport720(ctypes.Structure):
     """``D3D12_FEATURE_DATA_MLIR_INTERFACE_SUPPORT``, the 720 capability query."""
 
     _fields_ = (
-        ("NumMlirInterfaces", c_uint32),
-        ("pMlirInterfacesRequested", POINTER(GUID)),
-        ("pMlirInterfacesSupported", POINTER(wintypes.BOOL)),
+        ("NumMlirInterfaces", ctypes.c_uint32),
+        ("pMlirInterfacesRequested", ctypes.POINTER(GUID)),
+        ("pMlirInterfacesSupported", ctypes.POINTER(ctypes.wintypes.BOOL)),
     )
 
 
@@ -721,8 +749,8 @@ class RedistUnusable(click.ClickException):
 
 
 def create_device(
-    adapter_ptr: c_void_p, redist: Path, sdk_version: int
-) -> tuple[c_void_p | None, int]:
+    adapter_ptr: ctypes.c_void_p, redist: Path, sdk_version: int
+) -> tuple[ctypes.c_void_p | None, int]:
     """Create an ``ID3D12Device`` on *adapter_ptr* through the given redist.
 
     Args:
@@ -756,12 +784,18 @@ def create_device(
         # could-not-ask failure does, not with a bare traceback.
         raise RedistUnusable(f"d3d12.dll could not be loaded: {e}") from e
     d3d12.D3D12GetInterface.restype = ctypes.c_long
-    d3d12.D3D12GetInterface.argtypes = [POINTER(GUID), POINTER(GUID), POINTER(c_void_p)]
+    d3d12.D3D12GetInterface.argtypes = [
+        ctypes.POINTER(GUID),
+        ctypes.POINTER(GUID),
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
 
-    cfg, factory = c_void_p(), c_void_p()
+    cfg, factory = ctypes.c_void_p(), ctypes.c_void_p()
     try:
         rc = d3d12.D3D12GetInterface(
-            byref(CLSID_D3D12SDKConfiguration), byref(IID_ID3D12SDKConfiguration1), byref(cfg)
+            ctypes.byref(CLSID_D3D12SDKConfiguration),
+            ctypes.byref(IID_ID3D12SDKConfiguration1),
+            ctypes.byref(cfg),
         )
         if rc < 0 or not cfg:
             # This system cannot load an Agility core at all, so no adapter can be asked.
@@ -772,10 +806,19 @@ def create_device(
 
         # ID3D12SDKConfiguration1 -> 4 CreateDeviceFactory.
         create_factory = vcall(
-            cfg, 4, ctypes.c_long, c_uint32, ctypes.c_char_p, POINTER(GUID), POINTER(c_void_p)
+            cfg,
+            4,
+            ctypes.c_long,
+            ctypes.c_uint32,
+            ctypes.c_char_p,
+            ctypes.POINTER(GUID),
+            ctypes.POINTER(ctypes.c_void_p),
         )
         rc = create_factory(
-            sdk_version, redist_utf8, byref(IID_ID3D12DeviceFactory), byref(factory)
+            sdk_version,
+            redist_utf8,
+            ctypes.byref(IID_ID3D12DeviceFactory),
+            ctypes.byref(factory),
         )
         if rc < 0 or not factory:
             # D3D12 rejected the redist itself, so no adapter can be asked through it.
@@ -788,12 +831,18 @@ def create_device(
             )
 
         create = vcall(
-            factory, 9, ctypes.c_long, c_void_p, c_uint32, POINTER(GUID), POINTER(c_void_p)
+            factory,
+            9,
+            ctypes.c_long,
+            ctypes.c_void_p,
+            ctypes.c_uint32,
+            ctypes.POINTER(GUID),
+            ctypes.POINTER(ctypes.c_void_p),
         )
         last = 0
         for level in FEATURE_LEVELS:
-            dev = c_void_p()
-            last = create(adapter_ptr, level, byref(IID_ID3D12Device), byref(dev))
+            dev = ctypes.c_void_p()
+            last = create(adapter_ptr, level, ctypes.byref(IID_ID3D12Device), ctypes.byref(dev))
             if last >= 0 and dev:
                 return dev, 0
         # No feature level gave this adapter a device: a per-adapter "no". A success
@@ -804,7 +853,7 @@ def create_device(
         release(cfg)
 
 
-def check_feature_support(device: c_void_p) -> Any:
+def check_feature_support(device: ctypes.c_void_p) -> Any:
     """Bind ``ID3D12Device::CheckFeatureSupport``, vtable slot 13.
 
     Args:
@@ -813,10 +862,10 @@ def check_feature_support(device: c_void_p) -> Any:
     Returns:
         The bound callable. This is the only call that does real work.
     """
-    return vcall(device, 13, ctypes.c_long, c_uint32, c_void_p, c_uint32)
+    return vcall(device, 13, ctypes.c_long, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32)
 
 
-def supports_exchange(device: c_void_p, sdk_version: int) -> tuple[bool, int, int]:
+def supports_exchange(device: ctypes.c_void_p, sdk_version: int) -> tuple[bool, int, int]:
     """Ask whether this *driver* implements the exchange.
 
     Decided by value, never by HRESULT.
@@ -831,17 +880,17 @@ def supports_exchange(device: c_void_p, sdk_version: int) -> tuple[bool, int, in
     cfs = check_feature_support(device)
     if sdk_version >= 721:
         data = FeatureDataMLIRComputeGraphVersion(make_version_number(*CGC_MAX_IR_VERSION))
-        rc = cfs(FEATURE_MLIR_70, byref(data), ctypes.sizeof(data))
+        rc = cfs(FEATURE_MLIR_70, ctypes.byref(data), ctypes.sizeof(data))
         # 70 is answered by the runtime, not the driver: WARP and Intel both return
         # S_OK here with HighestVersion == 0. The value is the answer.
         if rc < 0:
             return False, rc, 0
         return data.HighestVersion != 0, rc, data.HighestVersion
-    supported = wintypes.BOOL(0)
+    supported = ctypes.wintypes.BOOL(0)
     data_720 = FeatureDataMLIRInterfaceSupport720(
         1, ctypes.pointer(GUID_SUBGRAPH_DECLARATION_REQUEST), ctypes.pointer(supported)
     )
-    rc = cfs(FEATURE_MLIR_70, byref(data_720), ctypes.sizeof(data_720))
+    rc = cfs(FEATURE_MLIR_70, ctypes.byref(data_720), ctypes.sizeof(data_720))
     return (rc >= 0 and bool(supported.value)), rc, 0
 
 
@@ -849,7 +898,7 @@ def supports_exchange(device: c_void_p, sdk_version: int) -> tuple[bool, int, in
 # mlir is a bool, which holds even when no device was created at all.
 def probe_mlir_support(
     adapter: Adapter, redist: Path, sdk_version: int, *, verbose: bool = False
-) -> c_void_p | None:
+) -> ctypes.c_void_p | None:
     """Set ``adapter["mlir"]``, and ``adapter["ir_version"]`` when the driver answers.
 
     Any failing HRESULT means no exchange -- do not read into it.
@@ -885,7 +934,9 @@ def probe_mlir_support(
     return device
 
 
-def mlir_exchange(device: c_void_p, sdk_version: int, ir_version: int) -> tuple[bytes | None, int]:
+def mlir_exchange(
+    device: ctypes.c_void_p, sdk_version: int, ir_version: int
+) -> tuple[bytes | None, int]:
     """Fetch the subgraph-declaration payload.
 
     Uses the two-call size-then-fill protocol.
@@ -900,7 +951,7 @@ def mlir_exchange(device: c_void_p, sdk_version: int, ir_version: int) -> tuple[
     """
     cfs = check_feature_support(device)
 
-    def build(out_ptr: c_void_p | None, size_ptr: Any) -> ctypes.Structure:
+    def build(out_ptr: ctypes.c_void_p | None, size_ptr: Any) -> ctypes.Structure:
         if sdk_version >= 721:
             return FeatureDataMLIRExchange721(
                 Type=MLIR_EXCHANGE_SUBGRAPH_DECLARATION,
@@ -914,18 +965,18 @@ def mlir_exchange(device: c_void_p, sdk_version: int, ir_version: int) -> tuple[
             OutputDataSizeInBytes=size_ptr,
         )
 
-    size = c_size_t(0)
+    size = ctypes.c_size_t(0)
     first = build(None, ctypes.pointer(size))
-    rc = cfs(FEATURE_MLIR_EXCHANGE, byref(first), ctypes.sizeof(first))
+    rc = cfs(FEATURE_MLIR_EXCHANGE, ctypes.byref(first), ctypes.sizeof(first))
     if rc < 0:
         return None, rc
     if size.value == 0:
         return b"", 0
 
     buf = ctypes.create_string_buffer(size.value)
-    written = c_size_t(size.value)
-    second = build(ctypes.cast(buf, c_void_p), ctypes.pointer(written))
-    rc = cfs(FEATURE_MLIR_EXCHANGE, byref(second), ctypes.sizeof(second))
+    written = ctypes.c_size_t(size.value)
+    second = build(ctypes.cast(buf, ctypes.c_void_p), ctypes.pointer(written))
+    rc = cfs(FEATURE_MLIR_EXCHANGE, ctypes.byref(second), ctypes.sizeof(second))
     if rc < 0:
         return None, rc
     if written.value > size.value:
