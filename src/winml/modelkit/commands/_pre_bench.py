@@ -54,7 +54,7 @@ def print_pre_bench_block(
     Layout (Option B — see the mockup design doc for the target shape):
 
     - Identity: ``Model:`` (bold cyan; ``(HF)`` / ``(local)`` suffix), plus
-      an ``ONNX:`` line when a cached artifact path is supplied.
+      an ``Artifact:`` line when a cached artifact path is supplied.
     - Surface: ``Task:``, ``Opset:``, ``Inputs:``, ``Outputs:`` — each
       omitted when the source field is empty / ``None``.
     - Device: ``Device:`` (resolved short name + hardware name in dim
@@ -69,8 +69,8 @@ def print_pre_bench_block(
         task: Resolved task string (e.g. ``"image-classification"``).
         opset: ONNX opset for the surface block.
         inputs / outputs: I/O spec triples. Empty / ``None`` skips the row.
-        cached_onnx_path: Path of the compiled ONNX cached on disk (HF
-            path only). Rendered on a dedicated ``ONNX:`` line.
+        cached_onnx_path: Path of the model artifact on disk (ONNX or MLIR).
+            Rendered on a dedicated ``Artifact:`` line.
         onnx_file: Raw ``.onnx`` file path when the user bypassed HF.
         device: Resolved device short name (``"npu"`` / ``"gpu"`` /
             ``"cpu"``). Never the literal ``"auto"`` — callers are
@@ -95,7 +95,7 @@ def print_pre_bench_block(
             _labeled_line("Model:", f"[bold cyan]{model_id}[/bold cyan]  [dim](HF)[/dim]")
         )
         if cached_onnx_path:
-            model_lines.append(_labeled_line("ONNX:", f"[dim]{cached_onnx_path}[/dim]"))
+            model_lines.append(_labeled_line("Artifact:", f"[dim]{cached_onnx_path}[/dim]"))
     elif onnx_file:
         model_lines.append(
             _labeled_line("Model:", f"[bold cyan]{onnx_file}[/bold cyan]  [dim](local)[/dim]")
