@@ -176,6 +176,9 @@ where = [ "src" ]
 include = [ "winml", "winml.*" ]
 
 [tool.setuptools.package-data]
+# The CGC pattern atlas is opened by `winml cgc patterns --open`, so it ships in
+# the wheel. It is not a Python file, so packages.find never picks it up.
+"winml.modelkit.commands" = [ "assets/*.html" ]
 "winml.modelkit" = [ "py.typed" ]
 "winml.modelkit.data" = [ "hub_models.json" ]
 "winml.modelkit.analyze" = [
