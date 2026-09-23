@@ -239,24 +239,45 @@ def _select_query_ids(
     hf_rows: list[dict[str, Any]],
     queries: dict[str, str],
     qrels: dict[str, set[str]],
+    top1000_path: Path,
     *,
     max_queries: int,
 ) -> set[str]:
-    selected: set[str] = set()
+    eligible_ids: list[str] = []
+    hf_positive_ids: dict[str, set[str]] = {}
     for row in hf_rows:
         metadata = _parse_json_object(row["metadata"])
         qid = str(metadata.get("query_id", "")).strip()
+        row_positive_ids = {
+            str(value) for value in _parse_json_list(row["expected_output"])
+        }
         if (
             qid
+            and qid not in hf_positive_ids
             and qid in queries
             and qid in qrels
             and str(row["input"]) == queries[qid]
-            and {str(value) for value in _parse_json_list(row["expected_output"])} & qrels[qid]
+            and row_positive_ids & qrels[qid]
         ):
-            selected.add(qid)
-            if len(selected) >= max_queries:
-                break
-    return selected
+            eligible_ids.append(qid)
+            hf_positive_ids[qid] = row_positive_ids
+
+    has_positive: set[str] = set()
+    has_negative: set[str] = set()
+    for line in _iter_tar_lines(top1000_path, preferred_members=("top1000.dev", "top1000")):
+        if not line.strip():
+            continue
+        qid, pid, _query, _passage = line.split("\t", 3)
+        if qid not in hf_positive_ids:
+            continue
+        if pid in hf_positive_ids[qid] and pid in qrels[qid]:
+            has_positive.add(qid)
+        elif pid not in qrels[qid]:
+            has_negative.add(qid)
+
+    viable_ids = has_positive & has_negative
+    ordered_viable_ids = [qid for qid in eligible_ids if qid in viable_ids]
+    return set(ordered_viable_ids[:max_queries])
 
 
 def _select_rows(
@@ -382,6 +403,7 @@ def build_dataset(output_dir: Path, cache_dir: Path, max_queries: int, max_negat
         hf_rows,
         queries,
         qrels,
+        top1000_path,
         max_queries=max_queries,
     )
     top1000 = _load_top1000(top1000_path, selected_query_ids)

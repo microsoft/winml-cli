@@ -45,6 +45,7 @@ _FIXTURE_BUILDER_SPEC.loader.exec_module(_FIXTURE_BUILDER)
 CandidateRow = _FIXTURE_BUILDER.CandidateRow
 download = _FIXTURE_BUILDER._download
 load_top1000 = _FIXTURE_BUILDER._load_top1000
+select_query_ids = _FIXTURE_BUILDER._select_query_ids
 select_rows = _FIXTURE_BUILDER._select_rows
 
 
@@ -476,6 +477,40 @@ def test_fixture_builder_filters_top1000_while_streaming(tmp_path: Path) -> None
 
     assert list(grouped) == ["q1"]
     assert [candidate.pid for candidate in grouped["q1"]] == ["p1", "p3"]
+
+
+def test_fixture_builder_skips_hf_query_absent_from_top1000(tmp_path: Path) -> None:
+    archive_path = tmp_path / "top1000.dev.tar.gz"
+    payload = (
+        b"q2\tn2\tquery two\tnegative passage\n"
+        b"q2\tp2\tquery two\tpositive passage\n"
+    )
+    info = tarfile.TarInfo("top1000.dev")
+    info.size = len(payload)
+    with tarfile.open(archive_path, "w:gz") as archive:
+        archive.addfile(info, io.BytesIO(payload))
+    hf_rows = [
+        {
+            "input": "query one",
+            "expected_output": ["p1"],
+            "metadata": {"query_id": "q1"},
+        },
+        {
+            "input": "query two",
+            "expected_output": ["p2"],
+            "metadata": {"query_id": "q2"},
+        },
+    ]
+
+    selected = select_query_ids(
+        hf_rows,
+        {"q1": "query one", "q2": "query two"},
+        {"q1": {"p1"}, "q2": {"p2"}},
+        archive_path,
+        max_queries=1,
+    )
+
+    assert selected == {"q2"}
 
 
 def test_fixture_download_replaces_invalid_cache_atomically(tmp_path: Path, monkeypatch) -> None:
