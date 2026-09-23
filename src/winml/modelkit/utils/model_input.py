@@ -92,6 +92,18 @@ def _classify_local_dir(path: Path, raw: str) -> ModelInput:
     return ModelInput(kind=ModelInputKind.FOLDER, raw=raw, local_path=str(path))
 
 
+def resolve_build_output(path: Path) -> Path | None:
+    """Return the final ONNX from a plain ModelKit build directory, if identified."""
+    if not path.is_dir() or not any(
+        (path / marker).is_file() for marker in ("winml_build_config.json", "build_manifest.json")
+    ):
+        return None
+    onnx_path = path / "model.onnx"
+    if not onnx_path.is_file():
+        raise FileNotFoundError(f"Build output has no final model.onnx: {path}")
+    return onnx_path
+
+
 def classify_model_input(value: str) -> ModelInput:
     r"""Classify a ``-m/--model`` value without any network I/O.
 
