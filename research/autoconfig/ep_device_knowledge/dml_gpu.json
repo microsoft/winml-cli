@@ -1,0 +1,271 @@
+{
+  "_meta": {
+    "ep": "dml",
+    "device": "gpu",
+    "hardware": "Snapdragon X Elite CRD (Adreno X1-85 / DirectML via D3D12)",
+    "ort_version": "1.x with onnxruntime-directml package",
+    "model": "facebook/convnext-tiny-224 (ALL findings from this model only)",
+    "last_updated": "2026-06-17",
+    "epistemics_warning": "⚠️ DML experiments required swapping onnxruntime-directml for onnxruntime (Python package conflict). Results reflect DML EP behavior via winml's DML DLL, not the Python onnxruntime-directml package directly. Re-validate if package setup changes."
+  },
+  "sweep_config": {
+    "results_dir": "catalog-dml-sweep",
+    "quant": false,
+    "compile": false,
+    "screen": {
+      "warmup": 20,
+      "iters": 200,
+      "cv_max": 0.15,
+      "thermal_aware": false
+    },
+    "full": {
+      "warmup": 20,
+      "iters": 300,
+      "sessions": 3,
+      "cool_down_s": 5
+    },
+    "confirm_sessions": 2,
+    "min_improvement_pct": 5.0,
+    "effect_size_gate": false,
+    "effect_size_cv_mult": 2.0,
+    "accuracy_eval": false,
+    "eval_samples": 50,
+    "paired_ab_available": false,
+    "baseline_priority": [
+      "h0"
+    ],
+    "timeouts": {
+      "config_s": 300,
+      "build_s": 600,
+      "bench_s": 480,
+      "eval_s": 360,
+      "model_s": null
+    }
+  },
+  "hypotheses": [
+    {
+      "id": "h0",
+      "label": "baseline FP32 (auto-config, no compile)",
+      "opset": null,
+      "optim": null
+    },
+    {
+      "id": "h1",
+      "label": "opset 17 explicit",
+      "opset": 17,
+      "optim": null
+    },
+    {
+      "id": "h2",
+      "label": "opset 19",
+      "opset": 19,
+      "optim": null
+    },
+    {
+      "id": "h3",
+      "label": "opset 21 (tests dml-005)",
+      "opset": 21,
+      "optim": null
+    },
+    {
+      "id": "h4",
+      "label": "opset 17 + transpose_optimizer",
+      "opset": 17,
+      "optim": {
+        "transpose_optimizer": true
+      }
+    },
+    {
+      "id": "h5",
+      "label": "opset 17 + layer_norm_fusion",
+      "opset": 17,
+      "optim": {
+        "layer_norm_fusion": true
+      }
+    },
+    {
+      "id": "h6",
+      "label": "opset 17 + skip_layer_norm_fusion",
+      "opset": 17,
+      "optim": {
+        "skip_layer_norm_fusion": true
+      }
+    },
+    {
+      "id": "h7",
+      "label": "opset 17 + matmul_transpose_fusion",
+      "opset": 17,
+      "optim": {
+        "matmul_transpose_fusion": true
+      }
+    },
+    {
+      "id": "h8",
+      "label": "no optimization (analyzer auto-optimization disabled, --no-analyze)",
+      "opset": null,
+      "optim": null,
+      "build_flags": [
+        "--no-analyze"
+      ]
+    }
+  ],
+  "models": [
+    {
+      "id": "microsoft/resnet-18",
+      "task": "image-classification",
+      "model_type": "resnet"
+    },
+    {
+      "id": "google/vit-base-patch16-224",
+      "task": "image-classification",
+      "model_type": "vit"
+    },
+    {
+      "id": "apple/mobilevit-small",
+      "task": "image-classification",
+      "model_type": "mobilevit"
+    },
+    {
+      "id": "facebook/dinov2-small",
+      "task": "image-feature-extraction",
+      "model_type": "dinov2"
+    },
+    {
+      "id": "hustvl/yolos-small",
+      "task": "object-detection",
+      "model_type": "yolos"
+    },
+    {
+      "id": "distilbert/distilbert-base-uncased-finetuned-sst-2-english",
+      "task": "text-classification",
+      "model_type": "distilbert"
+    },
+    {
+      "id": "sentence-transformers/all-MiniLM-L6-v2",
+      "task": "sentence-similarity",
+      "model_type": "bert"
+    },
+    {
+      "id": "deepset/roberta-base-squad2",
+      "task": "question-answering",
+      "model_type": "roberta"
+    },
+    {
+      "id": "microsoft/rad-dino",
+      "task": "image-feature-extraction",
+      "model_type": "dinov2"
+    },
+    {
+      "id": "deepset/tinyroberta-squad2",
+      "task": "question-answering",
+      "model_type": "roberta"
+    },
+    {
+      "id": "BAAI/bge-small-en-v1.5",
+      "task": "sentence-similarity",
+      "model_type": "bert"
+    }
+  ],
+  "cross_checks": [
+    {
+      "id": "dml-005",
+      "type": "opset_bypass",
+      "candidate": "h3",
+      "stress_ref": "h1",
+      "baseline_ref": "h0"
+    }
+  ],
+  "findings": [
+    {
+      "id": "dml-001",
+      "title": "DML FP32 is more stable than QNN GPU FP32 — p50 difference is within noise",
+      "observation": "DML FP32: p50=16.9ms, p90=17.7ms, std=0.52. QNN GPU FP32: p50=17.7ms, p90=19.7ms, std=0.97. p50 diff = 0.8ms = 0.82σ of QNN GPU measurement — distributions OVERLAP. NOT a separable performance difference. DML is meaningfully more stable (std 0.52 vs 0.97, CV 3% vs 5.5%).",
+      "mechanism_confirmed": false,
+      "mechanism_hypothesis": "DML JIT-compiles HLSL shaders at model load time — shader compilation done once, producing stable execution. QNN GPU EP does graph partitioning at each session creation — more overhead and jitter.",
+      "action_for_autoconfig": "CORRECTED: Do NOT claim DML is faster than QNN GPU based on this data — the 0.8ms difference is within noise. DML IS more stable (lower CV). Prefer DML for lower tail latency (p90) and variance. p50 advantage is unconfirmed.",
+      "confidence": "low on p50 speedup (not statistically separable). Medium on stability advantage (std 0.52 vs 0.97 is real difference even if p50 overlaps).",
+      "falsified_by": "Statistical analysis: 0.8ms diff < 1σ of GPU measurement. Removed from 'DML is faster' claims.",
+      "scope": "Adreno X1-85, ConvNext-class models, 3-run comparison (insufficient for definitive p50 ranking)",
+      "do_not_generalize_to": "NVIDIA/Intel GPUs (QNN GPU not available there anyway)"
+    },
+    {
+      "id": "dml-002",
+      "title": "NHWC transformer increases latency variance on DML — p50 is neutral or marginally better",
+      "observation": "DML NHWC: p50=16.5ms (-0.4ms vs baseline 16.9ms), p90=21.0ms (+19% vs baseline 17.7ms), std=1.89 (3.6x worse than FP32 baseline 0.52). NOTE: p50 is marginally BETTER with NHWC, not worse. The regression is in tail latency and variance.",
+      "mechanism_confirmed": false,
+      "mechanism_hypothesis": "D3D12 on Adreno X1-85 handles tensor layouts internally via HLSL shaders. Adding explicit ORT NHWC Transposes does not improve memory alignment for DML but adds dispatch overhead that occasionally causes scheduling jitter, inflating p90 and std.",
+      "action_for_autoconfig": "Do NOT apply nhwc-transformer for DML EP if tail latency stability matters. p50 may be marginally better but p90 is 19% worse and std is 3.6x worse. For applications sensitive to worst-case latency, NHWC is harmful.",
+      "confidence": "low — single run comparison, different baselines (run_count unspecified). Direction for variance is clear; p50 benefit is marginal and unreliable.",
+      "falsified_by": null,
+      "scope": "Adreno X1-85 + DML, ConvNext",
+      "do_not_generalize_to": "NVIDIA GPUs (NHWC may help with CUDNN)"
+    },
+    {
+      "id": "dml-003",
+      "title": "DML FP16 gives ~1.4x speedup with NO DVFS bimodal (unlike QNN GPU FP16)",
+      "observation": "DML FP16 (via Python hack, not official CLI): p50=11.8ms, p90=12.8ms, std=0.66. Clean unimodal distribution.",
+      "mechanism_confirmed": false,
+      "mechanism_hypothesis": "DML HLSL shader compilation locks in FP16 compute paths at load time — no dynamic voltage/frequency switching surprises. QNN GPU FP16 showed DVFS bimodal distribution (some runs in high-power state, some in low-power state).",
+      "action_for_autoconfig": "FP16 is the primary optimization lever for DML. Unblock via #867 (--precision fp16 flag).",
+      "confidence": "low — experiment used Python hack (not official winml CLI). Mark as SKIPPED/CLI-gap until #867 ships.",
+      "falsified_by": null,
+      "scope": "Adreno X1-85 + DML",
+      "tracked_issue": "#867",
+      "cli_gap": true,
+      "cli_gap_note": "⚠️ This finding was produced via a Python workaround, not winml CLI. Cannot be reproduced with winml build today. Blocked on #867."
+    },
+    {
+      "id": "dml-004",
+      "title": "winml analyze returns 0/0/0/251 (all Unknown) for DML EP — no rule data",
+      "observation": "winml analyze --ep dml outputs: supported=0, partial=0, unsupported=0, unknown=251.",
+      "mechanism_confirmed": true,
+      "mechanism_hypothesis": "DML EP supports all standard ONNX ops by design (D3D12 universal op coverage). winml analyze has no DML-specific rule data file. This is a cosmetic gap — DML actually runs all ops natively.",
+      "action_for_autoconfig": "Do not use winml analyze output to prune search space for DML. Assume all ops supported.",
+      "confidence": "high — confirmed by DML running all 251 ops with no CPU fallback",
+      "falsified_by": null,
+      "scope": "DML EP (all models)",
+      "tracked_issue": "not filed — cosmetic gap, low priority"
+    },
+    {
+      "id": "dml-005",
+      "title": "opset 21 on DML not yet validated",
+      "observation": "opset 21 sweep only run on QNN NPU. DML behavior with opset 21 is unknown.",
+      "mechanism_confirmed": false,
+      "mechanism_hypothesis": "DML uses D3D12 dispatch — different from QNN EP kernel registry. opset 21 speedup on QNN NPU may not apply.",
+      "action_for_autoconfig": "Include opset 21 in DML search sweep. No prior data — must run experiment.",
+      "confidence": "low — no data",
+      "falsified_by": null,
+      "scope": "UNKNOWN — needs experiment"
+    }
+  ],
+  "search_space_rules": {
+    "opset": {
+      "recommended_order": [
+        17,
+        21
+      ],
+      "rationale": "dml-005: unknown. Include both in sweep.",
+      "dialectical_note": "⚠️ No data on DML + opset 21. Do not assume NPU behavior transfers."
+    },
+    "quantization": {
+      "recommended": "fp16 (when #867 ships)",
+      "skip": [
+        "w8a8",
+        "w8a16 — quantization rarely helps on GPU via DML"
+      ],
+      "dialectical_note": "⚠️ Quantization skip is based on general DML behavior. Some models with large weights may benefit from W8A16 even on DML. Test empirically."
+    },
+    "compile": {
+      "always_run": false,
+      "skip": true,
+      "dialectical_note": "⚠️ DML uses HLSL, not QNN binary compilation. winml compile targets QNN EPContext only. Not applicable to DML."
+    },
+    "graph_passes": {
+      "recommended": "autoconf defaults only",
+      "skip": [
+        "nhwc-transformer (dml-002)"
+      ],
+      "dialectical_note": "⚠️ Same as QNN GPU: NHWC hurts on Adreno. NVIDIA/Intel may differ."
+    }
+  }
+}

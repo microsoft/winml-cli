@@ -1,0 +1,249 @@
+{
+  "model_id": "facebook/dinov2-small",
+  "task": "image-feature-extraction",
+  "model_type": "dinov2",
+  "timestamp": "2026-06-18T12:25:19",
+  "ep": "cpu",
+  "device": "cpu",
+  "hypotheses": {
+    "h0": {
+      "status": "OK",
+      "label": "baseline (opset 17, autoconf defaults)",
+      "opset": 17,
+      "extra_optim": null,
+      "screen_p50_ms": 1108.058,
+      "screen_cv": 0.303283763124313,
+      "full_p50s_ms": [
+        142.033,
+        105.561,
+        112.599
+      ],
+      "median_p50_ms": 112.599,
+      "verdict": "BASELINE"
+    },
+    "h1": {
+      "status": "OK",
+      "label": "opset 17 explicit",
+      "opset": 17,
+      "extra_optim": null,
+      "screen_p50_ms": 114.372,
+      "screen_cv": 3.0164201028223694,
+      "full_p50s_ms": [
+        150.633,
+        1123.338,
+        762.812
+      ],
+      "median_p50_ms": 762.812,
+      "gain_vs_baseline_pct": -577.46,
+      "verdict": "DISCARD"
+    },
+    "h2": {
+      "status": "OK",
+      "label": "opset 19 (cpu-001 risk — transformer test)",
+      "opset": 19,
+      "extra_optim": null,
+      "screen_p50_ms": 918.187,
+      "screen_cv": 0.6378613506834665,
+      "full_p50s_ms": [
+        1106.113,
+        1104.489,
+        1164.205
+      ],
+      "median_p50_ms": 1106.113,
+      "gain_vs_baseline_pct": -882.35,
+      "verdict": "CPU001_REGRESSION"
+    },
+    "h3": {
+      "status": "OK",
+      "label": "opset 21 (cpu-001 risk — transformer test)",
+      "opset": 21,
+      "extra_optim": null,
+      "screen_p50_ms": 1139.678,
+      "screen_cv": 0.23544106317749397,
+      "full_p50s_ms": [
+        1057.558,
+        1095.186,
+        1128.223
+      ],
+      "median_p50_ms": 1095.186,
+      "gain_vs_baseline_pct": -872.64,
+      "verdict": "CPU001_REGRESSION"
+    },
+    "h4": {
+      "status": "OK",
+      "label": "opset 17 + attention_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "attention_fusion": true
+      },
+      "screen_p50_ms": 1093.504,
+      "screen_cv": 0.2851768260564205,
+      "full_p50s_ms": [
+        1086.54,
+        1068.752,
+        1083.83
+      ],
+      "median_p50_ms": 1083.83,
+      "gain_vs_baseline_pct": -862.56,
+      "verdict": "DISCARD"
+    },
+    "h5": {
+      "status": "OK",
+      "label": "opset 17 + skip_layer_norm_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "skip_layer_norm_fusion": true
+      },
+      "screen_p50_ms": 1099.529,
+      "screen_cv": 0.3173004077200328,
+      "full_p50s_ms": [
+        1119.951,
+        1103.065,
+        161.832
+      ],
+      "median_p50_ms": 1103.065,
+      "gain_vs_baseline_pct": -879.64,
+      "verdict": "DISCARD"
+    },
+    "h6": {
+      "status": "OK",
+      "label": "opset 17 + layer_norm_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "layer_norm_fusion": true
+      },
+      "screen_p50_ms": 881.27,
+      "screen_cv": 0.6731739421516676,
+      "full_p50s_ms": [
+        142.596,
+        155.014,
+        148.704
+      ],
+      "median_p50_ms": 148.704,
+      "gain_vs_baseline_pct": -32.07,
+      "verdict": "DISCARD"
+    },
+    "h7": {
+      "status": "OK",
+      "label": "opset 17 + bias_softmax_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "bias_softmax_fusion": true
+      },
+      "screen_p50_ms": 107.327,
+      "screen_cv": 0.367950282780661,
+      "full_p50s_ms": [
+        899.911,
+        1145.338,
+        1121.982
+      ],
+      "median_p50_ms": 1121.982,
+      "gain_vs_baseline_pct": -896.44,
+      "verdict": "DISCARD"
+    },
+    "h8": {
+      "status": "SKIPPED_CPU002",
+      "label": "opset 17 + matmul_add_fusion (cpu-002 guarded)",
+      "opset": 17,
+      "reason": "cpu-002: model already has Gemm — matmul_add_fusion skipped"
+    },
+    "h9": {
+      "status": "OK",
+      "label": "opset 17 + matmul_transpose_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "matmul_transpose_fusion": true
+      },
+      "screen_p50_ms": 102.861,
+      "screen_cv": 0.5473794732697523,
+      "full_p50s_ms": [
+        161.473,
+        186.476,
+        334.336
+      ],
+      "median_p50_ms": 186.476,
+      "gain_vs_baseline_pct": -65.61,
+      "verdict": "DISCARD"
+    },
+    "h10": {
+      "status": "OK",
+      "label": "opset 17 + attention + skip_layer_norm + layer_norm",
+      "opset": 17,
+      "extra_optim": {
+        "attention_fusion": true,
+        "skip_layer_norm_fusion": true,
+        "layer_norm_fusion": true
+      },
+      "screen_p50_ms": 168.419,
+      "screen_cv": 3.5594440057238192,
+      "full_p50s_ms": [
+        121.378,
+        167.902,
+        136.572
+      ],
+      "median_p50_ms": 136.572,
+      "gain_vs_baseline_pct": -21.29,
+      "verdict": "DISCARD"
+    },
+    "h11": {
+      "status": "OK",
+      "label": "opset 17 + nchwc_transformer (Conv-heavy models)",
+      "opset": 17,
+      "extra_optim": {
+        "nchwc_transformer": true
+      },
+      "screen_p50_ms": 156.796,
+      "screen_cv": 2.250503839383658,
+      "full_p50s_ms": [
+        157.508,
+        192.392,
+        157.246
+      ],
+      "median_p50_ms": 157.508,
+      "gain_vs_baseline_pct": -39.88,
+      "verdict": "DISCARD"
+    },
+    "h12": {
+      "status": "OK",
+      "label": "opset 17 + transpose_optimizer",
+      "opset": 17,
+      "extra_optim": {
+        "transpose_optimizer": true
+      },
+      "screen_p50_ms": 159.442,
+      "screen_cv": 3.556904705159243,
+      "full_p50s_ms": [
+        175.292,
+        143.108,
+        154.593
+      ],
+      "median_p50_ms": 154.593,
+      "gain_vs_baseline_pct": -37.3,
+      "verdict": "DISCARD"
+    },
+    "h13": {
+      "status": "OK",
+      "label": "opset 17 + gelu_fusion explicit",
+      "opset": 17,
+      "extra_optim": {
+        "gelu_fusion": true
+      },
+      "screen_p50_ms": 175.256,
+      "screen_cv": 2.8835132606016343,
+      "full_p50s_ms": [
+        146.716,
+        163.783,
+        154.105
+      ],
+      "median_p50_ms": 154.105,
+      "gain_vs_baseline_pct": -36.86,
+      "verdict": "DISCARD"
+    }
+  },
+  "baseline_p50_ms": 112.599,
+  "best_p50_ms": null,
+  "best_hypothesis": null,
+  "best_gain_pct": null,
+  "errors": [],
+  "baseline_opset": 17
+}
