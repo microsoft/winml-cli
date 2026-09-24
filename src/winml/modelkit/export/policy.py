@@ -161,7 +161,7 @@ def resolve_export_compatibility(
 
 
 def _catalog_targets() -> tuple[ExportPolicyTarget, ...]:
-    from ..session.ep_device import EP_DEVICE_SPECS
+    from ..session import EP_DEVICE_SPECS
 
     return tuple(ExportPolicyTarget(ep=spec.ep, device=spec.device) for spec in EP_DEVICE_SPECS)
 
