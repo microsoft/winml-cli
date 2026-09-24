@@ -424,15 +424,21 @@ not supported.
 ## Concrete input shapes for CGC
 
 For local ONNX models, Runtime CGC and WinMLCG receive concrete named input
-dimensions before compilation. With --input-data, shapes come from NPZ headers
-without allocating input tensors. Otherwise, the existing --shape-config and
-batch-size resolution rules apply. Rank, static axes, positive dimensions and
-shared symbolic names must agree. The source ONNX is not rewritten.
+dimensions before compilation. With `--input-data`, shapes come from NPZ headers
+(NPY versions 1, 2, and 3) without allocating input tensors. Otherwise, the existing
+`--shape-config` and `--batch-size` resolution rules apply. Input names and ranks
+must match the ONNX schema, fixed axes must retain their declared extents
+(including zero), and shared symbolic names must resolve to the same positive
+int64 value. The source ONNX is not rewritten.
 
 Runtime CGC requires a Runtime compiler that supports symbolic-dimension
-options. Anonymous dynamic axes are rejected rather than guessed, and these
-overrides do not resolve internal data-dependent shapes. Input payload loading
-and dtype conversion still occur at the normal input-allocation boundary.
+options when named overrides are needed. Anonymous dynamic axes are left
+unbound rather than rejected or assigned invented names; the compiler determines
+whether they require specialization. This preserves executable graphs with
+unused anonymous inputs, but does not add general anonymous-axis binding or
+resolve internal data-dependent shapes. Accepting a matching static zero extent
+does not guarantee that every CGC operator supports empty tensors. Input payload
+loading and dtype conversion still occur at the normal input-allocation boundary.
 
 ## See also
 
