@@ -4,7 +4,7 @@ requires = [ "setuptools>=61", "wheel" ]
 
 [project]
 name = "winml-cli"
-version = "0.3.1"
+version = "0.4.0"
 description = "Accelerate Model Deployment on WinML"
 readme = "README.md"
 keywords = [ "onnx", "winml" ]
@@ -176,12 +176,16 @@ where = [ "src" ]
 include = [ "winml", "winml.*" ]
 
 [tool.setuptools.package-data]
+# The CGC pattern atlas is opened by `winml cgc patterns --open`, so it ships in
+# the wheel. It is not a Python file, so packages.find never picks it up.
+"winml.modelkit.commands" = [ "assets/*.html" ]
 "winml.modelkit" = [ "py.typed" ]
 "winml.modelkit.data" = [ "hub_models.json" ]
 "winml.modelkit.analyze" = [
   "rules/**/*.json",
   "rules/**/*.parquet",
   "runtime_checker/need_rerun_errors.json",
+  "utils/avalizble_ep_device_ops/avaliable_providers.json",
 ]
 "winml.modelkit.export" = [
   "compatibility_rules.json",
