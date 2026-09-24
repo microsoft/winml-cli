@@ -519,8 +519,140 @@ def _create_extractive_question_answering_pipeline(
     return _ExtractiveQuestionAnsweringPipeline(model, tokenizer, device=device)
 
 
+class _ClassificationVisualQuestionAnsweringPipeline:
+    """Fixed-vocabulary visual-question-answering pipeline.
+
+    This compatibility pipeline replaces the classification VQA pipeline removed
+    from Transformers 5. It deliberately requires a rank-2 ``logits`` output;
+    generative VQA models use a different inference contract and are not silently
+    treated as answer-vocabulary classifiers.
+    """
+
+    task = "visual-question-answering"
+
+    def __init__(self, model: Any, processor: Any, device: str = "cpu") -> None:
+        self.model = model
+        self.processor = processor
+        self.device = device
+        self.tokenizer = getattr(processor, "tokenizer", None)
+        self.image_processor = getattr(processor, "image_processor", None)
+        self._preprocess_params: dict[str, Any] = {}
+
+    def preprocess(self, inputs: Any, **_kwargs: Any) -> dict[str, Any]:
+        """Prepare one image/question pair for the model's declared inputs."""
+        import numpy as np
+        import torch
+        from PIL import Image
+
+        if not isinstance(inputs, Mapping):
+            raise TypeError("Visual-question-answering input must be a mapping.")
+        image = inputs.get("image")
+        question = inputs.get("question")
+        if not isinstance(image, Image.Image):
+            raise TypeError("Visual-question-answering image must be a PIL image.")
+        if not isinstance(question, str) or not question:
+            raise ValueError("Visual-question-answering question must be a non-empty string.")
+
+        io_config = getattr(self.model, "io_config", None) or {}
+        input_names = list(io_config.get("input_names", []))
+        input_shapes = list(io_config.get("input_shapes", []))
+        input_types = list(io_config.get("input_types", []))
+        if not input_names:
+            raise ValueError("Visual-question-answering model has no declared inputs.")
+
+        image_shape = next((shape for shape in input_shapes if len(shape) == 4), None)
+        if image_shape is not None and all(isinstance(size, int) for size in image_shape[2:]):
+            height, width = image_shape[2:]
+            image = image.convert("RGB").resize((width, height), Image.Resampling.BILINEAR)
+        else:
+            image = image.convert("RGB")
+
+        sequence_length = next(
+            (shape[1] for shape in input_shapes if len(shape) == 2 and isinstance(shape[1], int)),
+            None,
+        )
+        processor_kwargs: dict[str, Any] = {"return_tensors": "pt"}
+        if sequence_length is not None:
+            processor_kwargs.update(
+                padding="max_length",
+                max_length=sequence_length,
+                truncation=True,
+            )
+        encoded = self.processor(images=image, text=question, **processor_kwargs)
+
+        type_map = dict(zip(input_names, input_types, strict=False))
+        model_inputs: dict[str, Any] = {}
+        for name in input_names:
+            if name not in encoded:
+                raise ValueError(f"Processor did not produce required model input {name!r}.")
+            value = encoded[name]
+            dtype = str(type_map.get(name, ""))
+            if "int32" in dtype:
+                value = value.to(torch.int32)
+            elif "int64" in dtype:
+                value = value.to(torch.int64)
+            elif "float16" in dtype:
+                value = value.to(torch.float16)
+            elif "float" in dtype:
+                value = value.to(torch.float32)
+            elif isinstance(value, np.ndarray):
+                value = torch.from_numpy(value)
+            model_inputs[name] = value
+        return model_inputs
+
+    def _forward(self, model_inputs: dict[str, Any]) -> Any:
+        return self.model(**model_inputs)
+
+    def postprocess(self, outputs: Any) -> list[dict[str, Any]]:
+        """Decode the highest-scoring fixed answer-vocabulary label."""
+        import torch
+
+        logits = getattr(outputs, "logits", None)
+        if logits is None and isinstance(outputs, Mapping):
+            logits = outputs.get("logits")
+        if not isinstance(logits, torch.Tensor) or logits.ndim != 2:
+            raise ValueError(
+                "Classification visual-question-answering requires rank-2 logits; "
+                "generative VQA outputs are not supported by this pipeline."
+            )
+        if logits.shape[0] != 1:
+            raise ValueError("Classification visual-question-answering expects one input row.")
+        scores = torch.softmax(logits[0].float(), dim=-1)
+        index = int(torch.argmax(scores).item())
+        id2label = getattr(getattr(self.model, "config", None), "id2label", None) or {}
+        answer = id2label.get(index, id2label.get(str(index)))
+        if answer is None:
+            raise ValueError(f"Model config has no answer label for logits index {index}.")
+        return [{"score": float(scores[index]), "answer": str(answer)}]
+
+    def __call__(self, image: Any, question: str) -> list[dict[str, Any]]:
+        """Answer one question about one image."""
+        inputs = self.preprocess({"image": image, "question": question})
+        return self.postprocess(self._forward(inputs))
+
+
+def _create_classification_visual_question_answering_pipeline(
+    model: Any,
+    model_id: str | None,
+    device: str = "cpu",
+    trust_remote_code: bool = False,
+) -> _ClassificationVisualQuestionAnsweringPipeline:
+    """Create the Transformers-5 compatibility pipeline for classification VQA."""
+    from transformers import AutoProcessor
+
+    processor_source = model_id or getattr(getattr(model, "config", None), "_name_or_path", None)
+    if not processor_source:
+        raise ValueError("model_id is required to load a visual-question-answering processor.")
+    processor = AutoProcessor.from_pretrained(
+        processor_source,
+        trust_remote_code=trust_remote_code,
+    )
+    return _ClassificationVisualQuestionAnsweringPipeline(model, processor, device=device)
+
+
 _COMPAT_PIPELINE_FACTORIES = {
     "question-answering": _create_extractive_question_answering_pipeline,
+    "visual-question-answering": _create_classification_visual_question_answering_pipeline,
 }
 
 
