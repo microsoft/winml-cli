@@ -790,6 +790,41 @@ class TestPerfUnifiedPipeline:
         assert kwargs.kwargs["force_rebuild"] is False
         assert benchmark._model is mock_model
 
+    @pytest.mark.parametrize("marker", ["winml_build_config.json", "build_manifest.json"])
+    def test_build_directory_loads_final_onnx(self, tmp_path: Path, marker: str) -> None:
+        (tmp_path / "model.onnx").write_bytes(b"fake onnx")
+        (tmp_path / marker).write_text("{}")
+        benchmark = PerfBenchmark(BenchmarkConfig(model_id=str(tmp_path), device="cpu"))
+
+        with (
+            patch(
+                "winml.modelkit.models.auto.WinMLAutoModel.from_onnx",
+                return_value=MagicMock(),
+            ) as mock_from_onnx,
+            patch(
+                "winml.modelkit.models.auto.WinMLAutoModel.from_pretrained",
+                side_effect=AssertionError("build directory must not use HF loading"),
+            ),
+        ):
+            benchmark._load_model()
+
+        assert mock_from_onnx.call_args.kwargs["onnx_path"] == tmp_path / "model.onnx"
+        assert mock_from_onnx.call_args.kwargs["skip_build"] is True
+
+    def test_hf_directory_still_loads_from_pretrained(self, tmp_path: Path) -> None:
+        (tmp_path / "config.json").write_text("{}")
+        benchmark = PerfBenchmark(
+            BenchmarkConfig(model_id=str(tmp_path), task="image-classification", device="cpu")
+        )
+        with patch(
+            "winml.modelkit.models.auto.WinMLAutoModel.from_pretrained",
+            return_value=MagicMock(),
+        ) as mock_from_pretrained:
+            benchmark._load_model()
+
+        mock_from_pretrained.assert_called_once()
+        assert mock_from_pretrained.call_args.args[0] == str(tmp_path)
+
     def test_hf_load_model_calls_from_pretrained(self) -> None:
         """HF model input should use WinMLAutoModel.from_pretrained in _load_model."""
         config = BenchmarkConfig(
@@ -973,6 +1008,31 @@ class TestPerfUnifiedPipeline:
 
         assert result.exit_code == 0, result.output
         mock_perf_cls.assert_called_once()
+
+    def test_cli_build_directory_routes_as_onnx(self, runner: CliRunner, tmp_path: Path) -> None:
+        (tmp_path / "model.onnx").write_bytes(b"fake onnx")
+        (tmp_path / "winml_build_config.json").write_text("{}")
+        with (
+            patch("winml.modelkit.commands.perf.PerfBenchmark") as mock_perf_cls,
+            patch("winml.modelkit.commands.perf.display_console_report"),
+            patch("winml.modelkit.commands.perf.write_json_report"),
+        ):
+            mock_perf_cls.return_value.run.return_value = MagicMock()
+            result = runner.invoke(
+                perf, ["-m", str(tmp_path), "-o", str(tmp_path / "out.json")], obj={}
+            )
+
+        assert result.exit_code == 0, result.output
+        assert mock_perf_cls.call_args.args[0].model_id == str(tmp_path / "model.onnx")
+
+    def test_cli_incomplete_build_directory_reports_missing_model(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        (tmp_path / "winml_build_config.json").write_text("{}")
+        result = runner.invoke(perf, ["-m", str(tmp_path)], obj={})
+
+        assert result.exit_code == 2
+        assert "no final model.onnx" in result.output
 
     def test_cli_onnx_winml_runtime_preserves_explicit_target(
         self, runner: CliRunner, tmp_path: Path
