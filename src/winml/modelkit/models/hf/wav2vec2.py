@@ -24,6 +24,14 @@ from ..winml import register_specialization
 
 EMOTION_REGRESSION_MODEL_TYPE = "wav2vec2_emotion_regression"
 
+# Checkpoint identity selects the custom head, never performance settings.
+CHECKPOINT_LOADER_DEFAULTS = {
+    "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim": (
+        "audio-classification",
+        EMOTION_REGRESSION_MODEL_TYPE,
+    ),
+}
+
 
 class RegressionHead(nn.Module):
     """Audeering dimensional-emotion regression head."""

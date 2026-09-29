@@ -176,7 +176,7 @@ def resolve_loader_config(
     """
     from transformers import AutoConfig
 
-    from .resolution import resolve_task
+    from .resolution import _checkpoint_loader_defaults, resolve_task
 
     if trust_remote_code:
         from ..utils.cli import warn_trust_remote_code
@@ -219,18 +219,14 @@ def resolve_loader_config(
             f"attribute. Cannot proceed with config generation."
         )
 
-    # Explicit model_type override alongside a model_id: thread the requested
+    # Explicit model_type: thread the requested
     # variant through downstream resolution (task / class / composite tag and
     # the loader config's model_type) WITHOUT mutating the loaded HF config. The
     # exported graph, the htp Optimum patcher and every other consumer must keep
     # seeing the architecture's native type; only the resolved build-variant tag
-    # changes. The model_type-only path above (AutoConfig.for_model) is
-    # unaffected because it only runs when model_id is None.
-    model_type_override = (
-        model_type
-        if (model_id is not None and model_type is not None and hf_config.model_type != model_type)
-        else None
-    )
+    # changes. Preserve even an explicit native type so checkpoint defaults
+    # cannot override it, including when hf_config was supplied by the caller.
+    model_type_override = model_type
     if model_type_override is not None:
         logger.info(
             "Applying model_type override '%s' -> '%s' (explicit request)",
@@ -240,11 +236,15 @@ def resolve_loader_config(
 
     # 2-3. Unified resolution. Task detection — including the no-architectures
     # --model-type fallback (first supported task) — now lives in resolve_task.
+    checkpoint_defaults = _checkpoint_loader_defaults(
+        hf_config, task, model_class, model_type, model_id
+    )
     resolution = resolve_task(
         hf_config,
         task=task,
         model_class=model_class,
         model_type_override=model_type_override,
+        model_id=model_id,
     )
     resolved_task, resolved_class = resolution.task, resolution.model_class
     logger.info("Resolved: task=%s, model_class=%s", resolved_task, resolved_class.__name__)
@@ -260,6 +260,8 @@ def resolve_loader_config(
     # resolved_hf_config keeps its native model_type.
     if model_type_override is not None:
         resolved_model_type = model_type_override
+    elif checkpoint_defaults is not None:
+        resolved_model_type = checkpoint_defaults[1]
 
     # 5. Build loader config
     loader_config = WinMLLoaderConfig(

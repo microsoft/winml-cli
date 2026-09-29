@@ -474,12 +474,34 @@ def _composite_display_class(model_type_norm: str, components: CompositeComponen
     return cast("type", TasksManager.get_model_class_for_task(generation_first[0], framework="pt"))
 
 
+def _checkpoint_loader_defaults(
+    config: PretrainedConfig,
+    task: str | None,
+    model_class: str | None,
+    model_type: str | None,
+    model_id: str | None = None,
+) -> tuple[str, str] | None:
+    """Resolve exact checkpoint identity without overriding explicit choices."""
+    if model_class is not None or model_type is not None:
+        return None
+    from ..models.hf import CHECKPOINT_LOADER_DEFAULTS
+
+    identity = model_id or getattr(config, "_name_or_path", "")
+    if not isinstance(identity, str):
+        return None
+    defaults = CHECKPOINT_LOADER_DEFAULTS.get(identity)
+    if defaults is None or (task is not None and normalize_task(task) != defaults[0]):
+        return None
+    return defaults
+
+
 def resolve_task(
     config: PretrainedConfig,
     *,
     task: str | None = None,
     model_class: str | None = None,
     model_type_override: str | None = None,
+    model_id: str | None = None,
 ) -> TaskResolution:
     """Resolve a single model's task + class from an HF config.
 
@@ -490,6 +512,8 @@ def resolve_task(
     ``model_type_override`` lets a caller drive resolution with a build variant
     (e.g. ``qwen3_transformer_only``) without mutating the loaded HF config; when
     ``None`` the architecture's native ``config.model_type`` is used.
+    ``model_id`` supplies the requested checkpoint identity when a caller has
+    already loaded its config; otherwise ``config._name_or_path`` is used.
     """
     if getattr(config, "_winml_generic_fallback", False) is True:
         raise ValueError(
@@ -499,6 +523,19 @@ def resolve_task(
         )
 
     from optimum.exporters.tasks import TasksManager
+
+    defaults = _checkpoint_loader_defaults(config, task, model_class, model_type_override, model_id)
+    if defaults is not None:
+        default_task, variant = defaults
+        custom = _get_custom_model_class(variant.replace("_", "-"), default_task)
+        if custom is None:
+            raise ValueError(f"Checkpoint loader variant {variant!r} is not registered")
+        return TaskResolution(
+            default_task,
+            to_optimum_task(default_task),
+            custom,
+            TaskSource.USER_TASK if task is not None else TaskSource.MODEL_ID_DEFAULT,
+        )
 
     model_type = model_type_override or getattr(config, "model_type", None)
     model_type_norm = model_type.lower().replace("_", "-") if model_type else ""

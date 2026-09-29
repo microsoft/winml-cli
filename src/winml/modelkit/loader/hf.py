@@ -236,11 +236,7 @@ def load_hf_model(
     # freshly-loaded HF config. The torch model is instantiated from its own
     # native config below, so export/patcher consumers keep the native type;
     # only class/task resolution sees the variant.
-    model_type_override = (
-        model_type
-        if model_type is not None and getattr(hf_config, "model_type", None) != model_type
-        else None
-    )
+    model_type_override = model_type
     if model_type_override is not None:
         logger.info(
             "Applying model_type override '%s' -> '%s' (explicit request)",
@@ -266,6 +262,7 @@ def load_hf_model(
                 task=task,
                 model_class=model_class,
                 model_type_override=model_type_override,
+                model_id=model_name_or_path,
             )
             task, resolved_class = resolution.task, resolution.model_class
         except ValueError as e:
