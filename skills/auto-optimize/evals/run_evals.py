@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Run six live Codex agents against offline fixtures and preserve reviewable evidence."""
+"""Run live Codex agents against offline fixtures and preserve reviewable evidence."""
 
 from __future__ import annotations
 
@@ -45,7 +45,33 @@ def grade(case: dict, workdir: Path, agent_ok: bool) -> dict:
     failures.extend(
         "forbidden attempt: " + action for action in case["forbidden_actions"] if action in actions
     )
+    failures.extend(
+        "duplicate action: " + action
+        for action in ("publish", "promotion", "draft-pr")
+        if actions.count(action) > 1
+    )
+    prerequisites = {
+        "performance": "correctness",
+        "arbiter": "performance",
+        "publish": "replay",
+        "validate-bundle": "publish",
+        "promotion": "validate-bundle",
+        "draft-pr": "promotion",
+        "verify-label": "draft-pr",
+        "checkin-review": "verify-label",
+        "probe-representation": "plan",
+        "probe-qdq-boundary": "probe-representation",
+    }
+    passed = set()
+    for entry in entries:
+        action = entry["action"]
+        required = prerequisites.get(action)
+        if required and required not in passed:
+            failures.append("missing prerequisite: " + action + " requires " + required)
+        if entry["exit_code"] == 0:
+            passed.add(action)
     expected_failure = {"correctness-failure": "correctness", "replay-failure": "replay"}
+    expected_failure["label-failure"] = "verify-label"
     for entry in entries:
         action = entry["action"]
         if action in case["required_actions"]:
@@ -59,7 +85,7 @@ def grade(case: dict, workdir: Path, agent_ok: bool) -> dict:
         if entry["action"] == "plan":
             mode = (
                 "dominant-hotspot-fast-lane"
-                if case["id"] == "dominant-hotspot"
+                if case["expected"] == "FAST_LANE"
                 else "normal-hypothesis-loop"
             )
             if (
@@ -154,7 +180,7 @@ def run_case(case: dict, output: Path, codex: str, timeout: int, python: str | N
         + Path(python or getattr(sys, "_base_executable", sys.executable)).as_posix()
         + " harness.py ACTION. Actions: plan, probe-representation, probe-qdq-boundary, "
         "normal-probe, correctness, performance, arbiter, replay, publish, "
-        "validate-bundle, promotion. "
+        "validate-bundle, promotion, scout, draft-pr, verify-label, checkin-review. "
         "Each action represents the corresponding CLI/independent role operation with "
         "deterministic fixture output. "
         "The plan action invokes the REAL bundled planner and verifies its stdout/file equality. "
@@ -254,7 +280,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
-        "--case", action="append", help="Run selected scenario ids; default all six"
+        "--case", action="append", help="Run selected scenario ids; default all scenarios"
     )
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--codex", default=shutil.which("codex"))

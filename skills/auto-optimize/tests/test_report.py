@@ -66,7 +66,7 @@ def test_final_report_rejects_invalid_baseline(report_module, value):
 
 
 def _report() -> dict[str, Any]:
-    return {
+    report = {
         "schema_version": 2,
         "title": "Model <unsafe> optimization",
         "updated_at": "2026-08-12T00:00:00Z",
@@ -244,6 +244,35 @@ def _report() -> dict[str, Any]:
             "manifest": "manifest.json",
         },
     }
+
+    sections = [
+        (report["baseline"], ("p90_ms", "p99_ms", "throughput_ips")),
+        (
+            report["evidence"]["execution"],
+            (
+                "accelerator_pct",
+                "host_overhead_pct",
+                "partition_count",
+                "fallback_nodes",
+                "transfers",
+            ),
+        ),
+        (report["evidence"]["analyzer"], ("coverage", "optimizations")),
+        (
+            report["evidence"]["detail_profile"],
+            ("hardware_time_us", "memory_time_us", "ddr_read_bytes", "ddr_write_bytes"),
+        ),
+    ]
+    sections += [(row, ("nodes",)) for row in report["model"]["components"]]
+    sections += [
+        (row, ("hardware_time_us", "memory_time_us", "dram_bytes"))
+        for row in report["baseline"]["hotspots"]
+    ]
+    for row, fields in sections:
+        row["missing_reasons"] = {
+            key: "Not collected in this fixture" for key in fields if row.get(key) in (None, "", [])
+        }
+    return report
 
 
 def test_template_is_valid_and_report_renders_all_sections(
@@ -672,3 +701,28 @@ def test_final_report_requires_diagnosis_and_delivery_artifacts(
 
     with pytest.raises(report_module.ReportError, match=rf"{section}\.{field}"):
         report_module.validate_report(report, final=True)
+
+
+def test_final_report_rejects_unexplained_display_gap(report_module):
+    report = _report()
+    report["evidence"]["execution"].pop("partition_count")
+    with pytest.raises(report_module.ReportError, match="partition_count"):
+        report_module.validate_report(report, final=True)
+
+
+def test_cycles_and_missing_reason_render(report_module, tmp_path):
+    report = _report()
+    report["baseline"]["hotspots"][0]["cycles"] = 123456
+    report["baseline"]["p90_ms"] = None
+    report["baseline"]["missing_reasons"] = {"p90_ms": "Not aggregated: session percentiles only"}
+    out = tmp_path / "report.html"
+    report_module.render_report(report, out)
+    text = out.read_text(encoding="utf-8")
+    assert "123456" in text
+    assert "Not aggregated: session percentiles only" in text
+
+
+def test_missing_metric_explanation_is_small(report_module):
+    rendered = report_module._metric("p90", "No raw timing samples recorded", " ms")
+    assert "<strong>N/A</strong>" in rendered
+    assert "<small>No raw timing samples recorded</small>" in rendered
