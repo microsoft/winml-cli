@@ -107,7 +107,7 @@ from .vision_encoder_decoder import (
 )
 from .vision_encoder_decoder import VisionEncoderIOConfig as _VisionEncoderIOConfig
 from .vitpose import MODEL_CLASS_MAPPING as _VITPOSE_CLASS_MAPPING
-from .wav2vec2 import CHECKPOINT_LOADER_DEFAULTS as _WAV2VEC2_LOADER_DEFAULTS
+from .wav2vec2 import ARCHITECTURE_LOADER_DEFAULTS as _WAV2VEC2_LOADER_DEFAULTS
 from .wav2vec2 import MODEL_CLASS_MAPPING as _WAV2VEC2_CLASS_MAPPING
 from .wav2vec2 import (
     # triggers registration
@@ -153,9 +153,9 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str | None], type] = {
     for _key, _model_cls in _sub_mapping.items()
 }
 
-# Exact checkpoint identities whose custom heads are absent from HF AutoModel.
-# Values are (default task, registered build variant), not tuned recipes.
-CHECKPOINT_LOADER_DEFAULTS: dict[str, tuple[str, str]] = {
+# Declared architecture identities whose custom heads are absent from HF AutoModel.
+# Values are (default task, registered build variant, required config fields), not tuned recipes.
+ARCHITECTURE_LOADER_DEFAULTS: dict[tuple[str, str], tuple[str, str, dict[str, str]]] = {
     **_WAV2VEC2_LOADER_DEFAULTS,
 }
 
@@ -190,7 +190,7 @@ MODEL_BUILD_CONFIGS = {
 }
 
 __all__ = [
-    "CHECKPOINT_LOADER_DEFAULTS",
+    "ARCHITECTURE_LOADER_DEFAULTS",
     "MODEL_BUILD_CONFIGS",
     "MODEL_CLASS_MAPPING",
 ]

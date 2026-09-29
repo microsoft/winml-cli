@@ -176,7 +176,7 @@ def resolve_loader_config(
     """
     from transformers import AutoConfig
 
-    from .resolution import _checkpoint_loader_defaults, resolve_task
+    from .resolution import _architecture_loader_defaults, resolve_task
 
     if trust_remote_code:
         from ..utils.cli import warn_trust_remote_code
@@ -236,15 +236,12 @@ def resolve_loader_config(
 
     # 2-3. Unified resolution. Task detection — including the no-architectures
     # --model-type fallback (first supported task) — now lives in resolve_task.
-    checkpoint_defaults = _checkpoint_loader_defaults(
-        hf_config, task, model_class, model_type, model_id
-    )
+    architecture_defaults = _architecture_loader_defaults(hf_config, task, model_class, model_type)
     resolution = resolve_task(
         hf_config,
         task=task,
         model_class=model_class,
         model_type_override=model_type_override,
-        model_id=model_id,
     )
     resolved_task, resolved_class = resolution.task, resolution.model_class
     logger.info("Resolved: task=%s, model_class=%s", resolved_task, resolved_class.__name__)
@@ -260,8 +257,8 @@ def resolve_loader_config(
     # resolved_hf_config keeps its native model_type.
     if model_type_override is not None:
         resolved_model_type = model_type_override
-    elif checkpoint_defaults is not None:
-        resolved_model_type = checkpoint_defaults[1]
+    elif architecture_defaults is not None:
+        resolved_model_type = architecture_defaults[1]
 
     # 5. Build loader config
     loader_config = WinMLLoaderConfig(

@@ -250,6 +250,7 @@ class TaskSource(str, Enum):
     USER_TASK = "user-task"  # user passed --task
     USER_CLASS = "user-class"  # user passed --model-class; task inferred
     MODEL_ID_DEFAULT = "model-id-default"  # MODEL_TASK_MAPPING model-id default
+    ARCHITECTURE_DEFAULT = "architecture-default"
     SENTINEL_DEFAULT = "sentinel-default"  # (model_type, None) sentinel
     TASKS_MANAGER = "tasks-manager"  # Optimum inference (incl. fill-mask upgrade)
     WRAPPED_LIBRARY = "wrapped-library"  # no architectures -> first supported task
@@ -474,25 +475,38 @@ def _composite_display_class(model_type_norm: str, components: CompositeComponen
     return cast("type", TasksManager.get_model_class_for_task(generation_first[0], framework="pt"))
 
 
-def _checkpoint_loader_defaults(
+def _architecture_loader_defaults(
     config: PretrainedConfig,
     task: str | None,
     model_class: str | None,
     model_type: str | None,
-    model_id: str | None = None,
 ) -> tuple[str, str] | None:
-    """Resolve exact checkpoint identity without overriding explicit choices."""
+    """Match declared architecture metadata without inspecting repository names."""
     if model_class is not None or model_type is not None:
         return None
-    from ..models.hf import CHECKPOINT_LOADER_DEFAULTS
+    from ..models.hf import ARCHITECTURE_LOADER_DEFAULTS
 
-    identity = model_id or getattr(config, "_name_or_path", "")
-    if not isinstance(identity, str):
+    native_type = getattr(config, "model_type", None)
+    architectures = getattr(config, "architectures", None)
+    if not isinstance(native_type, str) or not isinstance(architectures, (list, tuple)):
         return None
-    defaults = CHECKPOINT_LOADER_DEFAULTS.get(identity)
-    if defaults is None or (task is not None and normalize_task(task) != defaults[0]):
+    matches = [
+        ARCHITECTURE_LOADER_DEFAULTS[(native_type, name)]
+        for name in architectures
+        if isinstance(name, str) and (native_type, name) in ARCHITECTURE_LOADER_DEFAULTS
+    ]
+    if not matches:
         return None
-    return defaults
+    if task is not None and all(normalize_task(task) != match[0] for match in matches):
+        return None
+    if len(architectures) != 1 or len(matches) != 1:
+        raise ValueError("Ambiguous registered architectures; specify loader overrides explicitly")
+    default_task, variant, requirements = matches[0]
+    if task is not None and normalize_task(task) != default_task:
+        return None
+    if any(getattr(config, key, None) != value for key, value in requirements.items()):
+        raise ValueError("Declared custom architecture has incompatible configuration")
+    return default_task, variant
 
 
 def resolve_task(
@@ -501,7 +515,6 @@ def resolve_task(
     task: str | None = None,
     model_class: str | None = None,
     model_type_override: str | None = None,
-    model_id: str | None = None,
 ) -> TaskResolution:
     """Resolve a single model's task + class from an HF config.
 
@@ -512,8 +525,6 @@ def resolve_task(
     ``model_type_override`` lets a caller drive resolution with a build variant
     (e.g. ``qwen3_transformer_only``) without mutating the loaded HF config; when
     ``None`` the architecture's native ``config.model_type`` is used.
-    ``model_id`` supplies the requested checkpoint identity when a caller has
-    already loaded its config; otherwise ``config._name_or_path`` is used.
     """
     if getattr(config, "_winml_generic_fallback", False) is True:
         raise ValueError(
@@ -524,7 +535,7 @@ def resolve_task(
 
     from optimum.exporters.tasks import TasksManager
 
-    defaults = _checkpoint_loader_defaults(config, task, model_class, model_type_override, model_id)
+    defaults = _architecture_loader_defaults(config, task, model_class, model_type_override)
     if defaults is not None:
         default_task, variant = defaults
         custom = _get_custom_model_class(variant.replace("_", "-"), default_task)
@@ -534,7 +545,7 @@ def resolve_task(
             default_task,
             to_optimum_task(default_task),
             custom,
-            TaskSource.USER_TASK if task is not None else TaskSource.MODEL_ID_DEFAULT,
+            TaskSource.USER_TASK if task is not None else TaskSource.ARCHITECTURE_DEFAULT,
         )
 
     model_type = model_type_override or getattr(config, "model_type", None)

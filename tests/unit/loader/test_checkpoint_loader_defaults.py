@@ -17,7 +17,9 @@ MODEL_ID = "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim"
 
 @pytest.mark.parametrize("task", [None, "audio-classification"])
 def test_checkpoint_loader_defaults_resolve_custom_head(task):
-    config = Wav2Vec2Config(architectures=["Wav2Vec2ForSpeechClassification"])
+    config = Wav2Vec2Config(
+        architectures=["Wav2Vec2ForSpeechClassification"], problem_type="regression"
+    )
     config._name_or_path = MODEL_ID
     with patch("winml.modelkit.loader._autoconfig.load_hf_config", return_value=config):
         loader, resolved_config, cls, resolution = resolve_loader_config(MODEL_ID, task=task)
@@ -58,7 +60,9 @@ def test_explicit_model_type_keeps_native_loader():
 def test_generated_build_config_keeps_default_optimizations():
     from winml.modelkit.config import generate_hf_build_config
 
-    config = Wav2Vec2Config(architectures=["Wav2Vec2ForSpeechClassification"])
+    config = Wav2Vec2Config(
+        architectures=["Wav2Vec2ForSpeechClassification"], problem_type="regression"
+    )
     config._name_or_path = MODEL_ID
     with patch("winml.modelkit.loader._autoconfig.load_hf_config", return_value=config):
         build = generate_hf_build_config(MODEL_ID, device="cpu", ep="cpu")
@@ -81,10 +85,12 @@ def test_preloaded_config_preserves_explicit_native_type():
 
 
 def test_automatic_loader_provenance_is_not_user_task():
-    config = Wav2Vec2Config(architectures=["Wav2Vec2ForSpeechClassification"])
+    config = Wav2Vec2Config(
+        architectures=["Wav2Vec2ForSpeechClassification"], problem_type="regression"
+    )
     config._name_or_path = MODEL_ID
     _, _, _, resolution = resolve_loader_config(MODEL_ID, hf_config=config)
-    assert resolution.source.value == "model-id-default"
+    assert resolution.source.value == "architecture-default"
 
 
 def test_direct_load_preserves_explicit_model_type():
@@ -102,3 +108,92 @@ def test_direct_load_preserves_explicit_model_type():
             MODEL_ID, hf_config=config, model_type="wav2vec2", task="audio-classification"
         )
     assert resolve.call_args.kwargs["model_type_override"] == "wav2vec2"
+
+
+@pytest.mark.parametrize("identity", ["other/renamed", "C:/models/local-copy"])
+def test_architecture_resolution_is_independent_of_model_id(identity):
+    config = Wav2Vec2Config(
+        architectures=["Wav2Vec2ForSpeechClassification"], problem_type="regression"
+    )
+    config._name_or_path = identity
+    loader, _, cls, _ = resolve_loader_config(identity, hf_config=config)
+    assert cls.__name__ == "EmotionModel"
+    assert loader.model_type == "wav2vec2_emotion_regression"
+
+
+def test_registered_architecture_rejects_incompatible_config():
+    config = Wav2Vec2Config(
+        architectures=["Wav2Vec2ForSpeechClassification"],
+        problem_type="single_label_classification",
+    )
+    with pytest.raises(ValueError, match="incompatible"):
+        resolve_loader_config("other/checkpoint", hf_config=config)
+
+
+@pytest.mark.parametrize(
+    "field", ["missing_keys", "unexpected_keys", "mismatched_keys", "error_msgs"]
+)
+def test_custom_architecture_rejects_incompatible_weights(field):
+    from unittest.mock import MagicMock
+
+    from winml.modelkit.loader import load_hf_model
+    from winml.modelkit.models.hf.wav2vec2 import EmotionModel
+
+    config = Wav2Vec2Config(
+        architectures=["Wav2Vec2ForSpeechClassification"], problem_type="regression"
+    )
+    info = {
+        name: [] for name in ["missing_keys", "unexpected_keys", "mismatched_keys", "error_msgs"]
+    }
+    info[field] = ["incompatible.weight"]
+    with (
+        patch.object(EmotionModel, "from_pretrained", return_value=(MagicMock(), info)) as load,
+        pytest.raises(ValueError, match="incompatible checkpoint"),
+    ):
+        load_hf_model("renamed/model", hf_config=config)
+    assert load.call_args.kwargs["output_loading_info"] is True
+
+
+def test_custom_architecture_accepts_complete_weight_load():
+    from unittest.mock import MagicMock
+
+    from winml.modelkit.loader import load_hf_model
+    from winml.modelkit.models.hf.wav2vec2 import EmotionModel
+
+    config = Wav2Vec2Config(
+        architectures=["Wav2Vec2ForSpeechClassification"], problem_type="regression"
+    )
+    model = MagicMock()
+    info = {
+        name: [] for name in ["missing_keys", "unexpected_keys", "mismatched_keys", "error_msgs"]
+    }
+    with patch.object(EmotionModel, "from_pretrained", return_value=(model, info)):
+        actual, _, task = load_hf_model("local-copy", hf_config=config)
+    assert actual is model
+    assert task == "audio-classification"
+
+
+def test_explicit_task_bypasses_ambiguous_architecture_default():
+    config = Wav2Vec2Config(
+        architectures=["Wav2Vec2ForSpeechClassification", "Wav2Vec2ForCTC"],
+        problem_type="regression",
+    )
+    result = resolve_task(config, task="automatic-speech-recognition")
+    assert result.model_class.__name__ != "EmotionModel"
+
+
+def test_ambiguous_architecture_requires_explicit_choice():
+    config = Wav2Vec2Config(
+        architectures=["Wav2Vec2ForSpeechClassification", "Wav2Vec2ForCTC"],
+        problem_type="regression",
+    )
+    with pytest.raises(ValueError, match="Ambiguous"):
+        resolve_task(config)
+
+
+def test_explicit_native_type_bypasses_registered_architecture():
+    config = Wav2Vec2Config(
+        architectures=["Wav2Vec2ForSpeechClassification"], problem_type="regression"
+    )
+    result = resolve_task(config, task="audio-classification", model_type_override="wav2vec2")
+    assert result.model_class.__name__ != "EmotionModel"

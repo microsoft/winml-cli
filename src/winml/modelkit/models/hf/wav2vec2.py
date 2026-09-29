@@ -24,11 +24,12 @@ from ..winml import register_specialization
 
 EMOTION_REGRESSION_MODEL_TYPE = "wav2vec2_emotion_regression"
 
-# Checkpoint identity selects the custom head, never performance settings.
-CHECKPOINT_LOADER_DEFAULTS = {
-    "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim": (
+# Architecture identity selects the custom head, never performance settings.
+ARCHITECTURE_LOADER_DEFAULTS = {
+    ("wav2vec2", "Wav2Vec2ForSpeechClassification"): (
         "audio-classification",
         EMOTION_REGRESSION_MODEL_TYPE,
+        {"problem_type": "regression"},
     ),
 }
 
@@ -53,6 +54,8 @@ class RegressionHead(nn.Module):
 
 class EmotionModel(Wav2Vec2PreTrainedModel):
     """Audeering wav2vec2 mean-pooling regression model."""
+
+    _winml_require_complete_checkpoint = True
 
     def __init__(self, config: Any) -> None:
         super().__init__(config)
