@@ -908,6 +908,39 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#loading-and-verification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Loading and verification
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#entry-and-completion-boundaries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Entry and completion boundaries
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evidence-bound-workflow-entry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evidence-bound workflow entry
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2729,6 +2762,39 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#loading-and-verification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Loading and verification
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#entry-and-completion-boundaries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Entry and completion boundaries
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evidence-bound-workflow-entry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Evidence-bound workflow entry
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2858,6 +2924,34 @@ Only reviewed, reusable, model-agnostic findings enter bundled knowledge.</p>
 changes, also use the <a href="https://github.com/microsoft/winml-cli/blob/main/skills/auto-optimize/evals/README.md">behavioral evaluation guide</a>. Those
 evaluations simulate hardware and GitHub actions; they do not measure actual
 model performance or certify reproduction on a target device.</p>
+<h2 id="loading-and-verification">Loading and verification<a class="headerlink" href="#loading-and-verification" title="Permanent link">&para;</a></h2>
+<p>The repository <code>skills/</code> directory is a source distribution, not proof that a
+host has registered a skill. Make the complete auto-optimize directory available
+through the host's supported skill installation mechanism, or explicitly ask
+the agent to read its absolute <code>SKILL.md</code> path. Keep references and scripts
+together. Start a fresh session after changing installed skills and verify
+that the agent read the intended file. Record its resolved path and SHA-256
+in run-local evidence to distinguish stale copies from workflow failures.</p>
+<h2 id="entry-and-completion-boundaries">Entry and completion boundaries<a class="headerlink" href="#entry-and-completion-boundaries" title="Permanent link">&para;</a></h2>
+<p>New searches collect a baseline before planning. Supplied candidates and
+validation-only requests resume at the first unverified gate without restarting
+planning. Hash or option changes invalidate downstream evidence. Roles must be
+read before use; unavailable independent review remains unverified.</p>
+<p>Reaching the target or budget ends additional search, not automatically a
+validated delivery. Retain partial evidence when replay or closure is incomplete.
+A user stop request ends additional work immediately. Generic implementation
+returns public-CLI evidence first; only the main workflow creates an eligible
+optimizer Draft PR after bundle validation and handoff creation. No generic
+source change means no optimizer PR requirement.</p>
+<h2 id="evidence-bound-workflow-entry">Evidence-bound workflow entry<a class="headerlink" href="#evidence-bound-workflow-entry" title="Permanent link">&para;</a></h2>
+<p>Use scripts/workflow.py as documented in references/workflow.md. <code>prepare</code>
+imports raw timing metrics and analyzer tables; <code>status</code> identifies the first
+unrecorded or invalidated gate; <code>record</code> binds evidence hashes and invalidates
+downstream records; <code>deliver</code> invokes finalizer and promotion and writes a
+receipt only after successful validation. These records are attestations, not
+authentication of reviewers or proof that hardware commands ran. Receipt claims
+keep artifact validation, recorded model/review/replay evidence, and visual
+inspection separate. Use a new directory for each delivery attempt.</p>
 
 
 
