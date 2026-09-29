@@ -1348,6 +1348,12 @@ class PerfBenchmark:
 
         model_id = self.config.model_id
         model_path = Path(model_id)
+        from ..utils.model_input import resolve_build_output
+
+        build_onnx = resolve_build_output(model_path)
+        if build_onnx is not None:
+            model_path = build_onnx
+            model_id = str(model_path)
         is_onnx = model_path.suffix.lower() == ".onnx"
         is_mlir = model_path.suffix.lower() == ".mlir"
         if (is_onnx or is_mlir) and not model_path.exists():
@@ -3346,6 +3352,16 @@ def perf(
         model_input = classify_model_input(hf_model)
         if model_input.kind is ModelInputKind.INVALID:
             raise click.UsageError(model_input.error or f"Invalid model input: {hf_model}")
+        if model_input.kind is ModelInputKind.FOLDER:
+            from ..utils.model_input import resolve_build_output
+
+            try:
+                build_onnx = resolve_build_output(Path(hf_model))
+            except FileNotFoundError as exc:
+                raise click.UsageError(str(exc)) from exc
+            if build_onnx is not None:
+                hf_model = str(build_onnx)
+                model_input = classify_model_input(hf_model)
         is_onnx = model_input.kind is ModelInputKind.ONNX_FILE
     if is_onnx and model_input.local_path and not Path(model_input.local_path).exists():
         raise click.UsageError(f"ONNX file not found: {hf_model}")
