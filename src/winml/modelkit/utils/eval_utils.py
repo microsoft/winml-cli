@@ -243,6 +243,75 @@ _IMAGE_TO_TEXT_SCHEMA = TaskSchema(
     roles=("encoder", "decoder"),
 )
 
+_TRANSLATION_SCHEMA = TaskSchema(
+    columns=(
+        SchemaItem(
+            "source_column",
+            "source text, or a translation dict containing the source language key",
+            default="translation",
+            remap_hint="<your_source_column>",
+        ),
+        SchemaItem(
+            "reference_column",
+            "reference text(s), or a translation dict containing the target language key",
+            default="translation",
+            remap_hint="<your_reference_column>",
+        ),
+    ),
+    params=(
+        SchemaItem(
+            "source_lang",
+            "source-language key when source_column contains translation dicts",
+            remap_hint="<source_language_key>",
+        ),
+        SchemaItem(
+            "target_lang",
+            "target-language key when reference_column contains translation dicts",
+            remap_hint="<target_language_key>",
+        ),
+        SchemaItem(
+            "tokenizer_source_lang",
+            "source-language identifier for multilingual tokenizers; defaults to source_lang",
+            remap_hint="<tokenizer_source_language>",
+        ),
+        SchemaItem(
+            "tokenizer_target_lang",
+            "target-language identifier for multilingual tokenizers; defaults to target_lang",
+            remap_hint="<tokenizer_target_language>",
+        ),
+        SchemaItem(
+            "source_prefix",
+            "optional task prefix prepended before tokenization",
+            remap_hint="<translation_prefix>",
+        ),
+        SchemaItem(
+            "max_source_tokens",
+            "maximum source tokens, clamped to the encoder capacity",
+            default="128",
+            remap_hint="<positive_integer>",
+        ),
+        SchemaItem(
+            "max_new_tokens",
+            "maximum generated tokens, clamped to the decoder capacity",
+            default="64",
+            remap_hint="<positive_integer>",
+        ),
+        SchemaItem(
+            "num_beams",
+            "beam count; static batch-one models require 1",
+            default="1",
+            remap_hint="<1>",
+        ),
+        SchemaItem(
+            "num_return_sequences",
+            "returned sequences per source; static batch-one models require 1",
+            default="1",
+            remap_hint="<1>",
+        ),
+    ),
+    roles=("encoder", "decoder"),
+)
+
 _FILL_MASK_SCHEMA = TaskSchema(
     columns=(
         SchemaItem(
@@ -461,6 +530,7 @@ TASK_SCHEMAS: dict[str, TaskSchema] = {
     "sentence-similarity": _FEATURE_EXTRACTION_SCHEMA,
     "image-feature-extraction": _IMAGE_FEATURE_EXTRACTION_SCHEMA,
     "image-to-text": _IMAGE_TO_TEXT_SCHEMA,
+    "translation": _TRANSLATION_SCHEMA,
     "fill-mask": _FILL_MASK_SCHEMA,
     "zero-shot-classification": _ZERO_SHOT_CLASSIFICATION_SCHEMA,
     "zero-shot-image-classification": _ZERO_SHOT_IMAGE_CLASSIFICATION_SCHEMA,
