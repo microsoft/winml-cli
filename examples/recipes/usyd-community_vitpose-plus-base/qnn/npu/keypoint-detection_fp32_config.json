@@ -1,0 +1,65 @@
+{
+  "_note": "FP32 QNN/NPU recipe. Build and bounded COCO validation completed on source 0602891 with QNN EP 2.2480.53.0. Ten images / 26 persons are functional smoke evidence, not representative accuracy. No FP16 or quantized target support is claimed.",
+  "auto": false,
+  "export": {
+    "opset_version": 17,
+    "batch_size": 1,
+    "export_params": true,
+    "do_constant_folding": true,
+    "verbose": false,
+    "dynamo": false,
+    "enable_hierarchy_tags": true,
+    "clean_onnx": false,
+    "hierarchy_tag_format": "full",
+    "input_tensors": [
+      {
+        "name": "pixel_values",
+        "dtype": "float32",
+        "shape": [
+          1,
+          3,
+          256,
+          192
+        ],
+        "value_range": [
+          0,
+          1
+        ]
+      }
+    ],
+    "output_tensors": [
+      {
+        "name": "heatmaps"
+      }
+    ],
+    "compatibility": {
+      "transformers_attention": "eager"
+    }
+  },
+  "optim": {
+    "gelu_fusion": true,
+    "matmul_add_fusion": true
+  },
+  "quant": null,
+  "compile": {
+    "execution_provider": "qnn",
+    "provider_options": {
+      "device_type": "NPU",
+      "htp_performance_mode": "burst",
+      "htp_graph_finalization_optimization_mode": "3"
+    },
+    "provider_option_file_keys": [],
+    "enable_ep_context": true,
+    "embed_context": false,
+    "compiler": "ort",
+    "qnn_sdk_root": null,
+    "device": "npu",
+    "ep_device": null,
+    "validate": true
+  },
+  "loader": {
+    "task": "keypoint-detection",
+    "model_class": "VitPoseForPoseEstimation",
+    "model_type": "vitpose"
+  }
+}
