@@ -2667,6 +2667,14 @@ def _autobuild_genai_bundle(
         build_ep, build_device = short_ep_name(target.ep), target.device
         # Do not reuse a bundle exported for a different execution provider.
         bundle_dir = bundle_dir.with_name(f"genai-bundle-{build_ep}-{build_device}")
+    openvino_config: Path | None = p.get("openvino_config")
+    if openvino_config is not None:
+        if build_ep != "openvino":
+            raise click.UsageError("--openvino-config requires --ep openvino.")
+        import hashlib
+
+        config_digest = hashlib.sha256(openvino_config.read_bytes()).hexdigest()[:12]
+        bundle_dir = bundle_dir.with_name(f"{bundle_dir.name}-config-{config_digest}")
     build_cache_dir = cache_dir
     # --rebuild overwrites the cached bundle; a plain run reuses it. Checked
     # before any model resolution so a cache hit never touches the network.
@@ -2730,6 +2738,9 @@ def _autobuild_genai_bundle(
         force_rebuild=force_rebuild,
         cache_dir=build_cache_dir,
         emit=lambda msg: console.print(msg, markup=False),
+        assemble_options=(
+            {"openvino_config_path": openvino_config} if openvino_config is not None else None
+        ),
     )
     return bundle_dir, True
 
@@ -2960,6 +2971,13 @@ def _validate_duration(
     "to the original ONNX (requires --compile).",
 )
 @click.option(
+    "--openvino-config",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="[ort-genai] OpenVINO load-config JSON embedded while auto-building a model ID. "
+    "Requires --ep openvino.",
+)
+@click.option(
     "--task",
     type=str,
     default=None,
@@ -3136,6 +3154,7 @@ def perf(
     apply_template: bool,
     max_new_tokens: int,
     compile_timeout: int,
+    openvino_config: Path | None,
     task: str | None,
     submodel: str | None,
     iterations: int,

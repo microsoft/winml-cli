@@ -1459,6 +1459,70 @@ class TestCliDispatch:
         assert cfg.device == "config"
         assert cfg.ep is None
 
+    def test_openvino_config_is_forwarded_to_autobuild(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict, monkeypatch
+    ) -> None:
+        import winml.modelkit.loader as loader_mod
+        import winml.modelkit.models.winml as winml_models
+
+        config_path = tmp_path / "npu.json"
+        config_path.write_text('{"NPU": {"NPU_USE_NPUW": "YES"}}', encoding="utf-8")
+        monkeypatch.setenv("WINML_CACHE_DIR", str(tmp_path / "cache"))
+        monkeypatch.setattr(
+            loader_mod, "resolve_loader_config", _fake_resolve_loader_config("qwen3")
+        )
+        build_calls: dict = {}
+        monkeypatch.setattr(
+            winml_models, "build_genai_bundle", _fake_build_genai_bundle(build_calls)
+        )
+
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                "Qwen/Qwen3-0.6B",
+                "--runtime",
+                "ort-genai",
+                "--ep",
+                "openvino",
+                "--device",
+                "npu",
+                "--openvino-config",
+                str(config_path),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert build_calls["build"]["assemble_options"] == {
+            "openvino_config_path": config_path
+        }
+        assert "-config-" in build_calls["build"]["output_dir"].name
+        assert capture_run["config"].bundle_dir == build_calls["build"]["output_dir"]
+
+    def test_openvino_config_rejects_other_ep(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        config_path = tmp_path / "npu.json"
+        config_path.write_text("{}", encoding="utf-8")
+
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                "Qwen/Qwen3-0.6B",
+                "--runtime",
+                "ort-genai",
+                "--ep",
+                "cpu",
+                "--openvino-config",
+                str(config_path),
+            ],
+        )
+
+        assert result.exit_code == 2, result.output
+        assert "--openvino-config requires --ep openvino" in result.output
+        assert "config" not in capture_run
+
     @pytest.mark.parametrize(
         ("args", "resolved_ep", "build_ep", "build_device"),
         [

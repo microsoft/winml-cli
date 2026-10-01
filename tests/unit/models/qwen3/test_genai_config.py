@@ -6,15 +6,21 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from types import SimpleNamespace
 from typing import ClassVar
 from unittest.mock import patch
+
+import pytest
 
 from winml.modelkit.models.hf.qwen3 import (
     DecoderIOMapping,
     PipelineStage,
     build_genai_config,
+    build_npu_load_config,
     build_qwen3_transformer_only_stages,
+    openvino_stage_session_options,
     write_genai_bundle,
 )
 from winml.modelkit.models.hf.qwen3.genai import (
@@ -29,6 +35,16 @@ from winml.modelkit.utils.genai import _detect_format_patterns
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def openvino_config_file(tmp_path):
+    def write_config(payload):
+        path = tmp_path / "openvino.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return path
+
+    return write_config
 
 
 def _mock_config(
@@ -388,6 +404,137 @@ class TestDetectFormatPatterns:
 
 
 # ---------------------------------------------------------------------------
+# Tests: OpenVINO NPU options and load configuration
+# ---------------------------------------------------------------------------
+
+
+class TestOpenVINOSessionOptions:
+    def test_minimal_npu_options_without_custom_config(self) -> None:
+        options = openvino_stage_session_options("test.context")
+        assert options["log_id"] == "test.context"
+        assert options["intra_op_num_threads"] == 2
+        assert options["inter_op_num_threads"] == 1
+        provider = options["provider_options"][0]["openvino"]
+        assert provider["device_type"] == "NPU"
+        assert json.loads(provider["load_config"]) == {"NPU": {"NPU_COMPILER_TYPE": "DRIVER"}}
+        assert set(provider) == {"device_type", "load_config"}
+
+    def test_flat_config_preserves_custom_settings(self, openvino_config_file) -> None:
+        payload = {
+            "NPU": {
+                "NPU_COMPILER_TYPE": "custom-compiler",
+                "NPU_TURBO": "NO",
+                "NPU_QDQ_OPTIMIZATION": "YES",
+            }
+        }
+        path = openvino_config_file(payload)
+        for role in ("CTX", "ITER"):
+            assert json.loads(build_npu_load_config(path, model_role=role)) == payload
+        assert json.loads(path.read_text(encoding="utf-8")) == payload
+
+    @pytest.mark.parametrize("role", ["CTX", "ITER"])
+    def test_selects_role_without_forwarding_other_sections(
+        self, openvino_config_file, role
+    ) -> None:
+        payload = {
+            "CTX": {"NPU": {"NPU_TURBO": "YES"}},
+            "ITER": {"NPU": {"NPU_TURBO": "NO"}},
+            "HEAD": {"NPU": {"NPU_TURBO": "YES"}},
+        }
+        path = openvino_config_file(payload)
+        config = json.loads(build_npu_load_config(path, model_role=role))
+        assert set(config) == {"NPU"}
+        assert config["NPU"] == {
+            **payload[role]["NPU"],
+            "NPU_COMPILER_TYPE": "DRIVER",
+        }
+
+    def test_equivalent_role_configs_serialize_identically(self, openvino_config_file) -> None:
+        properties = {"NPU_TURBO": "YES", "NPU_QDQ_OPTIMIZATION": "YES"}
+        path = openvino_config_file(
+            {
+                "CTX": {"NPU": properties},
+                "ITER": {"NPU": dict(reversed(list(properties.items())))},
+            }
+        )
+        assert build_npu_load_config(path, model_role="CTX") == build_npu_load_config(
+            path, model_role="ITER"
+        )
+
+    def test_weights_default_is_absolute(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        config = json.loads(build_npu_load_config(weights_path="model weights"))
+        path = Path(config["NPU"]["WEIGHTS_PATH"])
+        assert path.is_absolute()
+        assert path == tmp_path / "model weights"
+
+    def test_configured_weights_override_default(self, tmp_path, openvino_config_file) -> None:
+        weights_path = tmp_path / "custom weights"
+        path = openvino_config_file({"NPU": {"WEIGHTS_PATH": str(weights_path)}})
+        config = json.loads(build_npu_load_config(path, weights_path=tmp_path / "fallback"))
+        assert config["NPU"]["WEIGHTS_PATH"] == str(weights_path.resolve())
+
+    def test_relative_configured_weights_use_config_directory(
+        self, tmp_path, monkeypatch, openvino_config_file
+    ) -> None:
+        path = openvino_config_file({"NPU": {"WEIGHTS_PATH": "weights"}})
+        monkeypatch.chdir(tmp_path.parent)
+        config = json.loads(build_npu_load_config(path))
+        assert config["NPU"]["WEIGHTS_PATH"] == str((path.parent / "weights").resolve())
+
+    @pytest.mark.parametrize(
+        ("payload", "role", "error", "message"),
+        [
+            ([], None, TypeError, "load config must be a JSON object"),
+            (None, None, TypeError, "load config must be a JSON object"),
+            ({"CTX": {}}, None, ValueError, "requires model_role"),
+            ({"CTX": {}}, "ITER", ValueError, "missing the ITER section"),
+            ({"CTX": []}, "CTX", TypeError, "CTX configuration must be a JSON object"),
+            ({"NPU": []}, None, TypeError, "NPU configuration must be a JSON object"),
+            ({"NPU": None}, None, TypeError, "NPU configuration must be a JSON object"),
+            (
+                {"NPU": {"WEIGHTS_PATH": 42}},
+                None,
+                ValueError,
+                "WEIGHTS_PATH must be a non-empty string",
+            ),
+            (
+                {"NPU": {"WEIGHTS_PATH": " "}},
+                None,
+                ValueError,
+                "WEIGHTS_PATH must be a non-empty string",
+            ),
+        ],
+    )
+    def test_invalid_config_is_rejected(self, openvino_config_file, payload, role, error, message):
+        path = openvino_config_file(payload)
+        with pytest.raises(error, match=message):
+            build_npu_load_config(path, model_role=role)
+
+    def test_unsupported_role_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="model_role must be 'CTX' or 'ITER'"):
+            build_npu_load_config(model_role="HEAD")
+
+    def test_missing_file_is_not_silently_ignored(self, tmp_path) -> None:
+        with pytest.raises(FileNotFoundError):
+            build_npu_load_config(tmp_path / "missing.json")
+
+    def test_invalid_json_reports_config_path(self, tmp_path) -> None:
+        path = tmp_path / "invalid.json"
+        path.write_text("{", encoding="utf-8")
+        with pytest.raises(ValueError, match="Invalid OpenVINO load config JSON") as exc_info:
+            build_npu_load_config(path)
+        assert str(path) in str(exc_info.value)
+
+    def test_utf8_bom_is_accepted(self, tmp_path) -> None:
+        payload = {"NPU": {"NPU_TURBO": "YES"}}
+        path = tmp_path / "bom.json"
+        path.write_text(json.dumps(payload), encoding="utf-8-sig")
+        config = json.loads(build_npu_load_config(path))
+        assert config["NPU"]["NPU_TURBO"] == payload["NPU"]["NPU_TURBO"]
+
+
+# ---------------------------------------------------------------------------
 # Tests: build_qwen3_transformer_only_stages
 # ---------------------------------------------------------------------------
 
@@ -561,6 +708,64 @@ class TestBuildQwen3TransformerOnlyStages:
         assert vitisai_opts["no_linear_slice"] == "1"
         assert itr_opts["log_id"] == "onnxruntime-genai.iterator"
 
+    @pytest.mark.parametrize("ep", ["openvino", "OpenVINOExecutionProvider", "OPENVINO"])
+    def test_openvino_only_routes_transformer_stages(self, ep) -> None:
+        with self._patch_onnx():
+            stages, _ = build_qwen3_transformer_only_stages(
+                "ctx.onnx", "iter.onnx", num_layers=4, ep=ep
+            )
+        stage_map = {stage.name: stage for stage in stages}
+        assert stage_map["embeddings"].session_options is None
+        assert stage_map["lm_head"].session_options is None
+        for name in ("context", "iterator"):
+            options = stage_map[name].session_options
+            assert options["log_id"] == f"onnxruntime-genai.{name}"
+            assert options["provider_options"][0]["openvino"]["device_type"] == "NPU"
+        assert (
+            stage_map["context"].session_options["provider_options"]
+            == stage_map["iterator"].session_options["provider_options"]
+        )
+
+    def test_openvino_role_config_reaches_serialized_pipeline(self, openvino_config_file) -> None:
+        payload = {
+            "CTX": {"NPU": {"NPU_TURBO": "YES"}},
+            "ITER": {"NPU": {"NPU_TURBO": "NO"}},
+        }
+        path = openvino_config_file(payload)
+        with self._patch_onnx():
+            stages, decoder_io = build_qwen3_transformer_only_stages(
+                "ctx.onnx", "iter.onnx", num_layers=4, ep="openvino", openvino_config_path=path
+            )
+        config = build_genai_config(
+            _mock_config(num_hidden_layers=4),
+            max_cache_len=256,
+            prefill_seq_len=64,
+            pipeline=stages,
+            decoder_io=decoder_io,
+        )
+        pipeline = json.loads(json.dumps(config))["model"]["decoder"]["pipeline"]
+        stage_map = {name: stage for entry in pipeline for name, stage in entry.items()}
+        for name, role in (("context", "CTX"), ("iterator", "ITER")):
+            provider = stage_map[name]["session_options"]["provider_options"][0]["openvino"]
+            assert isinstance(provider["load_config"], str)
+            assert (
+                json.loads(provider["load_config"])["NPU"]["NPU_TURBO"]
+                == payload[role]["NPU"]["NPU_TURBO"]
+            )
+        assert "session_options" not in stage_map["embeddings"]
+        assert "session_options" not in stage_map["lm_head"]
+
+    @pytest.mark.parametrize("ep", ["cpu", "qnn", "vitisai"])
+    def test_openvino_options_are_rejected_for_other_eps(self, ep, tmp_path) -> None:
+        with pytest.raises(ValueError, match="OpenVINO configuration requires"):
+            build_qwen3_transformer_only_stages(
+                "ctx.onnx",
+                "iter.onnx",
+                num_layers=4,
+                ep=ep,
+                openvino_config_path=tmp_path / "unused.json",
+            )
+
 
 # ---------------------------------------------------------------------------
 # Tests: write_genai_bundle wrapper (ep routing + transformer_onnx_passes)
@@ -618,3 +823,51 @@ class TestWriteGenaiBundleWrapper:
         kwargs = mock_write.call_args.kwargs
         assert kwargs["context_session_options"] is None
         assert kwargs["iterator_session_options"] is None
+
+    def test_openvino_defaults_weights_to_bundle_directory(self, tmp_path) -> None:
+        output_dir = tmp_path / "bundle"
+        with self._patch_generic() as mock_write:
+            write_genai_bundle(output_dir, ep="openvino", **self._COMMON)
+        kwargs = mock_write.call_args.kwargs
+        for name in ("context", "iterator"):
+            options = kwargs[f"{name}_session_options"]
+            assert options["log_id"] == f"onnxruntime-genai.{name}"
+            provider = options["provider_options"][0]["openvino"]
+            assert provider["device_type"] == "NPU"
+            config = json.loads(provider["load_config"])
+            assert config["NPU"]["WEIGHTS_PATH"] == str(output_dir.resolve())
+        assert "openvino_config_path" not in kwargs
+        assert "openvino_weights_path" not in kwargs
+
+    def test_openvino_forwards_custom_role_options(self, tmp_path, openvino_config_file) -> None:
+        payload = {
+            "CTX": {"NPU": {"NPU_TURBO": "YES"}},
+            "ITER": {"NPU": {"NPU_TURBO": "NO"}},
+        }
+        path = openvino_config_file(payload)
+        weights_dir = tmp_path / "shared weights"
+        with self._patch_generic() as mock_write:
+            write_genai_bundle(
+                tmp_path / "bundle",
+                ep="OpenVINOExecutionProvider",
+                openvino_config_path=path,
+                openvino_weights_path=weights_dir,
+                **self._COMMON,
+            )
+        kwargs = mock_write.call_args.kwargs
+        for name, role in (("context", "CTX"), ("iterator", "ITER")):
+            provider = kwargs[f"{name}_session_options"]["provider_options"][0]["openvino"]
+            config = json.loads(provider["load_config"])
+            assert config["NPU"]["NPU_TURBO"] == payload[role]["NPU"]["NPU_TURBO"]
+            assert config["NPU"]["WEIGHTS_PATH"] == str(weights_dir.resolve())
+
+    def test_openvino_config_errors_prevent_assembly(self, tmp_path, openvino_config_file) -> None:
+        path = openvino_config_file({"CTX": {"NPU": {}}})
+        with (
+            self._patch_generic() as mock_write,
+            pytest.raises(ValueError, match="missing the ITER section"),
+        ):
+            write_genai_bundle(
+                tmp_path / "bundle", ep="openvino", openvino_config_path=path, **self._COMMON
+            )
+        mock_write.assert_not_called()

@@ -1,0 +1,12 @@
+{
+  "NPU": {
+    "NPU_TURBO": "YES",
+    "NPU_QDQ_OPTIMIZATION": "YES",
+    "NPU_COMPILER_TYPE": "DRIVER",
+    "NPU_USE_NPUW": "YES",
+    "NPUW_DEVICES": "NPU",
+    "NPUW_PARALLEL_COMPILE": "YES",
+    "NPUW_GQA": "YES",
+    "CACHE_MODE": "OPTIMIZE_SPEED"
+  }
+}
