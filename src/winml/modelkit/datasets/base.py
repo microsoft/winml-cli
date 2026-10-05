@@ -25,7 +25,10 @@ class BaseTaskDataset(ABC):
     properties are readonly to ensure dataset immutability and thread safety.
 
     Attributes:
-        model_name: HuggingFace model identifier or local model path
+        model_name: HuggingFace model identifier or local model path.
+            Optional — task-agnostic data sources (e.g. prompt corpora used
+            by generative-model evaluators) may leave this ``None``. Most
+            calibration and task-oriented subclasses require it.
         dataset_name: Dataset identifier (HF dataset or local path)
         data_split: Dataset split to use (e.g., 'train', 'validation', 'test')
     """
@@ -35,7 +38,7 @@ class BaseTaskDataset(ABC):
 
     def __init__(
         self,
-        model_name: str,
+        model_name: str | None = None,
         dataset_name: str | None = None,
         max_samples: int | None = None,
         data_split: str | None = None,
@@ -44,7 +47,10 @@ class BaseTaskDataset(ABC):
         """Initialize dataset with readonly properties.
 
         Args:
-            model_name: HuggingFace model identifier or path
+            model_name: HuggingFace model identifier or path. Optional —
+                task-agnostic subclasses may pass ``None``. Task-oriented
+                subclasses that need a tokenizer/processor should validate
+                its presence themselves.
             dataset_name: Dataset name (uses DEFAULT_DATASET if None)
             max_samples: Maximum number of samples (None = use all)
             data_split: Dataset split (None = let subclass decide)
@@ -78,8 +84,12 @@ class BaseTaskDataset(ABC):
 
     # Readonly properties
     @property
-    def model_name(self) -> str:
-        """Get the model name (readonly)."""
+    def model_name(self) -> str | None:
+        """Get the model name (readonly).
+
+        ``None`` for task-agnostic subclasses that are not bound to a
+        specific model.
+        """
         return self._model_name
 
     @property
@@ -91,7 +101,6 @@ class BaseTaskDataset(ABC):
     def data_split(self) -> str | None:
         """Get the dataset split (readonly)."""
         return self._data_split
-
 
     def __len__(self) -> int:
         """Return the number of samples in the dataset."""
