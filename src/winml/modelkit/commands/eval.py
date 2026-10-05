@@ -145,6 +145,12 @@ logger = logging.getLogger(__name__)
     help="Number of dataset samples.",
 )
 @click.option(
+    "--audio-input-length",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Fixed waveform length for audio preprocessing.",
+)
+@click.option(
     "--split",
     type=str,
     default="validation",
@@ -284,6 +290,7 @@ def eval(
     backend: str | None,
     ep: EPNameOrAlias | None,
     samples: int,
+    audio_input_length: int | None,
     split: str,
     shuffle: bool,
     streaming: bool,
