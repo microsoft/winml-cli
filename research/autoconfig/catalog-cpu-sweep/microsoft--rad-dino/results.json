@@ -1,0 +1,16 @@
+{
+  "model_id": "microsoft/rad-dino",
+  "task": "image-feature-extraction",
+  "model_type": "dinov2",
+  "timestamp": "2026-06-18T16:53:15",
+  "ep": "cpu",
+  "device": "cpu",
+  "hypotheses": {},
+  "baseline_p50_ms": null,
+  "best_p50_ms": null,
+  "best_hypothesis": null,
+  "best_gain_pct": null,
+  "errors": [
+    "base config generation failed"
+  ]
+}

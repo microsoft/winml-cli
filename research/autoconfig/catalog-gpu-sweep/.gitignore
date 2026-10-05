@@ -1,0 +1,10 @@
+# Hypothesis build artifacts (large binary files)
+h*/
+_tmp_config/
+# Raw perf session files
+full_perf_s*.json
+screen_perf.json
+confirm_s*.json
+# Model weight files
+*.data
+*.onnx

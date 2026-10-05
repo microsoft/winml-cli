@@ -1,0 +1,628 @@
+{
+  "model_id": "microsoft/swinv2-tiny-patch4-window16-256",
+  "task": "image-classification",
+  "model_type": "swinv2",
+  "timestamp": "2026-06-25T13:32:10",
+  "ep": "qnn",
+  "device": "gpu",
+  "hypotheses": {
+    "h0": {
+      "status": "OK",
+      "label": "baseline FP32 (no quant, no compile)",
+      "opset": 17,
+      "optim": {},
+      "op_signature": {
+        "total_operators": 652,
+        "operator_counts": {
+          "Conv": 1,
+          "Reshape": 181,
+          "Transpose": 110,
+          "LayerNormalization": 29,
+          "Pad": 12,
+          "Gemm": 61,
+          "ReduceL2": 24,
+          "Clip": 24,
+          "Expand": 24,
+          "Div": 24,
+          "MatMul": 39,
+          "Mul": 12,
+          "Add": 40,
+          "Softmax": 12,
+          "Gelu": 12,
+          "Slice": 34,
+          "Concat": 11,
+          "GlobalAveragePool": 1,
+          "Flatten": 1
+        },
+        "opset": 17
+      },
+      "graph_changed": null,
+      "screen": {
+        "p50_ms": 59.223,
+        "cv": 0.1319,
+        "stable": true
+      },
+      "full": {
+        "p50s_ms": [
+          57.517,
+          58.46,
+          57.224
+        ],
+        "median_p50_ms": 57.517
+      },
+      "verdict": "BASELINE"
+    },
+    "h1": {
+      "status": "NOOP_SKIPPED",
+      "verdict": "NO_OP",
+      "label": "opset 17 explicit",
+      "opset": 17,
+      "optim": {},
+      "build_flags": [],
+      "op_signature": {
+        "total_operators": 652,
+        "operator_counts": {
+          "Conv": 1,
+          "Reshape": 181,
+          "Transpose": 110,
+          "LayerNormalization": 29,
+          "Pad": 12,
+          "Gemm": 61,
+          "ReduceL2": 24,
+          "Clip": 24,
+          "Expand": 24,
+          "Div": 24,
+          "MatMul": 39,
+          "Mul": 12,
+          "Add": 40,
+          "Softmax": 12,
+          "Gelu": 12,
+          "Slice": 34,
+          "Concat": 11,
+          "GlobalAveragePool": 1,
+          "Flatten": 1
+        },
+        "opset": 17
+      },
+      "graph_changed": false,
+      "noop_note": "graph identical to baseline (opset + op counts unchanged) — flag did not fire; bench skipped, baseline perf assumed",
+      "full_ref": "h0",
+      "assumed_median_p50_ms": 57.517
+    },
+    "h2": {
+      "status": "OK",
+      "label": "opset 19",
+      "opset": 19,
+      "optim": {},
+      "op_signature": {
+        "total_operators": 734,
+        "operator_counts": {
+          "Conv": 1,
+          "Reshape": 263,
+          "Transpose": 110,
+          "LayerNormalization": 29,
+          "Pad": 12,
+          "Gemm": 61,
+          "ReduceL2": 24,
+          "Clip": 24,
+          "Expand": 24,
+          "Div": 24,
+          "MatMul": 39,
+          "Mul": 12,
+          "Add": 40,
+          "Softmax": 12,
+          "Gelu": 12,
+          "Slice": 34,
+          "Concat": 11,
+          "GlobalAveragePool": 1,
+          "Flatten": 1
+        },
+        "opset": 19
+      },
+      "graph_changed": true,
+      "screen": {
+        "p50_ms": 58.684,
+        "cv": 0.1219,
+        "stable": true
+      },
+      "full": {
+        "p50s_ms": [
+          55.945,
+          62.268,
+          59.583
+        ],
+        "median_p50_ms": 59.583
+      },
+      "gain_vs_baseline_pct": -3.59,
+      "verdict": "DISCARD"
+    },
+    "h3": {
+      "status": "OK",
+      "label": "opset 21 (tests gpu-006)",
+      "opset": 21,
+      "optim": {},
+      "op_signature": {
+        "total_operators": 734,
+        "operator_counts": {
+          "Conv": 1,
+          "Reshape": 263,
+          "Transpose": 110,
+          "LayerNormalization": 29,
+          "Pad": 12,
+          "Gemm": 61,
+          "ReduceL2": 24,
+          "Clip": 24,
+          "Expand": 24,
+          "Div": 24,
+          "MatMul": 39,
+          "Mul": 12,
+          "Add": 40,
+          "Softmax": 12,
+          "Gelu": 12,
+          "Slice": 34,
+          "Concat": 11,
+          "GlobalAveragePool": 1,
+          "Flatten": 1
+        },
+        "opset": 21
+      },
+      "graph_changed": true,
+      "screen": {
+        "p50_ms": 65.831,
+        "cv": 0.1143,
+        "stable": true
+      },
+      "full": {
+        "p50s_ms": [
+          58.143,
+          57.854,
+          66.394
+        ],
+        "median_p50_ms": 58.143
+      },
+      "gain_vs_baseline_pct": -1.09,
+      "verdict": "DISCARD"
+    },
+    "h4": {
+      "status": "OK",
+      "label": "opset 17 + matmul_transpose_fusion",
+      "opset": 17,
+      "optim": {
+        "matmul_transpose_fusion": true
+      },
+      "op_signature": {
+        "total_operators": 640,
+        "operator_counts": {
+          "Conv": 1,
+          "Reshape": 181,
+          "Transpose": 98,
+          "LayerNormalization": 29,
+          "Pad": 12,
+          "MatMul": 27,
+          "ReduceL2": 24,
+          "Clip": 24,
+          "Expand": 24,
+          "Div": 24,
+          "Gemm": 61,
+          "FusedMatMul": 12,
+          "Mul": 12,
+          "Add": 40,
+          "Softmax": 12,
+          "Gelu": 12,
+          "Slice": 34,
+          "Concat": 11,
+          "GlobalAveragePool": 1,
+          "Flatten": 1
+        },
+        "opset": 17
+      },
+      "graph_changed": true,
+      "screen": {
+        "p50_ms": 71.224,
+        "cv": 0.1222,
+        "stable": true
+      },
+      "full": {
+        "p50s_ms": [
+          72.706,
+          75.855,
+          70.818
+        ],
+        "median_p50_ms": 72.706
+      },
+      "gain_vs_baseline_pct": -26.41,
+      "verdict": "DISCARD"
+    },
+    "h5": {
+      "status": "NOOP_SKIPPED",
+      "verdict": "NO_OP",
+      "label": "opset 17 + attention_fusion",
+      "opset": 17,
+      "optim": {
+        "attention_fusion": true
+      },
+      "build_flags": [],
+      "op_signature": {
+        "total_operators": 652,
+        "operator_counts": {
+          "Conv": 1,
+          "Reshape": 181,
+          "Transpose": 110,
+          "LayerNormalization": 29,
+          "Pad": 12,
+          "Gemm": 61,
+          "ReduceL2": 24,
+          "Clip": 24,
+          "Expand": 24,
+          "Div": 24,
+          "MatMul": 39,
+          "Mul": 12,
+          "Add": 40,
+          "Softmax": 12,
+          "Gelu": 12,
+          "Slice": 34,
+          "Concat": 11,
+          "GlobalAveragePool": 1,
+          "Flatten": 1
+        },
+        "opset": 17
+      },
+      "graph_changed": false,
+      "noop_note": "graph identical to baseline (opset + op counts unchanged) — flag did not fire; bench skipped, baseline perf assumed",
+      "full_ref": "h0",
+      "assumed_median_p50_ms": 57.517
+    },
+    "h6": {
+      "status": "NOOP_SKIPPED",
+      "verdict": "NO_OP",
+      "label": "opset 17 + bias_softmax_fusion",
+      "opset": 17,
+      "optim": {
+        "bias_softmax_fusion": true
+      },
+      "build_flags": [],
+      "op_signature": {
+        "total_operators": 652,
+        "operator_counts": {
+          "Conv": 1,
+          "Reshape": 181,
+          "Transpose": 110,
+          "LayerNormalization": 29,
+          "Pad": 12,
+          "Gemm": 61,
+          "ReduceL2": 24,
+          "Clip": 24,
+          "Expand": 24,
+          "Div": 24,
+          "MatMul": 39,
+          "Mul": 12,
+          "Add": 40,
+          "Softmax": 12,
+          "Gelu": 12,
+          "Slice": 34,
+          "Concat": 11,
+          "GlobalAveragePool": 1,
+          "Flatten": 1
+        },
+        "opset": 17
+      },
+      "graph_changed": false,
+      "noop_note": "graph identical to baseline (opset + op counts unchanged) — flag did not fire; bench skipped, baseline perf assumed",
+      "full_ref": "h0",
+      "assumed_median_p50_ms": 57.517
+    },
+    "h7": {
+      "status": "NOOP_SKIPPED",
+      "verdict": "NO_OP",
+      "label": "opset 17 + layer_norm_fusion",
+      "opset": 17,
+      "optim": {
+        "layer_norm_fusion": true
+      },
+      "build_flags": [],
+      "op_signature": {
+        "total_operators": 652,
+        "operator_counts": {
+          "Conv": 1,
+          "Reshape": 181,
+          "Transpose": 110,
+          "LayerNormalization": 29,
+          "Pad": 12,
+          "Gemm": 61,
+          "ReduceL2": 24,
+          "Clip": 24,
+          "Expand": 24,
+          "Div": 24,
+          "MatMul": 39,
+          "Mul": 12,
+          "Add": 40,
+          "Softmax": 12,
+          "Gelu": 12,
+          "Slice": 34,
+          "Concat": 11,
+          "GlobalAveragePool": 1,
+          "Flatten": 1
+        },
+        "opset": 17
+      },
+      "graph_changed": false,
+      "noop_note": "graph identical to baseline (opset + op counts unchanged) — flag did not fire; bench skipped, baseline perf assumed",
+      "full_ref": "h0",
+      "assumed_median_p50_ms": 57.517
+    },
+    "h8": {
+      "status": "OK",
+      "label": "opset 17 + skip_layer_norm_fusion",
+      "opset": 17,
+      "optim": {
+        "skip_layer_norm_fusion": true
+      },
+      "op_signature": {
+        "total_operators": 651,
+        "operator_counts": {
+          "Conv": 1,
+          "Reshape": 181,
+          "Transpose": 110,
+          "LayerNormalization": 28,
+          "Pad": 12,
+          "MatMul": 39,
+          "ReduceL2": 24,
+          "Clip": 24,
+          "Expand": 24,
+          "Div": 24,
+          "Gemm": 61,
+          "Mul": 12,
+          "Add": 39,
+          "Softmax": 12,
+          "Gelu": 12,
+          "Slice": 34,
+          "Concat": 11,
+          "SkipLayerNormalization": 1,
+          "GlobalAveragePool": 1,
+          "Flatten": 1
+        },
+        "opset": 17
+      },
+      "graph_changed": true,
+      "screen": {
+        "p50_ms": 59.826,
+        "cv": 0.13,
+        "stable": true
+      },
+      "full": {
+        "p50s_ms": [
+          62.092,
+          59.134,
+          57.262
+        ],
+        "median_p50_ms": 59.134
+      },
+      "gain_vs_baseline_pct": -2.81,
+      "verdict": "DISCARD"
+    },
+    "h9": {
+      "status": "OK",
+      "label": "opset 21 + matmul_transpose + attention_fusion",
+      "opset": 21,
+      "optim": {
+        "matmul_transpose_fusion": true,
+        "attention_fusion": true
+      },
+      "op_signature": {
+        "total_operators": 722,
+        "operator_counts": {
+          "Conv": 1,
+          "Reshape": 263,
+          "Transpose": 98,
+          "LayerNormalization": 29,
+          "Pad": 12,
+          "MatMul": 27,
+          "ReduceL2": 24,
+          "Clip": 24,
+          "Expand": 24,
+          "Div": 24,
+          "Gemm": 61,
+          "FusedMatMul": 12,
+          "Mul": 12,
+          "Add": 40,
+          "Softmax": 12,
+          "Gelu": 12,
+          "Slice": 34,
+          "Concat": 11,
+          "GlobalAveragePool": 1,
+          "Flatten": 1
+        },
+        "opset": 21
+      },
+      "graph_changed": true,
+      "screen": {
+        "p50_ms": 71.072,
+        "cv": 0.0994,
+        "stable": true
+      },
+      "full": {
+        "p50s_ms": [
+          74.625,
+          70.803,
+          72.074
+        ],
+        "median_p50_ms": 72.074
+      },
+      "gain_vs_baseline_pct": -25.31,
+      "verdict": "DISCARD"
+    },
+    "h10": {
+      "status": "OK",
+      "label": "opset 17 + ln + skip_ln + matmul_transpose",
+      "opset": 17,
+      "optim": {
+        "layer_norm_fusion": true,
+        "skip_layer_norm_fusion": true,
+        "matmul_transpose_fusion": true
+      },
+      "op_signature": {
+        "total_operators": 639,
+        "operator_counts": {
+          "Conv": 1,
+          "Reshape": 181,
+          "Transpose": 98,
+          "LayerNormalization": 28,
+          "Pad": 12,
+          "MatMul": 27,
+          "ReduceL2": 24,
+          "Clip": 24,
+          "Expand": 24,
+          "Div": 24,
+          "Gemm": 61,
+          "FusedMatMul": 12,
+          "Mul": 12,
+          "Add": 39,
+          "Softmax": 12,
+          "Gelu": 12,
+          "Slice": 34,
+          "Concat": 11,
+          "SkipLayerNormalization": 1,
+          "GlobalAveragePool": 1,
+          "Flatten": 1
+        },
+        "opset": 17
+      },
+      "graph_changed": true,
+      "screen": {
+        "p50_ms": 75.53,
+        "cv": 0.0737,
+        "stable": true
+      },
+      "full": {
+        "p50s_ms": [
+          72.545,
+          77.77,
+          78.477
+        ],
+        "median_p50_ms": 77.77
+      },
+      "gain_vs_baseline_pct": -35.21,
+      "verdict": "DISCARD"
+    },
+    "h11": {
+      "status": "NOOP_SKIPPED",
+      "verdict": "NO_OP",
+      "label": "opset 17 + gelu_fusion explicit",
+      "opset": 17,
+      "optim": {
+        "gelu_fusion": true
+      },
+      "build_flags": [],
+      "op_signature": {
+        "total_operators": 652,
+        "operator_counts": {
+          "Conv": 1,
+          "Reshape": 181,
+          "Transpose": 110,
+          "LayerNormalization": 29,
+          "Pad": 12,
+          "MatMul": 39,
+          "ReduceL2": 24,
+          "Clip": 24,
+          "Expand": 24,
+          "Div": 24,
+          "Gemm": 61,
+          "Mul": 12,
+          "Add": 40,
+          "Softmax": 12,
+          "Gelu": 12,
+          "Slice": 34,
+          "Concat": 11,
+          "GlobalAveragePool": 1,
+          "Flatten": 1
+        },
+        "opset": 17
+      },
+      "graph_changed": false,
+      "noop_note": "graph identical to baseline (opset + op counts unchanged) — flag did not fire; bench skipped, baseline perf assumed",
+      "full_ref": "h0",
+      "assumed_median_p50_ms": 57.517
+    },
+    "h12": {
+      "status": "NOOP_SKIPPED",
+      "verdict": "NO_OP",
+      "label": "opset 17 + transpose_optimizer",
+      "opset": 17,
+      "optim": {
+        "transpose_optimizer": true
+      },
+      "build_flags": [],
+      "op_signature": {
+        "total_operators": 652,
+        "operator_counts": {
+          "Conv": 1,
+          "Reshape": 181,
+          "Transpose": 110,
+          "LayerNormalization": 29,
+          "Pad": 12,
+          "Gemm": 61,
+          "ReduceL2": 24,
+          "Clip": 24,
+          "Expand": 24,
+          "Div": 24,
+          "MatMul": 39,
+          "Mul": 12,
+          "Add": 40,
+          "Softmax": 12,
+          "Gelu": 12,
+          "Slice": 34,
+          "Concat": 11,
+          "GlobalAveragePool": 1,
+          "Flatten": 1
+        },
+        "opset": 17
+      },
+      "graph_changed": false,
+      "noop_note": "graph identical to baseline (opset + op counts unchanged) — flag did not fire; bench skipped, baseline perf assumed",
+      "full_ref": "h0",
+      "assumed_median_p50_ms": 57.517
+    },
+    "h13": {
+      "status": "OK",
+      "label": "no optimization (analyzer auto-optimization disabled, --no-analyze)",
+      "opset": 17,
+      "optim": {},
+      "op_signature": null,
+      "graph_changed": null,
+      "screen": {
+        "p50_ms": 62.069,
+        "cv": 0.1406,
+        "stable": true
+      },
+      "full": {
+        "p50s_ms": [
+          57.526,
+          60.968,
+          62.002
+        ],
+        "median_p50_ms": 60.968
+      },
+      "gain_vs_baseline_pct": -6.0,
+      "verdict": "DISCARD"
+    }
+  },
+  "baseline_opset": 17,
+  "baseline_p50_ms": 57.517,
+  "best_hypothesis": "h0",
+  "best_p50_ms": 57.517,
+  "best_gain_pct": 0.0,
+  "conv_pct": null,
+  "best_gain_verdict": "BASELINE_IS_BEST",
+  "errors": [],
+  "feature_gaps": [],
+  "noop_hypotheses": [
+    "h1",
+    "h5",
+    "h6",
+    "h7",
+    "h11",
+    "h12"
+  ],
+  "gpu-006_generalized": "N/A (h1 not OK)",
+  "gpu-006_ranges_non_overlapping": null
+}

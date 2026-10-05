@@ -1,0 +1,71 @@
+{
+  "model_id": "microsoft/rad-dino",
+  "task": "image-feature-extraction",
+  "model_type": "dinov2",
+  "timestamp": "2026-06-16T16:43:10",
+  "ep": "qnn",
+  "device": "npu",
+  "validation_sweep": true,
+  "hypotheses": {
+    "h0": {
+      "status": "OK",
+      "screen": {
+        "p50_ms": 274.506,
+        "cv": 0.0134,
+        "stable": true,
+        "note": null
+      },
+      "full": {
+        "p50s_ms": [
+          274.727,
+          274.621,
+          274.949
+        ],
+        "median_p50_ms": 274.727
+      },
+      "label": "baseline (auto-config, W8A16)",
+      "opset": "auto"
+    },
+    "h1": {
+      "status": "OK",
+      "screen": {
+        "p50_ms": 274.204,
+        "cv": 0.0088,
+        "stable": true,
+        "note": null
+      },
+      "full": {
+        "p50s_ms": [
+          274.979,
+          274.557,
+          275.099
+        ],
+        "median_p50_ms": 274.979
+      },
+      "label": "opset 17 explicit",
+      "opset": 17
+    },
+    "h3": {
+      "status": "OK",
+      "screen": {
+        "p50_ms": 275.269,
+        "cv": 0.0222,
+        "stable": true,
+        "note": null
+      },
+      "full": {
+        "p50s_ms": [
+          275.298,
+          275.355,
+          275.564
+        ],
+        "median_p50_ms": 275.355
+      },
+      "label": "opset 21 (tests npu-001)",
+      "opset": 21
+    }
+  },
+  "errors": [],
+  "npu001_opset21_vs_17_gain_pct": -0.1,
+  "npu001_note": "opset21 median 275.355ms vs opset17 274.979ms = -0.1%"
+}

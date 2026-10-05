@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>WinML EP Findings — Validated Catalog</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #f4f6f9;
+    padding: 32px 24px;
+    color: #1a1a2e;
+    font-size: 13px;
+  }
+  h1 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+  .meta { font-size: 11px; color: #778; margin-bottom: 28px; line-height: 1.6; }
+
+  .ep-section { margin-bottom: 32px; }
+  .ep-header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 18px; border-radius: 10px 10px 0 0;
+    font-weight: 700; font-size: 13px;
+  }
+  .ep-body { border-radius: 0 0 10px 10px; overflow: hidden; }
+
+  .npu  .ep-header { background: #e8f5e9; color: #1b5e20; border: 1.5px solid #a5d6a7; border-bottom: none; }
+  .npu  .ep-body   { border: 1.5px solid #a5d6a7; border-top: none; }
+  .cpu  .ep-header { background: #e8eaf6; color: #3949ab; border: 1.5px solid #9fa8da; border-bottom: none; }
+  .cpu  .ep-body   { border: 1.5px solid #9fa8da; border-top: none; }
+  .dml  .ep-header { background: #e3f2fd; color: #1565c0; border: 1.5px solid #90caf9; border-bottom: none; }
+  .dml  .ep-body   { border: 1.5px solid #90caf9; border-top: none; }
+  .gpu  .ep-header { background: #fff3e0; color: #e65100; border: 1.5px solid #ffcc80; border-bottom: none; }
+  .gpu  .ep-body   { border: 1.5px solid #ffcc80; border-top: none; }
+
+  .single-model { display: none; }
+  body.show-single .single-model { display: grid; }
+  .single-model .find-id { color: #c5cae9; }
+
+  .sm-divider {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 16px;
+    background: #fafafa; border-top: 1px solid #eef;
+    font-size: 10px; color: #aab;
+  }
+  .sm-divider .sm-count {
+    background: #f0f2f5; color: #778; border-radius: 8px;
+    padding: 1px 7px; font-weight: 700;
+  }
+  body.show-single .sm-divider { display: none; }
+
+  .toggle-bar {
+    display: flex; align-items: center; gap: 12px;
+    max-width: 900px; margin: 0 0 20px 0;
+  }
+  .toggle-btn {
+    padding: 6px 14px; border-radius: 20px; border: 1.5px solid #9fa8da;
+    background: #e8eaf6; color: #3949ab; font-size: 11px; font-weight: 700;
+    cursor: pointer; transition: background 0.15s;
+  }
+  .toggle-btn:hover { background: #c5cae9; }
+  .toggle-note { font-size: 11px; color: #aab; }
+
+  .finding {
+    display: grid;
+    grid-template-columns: 28px 70px 1fr 220px;
+    gap: 0;
+    background: #fff;
+    border-bottom: 1px solid #eef;
+    align-items: stretch;
+    min-height: 52px;
+  }
+  .finding:last-child { border-bottom: none; }
+  .finding:hover { background: #f8f9fd; }
+
+  .find-id {
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 700; color: #aab;
+    padding: 0 4px;
+    border-right: 1px solid #eef;
+    writing-mode: vertical-rl;
+    letter-spacing: 1px;
+  }
+  .find-conf {
+    display: flex; align-items: center; justify-content: center;
+    padding: 8px 10px; border-right: 1px solid #eef; min-width: 70px;
+  }
+  .find-body { padding: 10px 14px; }
+  .find-title { font-weight: 700; font-size: 12px; margin-bottom: 3px; }
+  .find-detail { font-size: 11px; color: #556; line-height: 1.5; }
+  .find-detail code {
+    font-family: "Cascadia Code","Fira Code",monospace; font-size: 10px;
+    background: #f0f2f5; padding: 1px 4px; border-radius: 3px; color: #2d4a8a;
+  }
+  .find-detail .data { color: #2e7d32; font-weight: 600; }
+  .find-detail .warn { color: #c62828; font-weight: 600; }
+  .find-action { padding: 10px 14px; min-width: 180px; border-left: 1px solid #eef; }
+  .find-action .action-label {
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.8px;
+    color: #aab; font-weight: 700; margin-bottom: 4px;
+  }
+  .find-action .action-text { font-size: 11px; color: #334; line-height: 1.5; }
+
+  .conf {
+    padding: 3px 7px; border-radius: 10px; font-size: 9px; font-weight: 700;
+    letter-spacing: 0.4px; text-align: center; line-height: 1.3;
+  }
+  .conf-high     { background: #e8f5e9; color: #1b5e20; border: 1px solid #a5d6a7; }
+  .conf-medium   { background: #fff8e1; color: #f57f17; border: 1px solid #ffe082; }
+  .conf-low      { background: #fce4ec; color: #880e4f; border: 1px solid #f48fb1; }
+
+  .scope {
+    display: inline-block; background: #f0f2f5; color: #556;
+    border-radius: 4px; padding: 1px 5px; font-size: 10px;
+    margin-top: 3px; font-style: italic;
+  }
+
+  .fr-section { margin-top: 40px; }
+  .fr-header {
+    font-weight: 700; font-size: 14px; margin-bottom: 12px;
+    padding-bottom: 6px; border-bottom: 2px solid #dde;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .fr-table { width: 100%; border-collapse: collapse; }
+  .fr-table th {
+    text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px;
+    color: #778; font-weight: 700; padding: 8px 12px;
+    border-bottom: 2px solid #dde; background: #f4f6f9;
+  }
+  .fr-table td {
+    padding: 10px 12px; border-bottom: 1px solid #eef;
+    vertical-align: top; font-size: 12px;
+  }
+  .fr-table tr:hover td { background: #f8f9fd; }
+  .issue-link {
+    display: inline-block; background: #e8eaf6; color: #3949ab;
+    border-radius: 4px; padding: 2px 7px; font-size: 11px; font-weight: 700;
+    text-decoration: none;
+  }
+  .issue-link:hover { background: #c5cae9; }
+  .no-issue {
+    display: inline-block; background: #f5f5f5; color: #888;
+    border-radius: 4px; padding: 2px 7px; font-size: 11px; font-style: italic;
+  }
+  .pri { padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 700; }
+  .pri-p0 { background: #fce4ec; color: #880e4f; border: 1px solid #f48fb1; }
+  .pri-p1 { background: #fff3e0; color: #e65100; border: 1px solid #ffcc80; }
+  .pri-p2 { background: #e8eaf6; color: #3949ab; border: 1px solid #9fa8da; }
+  .pri-p3 { background: #f5f5f5; color: #666; border: 1px solid #ddd; }
+  .fr-table td:first-child { font-weight: 600; min-width: 120px; }
+  .blocked { color: #c62828; font-size: 11px; }
+
+  .stats-bar {
+    display: flex; gap: 20px; margin-bottom: 28px;
+    padding: 14px 18px; background: #fff; border-radius: 10px;
+    border: 1.5px solid #dde;
+  }
+  .stat { text-align: center; }
+  .stat-n { font-size: 22px; font-weight: 800; color: #1a1a2e; line-height: 1; }
+  .stat-l { font-size: 10px; color: #778; margin-top: 3px; text-transform: uppercase; letter-spacing: 0.6px; }
+
+  .caveat {
+    background: #fff8e1; border: 1.5px solid #ffe082; border-radius: 8px;
+    padding: 10px 16px; font-size: 11px; color: #6d4c41; margin-bottom: 20px;
+    line-height: 1.6;
+  }
+  .caveat strong { color: #e65100; }
+
+  .in-progress-banner {
+    background: #e3f2fd; border: 1.5px solid #90caf9; border-radius: 6px;
+    padding: 7px 14px; font-size: 11px; color: #0d47a1; margin: 6px 0 0 0;
+    line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+
+<h1>WinML EP Findings &mdash; Validated Catalog</h1>
+<p class="meta">
+  Hardware: Snapdragon X Elite CRD &nbsp;|&nbsp; ORT: 1.24.5 (onnxruntime-windowsml) &nbsp;|&nbsp;
+  QNN SDK: Hexagon HTP (NPU) + Adreno X1-85 (GPU) &nbsp;|&nbsp;
+  Last updated: 2026-06-25 &nbsp;|&nbsp; 15 models (QNN NPU), 8+5 models (QNN GPU), 4 models (CPU partial) &nbsp;|&nbsp; QNN GPU recipe sweep: all 5 BASELINE_IS_BEST (10-round interleaved A/B); gpu-007 transpose_optimizer downgraded to unverified
+</p>
+
+<div class="stats-bar">
+<div class="stat"><div class="stat-n">34</div><div class="stat-l">total findings</div></div>
+<div class="stat"><div class="stat-n" style="color:#1b5e20">14</div><div class="stat-l">visible (multi-model / cross-EP)</div></div>
+  <div class="stat"><div class="stat-n" style="color:#9fa8da">20</div><div class="stat-l">hidden (single-model)</div></div>
+  <div class="stat"><div class="stat-n">15</div><div class="stat-l">NPU models tested</div></div>
+<div class="stat"><div class="stat-n">13</div><div class="stat-l">GPU models tested</div></div>
+  <div class="stat"><div class="stat-n">8</div><div class="stat-l">feature requests</div></div>
+</div>
+
+<div class="caveat">
+  <strong>Scope warning:</strong> All findings from 1 hardware device (Snapdragon X Elite CRD, Oryon CPU + Adreno X1-85 + Hexagon HTP NPU).
+  DML EP not available on this device (package conflict with onnxruntime-windowsml).
+  QNN NPU: 15 models tested (8 catalog + 3 recipe + 4 validation). QNN GPU: 8 catalog (2026-06-18) + 5 recipe (2026-06-25, all BASELINE_IS_BEST under 10-round interleaved A/B).
+  CPU: partial sweep (4/8 models 2026-06-18) + 5-model recipe sweep in progress (2026-06-25).
+  Always re-validate on new model architectures before using findings to prune search space.
+</div>
+
+<div class="toggle-bar">
+  <button class="toggle-btn" onclick="document.body.classList.toggle('show-single');this.textContent=document.body.classList.contains('show-single')?'Hide single-model findings':'Show single-model findings'">
+    Show single-model findings
+  </button>
+  <button class="toggle-btn" id="lowconf-btn" onclick="toggleLowConf()">
+    Show low-confidence findings
+  </button>
+  <span class="toggle-note">Showing only multi-model / cross-EP findings by default. Single-model and <strong>LOW-confidence</strong> findings are hidden.</span>
+</div>
+
+<!-- QNN NPU -->
+<div class="ep-section npu">
+  <div class="ep-header">
+    QNN NPU &nbsp;&mdash;&nbsp; Hexagon HTP (Snapdragon X Elite)
+    &nbsp;<span style="font-weight:400;font-size:11px;color:#388e3c">15 models, 3&times;500-iter sessions, 30s cool-down | h0-h10 hypotheses (catalog_qnn_sweep.py)</span>
+  </div>
+  <div class="ep-body">
+
+    <div class="finding">
+      <div class="find-id">npu-006</div>
+      <div class="find-conf"><span class="conf conf-high">HIGH<br>confirmed</span></div>
+      <div class="find-body">
+        <div class="find-title">Full conv fusion pack causes catastrophic CPU fallback on Conv-dominant models (~130x regression)</div>
+        <div class="find-detail">
+          ResNet-18 full pack (<code>conv-bn + conv-add + conv-activation fusions</code>):
+          <span class="data">3-session p50 = [132, 135, 131]ms</span> vs baseline ~1ms.
+          <span class="warn">~130x regression, near-zero CV = deterministic CPU fallback.</span>
+          DINOv2-base (Conv%&lt;1%): fusion is neutral.
+          ORT <code>FusedConv</code> op produced by full pack is not dispatchable by QNN EP.
+          <strong>Refinement 2026-06-17:</strong> <code>conv_add_fusion</code> alone (h10 ResNet-18) = <span class="data">+0.93% NEUTRAL</span>. Regression requires full pack that creates FusedConv.
+          <div><span class="scope">Scope: Conv-dominant models when Conv% &gt; 20%. Not applicable to transformer or NLP models.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">
+          <strong>Hard-block</strong> full conv fusion pack when Conv% &gt; 20%.
+          <code>conv_add_fusion</code> alone is safe.
+          Gate in <code>catalog_qnn_sweep.py</code> via <code>count_conv_pct()</code>.
+        </div>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="find-id">npu-007</div>
+      <div class="find-conf"><span class="conf conf-high">HIGH<br>confirmed</span></div>
+      <div class="find-body">
+        <div class="find-title">DVFS thermal noise makes CV-based stability gating unreliable on QNN NPU</div>
+        <div class="find-detail">
+          Across all catalog models, within-session CV ranges 0.1&ndash;2.0+ even on warm device.
+          CV gate (&lt;15%) blocks most valid candidates &mdash; the noise is DVFS, not model instability.
+          Reliable signal: 3+ independent sessions &times; 500+ iters with 30s cool-down. Use median p50 across sessions.
+          Differences &lt;10% are within noise floor.
+          <div><span class="scope">Scope: General &mdash; all models on QNN NPU / Snapdragon X Elite.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">
+          CV gate DISABLED for QNN NPU (<code>SCREEN_CV_MAX_NPU = 999.0</code>).
+          Always run 3&times;500 Phase B regardless of screen CV.
+          Feature request: <code>winml perf --sessions 3 --cool-down 30s</code> (#155).
+        </div>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="find-id">npu-001</div>
+      <div class="find-conf"><span class="conf conf-medium">MEDIUM<br>empirical</span></div>
+      <div class="find-body">
+        <div class="find-title">opset 21 export gives +24&ndash;31% speedup on DINOv2-family models &mdash; mechanism UNKNOWN, NOT a general ViT property; MobileViT benefit NOT reproduced on clean rerun</div>
+        <div class="find-detail">
+          DINOv2-small: <span class="data">opset17 7.2ms &rarr; opset21 5.0ms (+30.6%)</span>.
+          DINOv2-base: <span class="data">opset17 34.6ms &rarr; opset21 26.2ms (+24.1%)</span>.
+          MobileViT-small: <span class="warn">REVISED to NEUTRAL.</span> The original +28.6% / +42.1% (matmul_transpose) was measured against an inflated ~12ms baseline. A clean from-scratch 11-hypothesis rerun (2026-06-22, fresh winml config+build, 3&times;500-iter) gave <span class="data">baseline 5.51ms &rarr; opset21 5.355ms = +2.81% with overlapping session ranges</span>; matmul_transpose (h6) = 6.218ms = SLOWER. The earlier &ldquo;win&rdquo; was a DVFS/thermal baseline artifact.
+          <span class="warn">Critical controls: dino-vitb16 &minus;0.7% NEUTRAL; ViT-base &minus;10.8% HURTS; all NLP tested neutral. Not a general ViT property.</span>
+          Also: bias_softmax_fusion adds +14% incremental on DINOv2 on top of opset21 (npu-009). Original kMaxSupportedOpset bypass mechanism INVALIDATED (ORT 1.24.5 has kMaxSupportedOpset&ge;23).
+          <div><span class="scope">Scope: DINOv2-family confirmed. MobileViT REVISED to neutral. NOT plain ViT (ViT-base HURTS), NOT NLP.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">
+          DINOv2-family: try <code>opset21 + bias_softmax_fusion</code> bundle first.
+          MobileViT-class hybrids: do NOT assume opset21 helps &mdash; clear the effect-size gate (gain &ge; 2&times;session-CV AND ranges separated) before trusting any win.
+          Plain ViT: SKIP &mdash; confirmed harmful.
+          NLP: SKIP &mdash; consistently neutral.
+          Architecture check required.
+        </div>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="find-id">npu-010</div>
+      <div class="find-conf"><span class="conf conf-high">HIGH<br>cross-EP</span></div>
+      <div class="find-body">
+        <div class="find-title">highdimRTR causes regression on CNN-ViT hybrids: &minus;19% NPU, &minus;6.9% GPU &mdash; spurious +36 Reshape insertion</div>
+        <div class="find-detail">
+          MobileViT NPU (h9 opset21+highdimRTR): <span class="warn">median 14.4ms vs baseline 12.1ms = &minus;18.9%.</span>
+          MobileViT GPU (h9 bundle): <span class="warn">19.2ms vs 18.0ms = &minus;6.89%.</span>
+          ONNX diff: h9 graph has <strong>+36 extra Reshape nodes</strong> (108&rarr;144). The 12 original RTR patterns are UNCHANGED.
+          Root cause: highdimRTR misidentifies <code>Gemm&rarr;Reshape&rarr;Transpose</code> sequences in MobileViT hybrid unfold. Inserts Reshape intermediaries after Gemm &rarr; breaks dispatch merging &rarr; extra DMA.
+          Contrast: DINOv2 (pure ViT): <span class="data">h9 = +38.1% NPU</span> &mdash; pure ViT benefits.
+          <div><span class="scope">Scope: CNN-ViT hybrids with <code>Gemm&rarr;Reshape&rarr;Transpose</code> unfold. Pure-ViT models benefit. Architecture-dependent.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">
+          Hard-block highdimRTR for <code>Gemm&rarr;Reshape&rarr;Transpose</code> hybrid unfold models.
+          <code>analyze_insight.py</code> must detect and add highdimRTR to <code>skip_set</code>.
+          Safe for pure-ViT (DINOv2 +38%). Architecture check required.
+        </div>
+      </div>
+    </div>
+
+    <div class="sm-divider">
+      <span class="sm-count">5 single-model findings hidden (npu-002/003/004/008/009)</span>
+      <span>Click &ldquo;Show single-model findings&rdquo; above to expand</span>
+    </div>
+
+    <div class="finding single-model">
+      <div class="find-id">npu-002</div>
+      <div class="find-conf"><span class="conf conf-medium">MEDIUM<br>1 model</span></div>
+      <div class="find-body">
+        <div class="find-title">W8A16 quantization gives ~1.9x speedup over FP32 on QNN NPU</div>
+        <div class="find-detail">
+          ConvNext FP32: <span class="data">19.4ms &rarr; W8A16: 10.3ms (1.9x)</span>. 1 model only.
+          <div><span class="scope">Scope: ConvNext only for magnitude. Mechanism generalizes; magnitude does not.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">Always quantize for QNN NPU. W8A16 is the starting point.</div>
+      </div>
+    </div>
+
+    <div class="finding single-model">
+      <div class="find-id">npu-003</div>
+      <div class="find-conf"><span class="conf conf-medium">MEDIUM<br>1 model</span></div>
+      <div class="find-body">
+        <div class="find-title">winml compile (EPContext) adds ~1.7x speedup on top of W8A16</div>
+        <div class="find-detail">
+          ConvNext W8A16: <span class="data">10.3ms &rarr; EPContext: 6.0ms (1.7x)</span>. 1 model only.
+          <div><span class="scope">Scope: ConvNext only for magnitude. Mechanism generalizes to all QNN NPU models.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">Always run <code>winml compile</code> after finding best config for QNN NPU.</div>
+      </div>
+    </div>
+
+    <div class="finding single-model">
+      <div class="find-id">npu-004</div>
+      <div class="find-conf"><span class="conf conf-low">LOW<br>anecdote</span></div>
+      <div class="find-body">
+        <div class="find-title">W8A8 may cause accuracy collapse on models with LN+GELU (UNVALIDATED)</div>
+        <div class="find-detail">
+          Experiment aborted early &mdash; no accuracy numbers preserved. Recalled anecdote only.
+          <span class="warn">Do NOT skip W8A8 without running eval first.</span>
+          <div><span class="scope">Scope: UNVALIDATED. ConvNext only.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">Treat as anecdotal. Run W8A8 eval before deciding.</div>
+      </div>
+    </div>
+
+    <div class="finding single-model">
+      <div class="find-id">npu-008</div>
+      <div class="find-conf"><span class="conf conf-high">HIGH<br>1 model</span></div>
+      <div class="find-body">
+        <div class="find-title">microsoft/rad-dino fails to build on QNN NPU across ALL opset variants (access violation rc=0xC0000005)</div>
+        <div class="find-detail">
+          <span class="warn">winml build crash (rc=0xC0000005) for opset 17, 19, and 21 on QNN NPU.</span>
+          rad-dino is ViT-L scale (large model, non-standard medical imaging architecture).
+          Builds successfully on CPU EP (~275ms). QNN GPU also BUILD_FAIL all hypotheses.
+          <div><span class="scope">Scope: microsoft/rad-dino only. Likely unsupported op or tensor size in QNN SDK for ViT-L scale.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">Route rad-dino to CPU EP only. Feature gap: <code>winml build</code> should fast-fail with diagnostic rather than access violation.</div>
+      </div>
+    </div>
+
+    <div class="finding single-model">
+      <div class="find-id">npu-009</div>
+      <div class="find-conf"><span class="conf conf-medium">MEDIUM<br>1 model</span></div>
+      <div class="find-body">
+        <div class="find-title">bias_softmax_fusion adds +14% incremental speedup on DINOv2 NPU when combined with opset21</div>
+        <div class="find-detail">
+          DINOv2-small h7 (<code>opset21 + bias_softmax_fusion</code>): <span class="data">p50=4.03ms (+38.6% total)</span>
+          vs h3 (opset21 only): 4.98ms. Incremental gain: <span class="data">+14.1%</span>.
+          Outperforms attention_fusion (h8=+28.4%) and matmul_transpose (h6=+24.8%) on DINOv2.
+          Mechanism: folds <code>Add(qk, bias)+Softmax</code> &rarr; single FusedSoftmax with native HTP path.
+          <div><span class="scope">Scope: DINOv2-small confirmed. Not tested on DINOv2-base or plain ViT.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">
+          For DINOv2-family: use <code>opset21 + bias_softmax_fusion</code> bundle.
+          Prioritize over attention_fusion (outperformed h8 by 10pp).
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- CPU -->
+<div class="ep-section cpu">
+  <div class="ep-header">
+    CPU EP &nbsp;&mdash;&nbsp; Oryon CPU (Snapdragon X Elite)
+    &nbsp;<span style="font-weight:400;font-size:11px;color:#5c6bc0">4 models done (ResNet/MobileViT/DINOv2/rad-dino); BERT/NLP in progress | 3&times;300-iter sessions, Phase C</span>
+  </div>
+  <div class="ep-body">
+
+    <!-- cpu-006: cross-EP opset isolation -->
+    <div class="finding">
+      <div class="find-id">cpu-006</div>
+      <div class="find-conf"><span class="conf conf-high">HIGH<br>empirical</span></div>
+      <div class="find-body">
+        <div class="find-title">CPU EP, QNN GPU, and QNN NPU respond DIFFERENTLY to opset changes &mdash; EP isolation is mandatory</div>
+        <div class="find-detail">
+          CPU opset17 vs 21 (ConvNext): <span class="warn">3.9x SLOWER at opset21.</span>
+          CPU opset17 vs 21 (DINOv2): <span class="warn">~10x SLOWER at opset21 (cpu-001/cpu-009).</span>
+          QNN GPU opset17 vs 21: <span class="data">neutral-to-slightly-negative (&minus;5.4% to +3.3%)</span> across 7 models.
+          QNN NPU opset17 vs 21 (DINOv2): <span class="data">+24% FASTER.</span>
+          Same opset change, three different outcomes on the same chip. DINOv2 goes +24% on NPU but &minus;10x on CPU.
+          <div><span class="scope">Scope: Meta-rule about EP isolation. Applies to all models.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">
+          NEVER transfer opset findings across EPs.
+          Always validate per EP independently.
+          CPU, GPU, and NPU search spaces are fully independent.
+        </div>
+      </div>
+    </div>
+
+    <!-- cpu-007: HUGE win on ResNet, VISIBLE -->
+    <div class="finding">
+      <div class="find-id">cpu-007</div>
+      <div class="find-conf"><span class="conf conf-high">HIGH<br>KEEP_CONFIRMED<br>1 model</span></div>
+      <div class="find-body">
+        <div class="find-title">matmul_transpose_fusion gives +92% speedup on ResNet-18 CPU EP (237ms &rarr; 17.8ms) &mdash; baseline config is severely suboptimal</div>
+        <div class="find-detail">
+          ResNet-18 h9 (<code>matmul_transpose_fusion</code>): <span class="data">17.8ms vs auto-config baseline 237ms = +92.51% KEEP_CONFIRMED</span> (all 5 Phase C sessions passed).
+          Also confirmed: h12 (<code>transpose_optimizer</code>) +84.46%, h13 (<code>gelu_fusion</code>) +88.89%, h10 (bundle) +91.54%, h6 (<code>layer_norm_fusion</code>) +10.43%.
+          <span class="warn">237ms baseline = severely suboptimal auto-config for ResNet-18 on CPU. matmul_transpose_fusion enables BLAS-level transposed GEMM dispatch that ORT cannot reach with unfused MatMul+Transpose pairs.</span>
+          <div><span class="scope">Scope: ResNet-18 confirmed. Models with unfused MatMul+Transpose chains likely benefit. DINOv2: NOT applicable (all fusion flags regress DINOv2 on CPU via cpu-001 interference).</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">
+          For ResNet-class on CPU: apply <code>matmul_transpose_fusion + transpose_optimizer + gelu_fusion</code> bundle.
+          <strong>Critical</strong>: verify whether auto-config baseline is always this suboptimal for ResNet.
+          Needs re-test with fresh config to confirm finding is reproducible.
+        </div>
+      </div>
+    </div>
+
+    <!-- cpu-008: MobileViT layer_norm catastrophe, VISIBLE -->
+    <div class="finding">
+      <div class="find-id">cpu-008</div>
+      <div class="find-conf"><span class="conf conf-high">HIGH<br>1 model</span></div>
+      <div class="find-body">
+        <div class="find-title">layer_norm_fusion causes &minus;997% regression on MobileViT CPU EP (73ms &rarr; 803ms) &mdash; wrong LN pattern match</div>
+        <div class="find-detail">
+          MobileViT h6 (<code>layer_norm_fusion</code>): <span class="warn">803ms vs baseline 73ms = &minus;997% DISCARD.</span>
+          Also: matmul_transpose_fusion &minus;165%, attention_fusion bundle &minus;164%, skip_layer_norm_fusion &minus;10%.
+          Only <code>bias_softmax_fusion</code> helps: <span class="data">64ms (+12.3% MARGINAL_UNCONFIRMED)</span>.
+          Mechanism: MobileViT places LayerNorm after Conv2D outputs (CNN-ViT hybrid). layer_norm_fusion expects pure transformer LN (post-MLP). Fusing the wrong pattern creates an op the CPU runtime cannot dispatch to an optimized kernel.
+          <div><span class="scope">Scope: CNN-ViT hybrid models (MobileViT). Pure transformers (BERT/ViT) are expected safe.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">
+          Block <code>layer_norm_fusion</code>, <code>matmul_transpose_fusion</code>, and <code>attention_fusion</code> for CNN-ViT hybrid models on CPU.
+          <code>analyze_insight.py</code> must detect CNN-ViT hybrid architecture and skip these fusions.
+        </div>
+      </div>
+    </div>
+
+    <div style="padding:10px 16px;background:#fff;border-bottom:1px solid #eef;">
+      <div class="in-progress-banner">
+        &#x1F50D; <strong>CPU sweep: BERT/NLP models in progress (2026-06-18)</strong> &mdash; roberta-base-squad2, tinyroberta, bge-small, MiniLM-L6-v2.
+        Key open question: does cpu-001 (opset regression) fire on pure-BERT models (sparse Transpose) or is it only Transpose-heavy architectures?
+        Expected finding: BERT is safe at opset19/21; attention_fusion may help BERT significantly.
+      </div>
+    </div>
+
+    <div class="sm-divider">
+      <span class="sm-count">5 single-model findings hidden (cpu-001/002/005/009 &mdash; single-arch, + cpu-004 anecdote)</span>
+      <span>Click &ldquo;Show single-model findings&rdquo; above to expand</span>
+    </div>
+
+    <div class="finding single-model">
+      <div class="find-id">cpu-001</div>
+      <div class="find-conf"><span class="conf conf-high">HIGH<br>confirmed<br>ConvNext+DINOv2</span></div>
+      <div class="find-body">
+        <div class="find-title">opset 19+ causes 3&ndash;10x slowdown on models with dense Transpose graphs &mdash; NOT ConvNext-specific</div>
+        <div class="find-detail">
+          ConvNext: <span class="warn">opset19=160ms (3.7x), opset21=170ms (3.9x)</span> vs baseline 43.7ms.
+          DINOv2-small: <span class="warn">opset19=1106ms (9.8x), opset21=1095ms (9.7x)</span> vs baseline 112ms &mdash; <code>CPU001_REGRESSION</code> verdict.
+          ResNet-18: <span class="data">opset19=231ms (+2.4% neutral), opset21=227ms (+4.5% neutral)</span> &mdash; NOT affected.
+          MobileViT: opset19=&minus;9.1% (mild, not catastrophic).
+          Pattern: models with &ge;49 Transpose nodes (ConvNext, DINOv2) hit cpu-001; sparse-Transpose models (ResNet) do not.
+          BERT/NLP pending (expected neutral based on Transformer LN-dominant graph with few Transposes).
+          <div><span class="scope">Scope: Dense-Transpose models confirmed (ConvNext, DINOv2). ResNet confirmed safe. BERT/NLP pending.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">Default to opset17 for CPU EP. For DINOv2/ConvNext: hard-block opset19+. For ResNet: opset is safely neutral.</div>
+      </div>
+    </div>
+
+    <div class="finding single-model">
+      <div class="find-id">cpu-009</div>
+      <div class="find-conf"><span class="conf conf-high">HIGH<br>1 model</span></div>
+      <div class="find-body">
+        <div class="find-title">DINOv2 CPU EP is constrained to auto-config only &mdash; ANY explicit flag causes catastrophic regression</div>
+        <div class="find-detail">
+          DINOv2-small: auto-config baseline=112ms. h1 opset17-explicit: <span class="warn">762ms (&minus;577%)</span>.
+          h2/h3 opset19/21: <span class="warn">~1100ms (&minus;880% CPU001_REGRESSION)</span>.
+          h4 attention_fusion: <span class="warn">1083ms (&minus;862%)</span>. h7 bias_softmax_fusion: <span class="warn">1121ms (&minus;896%)</span>.
+          Even <em>forcing opset17 explicitly</em> (h1) regresses &minus;577% vs auto-config &mdash; the auto-config default must use a specific graph optimization path that is disrupted by any explicit override.
+          <div><span class="scope">Scope: DINOv2-small confirmed. Likely generalizes to all pure-ViT models with dense Transpose graphs on CPU.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">For DINOv2/ViT-class on CPU: use auto-config ONLY. Do not force any opset. Do not apply any fusion flags. All deviations regress.</div>
+      </div>
+    </div>
+
+    <div class="finding single-model">
+      <div class="find-id">cpu-002</div>
+      <div class="find-conf"><span class="conf conf-high">HIGH<br>confirmed</span></div>
+      <div class="find-body">
+        <div class="find-title">matmul_add_fusion regresses CPU +87% on models where ORT L2 already produced Gemm nodes</div>
+        <div class="find-detail">
+          ConvNext: <span class="warn">p50=81.7ms vs baseline 43.7ms (+87%).</span>
+          ORT L2 already converts MatMul+Add &rarr; Gemm at baseline. Applying fusion on top conflicts.
+          <code>catalog_cpu_sweep.py</code> auto-skips via <code>_model_has_gemm()</code> guard.
+          <div><span class="scope">Scope: Models where ORT L2 baseline already has Gemm nodes.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">Skip <code>matmul_add_fusion</code> when model.onnx already contains Gemm. Guard implemented.</div>
+      </div>
+    </div>
+
+    <div class="finding single-model">
+      <div class="find-id">cpu-005</div>
+      <div class="find-conf"><span class="conf conf-high">HIGH<br>confirmed</span></div>
+      <div class="find-body">
+        <div class="find-title">Baseline (no extra flags) is optimal for ConvNext CPU &mdash; graph pass sweep is wasted</div>
+        <div class="find-detail">
+          22-experiment ablation: no flag improved p50 beyond noise. Baseline at 43.7ms is floor.
+          ORT L2 already applies gelu_fusion and MatMul&rarr;Gemm.
+          <div><span class="scope">Scope: ConvNext-class. Transformer: awaiting CPU catalog sweep completion.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">For CPU + ConvNext: skip graph pass sweep. ResNet: apply matmul_transpose_fusion (cpu-007).</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- DML -->
+<div class="ep-section dml">
+  <div class="ep-header">
+    DML EP &nbsp;&mdash;&nbsp; Adreno X1-85 via Direct3D 12
+    &nbsp;<span style="font-weight:400;font-size:11px;color:#1976d2">1 model only (facebook/convnext-tiny-224). DML not available on test device (onnxruntime-windowsml package conflict)</span>
+  </div>
+  <div class="ep-body">
+
+    <div class="sm-divider">
+      <span class="sm-count">3 single-model findings hidden (dml-001/002/003 &mdash; ConvNext only)</span>
+      <span>Click &ldquo;Show single-model findings&rdquo; above to expand</span>
+    </div>
+
+    <div class="finding single-model">
+      <div class="find-id">dml-001</div>
+      <div class="find-conf"><span class="conf conf-medium">MEDIUM<br>stability</span></div>
+      <div class="find-body">
+        <div class="find-title">DML is more stable than QNN GPU &mdash; p50 difference is within noise</div>
+        <div class="find-detail">
+          DML FP32: p50=16.9ms, std=0.52. QNN GPU FP32: p50=17.7ms, std=0.97.
+          p50 diff = <span class="warn">0.82&sigma; of QNN GPU &mdash; distributions OVERLAP. Not a separable p50 advantage.</span>
+          DML meaningfully more stable: CV 3% vs 5.5%.
+          <div><span class="scope">Scope: Adreno X1-85, ConvNext. 3-run comparison only.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">Prefer DML over QNN GPU for lower tail latency (p90). Do NOT claim DML is faster based on p50 alone.</div>
+      </div>
+    </div>
+
+    <div class="finding single-model">
+      <div class="find-id">dml-002</div>
+      <div class="find-conf"><span class="conf conf-medium">MEDIUM<br>1 run</span></div>
+      <div class="find-body">
+        <div class="find-title">NHWC transformer increases latency variance on DML &mdash; p50 neutral, p90 +19%</div>
+        <div class="find-detail">
+          DML NHWC: p50=16.5ms, <span class="warn">p90=21.0ms (+19%), std=1.89 (3.6x worse)</span>.
+          <div><span class="scope">Scope: Adreno X1-85 + DML, ConvNext.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">Do NOT apply <code>nhwc-transformer</code> for DML EP. p90 +19% is unacceptable.</div>
+      </div>
+    </div>
+
+    <div class="finding single-model">
+      <div class="find-id">dml-003</div>
+      <div class="find-conf"><span class="conf conf-low">LOW<br>CLI gap</span></div>
+      <div class="find-body">
+        <div class="find-title">DML FP16 gives ~1.4x speedup with clean unimodal distribution &mdash; BLOCKED (#867)</div>
+        <div class="find-detail">
+          DML FP16 (Python hack): <span class="data">p50=11.8ms, p90=12.8ms, std=0.66</span> vs FP32 16.9ms.
+          <span class="warn">Cannot reproduce with winml CLI today. Blocked on <strong>#867</strong> (--precision fp16).</span>
+          <div><span class="scope">Scope: Adreno X1-85 + DML. 1 experiment only.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">Marked SKIPPED until <strong>#867</strong> ships. FP16 is the primary DML lever.</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- QNN GPU -->
+<div class="ep-section gpu">
+  <div class="ep-header">
+    QNN GPU EP &nbsp;&mdash;&nbsp; Adreno X1-85 via QNN SDK
+    &nbsp;<span style="font-weight:400;font-size:11px;color:#bf360c">8 catalog models (2026-06-18) + 5 recipe models (2026-06-25) | 3&times;300-iter sessions + 10-round interleaved A/B | catalog_sweep.py + ab_gpu_segformer.py</span>
+  </div>
+  <div class="ep-body">
+
+    <div class="finding">
+      <div class="find-id">gpu-004</div>
+      <div class="find-conf"><span class="conf conf-high">HIGH<br>confirmed</span></div>
+      <div class="find-body">
+        <div class="find-title">W8A8 QDQ hangs indefinitely on QNN GPU EP (QNN SDK limitation)</div>
+        <div class="find-detail">
+          Any W8A8 QDQ-annotated ONNX passed to QNN GPU EP &rarr; infinite hang.
+          <code>winml build</code> already protects via <code>_patch_device()</code> (quant=null for GPU).
+          Fast-fail enhancement: <strong>#868</strong>.
+          <div><span class="scope">Scope: QNN GPU EP. QNN SDK limitation. Not a concern in normal user path.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">Skip ALL quantization for QNN GPU EP. <code>winml build</code> protects automatically. Tracked: <strong>#868</strong>.</div>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="find-id">gpu-006</div>
+      <div class="find-conf"><span class="conf conf-high">HIGH<br>confirmed<br>7+5 models</span></div>
+      <div class="find-body">
+        <div class="find-title">opset 21 is neutral-to-negative on QNN GPU &mdash; CONFIRMED across 7 catalog + 5 recipe models</div>
+        <div class="find-detail">
+          Full sweep 2026-06-18 (h3 = opset21):
+          DINOv2 <span class="data">+1.2%</span>, ResNet-18 <span class="data">+3.3%</span> (both MARGINAL),
+          MobileViT <span class="warn">&minus;3.4%</span>, roberta <span class="warn">&minus;1.1%</span>,
+          tinyroberta <span class="warn">&minus;2.7%</span>, rad-dino <span class="warn">&minus;2.6%</span>, bge-small +0.2%.
+          Range: &minus;5.4% to +3.3%. No KEEP verdict. All MARGINAL or DISCARD.
+          <span class="warn">Opposite of QNN NPU: DINOv2 +30% on NPU vs +1.2% on GPU.</span>
+          <strong>Recipe reconfirm 2026-06-25:</strong> all 5 recipe models BASELINE_IS_BEST; dedicated 10-round
+          interleaved A/B on segformer (h3 opset21) = <span class="warn">&minus;2.39% NOISE_NO_GAIN</span>.
+          <div><span class="scope">Scope: QNN GPU EP. Confirmed across 12 diverse architectures (CNN, ViT, transformer, NLP, segmentation).</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">
+          Do NOT try opset 19 or 21 for QNN GPU. Default to opset 17.
+          Rule confirmed &mdash; remove opset sweep from GPU search space.
+        </div>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="find-id">gpu-007</div>
+      <div class="find-conf"><span class="conf conf-low">LOW<br>DOWNGRADED<br>unverified</span></div>
+      <div class="find-body">
+        <div class="find-title">transpose_optimizer p50 gain on QNN GPU is UNVERIFIED &mdash; sequential-only, never interleaved-confirmed, no-ops on recipe transformers</div>
+        <div class="find-detail">
+          <span class="warn">Downgraded 2026-06-25.</span> Original +8&ndash;17% claim (DINOv2 h12 26.4&rarr;22.0ms, ResNet-18 h12 6.82&rarr;6.25ms)
+          came from <strong>sequential per-hypothesis benching</strong>, which inflates gains ~2&times; via thermal/DVFS/contention drift.
+          The gain was <strong>never reproduced under a 10-round interleaved round-robin A/B</strong>.
+          On the 5 recipe transformers (koelectra, swinv2, all-mpnet, clip-vit, segformer) <code>transpose_optimizer</code> is a
+          <strong>no-op</strong> (graph unchanged / pass never fires) &mdash; no model improved; all BASELINE_IS_BEST.
+          <div><span class="scope">Scope: was Conv/ViT only. Treat as UNVERIFIED until an interleaved A/B confirms a real op-count change AND p50 gain.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">
+          Do NOT apply <code>transpose_optimizer</code> as a default. <code>mechanism_confirmed=false</code> &mdash; does not prune the search space.
+          Re-test only via interleaved A/B (op-count must change first); report a gain only after &ge;10-round confirmation.
+        </div>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="find-id">gpu-008</div>
+      <div class="find-conf"><span class="conf conf-high">HIGH<br>cross-EP</span></div>
+      <div class="find-body">
+        <div class="find-title">highdimRTR causes &minus;6.9% regression on MobileViT GPU &mdash; same root cause as npu-010</div>
+        <div class="find-detail">
+          MobileViT h9 (bundle including highdimRTR): <span class="warn">p50=19.2ms vs baseline 18.0ms = &minus;6.89% DISCARD.</span>
+          Less severe than NPU (&minus;19%) due to lower DMA sensitivity on Adreno vs Hexagon HTP.
+          Root cause: same +36 spurious Reshape nodes confirmed by npu-010 ONNX diff.
+          <div><span class="scope">Scope: CNN-ViT hybrids with Gemm&rarr;Reshape&rarr;Transpose unfold. See npu-010 for full mechanism.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">Same block rule as npu-010. Cross-EP: same architecture check protects both GPU and NPU sweeps.</div>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="find-id">gpu-009</div>
+      <div class="find-conf"><span class="conf conf-high">HIGH<br>cross-EP</span></div>
+      <div class="find-body">
+        <div class="find-title">NPU&rarr;GPU non-transfer: opset21 + matmul_transpose_fusion wins on NPU REVERSE on GPU</div>
+        <div class="find-detail">
+          swinv2-tiny: the opset21 + <code>matmul_transpose_fusion</code> combo that gave <span class="data">+12% on QNN NPU</span>
+          <span class="warn">reverses to ~&minus;26% on QNN GPU</span>. Confirmed via the recipe sweep + interleaved A/B.
+          Adreno's shader compiler already folds these transposes; forcing the fusion adds redundant work.
+          <div><span class="scope">Scope: cross-EP transfer hazard. EP-winning recipes must be re-validated per device &mdash; never copied NPU&rarr;GPU.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">Do not seed GPU search space with NPU-winning recipes. Validate opset/fusion recipes independently per EP+device.</div>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="find-id">gpu-010</div>
+      <div class="find-conf"><span class="conf conf-high">HIGH<br>confirmed</span></div>
+      <div class="find-body">
+        <div class="find-title">skip_layer_norm_fusion is a 2&ndash;4&times; latency hazard on QNN GPU</div>
+        <div class="find-detail">
+          On transformer recipe models, enabling <code>skip_layer_norm_fusion</code> for QNN GPU produced a
+          <span class="warn">2&ndash;4&times; slowdown</span> (op-count confirmed the pass fired &mdash; not a no-op).
+          The fused SkipLayerNorm op falls back to a slow path on Adreno.
+          <div><span class="scope">Scope: QNN GPU EP, transformer/LayerNorm models. Added to search_space_rules.graph_passes.skip.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">Block <code>skip_layer_norm_fusion</code> for QNN GPU. <code>mechanism_confirmed=true</code> &mdash; prunes the search space.</div>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="find-id">gpu-011</div>
+      <div class="find-conf"><span class="conf conf-high">HIGH<br>confirmed</span></div>
+      <div class="find-body">
+        <div class="find-title">Analyzer defaults are perf-neutral on QNN GPU &mdash; keep the analyzer ON</div>
+        <div class="find-detail">
+          <code>--no-analyze</code> (dropping the analyzer's auto-injected gelu_fusion + matmul_add_fusion) yielded
+          <span class="data">no measurable gain</span> on the recipe models &mdash; segformer 10-round A/B: <span class="data">&minus;0.01% NOISE_NO_GAIN</span>.
+          The analyzer's default passes are perf-neutral (neither help nor hurt) on QNN GPU, so there is no reason to disable it.
+          <div><span class="scope">Scope: QNN GPU EP. Keep analyzer enabled; do not add <code>--no-analyze</code> to the GPU search space.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">Keep analyzer ON for QNN GPU. Drop <code>--no-analyze</code> from the search space &mdash; it produces nothing.</div>
+      </div>
+    </div>
+
+    <div class="sm-divider">
+      <span class="sm-count">4 single-model findings hidden (gpu-001/002/003/005 &mdash; ConvNext only)</span>
+      <span>Click &ldquo;Show single-model findings&rdquo; above to expand</span>
+    </div>
+
+    <div class="finding single-model">
+      <div class="find-id">gpu-001</div>
+      <div class="find-conf"><span class="conf conf-high">HIGH<br>confirmed</span></div>
+      <div class="find-body">
+        <div class="find-title">FP32 baseline is already optimal for ConvNext on QNN GPU &mdash; no optimization pass helps</div>
+        <div class="find-detail">
+          11-pass sweep on ConvNext: all 0% node reduction or worse. 251/0/0/0 analyze output.
+          <div><span class="scope">Scope: ConvNext-class. Recipe sweep + A/B found no graph pass helps transformers either (gpu-007 transpose_optimizer downgraded; all recipe models BASELINE_IS_BEST).</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">Skip all graph pass experiments for QNN GPU on ConvNext-class. FP16 is the only remaining lever (#867).</div>
+      </div>
+    </div>
+
+    <div class="finding single-model">
+      <div class="find-id">gpu-002</div>
+      <div class="find-conf"><span class="conf conf-medium">MEDIUM<br>consistent</span></div>
+      <div class="find-body">
+        <div class="find-title">NHWC transformer hurts QNN GPU on Adreno &mdash; ~10% worse p50, +21% p90</div>
+        <div class="find-detail">
+          NHWC: <span class="warn">p50=19.5ms (+10%), p90=23.8ms (+21%), std=3.43 (3.5x worse)</span>.
+          <div><span class="scope">Scope: Adreno X1-85 + QNN GPU.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">Do NOT apply <code>nhwc-transformer</code> for QNN GPU EP.</div>
+      </div>
+    </div>
+
+    <div class="finding single-model">
+      <div class="find-id">gpu-005</div>
+      <div class="find-conf"><span class="conf conf-high">HIGH<br>confirmed</span></div>
+      <div class="find-body">
+        <div class="find-title">gelu_fusion improves latency STABILITY on QNN GPU &mdash; not p50</div>
+        <div class="find-detail">
+          Unfused GELU (287 nodes): p50=17.4ms, <span class="warn">p90=29.2ms, std=5.90</span>.
+          Fused GELU (251 nodes): p50=17.7ms, <span class="data">p90=19.7ms (&minus;48%), std=0.97 (&minus;6x)</span>.
+          <div><span class="scope">Scope: Any model with GELU activations on QNN GPU.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">Always apply <code>gelu_fusion</code> for QNN GPU (stability benefit, not p50).</div>
+      </div>
+    </div>
+
+    <div class="finding single-model">
+      <div class="find-id">gpu-003</div>
+      <div class="find-conf"><span class="conf conf-low">LOW<br>1 run</span></div>
+      <div class="find-body">
+        <div class="find-title">winml compile regresses QNN GPU by ~34% &mdash; single experiment, low confidence</div>
+        <div class="find-detail">
+          FP32 + compile: <span class="warn">p50=23.7ms vs baseline 17.7ms (+34%)</span>. Single experiment only.
+          <div><span class="scope">Scope: QNN GPU EP. QNN NPU: compile always helps.</span></div>
+        </div>
+      </div>
+      <div class="find-action">
+        <div class="action-label">Autoconfig action</div>
+        <div class="action-text">Avoid <code>winml compile</code> for QNN GPU EP. Re-validate if behavior changes.</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- FEATURE REQUESTS -->
+<div class="fr-section">
+  <div class="fr-header">
+    Feature Requests &amp; CLI Gaps
+    <span style="font-weight:400;font-size:11px;color:#778">&mdash; required to complete the autoconfig skill</span>
+  </div>
+
+  <table class="fr-table">
+    <thead>
+      <tr>
+        <th>Feature</th>
+        <th>Issue</th>
+        <th>Priority</th>
+        <th>Motivation</th>
+        <th>EP Finding</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+
+      <tr>
+        <td>winml perf multi-session bench protocol<br><code>--sessions N --cool-down S</code></td>
+        <td><a class="issue-link" href="#">#155</a></td>
+        <td><span class="pri pri-p0">P0</span></td>
+        <td>npu-007: reliable QNN NPU measurement requires 3 independent sessions with 30s cool-down. Single-session p50 is meaningless due to DVFS. catalog_qnn_sweep.py works around this but CLI support is needed for production autoconfig.</td>
+        <td>npu-007</td>
+        <td>OPEN</td>
+      </tr>
+
+      <tr>
+        <td>winml analyze: detect FusedConv and warn when Conv%&nbsp;&gt;&nbsp;threshold pre-build</td>
+        <td><span class="no-issue">not filed</span></td>
+        <td><span class="pri pri-p0">P0</span></td>
+        <td>npu-006: conv fusions create FusedConv ops that QNN EP cannot dispatch, causing 130x regression. autoconfig guards via Conv% counter but a CLI-level lint in <code>winml analyze --ep qnn</code> would make this generally available without custom Python code.</td>
+        <td>npu-006</td>
+        <td class="blocked">NEEDS ISSUE</td>
+      </tr>
+
+      <tr>
+        <td>winml analyze: detect Gemm&rarr;Reshape&rarr;Transpose hybrid unfold; warn before applying highdimRTR</td>
+        <td><span class="no-issue">not filed</span></td>
+        <td><span class="pri pri-p1">P1</span></td>
+        <td>npu-010 / gpu-008: highdimRTR inserts +36 spurious Reshape nodes on CNN-ViT hybrids (MobileViT), causing &minus;19% NPU / &minus;6.9% GPU regression. analyze_insight.py adds to skip_set internally, but a <code>winml analyze --flag highdimRTR_lowdimRTR</code> lint check would make this available to all users.</td>
+        <td>npu-010, gpu-008</td>
+        <td class="blocked">NEEDS ISSUE</td>
+      </tr>
+
+      <tr>
+        <td>winml build --precision fp16</td>
+        <td><a class="issue-link" href="#">#867</a></td>
+        <td><span class="pri pri-p1">P1</span></td>
+        <td>dml-003: DML FP16 gives ~1.4x speedup with clean distribution, only achievable via Python workaround. Same for QNN GPU (FP16 is the only remaining lever after all graph passes exhausted).</td>
+        <td>dml-003, gpu-001</td>
+        <td>OPEN</td>
+      </tr>
+
+      <tr>
+        <td>winml perf --profile (per-op kernel time)</td>
+        <td><a class="issue-link" href="#">#158</a></td>
+        <td><span class="pri pri-p1">P1</span></td>
+        <td>Phase 1 Insight in autoconfig needs dynamic op-dominance data (Gemm% vs Conv% vs Attention%) to prioritize hypotheses. POC bridges via static analyze_graph.py, but dynamic profiling is needed for accurate attribution.</td>
+        <td>all EPs</td>
+        <td>OPEN</td>
+      </tr>
+
+      <tr>
+        <td>winml build --json (structured output)</td>
+        <td><a class="issue-link" href="#">#443</a></td>
+        <td><span class="pri pri-p2">P2</span></td>
+        <td>autoconfig parses winml build stdout to detect failures &mdash; fragile string parsing. A --json flag should emit per-step status, elapsed time, and output artifact paths. Would enable precise partial-failure detection and resume.</td>
+        <td>all EPs</td>
+        <td>OPEN</td>
+      </tr>
+
+      <tr>
+        <td>winml eval --mode compare: support local PyTorch model as reference</td>
+        <td><span class="no-issue">not filed</span></td>
+        <td><span class="pri pri-p2">P2</span></td>
+        <td>autoconfig correctness gate requires HuggingFace model ID as golden reference. Local .pt/.pth files and custom fine-tunes are not supported, blocking cosine-similarity correctness checks for non-HF models.</td>
+        <td>all EPs</td>
+        <td class="blocked">NEEDS ISSUE</td>
+      </tr>
+
+    </tbody>
+  </table>
+</div>
+
+<div style="margin-top:32px;padding-top:14px;border-top:1px dashed #ccd;font-size:11px;color:#aab;line-height:1.8">
+  <strong>How to read confidence levels:</strong>
+  <span class="conf conf-high">HIGH confirmed</span> = mechanism understood + data from &ge;3 independent sessions with non-overlapping ranges.
+  &nbsp;
+  <span class="conf conf-medium">MEDIUM empirical</span> = data is reliable but mechanism unconfirmed or from 1 model only.
+  &nbsp;
+  <span class="conf conf-low">LOW</span> = single experiment, anecdote, or CLI gap blocking proper validation.
+  <br>
+  All findings from Snapdragon X Elite CRD (Oryon CPU + Adreno X1-85 GPU + Hexagon HTP NPU).
+  ORT 1.24.5 (onnxruntime-windowsml). Findings may not generalize to x86 hardware or older ORT versions.
+</div>
+<script>
+(function () {
+  // Auto-tag any finding card that carries a LOW confidence badge.
+  document.querySelectorAll('.finding').forEach(function (f) {
+    if (f.querySelector('.conf-low')) f.classList.add('low-conf');
+  });
+})();
+
+// LOW-confidence findings are hidden by default. When hidden we force an inline
+// display:none so they stay hidden regardless of the single-model toggle; when
+// shown we clear the inline style and let the single-model CSS rules apply.
+var lowConfShown = false;
+function applyLowConf() {
+  document.querySelectorAll('.finding.low-conf').forEach(function (f) {
+    f.style.display = lowConfShown ? '' : 'none';
+  });
+}
+function toggleLowConf() {
+  lowConfShown = !lowConfShown;
+  document.getElementById('lowconf-btn').textContent =
+    lowConfShown ? 'Hide low-confidence findings' : 'Show low-confidence findings';
+  applyLowConf();
+}
+applyLowConf();
+</script>
+
+</body>
+</html>

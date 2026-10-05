@@ -1,0 +1,124 @@
+{
+  "model_id": "microsoft/resnet-18",
+  "task": "image-classification",
+  "model_type": "resnet",
+  "timestamp": "2026-06-13T13:38:52",
+  "ep": "qnn",
+  "device": "npu",
+  "baseline_opset": 17,
+  "hypotheses": {
+    "h0": {
+      "status": "OK_HIGH_CV",
+      "screen": {
+        "p50_ms": 4.031,
+        "cv": 1.6902,
+        "stable": false,
+        "note": "DVFS noise — high CV expected on QNN NPU"
+      },
+      "full": {
+        "p50s_ms": [
+          1.311,
+          0.952,
+          0.964
+        ],
+        "median_p50_ms": 0.964
+      },
+      "accuracy": 0.66,
+      "label": "baseline (auto-config, W8A16)",
+      "opset": 17
+    },
+    "h1": {
+      "status": "OK_HIGH_CV",
+      "screen": {
+        "p50_ms": 3.111,
+        "cv": 2.0363,
+        "stable": false,
+        "note": "DVFS noise — high CV expected on QNN NPU"
+      },
+      "full": {
+        "p50s_ms": [
+          0.99,
+          4.003,
+          2.716
+        ],
+        "median_p50_ms": 2.716
+      },
+      "accuracy": null,
+      "label": "opset 17 explicit",
+      "opset": 17
+    },
+    "h2": {
+      "status": "OK_HIGH_CV",
+      "screen": {
+        "p50_ms": 3.992,
+        "cv": 1.5168,
+        "stable": false,
+        "note": "DVFS noise — high CV expected on QNN NPU"
+      },
+      "full": {
+        "p50s_ms": [
+          1.147,
+          1.114,
+          1.947
+        ],
+        "median_p50_ms": 1.147
+      },
+      "accuracy": null,
+      "label": "opset 19",
+      "opset": 19
+    },
+    "h3": {
+      "status": "OK_HIGH_CV",
+      "screen": {
+        "p50_ms": 2.968,
+        "cv": 1.1762,
+        "stable": false,
+        "note": "DVFS noise — high CV expected on QNN NPU"
+      },
+      "full": {
+        "p50s_ms": [
+          1.054,
+          2.175,
+          4.107
+        ],
+        "median_p50_ms": 2.175
+      },
+      "accuracy": null,
+      "label": "opset 21 (tests npu-001 bypass)",
+      "opset": 21
+    },
+    "h4": {
+      "status": "OK_HIGH_CV",
+      "screen": {
+        "p50_ms": 128.104,
+        "cv": 1.4049,
+        "stable": false,
+        "note": "DVFS noise — high CV expected on QNN NPU"
+      },
+      "full": {
+        "p50s_ms": [
+          132.3,
+          134.97,
+          130.669
+        ],
+        "median_p50_ms": 132.3
+      },
+      "accuracy": null,
+      "label": "opset 17 + conv fusions",
+      "opset": 17
+    },
+    "h5": {
+      "status": "TIMEOUT",
+      "label": "opset 21 + conv fusions"
+    }
+  },
+  "best_hypothesis": "h0",
+  "baseline_p50_ms": 0.964,
+  "best_p50_ms": 0.964,
+  "best_gain_pct": 0.0,
+  "npu001_generalized": true,
+  "feature_gaps": [],
+  "errors": [
+    "Model timed out at 1560s (before h5)"
+  ]
+}

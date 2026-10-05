@@ -1,0 +1,92 @@
+{
+  "model_id": "facebook/dino-vitb16",
+  "task": "image-feature-extraction",
+  "model_type": "vit",
+  "timestamp": "2026-06-16T18:19:46",
+  "ep": "qnn",
+  "device": "npu",
+  "validation_sweep": true,
+  "hypotheses": {
+    "h0": {
+      "status": "OK_HIGH_CV",
+      "screen": {
+        "p50_ms": 20.367,
+        "cv": 0.2452,
+        "stable": false,
+        "note": "DVFS noise — high CV expected on QNN NPU"
+      },
+      "full": {
+        "p50s_ms": [
+          20.037,
+          20.009,
+          20.048
+        ],
+        "median_p50_ms": 20.037
+      },
+      "label": "baseline (auto-config, W8A16)",
+      "opset": "auto"
+    },
+    "h1": {
+      "status": "OK_HIGH_CV",
+      "screen": {
+        "p50_ms": 20.027,
+        "cv": 0.4804,
+        "stable": false,
+        "note": "DVFS noise — high CV expected on QNN NPU"
+      },
+      "full": {
+        "p50s_ms": [
+          19.924,
+          19.975,
+          19.897
+        ],
+        "median_p50_ms": 19.924
+      },
+      "label": "opset 17 explicit",
+      "opset": 17
+    },
+    "h3": {
+      "status": "OK_HIGH_CV",
+      "screen": {
+        "p50_ms": 20.369,
+        "cv": 0.9085,
+        "stable": false,
+        "note": "DVFS noise — high CV expected on QNN NPU"
+      },
+      "full": {
+        "p50s_ms": [
+          20.197,
+          20.071,
+          19.988
+        ],
+        "median_p50_ms": 20.071
+      },
+      "label": "opset 21 (tests npu-001)",
+      "opset": 21
+    },
+    "h4": {
+      "status": "OK_HIGH_CV",
+      "screen": {
+        "p50_ms": 19.871,
+        "cv": 0.3492,
+        "stable": false,
+        "note": "DVFS noise — high CV expected on QNN NPU"
+      },
+      "full": {
+        "p50s_ms": [
+          20.123,
+          20.037,
+          20.413
+        ],
+        "median_p50_ms": 20.123
+      },
+      "label": "opset 17 + conv fusions",
+      "opset": 17
+    }
+  },
+  "errors": [],
+  "npu001_opset21_vs_17_gain_pct": -0.7,
+  "npu001_note": "opset21 median 20.071ms vs opset17 19.924ms = -0.7%",
+  "npu006_conv_fusion_regression_pct": 1.0,
+  "npu006_note": "conv fusions median 20.123ms vs no-fusion 19.924ms = +1.0%"
+}

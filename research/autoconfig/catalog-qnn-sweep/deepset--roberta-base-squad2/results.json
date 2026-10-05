@@ -1,0 +1,106 @@
+{
+  "model_id": "deepset/roberta-base-squad2",
+  "task": "question-answering",
+  "model_type": "roberta",
+  "timestamp": "2026-06-13T16:21:18",
+  "ep": "qnn",
+  "device": "npu",
+  "baseline_opset": 17,
+  "hypotheses": {
+    "h0": {
+      "status": "OK",
+      "screen": {
+        "p50_ms": 14.919,
+        "cv": 0.1188,
+        "stable": true
+      },
+      "full": {
+        "p50s_ms": [
+          14.941,
+          14.711,
+          14.97
+        ],
+        "median_p50_ms": 14.941
+      },
+      "accuracy": null,
+      "label": "baseline (auto-config, W8A16)",
+      "opset": 17
+    },
+    "h1": {
+      "status": "OK",
+      "screen": {
+        "p50_ms": 14.747,
+        "cv": 0.1286,
+        "stable": true
+      },
+      "full": {
+        "p50s_ms": [
+          14.645,
+          14.873,
+          14.716
+        ],
+        "median_p50_ms": 14.716
+      },
+      "accuracy": null,
+      "label": "opset 17 explicit",
+      "opset": 17
+    },
+    "h2": {
+      "status": "OK_HIGH_CV",
+      "screen": {
+        "p50_ms": 15.309,
+        "cv": 0.2344,
+        "stable": false,
+        "note": "DVFS noise — high CV expected on QNN NPU"
+      },
+      "full": {
+        "p50s_ms": [
+          14.951,
+          14.877,
+          14.834
+        ],
+        "median_p50_ms": 14.877
+      },
+      "accuracy": null,
+      "label": "opset 19",
+      "opset": 19
+    },
+    "h3": {
+      "status": "OK",
+      "screen": {
+        "p50_ms": 14.798,
+        "cv": 0.1159,
+        "stable": true
+      },
+      "full": {
+        "p50s_ms": [
+          16.685,
+          14.743,
+          14.919
+        ],
+        "median_p50_ms": 14.919
+      },
+      "accuracy": null,
+      "label": "opset 21 (tests npu-001 bypass)",
+      "opset": 21
+    },
+    "h4": {
+      "status": "TIMEOUT",
+      "label": "opset 17 + conv fusions"
+    },
+    "h5": {
+      "status": "TIMEOUT",
+      "label": "opset 21 + conv fusions"
+    }
+  },
+  "best_hypothesis": "h1",
+  "baseline_p50_ms": 14.941,
+  "best_p50_ms": 14.716,
+  "best_gain_pct": 1.51,
+  "npu001_generalized": "neutral",
+  "feature_gaps": [],
+  "errors": [
+    "Model timed out at 1466s (before h4)",
+    "Model timed out at 1466s (before h5)"
+  ]
+}
