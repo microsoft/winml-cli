@@ -58,6 +58,7 @@ def _timing(
     generator_create_s: float = 0.0,
     sequence_fetch_s: float = 0.0,
     detokenization_s: float = 0.0,
+    response_text: str = "",
 ) -> GenerationTiming:
     """Build a GenerationTiming with ``1 + len(decode_s)`` generated tokens."""
     return GenerationTiming(
@@ -69,6 +70,7 @@ def _timing(
         decode_s=list(decode_s),
         sequence_fetch_s=sequence_fetch_s,
         detokenization_s=detokenization_s,
+        response_text=response_text,
     )
 
 
@@ -587,7 +589,7 @@ class TestResultToDict:
             compile_timeout=120,
         )
         session = _FakeSession(
-            [_timing(0.4, 0.6, [0.4, 0.4, 0.4])],
+            [_timing(0.4, 0.6, [0.4, 0.4, 0.4], response_text="Measured answer")],
             prompt_ids=[1, 2, 3],
             effective_ep="qnn",
             effective_device="npu",
@@ -604,6 +606,7 @@ class TestResultToDict:
             "load",
             "requests",
             "aggregate",
+            "response_text",
         }
         assert d["schema_version"] == 2
         info = d["benchmark_info"]
@@ -622,6 +625,7 @@ class TestResultToDict:
         assert info["monitor"] is False
         assert info["apply_template"] is True
         assert info["prompt"] == "Benchmark this exact prompt"
+        assert d["response_text"] == "Measured answer"
         assert set(d["load"]) == {
             "session_load_duration_ms",
             "ep_registration_duration_ms",
@@ -876,7 +880,9 @@ class TestReporting:
             iterations=1,
             warmup=0,
         )
-        session = _FakeSession([_timing(0.4, 0.6, [0.4, 0.4, 0.4])])
+        session = _FakeSession(
+            [_timing(0.4, 0.6, [0.4, 0.4, 0.4], response_text="Representative [/b] answer")]
+        )
         bench = GenaiPerfBenchmark(cfg, session=session)
         return bench.run()
 
@@ -887,9 +893,16 @@ class TestReporting:
         assert out.exists()
         data = json.loads(out.read_text(encoding="utf-8"))
         assert data["benchmark_info"]["runtime"] == "ort-genai"
+        assert data["response_text"] == "Representative [/b] answer"
 
-    def test_display_genai_report_does_not_crash(self) -> None:
-        display_genai_report(self._result(), Console())
+    def test_display_genai_report_shows_response_verbatim(self) -> None:
+        console = Console(file=StringIO(), width=200, force_terminal=False, record=True)
+
+        display_genai_report(self._result(), console)
+
+        output = console.export_text()
+        assert "Response" in output
+        assert "Representative [/b] answer" in output
 
     def test_display_genai_report_ep_none_does_not_crash(self) -> None:
         # ep=None renders as "<device> (config)" without error.

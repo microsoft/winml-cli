@@ -90,6 +90,9 @@ _DEVICE_TYPE_EPS: frozenset[str] = frozenset(
     {"OpenVINOExecutionProvider", "VitisAIExecutionProvider"}
 )
 
+# Their shared EPContext blobs omit weights, which load from the source graphs' external data.
+_WEIGHTLESS_SHARED_CONTEXT_EPS: frozenset[str] = frozenset({"OpenVINOExecutionProvider"})
+
 
 # ---------------------------------------------------------------------------
 # Module-level compilation worker.
@@ -1615,6 +1618,7 @@ class GenaiSession:
             ):
                 self._patch_stage_filename(modified_cfg, stage_key, ctx.name)
                 compiled_stage_filenames.add(onnx_filename)
+            self._link_shared_weight_sources(group, compiled_dir, modified_cfg)
             return True
 
         logger.info(
@@ -1626,6 +1630,7 @@ class GenaiSession:
                 self._write_compile_marker(ctx, ea, eo)
                 self._patch_stage_filename(modified_cfg, stage_key, ctx.name)
                 compiled_stage_filenames.add(onnx_filename)
+            self._link_shared_weight_sources(group, compiled_dir, modified_cfg)
             return True
 
         logger.warning(
@@ -1635,6 +1640,39 @@ class GenaiSession:
         for stage_key, onnx_filename, _ea, _eo in group:
             self._patch_stage_filename(modified_cfg, stage_key, onnx_filename)
         return False
+
+    def _link_shared_weight_sources(
+        self,
+        group: list[tuple[str, str, str, dict]],
+        compiled_dir: Path,
+        modified_cfg: dict,
+    ) -> None:
+        """Expose source weights to weightless shared EPContexts and enable sharing at load."""
+        ep_name = normalize_ep_name(cast("EPNameOrAlias", group[0][2]))
+        if ep_name not in _WEIGHTLESS_SHARED_CONTEXT_EPS:
+            return
+        from ..onnx import get_external_data_files
+
+        for _stage_key, onnx_filename, _ea, _eo in group:
+            src_onnx = self._bundle_dir / onnx_filename
+            for location in get_external_data_files(src_onnx):
+                src, dst = src_onnx.parent / location, compiled_dir / location
+                if dst.exists():
+                    continue
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    dst.symlink_to(src.resolve())
+                except (OSError, NotImplementedError):
+                    shutil.copy2(src, dst)
+
+        stage_keys = {stage[0] for stage in group}
+        pipeline = modified_cfg.get("model", {}).get("decoder", {}).get("pipeline", [])
+        for stage_entry in pipeline:
+            if not isinstance(stage_entry, dict):
+                continue
+            for stage_key, stage_cfg in stage_entry.items():
+                if stage_key in stage_keys and isinstance(stage_cfg, dict):
+                    stage_cfg.setdefault("session_options", {})["ep.share_ep_contexts"] = "1"
 
     def _compile_stages_shared(
         self,

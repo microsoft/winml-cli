@@ -2786,6 +2786,77 @@ class TestMirrorNonOnnxFiles:
 
 
 # ---------------------------------------------------------------------------
+# Tests: shared EPContext groups whose blobs omit weights
+# ---------------------------------------------------------------------------
+
+
+class TestSharedGroupExternalWeights:
+    @staticmethod
+    def _shared_group(tmp_path: Path, ep: str) -> tuple[GenaiSession, list, dict]:
+        import numpy as np
+        import onnx
+        from onnx import TensorProto, helper, numpy_helper
+
+        pipeline = []
+        group = []
+        for stage_key, filename in (("context", "ctx.onnx"), ("iterator", "iter.onnx")):
+            weight = numpy_helper.from_array(np.ones((4, 4), dtype=np.float32), "w")
+            graph = helper.make_graph(
+                [helper.make_node("MatMul", ["x", "w"], ["y"])],
+                stage_key,
+                [helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 4])],
+                [helper.make_tensor_value_info("y", TensorProto.FLOAT, [1, 4])],
+                [weight],
+            )
+            onnx.save_model(
+                helper.make_model(graph),
+                str(tmp_path / filename),
+                save_as_external_data=True,
+                location=f"{filename}.data",
+                size_threshold=0,
+            )
+            options = {"provider_options": [{ep: {}}]}
+            pipeline.append({stage_key: {"filename": filename, "session_options": options}})
+            group.append((stage_key, filename, ep, {}))
+        cfg = {"model": {"type": "decoder-pipeline", "decoder": {"pipeline": pipeline}}}
+        (tmp_path / "genai_config.json").write_text(json.dumps(cfg), encoding="utf-8")
+        return GenaiSession(tmp_path, compile=True), group, cfg
+
+    @pytest.mark.parametrize("cached", [False, True])
+    @pytest.mark.parametrize(("ep", "needs_weights"), [("openvino", True), ("qnn", False)])
+    def test_weightless_blobs_get_weights_and_sharing_at_load(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ep, needs_weights, cached
+    ) -> None:
+        session, group, cfg = self._shared_group(tmp_path, ep)
+        compiled_dir = tmp_path / "_compiled"
+        compiled_dir.mkdir()
+
+        def fake_compile(srcs, ctx_outs, group):
+            for ctx in ctx_outs:
+                ctx.write_bytes(b"ep_ctx")
+            return True
+
+        compile_spy = MagicMock(side_effect=fake_compile)
+        monkeypatch.setattr(session, "_compile_stages_shared", compile_spy)
+        monkeypatch.setattr(session, "_epcontext_is_fresh", lambda *_args: cached)
+
+        assert session._process_shared_group(group, compiled_dir, cfg, set()) is True
+
+        assert compile_spy.called is not cached
+        stages = {k: v for entry in cfg["model"]["decoder"]["pipeline"] for k, v in entry.items()}
+        for stage_key, filename, _ep, _opts in group:
+            source_data = tmp_path / f"{filename}.data"
+            linked = compiled_dir / source_data.name
+            sharing = stages[stage_key]["session_options"].get("ep.share_ep_contexts")
+            if needs_weights:
+                assert linked.read_bytes() == source_data.read_bytes()
+                assert sharing == "1"
+            else:
+                assert not linked.exists()
+                assert sharing is None
+
+
+# ---------------------------------------------------------------------------
 # Tests: _patch_stage_filename
 # ---------------------------------------------------------------------------
 
