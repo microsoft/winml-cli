@@ -17,7 +17,7 @@ This folder hosts the source for the [winml-cli](https://github.com/microsoft/wi
 ```
 docs/
 ├── index.md                          ← landing page
-├── getting-started/                  ← 3 onboarding pages
+├── getting-started/                  ← 4 onboarding pages
 ├── concepts/                         ← 12 conceptual pages in two sub-groups
 │   ├── how-it-works.md, graphs-and-ir.md, weight-and-activation.md,
 │   │     eps-and-devices.md, quantization.md         (Fundamentals)
@@ -64,7 +64,7 @@ uv run mkdocs build --strict
 
 - A new page added without an entry in `nav:` (gives a "not included in nav" warning)
 - A nav entry pointing at a file that doesn't exist
-- A relative link like `[text](other-page.md)` whose target file is missing
+- A relative link whose target file is missing
 - A markdown anchor like `[link](#section-heading)` that doesn't match any heading slug
 
 ## Publishing
@@ -116,6 +116,7 @@ on:
 The following are present in `docs/` but **excluded from the published site** via the `exclude_docs:` block in `mkdocs.yml`. They are kept in-repo for contributors:
 
 - `docs/design/` — internal architecture decision records and design notes
+- `docs/README.md` — contributor guidance for the documentation source
 - `docs/superpowers/` — specs, plans, and review notes accumulated during doc development
 - `docs/naming-convention.md` — internal naming conventions for code review
 - `docs/pytest-best-practices.md` — internal testing style guide
