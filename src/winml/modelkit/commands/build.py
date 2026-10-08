@@ -613,6 +613,8 @@ def _maybe_build_genai_bundle(
     device: str,
     ep: EPNameOrAlias | None,
     precision: str | None,
+    max_cache_len: int | None,
+    prefill_seq_len: int | None,
     rebuild: bool,
     submodel: str | None,
 ) -> bool:
@@ -773,6 +775,8 @@ def _maybe_build_genai_bundle(
         ep=bundle_ep,
         device=bundle_device,
         precision=override_precision,
+        max_cache_len=max_cache_len,
+        prefill_seq_len=prefill_seq_len,
         force_rebuild=rebuild,
     )
     console.print(
@@ -856,6 +860,24 @@ def _maybe_build_genai_bundle(
     "an explicit --ep qnn on an NPU target still routes a registered family to its "
     "optimized bundle (backward-compatible shortcut).",
 )
+@click.option(
+    "--max-cache-len",
+    type=click.IntRange(min=1),
+    default=None,
+    help=(
+        "Static KV cache (context) length for optimized GenAI bundles. "
+        "Defaults to the registered recipe's value."
+    ),
+)
+@click.option(
+    "--prefill-seq-len",
+    type=click.IntRange(min=1),
+    default=None,
+    help=(
+        "Prefill sequence length for optimized GenAI bundles. "
+        "Defaults to the registered recipe's value."
+    ),
+)
 @cli_utils.shape_config_option(
     help_text="JSON with shape overrides for auto-generated HuggingFace export configs.",
 )
@@ -900,6 +922,8 @@ def build(
     device: str,
     precision: str,
     export_type: str,
+    max_cache_len: int | None,
+    prefill_seq_len: int | None,
     shape_config: Path | None,
     input_specs: Path | None,
     export_config: Path | None,
@@ -1229,7 +1253,7 @@ def build(
         # model-specific value lives in the recipe. ``--export-type generic`` (or
         # any other device/ep combination without the flag) keeps the stock
         # single/composite build.
-        if _maybe_build_genai_bundle(
+        built_genai_bundle = _maybe_build_genai_bundle(
             ctx,
             export_type=export_type,
             model=model,
@@ -1241,10 +1265,18 @@ def build(
             device=runtime_device,
             ep=runtime_ep_value,
             precision=precision,
+            max_cache_len=max_cache_len,
+            prefill_seq_len=prefill_seq_len,
             rebuild=rebuild,
             submodel=submodel,
-        ):
+        )
+        if built_genai_bundle:
             return
+        if max_cache_len is not None or prefill_seq_len is not None:
+            raise click.UsageError(
+                "--max-cache-len and --prefill-seq-len are only supported for an "
+                "optimized GenAI bundle build."
+            )
 
         if isinstance(config_or_configs, list):
             # ---- MODULE MODE: array config, one build per submodule ----

@@ -258,6 +258,8 @@ class TestBuildCliInterface:
         assert "--verbose" in result.output
         assert "--no-analyze" in result.output
         assert "--max-optim-iterations" in result.output
+        assert "--max-cache-len" in result.output
+        assert "--prefill-seq-len" in result.output
         assert "--shape-config" in result.output
         assert "--input-specs" in result.output
         assert "--export-config" in result.output
