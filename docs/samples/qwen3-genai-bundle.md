@@ -101,26 +101,7 @@ Force a clean rebuild of every component with `--rebuild`.
     `--ep`/`--device` that contradicts the recipe fails fast rather than silently
     reverting.
 
-## Step 2: Tune context and prefill lengths (optional)
-
-`winml build` uses the recipe defaults: context length (static KV cache) `2048`
-and prefill sequence length `64`. To change those, use the equivalent developer
-script, which exposes the extra knobs and delegates to the same builder:
-
-```bash
-uv run python scripts/qwen3.py export \
-  --device npu \
-  --output out/qwen3-bundle \
-  --max-cache-len 4096 \
-  --prefill-seq-len 128
-```
-
-The script also accepts `--embeddings <onnx>` and `--lm-head <onnx>` to reuse
-pre-built companions (skipping their builds), and `--force-rebuild` to rebuild
-everything from scratch. The developer script's `--device npu` shortcut targets
-QNN; use `winml build --ep vitisai --device npu` for an AMD bundle.
-
-## Step 3: Run the bundle (generate text)
+## Step 2: Run the bundle (generate text)
 
 The assembled bundle runs through onnxruntime-genai. Benchmark prompt processing
 and token generation on the NPU with `winml perf`:
@@ -206,22 +187,6 @@ all Intel NPU models are supported.
     separate bundle caches, so a CPU run never reuses a QNN build. CPU companions
     retain their recipe precisions. `-o/--output` stays the results-JSON path,
     and `--rebuild` forces a fresh bundle for the selected target.
-
-!!! warning "`--compile` is required on the NPU"
-    The genai NPU path needs `--compile` (EPContext pre-compilation). The context
-    and iterator stages are compiled together when they use the same provider
-    options, allowing both EPContext graphs to reference one shared weight
-    `.bin`. Without `--compile`, onnxruntime-genai compiles the NPU context
-    in-memory at model-creation time, which can fault before the first token.
-    Use `--compile-timeout <seconds>` to bound compilation before falling back
-    to the original ONNX.
-
-!!! note "Known caveat: non-zero exit on teardown"
-    On Windows ARM64, after generation completes and the results JSON is saved, the
-    process may exit with a native `0xC0000374` (heap corruption) during
-    onnxruntime-genai / QNN-EP **teardown**. This fires after all work is done — the
-    generated tokens and the saved perf metrics are unaffected — and originates in the
-    native runtime below winml-cli, not in the bundle or the build.
 
 ## How it maps to the composite system
 
