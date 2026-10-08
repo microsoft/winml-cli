@@ -7,8 +7,8 @@ runtime metadata and tokenizer that onnxruntime-genai loads together:
 
 | File | Role | Device | Precision |
 |------|------|--------|-----------|
-| `ctx.onnx` | Transformer **prefill** graph (processes the prompt) | NPU (QNN or VitisAI) | `w8a16` |
-| `iter.onnx` | Transformer **decode** graph (one token per step) | NPU (QNN or VitisAI) | `w8a16` |
+| `ctx.onnx` | Transformer **prefill** graph (processes the prompt) | NPU (QNN, VitisAI, or OpenVINO) | `w8a16` |
+| `iter.onnx` | Transformer **decode** graph (one token per step) | NPU (QNN, VitisAI, or OpenVINO) | `w8a16` |
 | `embeddings.onnx` | Token embedding lookup | CPU | `fp32` |
 | `lm_head.onnx` | Final vocab projection | CPU | `w4a32` |
 | `genai_config.json` + tokenizer | onnxruntime-genai runtime metadata | — | — |
@@ -17,21 +17,25 @@ runtime metadata and tokenizer that onnxruntime-genai loads together:
 composite: prefill bakes in a context sequence length, decode is fixed to a
 single token. The embedding table and vocab projection stay on CPU. Splitting the
 model this way lets the compute-heavy transformer run on the selected NPU while
-the memory-bound companions stay on CPU.
+the memory-bound companions stay on CPU. On Intel, OpenVINO runs the `context`
+and `iterator` stages on the NPU; the embedding lookup and `lm_head` projection
+remain on CPU.
 
 ## Prerequisites
 
 - winml-cli installed and `winml` on your PATH.
 - A network connection to download Qwen3 weights from HuggingFace on first run.
-- For NPU inference, a QNN (Qualcomm) or VitisAI (AMD) execution provider.
-  CPU inference does not require either NPU provider.
+- For NPU inference, a compatible QNN (Qualcomm), VitisAI (AMD), or OpenVINO
+  (Intel) execution provider. Intel NPU runs also require a compatible Intel NPU
+  driver and OpenVINO NPU plugin, available through a compatible ONNX Runtime
+  OpenVINO EP installation. CPU inference does not require an NPU provider.
 
 ## Overall workflow
 
 ```mermaid
 graph LR
     A["winml build -m Qwen/Qwen3-0.6B --export-type optimized"] --> B[Genai bundle recipe]
-    B --> C[ctx.onnx / iter.onnx — NPU]
+    B --> C[ctx.onnx / iter.onnx — selected NPU]
     B --> D[embeddings.onnx — CPU]
     B --> E[lm_head.onnx — CPU]
     C --> F[genai_config.json + tokenizer]
@@ -54,8 +58,9 @@ winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle --export-type optimized
 This builds (or reuses from cache) all four components and assembles them, writing
 `out/qwen3-bundle/genai_config.json` alongside the ONNX graphs and tokenizer.
 `--output-dir` is required — the bundle is a directory — and `--use-cache` is not
-supported for bundles. The recipe supports CPU, QNN/NPU, and VitisAI/NPU;
-other resolved targets fail fast. Pin the provider to select a target explicitly:
+supported for bundles. The recipe supports CPU, QNN/NPU, VitisAI/NPU, and
+OpenVINO/NPU; other resolved targets fail fast. Pin the provider to select a
+target explicitly:
 
 ```bash
 # Qualcomm Snapdragon NPU
@@ -65,6 +70,10 @@ winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle \
 # AMD Ryzen AI NPU
 winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle \
   --export-type optimized --ep vitisai --device npu
+
+# Intel NPU (OpenVINO)
+winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle \
+  --export-type optimized --ep openvino --device npu
 ```
 
 The Qwen3 transformer's quantization scheme is fixed by its recipe (`w8a16`, the
@@ -124,6 +133,10 @@ winml perf -m out/qwen3-bundle --runtime ort-genai --device npu --compile \
 # AMD Ryzen AI NPU
 winml perf -m out/qwen3-bundle --runtime ort-genai --device npu --ep vitisai --compile \
   --compile-timeout 600 --max-new-tokens 20 --prompt "What is the capital of France?"
+
+# Intel NPU (OpenVINO)
+winml perf -m out/qwen3-bundle --runtime ort-genai --device npu --ep openvino --compile \
+  --compile-timeout 600 --max-new-tokens 20 --prompt "What is the capital of France?"
 ```
 
 `winml perf` registers the selected WinML EP and runs the bundle's `context` and
@@ -134,6 +147,9 @@ request/model TTFT, prefill throughput, steady-state decode throughput, full
 request latency, optional RAM/VRAM deltas, and a results JSON under
 `~/.cache/winml/perf/`. Exact weight-upload telemetry is currently `null` because
 onnxruntime-genai does not expose it; the estimate is labeled in JSON.
+Intel NPU availability and performance depend on the installed driver, OpenVINO
+plugin, hardware, and model compatibility; this Qwen3 recipe does not imply that
+all Intel NPU models are supported.
 
 !!! tip "One command from a model id (auto-build)"
     `winml perf --runtime ort-genai` also accepts a HuggingFace **model id** directly.
@@ -148,10 +164,38 @@ onnxruntime-genai does not expose it; the estimate is labeled in JSON.
 
     Without a device or EP override, the model-ID shortcut targets QNN/NPU.
     An explicit `--device` or `--ep` also selects the transformer build target,
-    not just the inference target. For example, a CPU run does not require QNN:
+    not just the inference target. To auto-build for an Intel NPU, explicitly
+    select OpenVINO:
 
     ```bash
-    winml perf -m Qwen/Qwen3-0.6B --runtime ort-genai --device cpu --no-compile \
+    winml perf -m Qwen/Qwen3-0.6B --runtime ort-genai --ep openvino --device npu \
+      --compile --compile-timeout 600 --max-new-tokens 20 \
+      --prompt "What is the capital of France?"
+    ```
+
+    The optional `--openvino-config` flag embeds a vendor-specific OpenVINO
+    load-config JSON while auto-building a model ID; it requires `--ep openvino`.
+    The repository-root `npu_config_npuw.json` is an optional example with
+    vendor-specific NPU properties such as `NPU_TURBO`,
+    `NPU_QDQ_OPTIMIZATION`, `NPU_COMPILER_TYPE`, and `CACHE_MODE`; supported
+    values can depend on the driver and plugin version. Run the command from the
+    repository root to use that relative path:
+
+    ```bash
+    winml perf -m Qwen/Qwen3-0.6B --runtime ort-genai --ep openvino --device npu \
+      --openvino-config npu_config_npuw.json --compile --compile-timeout 600 \
+      --max-new-tokens 20 --prompt "What is the capital of France?"
+    ```
+
+    These settings are optional; omit `--openvino-config` to use the driver's
+    default compiler configuration. The file is not required at inference time:
+    its values are embedded in the auto-built bundle. `--openvino-config` is for
+    model-ID auto-build, not for a prebuilt bundle; the prebuilt-bundle command
+    above uses the options already stored in that bundle. For example, a CPU run
+    does not require QNN:
+
+    ```bash
+    winml perf -m Qwen/Qwen3-0.6B --runtime ort-genai --device cpu \
       --warmup 2 --iterations 10 --max-new-tokens 20 \
       --prompt "What is the capital of France?"
     ```
