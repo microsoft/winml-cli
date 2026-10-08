@@ -95,18 +95,18 @@ Force a clean rebuild of every component with `--rebuild`.
 ## Step 2: Tune context and prefill lengths (optional)
 
 `winml build` uses the recipe defaults: context length (static KV cache) `2048`
-and prefill sequence length `64`. To change those, use the equivalent developer
-script, which exposes the extra knobs and delegates to the same builder:
+and prefill sequence length `64`. Override either value directly when needed:
 
 ```bash
-uv run python scripts/qwen3.py export \
+winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle \
+  --export-type optimized \
+  --ep qnn \
   --device npu \
-  --output out/qwen3-bundle \
   --max-cache-len 4096 \
   --prefill-seq-len 128
 ```
 
-The script also accepts `--embeddings <onnx>` and `--lm-head <onnx>` to reuse
+The developer script also accepts `--embeddings <onnx>` and `--lm-head <onnx>` to reuse
 pre-built companions (skipping their builds), and `--force-rebuild` to rebuild
 everything from scratch. The developer script's `--device npu` shortcut targets
 QNN; use `winml build --ep vitisai --device npu` for an AMD bundle.

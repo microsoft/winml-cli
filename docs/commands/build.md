@@ -24,6 +24,8 @@ $ winml build [options]
 | `--model` | `-m` | string | `None` | Hugging Face model ID or path to an existing `.onnx` file. |
 | `--backend` | | choice | `None` | Backend for auto-generated config. `cgc` selects CGC preparation and CGIR conversion; it cannot be combined with `--ep`. |
 | `--export-type` | | choice | `generic` | Output selector: `generic` builds the stock single/composite ONNX model; `optimized` builds the family's registered runtime-optimized recipe (today the onnxruntime-genai CPU/NPU bundle) for the **resolved** `--ep`/`--device`. `optimized` fails fast if the family has no recipe or the resolved target is not one the recipe supports. |
+| `--max-cache-len` | | integer | recipe default | Static KV cache (context) length for optimized GenAI bundles. Must be at least 1. |
+| `--prefill-seq-len` | | integer | recipe default | Prefill sequence length for optimized GenAI bundles. Must be at least 1. |
 | `--output-dir` | `-o` | path | `None` | Directory for all build artifacts. Mutually exclusive with `--use-cache`. |
 | `--use-cache/--no-use-cache` | | flag | `false` | Store artifacts in the winml-cli global cache (`~/.cache/winml/`). Mutually exclusive with `--output-dir`. |
 | `--rebuild/--no-rebuild` | | flag | `false` | Overwrite existing artifacts and re-run the full pipeline. |
@@ -108,6 +110,16 @@ complete [onnxruntime-genai](https://github.com/microsoft/onnxruntime-genai)
 ```bash
 # One command: HF decoder LLM → full onnxruntime-genai bundle
 winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle --export-type optimized
+```
+
+The recipe supplies the context and prefill lengths when no overrides are
+given. To customize them while keeping the same one-command workflow:
+
+```bash
+winml build -m Qwen/Qwen3-0.6B -o out/qwen3-bundle \
+  --export-type optimized \
+  --max-cache-len 4096 \
+  --prefill-seq-len 128
 ```
 
 `--export-type optimized` resolves `--ep`/`--device` the same way a generic

@@ -167,6 +167,8 @@ def test_registered_family_npu_qnn_routes_to_bundle(tmp_path: Path):
     assert kwargs["device"] == "npu"
     assert kwargs["force_rebuild"] is False
     assert kwargs["precision"] is None
+    assert kwargs["max_cache_len"] is None
+    assert kwargs["prefill_seq_len"] is None
     assert "emit" not in kwargs
 
 
@@ -351,6 +353,74 @@ def test_precision_override_forwarded(tmp_path: Path):
 
     assert result.exit_code == 0, result.output
     assert recorded["kwargs"]["precision"] == "w8a16"
+
+
+def test_context_and_prefill_lengths_forwarded(tmp_path: Path):
+    recorded: dict = {}
+
+    with (
+        patch(_GENERATE_TARGET, return_value=_fake_config("qwen3")),
+        patch(_BUNDLE_TARGET, side_effect=_record_bundle(recorded)),
+        patch(_RUN_SINGLE_TARGET),
+        patch(_COMPOSITE_TARGET, return_value=None),
+    ):
+        result = _invoke(
+            [
+                "-m",
+                "Qwen/Qwen3-0.6B",
+                "-o",
+                str(tmp_path / "bundle"),
+                "--export-type",
+                "optimized",
+                "--ep",
+                "qnn",
+                "--device",
+                "npu",
+                "--max-cache-len",
+                "4096",
+                "--prefill-seq-len",
+                "128",
+            ]
+        )
+
+    assert result.exit_code == 0, result.output
+    assert recorded["kwargs"]["max_cache_len"] == 4096
+    assert recorded["kwargs"]["prefill_seq_len"] == 128
+
+
+@pytest.mark.parametrize("option", ["--max-cache-len", "--prefill-seq-len"])
+@pytest.mark.parametrize("value", ["0", "-1"])
+def test_context_and_prefill_lengths_must_be_positive(option: str, value: str):
+    result = _invoke(["-m", "Qwen/Qwen3-0.6B", "-o", "out", option, value])
+
+    assert result.exit_code != 0
+    assert "x>=1" in result.output
+
+
+def test_context_and_prefill_lengths_rejected_for_generic_build(tmp_path: Path):
+    with (
+        patch(_GENERATE_TARGET, return_value=_fake_config("qwen3")),
+        patch(_BUNDLE_TARGET) as bundle,
+        patch(_RUN_SINGLE_TARGET) as run_single,
+        patch(_COMPOSITE_TARGET, return_value=None),
+    ):
+        result = _invoke(
+            [
+                "-m",
+                "Qwen/Qwen3-0.6B",
+                "-o",
+                str(tmp_path / "generic"),
+                "--export-type",
+                "generic",
+                "--max-cache-len",
+                "4096",
+            ]
+        )
+
+    assert result.exit_code != 0
+    assert "only supported for an optimized GenAI bundle build" in result.output
+    bundle.assert_not_called()
+    run_single.assert_not_called()
 
 
 def test_registered_family_auto_qnn_routes_to_bundle(tmp_path: Path):
@@ -768,6 +838,8 @@ def test_optimized_rejects_onnx_input():
             device="auto",
             ep=None,
             precision=None,
+            max_cache_len=None,
+            prefill_seq_len=None,
             rebuild=False,
             submodel=None,
         )
@@ -789,6 +861,8 @@ def test_optimized_rejects_module_mode():
             device="auto",
             ep=None,
             precision=None,
+            max_cache_len=None,
+            prefill_seq_len=None,
             rebuild=False,
             submodel=None,
         )
@@ -810,6 +884,8 @@ def test_optimized_requires_model():
             device="auto",
             ep=None,
             precision=None,
+            max_cache_len=None,
+            prefill_seq_len=None,
             rebuild=False,
             submodel=None,
         )
