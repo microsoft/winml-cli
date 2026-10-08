@@ -165,6 +165,13 @@ class TestSentenceSimilarityRegistry:
         assert spec.mapping.pipe_input_as_list is True
 
 
+def test_reranking_maps_user_fields_to_tokenizer_pair_fields() -> None:
+    spec = TASK_REGISTRY["reranking"]
+
+    assert [field.name for field in spec.user_inputs] == ["query", "document"]
+    assert spec.mapping.pipe_input == {"text": "query", "text_pair": "document"}
+
+
 # ---------------------------------------------------------------------------
 # image-segmentation registry entry
 # ---------------------------------------------------------------------------
