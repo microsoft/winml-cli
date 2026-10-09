@@ -112,6 +112,9 @@ from .wav2vec2 import (
     # triggers registration
     Wav2Vec2EmotionRegressionIOConfig as _Wav2Vec2EmotionRegressionIOConfig,
 )
+from .whisper import MODEL_CLASS_MAPPING as _WHISPER_CLASS_MAPPING
+from .whisper import WhisperDecoderIOConfig as _WhisperDecoderIOConfig
+from .whisper import WhisperEncoderIOConfig as _WhisperEncoderIOConfig
 from .zoedepth import ZoeDepthIOConfig as _ZoeDepthIOConfig  # triggers registration
 
 
@@ -148,6 +151,7 @@ MODEL_CLASS_MAPPING: dict[tuple[str, str | None], type] = {
         _VED_CLASS_MAPPING,
         _VITPOSE_CLASS_MAPPING,
         _WAV2VEC2_CLASS_MAPPING,
+        _WHISPER_CLASS_MAPPING,
     )
     for _key, _model_cls in _sub_mapping.items()
 }
