@@ -114,6 +114,7 @@ nav:
           - sys: commands/sys.md
           - inspect: commands/inspect.md
           - catalog: commands/catalog.md
+          - cgc: commands/cgc.md
       - Configure:
           - config: commands/config.md
       - Build:

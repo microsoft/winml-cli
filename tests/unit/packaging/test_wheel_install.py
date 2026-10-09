@@ -9,8 +9,10 @@ import json
 import shutil
 import subprocess
 import sys
+import tarfile
 import textwrap
 from pathlib import Path
+from zipfile import ZipFile
 
 import pytest
 
@@ -42,6 +44,35 @@ def _run(
         f"stderr:\n{result.stderr}"
     )
     return result
+
+
+def test_built_distributions_include_available_providers(tmp_path: Path) -> None:
+    """Keep the provider validity mapping in both source and wheel distributions."""
+    uv = shutil.which("uv")
+    assert uv is not None, "uv is required to build the distributions"
+    config_path = "winml/modelkit/analyze/utils/avalizble_ep_device_ops/avaliable_providers.json"
+    expected_config = json.loads((REPO_ROOT / "src" / config_path).read_text(encoding="utf-8"))
+    assert expected_config
+    dist_dir = tmp_path / "dist"
+
+    _run([uv, "build", "--out-dir", str(dist_dir), str(REPO_ROOT)], cwd=tmp_path)
+
+    wheels = list(dist_dir.glob("winml_cli-*.whl"))
+    sdists = list(dist_dir.glob("winml_cli-*.tar.gz"))
+    assert len(wheels) == 1
+    assert len(sdists) == 1
+    with ZipFile(wheels[0]) as wheel:
+        assert config_path in wheel.namelist()
+        assert json.loads(wheel.read(config_path)) == expected_config
+    with tarfile.open(sdists[0]) as sdist:
+        config_members = [
+            member for member in sdist.getmembers() if member.name.endswith(f"/src/{config_path}")
+        ]
+        assert len(config_members) == 1
+        config_file = sdist.extractfile(config_members[0])
+        assert config_file is not None
+        with config_file:
+            assert json.load(config_file) == expected_config
 
 
 @pytest.mark.network
