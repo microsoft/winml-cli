@@ -2390,7 +2390,6 @@ def _run_simple_loop(
 _GENAI_IGNORED_FLAGS: dict[str, str] = {
     "task": "--task",
     "precision": "--precision",
-    "ep_options": "--ep-options",
     "shape_config_path": "--shape-config",
     "input_specs": "--input-specs",
     "export_config": "--export-config",
@@ -2504,14 +2503,6 @@ def _autobuild_genai_bundle(
         build_ep, build_device = short_ep_name(target.ep), target.device
         # Do not reuse a bundle exported for a different execution provider.
         bundle_dir = bundle_dir.with_name(f"genai-bundle-{build_ep}-{build_device}")
-    openvino_config: Path | None = p.get("openvino_config")
-    if openvino_config is not None:
-        if build_ep != "openvino":
-            raise click.UsageError("--openvino-config requires --ep openvino.")
-        import hashlib
-
-        config_digest = hashlib.sha256(openvino_config.read_bytes()).hexdigest()[:12]
-        bundle_dir = bundle_dir.with_name(f"{bundle_dir.name}-config-{config_digest}")
     build_cache_dir = cache_dir
     # --rebuild overwrites the cached bundle; a plain run reuses it. Checked
     # before any model resolution so a cache hit never touches the network.
@@ -2572,9 +2563,6 @@ def _autobuild_genai_bundle(
         force_rebuild=force_rebuild,
         cache_dir=build_cache_dir,
         emit=lambda msg: console.print(msg, markup=False),
-        assemble_options=(
-            {"openvino_config_path": openvino_config} if openvino_config is not None else None
-        ),
     )
     return bundle_dir, True
 
@@ -2627,6 +2615,11 @@ def _run_genai_runtime(
         ep = cast("EPNameOrAlias", short_ep_name(target.ep)) if target is not None else None
         if target is not None:
             device = target.device
+    provider_options: dict[str, str] | None = p.get("ep_options")
+    if provider_options and ep is None:
+        raise click.UsageError(
+            "--ep-options requires --ep or a concrete --device with --runtime ort-genai."
+        )
 
     # Keep any bundle-lifetime resources alive across the benchmark.
     with contextlib.ExitStack() as stack:
@@ -2689,6 +2682,7 @@ def _run_genai_runtime(
             model_id=model,
             ep=ep,
             device=device,
+            provider_options=provider_options,
             prompt=prompt,
             apply_template=p["apply_template"],
             max_new_tokens=p["max_new_tokens"],
@@ -2794,13 +2788,6 @@ def _validate_duration(
     show_default=True,
     help="[ort-genai] Max seconds to compile each EPContext stage before falling back "
     "to the original ONNX (requires --compile).",
-)
-@click.option(
-    "--openvino-config",
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    default=None,
-    help="[ort-genai] OpenVINO load-config JSON embedded while auto-building a model ID. "
-    "Requires --ep openvino.",
 )
 @click.option(
     "--task",
@@ -2982,7 +2969,6 @@ def perf(
     apply_template: bool,
     max_new_tokens: int,
     compile_timeout: int,
-    openvino_config: Path | None,
     task: str | None,
     submodel: str | None,
     iterations: int,
@@ -3061,6 +3047,7 @@ def perf(
         raise click.UsageError("A model is required via -m/--model.")
 
     ep_provider_options = cli_utils.parse_ep_options(ep_options)
+    ctx.params["ep_options"] = ep_provider_options
     if device_luid is not None and "device_id" in (ep_provider_options or {}):
         raise click.UsageError(
             "--device-luid cannot be combined with --ep-options device_id=...; "

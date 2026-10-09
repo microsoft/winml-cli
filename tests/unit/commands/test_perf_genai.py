@@ -800,15 +800,26 @@ class TestSessionDevice:
     def test_build_session_forwards_device(self, monkeypatch) -> None:
         captured: dict = {}
 
-        def fake_ctor(bundle_dir, ep, *, device=None, **_kwargs):
+        def fake_ctor(bundle_dir, ep, *, device=None, provider_options=None, **_kwargs):
             captured["ep"] = ep
             captured["device"] = device
+            captured["provider_options"] = provider_options
             return _FakeSession([])
 
         monkeypatch.setattr(perf_genai, "GenaiSession", fake_ctor)
-        cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), ep="openvino", device="npu")
+        provider_options = {"load_config": '{"NPU":{"NPU_TURBO":"NO"}}'}
+        cfg = GenaiPerfConfig(
+            bundle_dir=Path("bundle"),
+            ep="openvino",
+            device="npu",
+            provider_options=provider_options,
+        )
         GenaiPerfBenchmark(cfg)._build_session()
-        assert captured == {"ep": "openvino", "device": "npu"}
+        assert captured == {
+            "ep": "openvino",
+            "device": "npu",
+            "provider_options": provider_options,
+        }
 
     def test_build_hw_monitor_uses_cpu_when_effective_adapter_is_unproven(
         self, monkeypatch
@@ -1471,14 +1482,12 @@ class TestCliDispatch:
         assert cfg.device == "config"
         assert cfg.ep is None
 
-    def test_openvino_config_is_forwarded_to_autobuild(
+    def test_ep_options_are_forwarded_to_genai_session(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict, monkeypatch
     ) -> None:
         import winml.modelkit.loader as loader_mod
         import winml.modelkit.models.winml as winml_models
 
-        config_path = tmp_path / "npu.json"
-        config_path.write_text('{"NPU": {"NPU_USE_NPUW": "YES"}}', encoding="utf-8")
         monkeypatch.setenv("WINML_CACHE_DIR", str(tmp_path / "cache"))
         monkeypatch.setattr(
             loader_mod, "resolve_loader_config", _fake_resolve_loader_config("qwen3")
@@ -1499,40 +1508,37 @@ class TestCliDispatch:
                 "openvino",
                 "--device",
                 "npu",
-                "--openvino-config",
-                str(config_path),
+                "--ep-options",
+                'load_config={"NPU":{"NPU_TURBO":"NO"}}',
             ],
         )
 
         assert result.exit_code == 0, result.output
-        assert build_calls["build"]["assemble_options"] == {
-            "openvino_config_path": config_path
+        assert capture_run["config"].provider_options == {
+            "load_config": '{"NPU":{"NPU_TURBO":"NO"}}'
         }
-        assert "-config-" in build_calls["build"]["output_dir"].name
         assert capture_run["config"].bundle_dir == build_calls["build"]["output_dir"]
 
-    def test_openvino_config_rejects_other_ep(
-        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    def test_ep_options_require_genai_target(
+        self, runner: CliRunner, capture_run: dict, tmp_path: Path
     ) -> None:
-        config_path = tmp_path / "npu.json"
-        config_path.write_text("{}", encoding="utf-8")
-
+        bundle_dir = tmp_path / "bundle"
+        bundle_dir.mkdir()
+        (bundle_dir / "genai_config.json").write_text("{}", encoding="utf-8")
         result = runner.invoke(
             perf,
             [
                 "-m",
-                "Qwen/Qwen3-0.6B",
+                str(bundle_dir),
                 "--runtime",
                 "ort-genai",
-                "--ep",
-                "cpu",
-                "--openvino-config",
-                str(config_path),
+                "--ep-options",
+                "load_config={}",
             ],
         )
 
         assert result.exit_code == 2, result.output
-        assert "--openvino-config requires --ep openvino" in result.output
+        assert "--ep-options requires --ep or a concrete --device" in result.output
         assert "config" not in capture_run
 
     @pytest.mark.parametrize(

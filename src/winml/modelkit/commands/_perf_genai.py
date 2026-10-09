@@ -328,6 +328,7 @@ class GenaiPerfConfig:
     model_id: str | None = None
     ep: EPNameOrAlias | None = None
     device: str = "auto"
+    provider_options: dict[str, str] | None = None
     prompt: str = _DEFAULT_PROMPT
     apply_template: bool = True
     max_new_tokens: int = 128
@@ -560,6 +561,7 @@ class GenaiPerfBenchmark:
             self._config.bundle_dir,
             self._config.ep,
             device=self._session_device(),
+            provider_options=self._config.provider_options,
             context_length=self._config.context_length,
             compile=self._config.compile,
             compile_timeout=self._config.compile_timeout,

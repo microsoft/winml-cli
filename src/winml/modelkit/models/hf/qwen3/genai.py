@@ -62,7 +62,12 @@ if TYPE_CHECKING:
 # Qwen3-specific NPU execution-provider routing (QNN / VitisAI / OpenVINO)
 # ---------------------------------------------------------------------------
 
-_OPENVINO_CONFIG_ROLE_KEYS = frozenset({"CTX", "ITER", "HEAD"})
+_OPENVINO_NPU_DEFAULTS = {
+    "NPU_TURBO": "YES",
+    "NPU_QDQ_OPTIMIZATION": "YES",
+    "NPU_COMPILER_TYPE": "PLUGIN",
+    "CACHE_MODE": "OPTIMIZE_SPEED",
+}
 
 
 def qnn_stage_session_options(log_id: str, soc_model: str = "60") -> dict:
@@ -129,81 +134,28 @@ def vitisai_stage_session_options(log_id: str) -> dict:
 
 
 def build_npu_load_config(
-    custom_config_path: str | Path | None = None,
     *,
-    model_role: str | None = None,
     weights_path: str | Path | None = None,
 ) -> str:
     """Build the JSON-string ``load_config`` for the OpenVINO NPU plugin.
 
-    Accepts a flat configuration (e.g. ``{"NPU": {...}}``) or a configuration
-    with ``CTX``/``ITER`` sections. A role-based file must contain the requested
-    role; missing sections are errors rather than silently using defaults.
-    ``HEAD`` is recognized only to detect role-based files; the LM head stays
-    on CPU. No legacy provider setup or tuning flags are injected.
-
     Args:
-        custom_config_path: Optional UTF-8 JSON file. Without one, only the
-            driver compiler default and an explicitly supplied weights path
-            are included. Custom values take precedence over defaults.
-        model_role: ``"CTX"`` or ``"ITER"``; required for role-based files.
-        weights_path: Default external-weights directory. A ``WEIGHTS_PATH``
-            in the file takes precedence; relative file values resolve against
-            that file's directory. Emitted paths are absolute so loading a
-            derived bundle does not change their meaning.
+        weights_path: Optional external-weights directory. Emitted paths are
+            absolute so loading a derived bundle does not change their meaning.
 
     Returns:
         Serialized OpenVINO load configuration, not a filename.
     """
-    if model_role not in (None, "CTX", "ITER"):
-        raise ValueError("OpenVINO model_role must be 'CTX' or 'ITER'")
-
-    config: dict = {}
-    config_path = (
-        Path(custom_config_path).expanduser().resolve() if custom_config_path is not None else None
-    )
-    if config_path is not None:
-        try:
-            config = json.loads(config_path.read_text(encoding="utf-8-sig"))
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"Invalid OpenVINO load config JSON in {config_path}: {exc}") from exc
-        if not isinstance(config, dict):
-            raise TypeError("OpenVINO load config must be a JSON object")
-        if _OPENVINO_CONFIG_ROLE_KEYS.intersection(config):
-            if model_role is None:
-                raise ValueError("A role-based OpenVINO load config requires model_role")
-            if model_role not in config:
-                raise ValueError(f"OpenVINO load config is missing the {model_role} section")
-            config = config[model_role]
-            if not isinstance(config, dict):
-                raise TypeError(f"OpenVINO {model_role} configuration must be a JSON object")
-
-    npu_config = config.setdefault("NPU", {})
-    if not isinstance(npu_config, dict):
-        raise TypeError("OpenVINO NPU configuration must be a JSON object")
-    npu_config.setdefault("NPU_COMPILER_TYPE", "DRIVER")
-
-    if "WEIGHTS_PATH" in npu_config:
-        configured_weights = npu_config["WEIGHTS_PATH"]
-        if not isinstance(configured_weights, str) or not configured_weights.strip():
-            raise ValueError("OpenVINO WEIGHTS_PATH must be a non-empty string")
-        resolved_weights = Path(configured_weights).expanduser()
-        if not resolved_weights.is_absolute() and config_path is not None:
-            resolved_weights = config_path.parent / resolved_weights
-        npu_config["WEIGHTS_PATH"] = str(resolved_weights.resolve())
-    elif weights_path is not None:
+    npu_config = dict(_OPENVINO_NPU_DEFAULTS)
+    if weights_path is not None:
         npu_config["WEIGHTS_PATH"] = str(Path(weights_path).expanduser().resolve())
 
-    # Stable serialization keeps equivalent CTX/ITER options shareable even
-    # when their keys occur in a different order in the user's JSON file.
-    return json.dumps(config, sort_keys=True)
+    return json.dumps({"NPU": npu_config}, sort_keys=True)
 
 
 def openvino_stage_session_options(
     log_id: str,
     *,
-    custom_config_path: str | Path | None = None,
-    model_role: str | None = None,
     weights_path: str | Path | None = None,
 ) -> dict:
     """Return session options routing a transformer stage to the Intel NPU.
@@ -219,11 +171,7 @@ def openvino_stage_session_options(
             {
                 "openvino": {
                     "device_type": "NPU",
-                    "load_config": build_npu_load_config(
-                        custom_config_path,
-                        model_role=model_role,
-                        weights_path=weights_path,
-                    ),
+                    "load_config": build_npu_load_config(weights_path=weights_path),
                 }
             }
         ],
@@ -236,7 +184,6 @@ def _stage_session_options(
     ep: str,
     soc_model: str,
     *,
-    openvino_config_path: str | Path | None = None,
     openvino_weights_path: str | Path | None = None,
 ) -> tuple[dict | None, dict | None]:
     """Return ``(context, iterator)`` session_options for the given EP.
@@ -245,16 +192,14 @@ def _stage_session_options(
 
     * ``ep="qnn"`` -> Qualcomm QNN HTP (``soc_model`` selects the Snapdragon SoC).
     * ``ep="vitisai"`` -> AMD Ryzen AI NPU.
-    * ``ep="openvino"`` -> Intel NPU, with optional per-role load configuration.
+    * ``ep="openvino"`` -> Intel NPU.
 
     Any other value (e.g. ``"cpu"``) leaves the stages on the default CPU
     provider.  Short aliases and full ``*ExecutionProvider`` names are both
     accepted (normalized via :func:`normalize_ep_name`).
     """
     canonical = normalize_ep_name(ep)
-    if canonical != "OpenVINOExecutionProvider" and (
-        openvino_config_path is not None or openvino_weights_path is not None
-    ):
+    if canonical != "OpenVINOExecutionProvider" and openvino_weights_path is not None:
         raise ValueError("OpenVINO configuration requires ep='openvino'")
     if canonical == "QNNExecutionProvider":
         return (
@@ -270,14 +215,10 @@ def _stage_session_options(
         return (
             openvino_stage_session_options(
                 "onnxruntime-genai.context",
-                custom_config_path=openvino_config_path,
-                model_role="CTX",
                 weights_path=openvino_weights_path,
             ),
             openvino_stage_session_options(
                 "onnxruntime-genai.iterator",
-                custom_config_path=openvino_config_path,
-                model_role="ITER",
                 weights_path=openvino_weights_path,
             ),
         )
@@ -324,7 +265,6 @@ def build_qwen3_transformer_only_stages(
     lm_head_filename: str = DEFAULT_LM_HEAD_FILENAME,
     ep: str = "cpu",
     soc_model: str = "60",
-    openvino_config_path: str | Path | None = None,
     openvino_weights_path: str | Path | None = None,
 ) -> tuple[list[PipelineStage], DecoderIOMapping]:
     """Build the Qwen3 4-stage pipeline, routing ctx/iter to the NPU per ``ep``.
@@ -350,10 +290,8 @@ def build_qwen3_transformer_only_stages(
         soc_model: Snapdragon SoC model number forwarded to the QNN backend when
             ``ep="qnn"``.  Default ``"60"`` targets Snapdragon 8 Gen 3.  Ignored
             for non-QNN EPs.
-        openvino_config_path: Optional OpenVINO JSON file shared by both stages
-            or containing separate ``CTX``/``ITER`` sections. Only for OpenVINO.
         openvino_weights_path: Optional default external-weights directory for
-            OpenVINO. Explicit ``WEIGHTS_PATH`` values in the JSON take precedence.
+            OpenVINO.
 
     Returns:
         ``(stages, decoder_io)`` — see
@@ -362,7 +300,6 @@ def build_qwen3_transformer_only_stages(
     ctx_opts, iter_opts = _stage_session_options(
         ep,
         soc_model,
-        openvino_config_path=openvino_config_path,
         openvino_weights_path=openvino_weights_path,
     )
     return build_decoder_pipeline_stages(
@@ -395,7 +332,6 @@ def write_genai_bundle(
     ep: str = "cpu",
     soc_model: str = "60",
     transformer_onnx_passes: Sequence[Callable[[onnx.ModelProto], onnx.ModelProto]] | None = None,
-    openvino_config_path: str | Path | None = None,
     openvino_weights_path: str | Path | None = None,
 ) -> Path:
     """Assemble a Qwen3 genai bundle, routing ctx/iter to the NPU per ``ep``.
@@ -416,13 +352,8 @@ def write_genai_bundle(
         transformer_onnx_passes: Optional ONNX graph transforms applied to the
             copied context/iterator models before ``genai_config.json`` is
             written.  Forwarded verbatim to the generic assembler.
-        openvino_config_path: Optional flat or per-role OpenVINO JSON file.
-            Its contents are embedded in stage provider options; the original
-            configuration file is not required at runtime. Different role
-            options prevent grouped compilation in the current runtime.
         openvino_weights_path: Default external-weights directory for OpenVINO;
-            defaults to the output bundle directory. Explicit ``WEIGHTS_PATH``
-            values in the JSON take precedence. Other EPs reject these options.
+            defaults to the output bundle directory. Other EPs reject this option.
 
     Returns:
         Path to the written ``genai_config.json``.
@@ -432,7 +363,6 @@ def write_genai_bundle(
     ctx_opts, iter_opts = _stage_session_options(
         ep,
         soc_model,
-        openvino_config_path=openvino_config_path,
         openvino_weights_path=openvino_weights_path,
     )
     return _write_genai_bundle(

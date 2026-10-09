@@ -410,6 +410,9 @@ class GenaiSession:
             *ep* should run on.  Used only to synthesize ``device_type`` for
             device-parameterized EPs (OpenVINO/VitisAI) when a re-routed stage
             has no reusable options; ignored when respecting the bundle config.
+        provider_options: Explicit options merged onto each hardware stage
+            selected by *ep*. Values override options already stored in the
+            bundle, matching the ``--ep-options`` CLI precedence.
         context_length: Override for the static KV cache length.  When
             ``None`` (default), read from ``genai_config.json``.
             Must match the ``--max-cache-len`` used during the winml-cli build.
@@ -454,6 +457,7 @@ class GenaiSession:
         ep: EPNameOrAlias | None = None,
         *,
         device: str | None = None,
+        provider_options: dict[str, str] | None = None,
         context_length: int | None = None,
         verbose: bool = False,
         compile: bool = False,
@@ -469,6 +473,7 @@ class GenaiSession:
         # VitisAI ``device_type``) when re-routing a stage that has no reusable
         # options for the target EP; QNN reuses the bundle's own ``backend_path``.
         self._device: str | None = device.lower() if device else None
+        self._provider_options = dict(provider_options or {})
         # Set at load(): did the override actually take effect (rewrite/strip at
         # least one stage)?  Drives :attr:`effective_ep` so the report never
         # claims an EP that never applied (flat/empty pipeline, all-CPU bundle).
@@ -1110,6 +1115,7 @@ class GenaiSession:
             opts = dict(borrow_opts)
         else:
             opts = self._default_opts_for_device(ep)
+        opts = {**opts, **self._provider_options}
         if not isinstance(so, dict):
             so = {}
             stage_cfg["session_options"] = so
@@ -1657,13 +1663,16 @@ class GenaiSession:
             src_onnx = self._bundle_dir / onnx_filename
             for location in get_external_data_files(src_onnx):
                 src, dst = src_onnx.parent / location, compiled_dir / location
-                if dst.exists():
+                if dst.is_symlink():
                     continue
                 dst.parent.mkdir(parents=True, exist_ok=True)
-                try:
-                    dst.symlink_to(src.resolve())
-                except (OSError, NotImplementedError):
+                if dst.exists():
                     shutil.copy2(src, dst)
+                else:
+                    try:
+                        dst.symlink_to(src.resolve())
+                    except (OSError, NotImplementedError):
+                        shutil.copy2(src, dst)
 
         stage_keys = {stage[0] for stage in group}
         pipeline = modified_cfg.get("model", {}).get("decoder", {}).get("pipeline", [])
