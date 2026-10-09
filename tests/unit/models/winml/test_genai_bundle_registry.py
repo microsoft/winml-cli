@@ -37,11 +37,12 @@ def test_resolve_qwen3_returns_recipe():
     assert len(recipe.transformer_onnx_passes) >= 1
 
 
-def test_qwen3_openvino_target_is_npu_only():
+def test_qwen3_openvino_targets_include_npu_and_gpu():
     recipe = resolve_genai_bundle("qwen3")
     assert recipe is not None
     assert {target.device for target in recipe.supported_targets if target.ep == "openvino"} == {
-        "npu"
+        "npu",
+        "gpu",
     }
 
 

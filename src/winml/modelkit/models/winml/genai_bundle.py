@@ -382,6 +382,7 @@ def build_genai_bundle(
         max_cache_len=max_cache_len,
         prefill_seq_len=prefill_seq_len,
         ep=ep,
+        device=device,
         soc_model=soc_model,
         transformer_onnx_passes=list(recipe.transformer_onnx_passes),
         **{f"{role}_src": path for role, path in companion_srcs.items()},

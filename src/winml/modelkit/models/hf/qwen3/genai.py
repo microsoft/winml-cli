@@ -101,6 +101,7 @@ def _transformer_stage_session_options(
     ep: str,
     soc_model: str,
     *,
+    device: str = "npu",
     openvino_weights_path: str | Path | None = None,
 ) -> tuple[dict | None, dict | None]:
     """Return ``(context, iterator)`` session_options for the given EP.
@@ -109,13 +110,14 @@ def _transformer_stage_session_options(
 
     * ``ep="qnn"`` -> Qualcomm QNN HTP (``soc_model`` selects the Snapdragon SoC).
     * ``ep="vitisai"`` -> AMD Ryzen AI NPU.
-    * ``ep="openvino"`` -> Intel NPU.
+    * ``ep="openvino"`` -> Intel NPU or GPU selected by ``device``.
 
     Any other value (e.g. ``"cpu"``) leaves the stages on the default CPU
     provider.  Short aliases and full ``*ExecutionProvider`` names are both
     accepted (normalized via :func:`normalize_ep_name`).
     """
     canonical = normalize_ep_name(ep)
+    device = device.lower()
     if canonical != "OpenVINOExecutionProvider" and openvino_weights_path is not None:
         raise ValueError("OpenVINO configuration requires ep='openvino'")
     if canonical == "QNNExecutionProvider":
@@ -154,27 +156,31 @@ def _transformer_stage_session_options(
             ),
         )
     if canonical == "OpenVINOExecutionProvider":
-        spec = lookup_device_spec(canonical, "npu")
+        spec = lookup_device_spec(canonical, device)
         if spec is None:
-            raise ValueError("OpenVINO NPU is missing from the EP/device catalog")
-        load_config = json.loads(spec.default_provider_options["load_config"])
-        if openvino_weights_path is not None:
-            load_config["NPU"]["WEIGHTS_PATH"] = str(
-                Path(openvino_weights_path).expanduser().resolve()
-            )
-        provider_options = {"load_config": json.dumps(load_config, sort_keys=True)}
+            raise ValueError(f"OpenVINO {device.upper()} is missing from the EP/device catalog")
+        openvino_options: dict[str, str] = {}
+        if device == "npu":
+            load_config = json.loads(spec.default_provider_options["load_config"])
+            if openvino_weights_path is not None:
+                load_config["NPU"]["WEIGHTS_PATH"] = str(
+                    Path(openvino_weights_path).expanduser().resolve()
+                )
+            openvino_options["load_config"] = json.dumps(load_config, sort_keys=True)
+        elif openvino_weights_path is not None:
+            raise ValueError("OpenVINO weights path is only supported for device='npu'")
         return (
             _stage_session_options(
                 "onnxruntime-genai.context",
                 ep,
-                "npu",
-                provider_options=provider_options,
+                device,
+                provider_options=openvino_options,
             ),
             _stage_session_options(
                 "onnxruntime-genai.iterator",
                 ep,
-                "npu",
-                provider_options=provider_options,
+                device,
+                provider_options=openvino_options,
             ),
         )
     return None, None
@@ -219,14 +225,15 @@ def build_qwen3_transformer_only_stages(
     embeddings_filename: str = DEFAULT_EMBEDDINGS_FILENAME,
     lm_head_filename: str = DEFAULT_LM_HEAD_FILENAME,
     ep: str = "cpu",
+    device: str = "npu",
     soc_model: str = "60",
     openvino_weights_path: str | Path | None = None,
 ) -> tuple[list[PipelineStage], DecoderIOMapping]:
-    """Build the Qwen3 4-stage pipeline, routing ctx/iter to the NPU per ``ep``.
+    """Build the Qwen3 4-stage pipeline, routing ctx/iter per ``ep``/``device``.
 
     Qwen3-specific wrapper over
     :func:`winml.modelkit.utils.genai.build_decoder_pipeline_stages` that injects
-    the NPU ``session_options`` for the transformer stages.  Tensor names are
+    the accelerator ``session_options`` for the transformer stages. Tensor names are
     still discovered by introspecting the ONNX graphs, so nothing is hardcoded.
 
     Args:
@@ -237,11 +244,12 @@ def build_qwen3_transformer_only_stages(
         iterator_filename: Bundle filename for the iterator model.
         embeddings_filename: Bundle filename for the embeddings model.
         lm_head_filename: Bundle filename for the lm_head model.
-        ep: NPU execution provider for the ``context``/``iterator`` stages —
+        ep: Execution provider for the ``context``/``iterator`` stages.
             ``"qnn"`` (Qualcomm), ``"vitisai"`` (AMD), or ``"openvino"`` (Intel)
-            injects that EP's ``session_options`` so those stages run on the NPU while
-            ``embeddings`` and ``lm_head`` stay on CPU.  ``"cpu"`` (default)
-            omits them.
+            injects that EP's ``session_options`` while ``embeddings`` and
+            ``lm_head`` stay on CPU. ``"cpu"`` (default) omits them.
+        device: Device targeted by ``ep``. OpenVINO supports ``"npu"`` and
+            ``"gpu"``; the other accelerated recipe targets use ``"npu"``.
         soc_model: Snapdragon SoC model number forwarded to the QNN backend when
             ``ep="qnn"``.  Default ``"60"`` targets Snapdragon 8 Gen 3.  Ignored
             for non-QNN EPs.
@@ -255,6 +263,7 @@ def build_qwen3_transformer_only_stages(
     ctx_opts, iter_opts = _transformer_stage_session_options(
         ep,
         soc_model,
+        device=device,
         openvino_weights_path=openvino_weights_path,
     )
     return build_decoder_pipeline_stages(
@@ -285,11 +294,12 @@ def write_genai_bundle(
     embeddings_filename: str = DEFAULT_EMBEDDINGS_FILENAME,
     lm_head_filename: str = DEFAULT_LM_HEAD_FILENAME,
     ep: str = "cpu",
+    device: str = "npu",
     soc_model: str = "60",
     transformer_onnx_passes: Sequence[Callable[[onnx.ModelProto], onnx.ModelProto]] | None = None,
     openvino_weights_path: str | Path | None = None,
 ) -> Path:
-    """Assemble a Qwen3 genai bundle, routing ctx/iter to the NPU per ``ep``.
+    """Assemble a Qwen3 genai bundle, routing ctx/iter per ``ep``/``device``.
 
     Qwen3-specific wrapper over
     :func:`winml.modelkit.utils.genai.write_genai_bundle` that supplies the NPU
@@ -297,10 +307,12 @@ def write_genai_bundle(
     the description of every other argument.
 
     Args:
-        ep: NPU execution provider routing the transformer (context/iterator)
+        ep: Execution provider routing the transformer (context/iterator)
             stages — ``"qnn"`` (Qualcomm HTP), ``"vitisai"`` (AMD Ryzen AI),
-            or ``"openvino"`` (Intel NPU);
+            or ``"openvino"`` (Intel NPU/GPU);
             ``"cpu"`` (default) keeps every stage on CPU.
+        device: Device targeted by ``ep``. OpenVINO supports ``"npu"`` and
+            ``"gpu"``; the other accelerated recipe targets use ``"npu"``.
         soc_model: Snapdragon SoC model passed to the QNN backend when
             ``ep="qnn"``.  Default ``"60"`` = Snapdragon 8 Gen 3 / X Elite.
             Ignored for non-QNN EPs.
@@ -313,11 +325,17 @@ def write_genai_bundle(
     Returns:
         Path to the written ``genai_config.json``.
     """
-    if normalize_ep_name(ep) == "OpenVINOExecutionProvider" and openvino_weights_path is None:
+    device = device.lower()
+    if (
+        normalize_ep_name(ep) == "OpenVINOExecutionProvider"
+        and device == "npu"
+        and openvino_weights_path is None
+    ):
         openvino_weights_path = output_dir
     ctx_opts, iter_opts = _transformer_stage_session_options(
         ep,
         soc_model,
+        device=device,
         openvino_weights_path=openvino_weights_path,
     )
     return _write_genai_bundle(
@@ -393,6 +411,7 @@ QWEN3_GENAI_BUNDLE_RECIPE = register_genai_bundle(
             GenaiTarget(ep="qnn", device="npu"),  # Qualcomm Snapdragon NPU
             GenaiTarget(ep="vitisai", device="npu"),  # AMD Ryzen AI NPU
             GenaiTarget(ep="openvino", device="npu"),  # Intel NPU
+            GenaiTarget(ep="openvino", device="gpu"),  # Intel GPU
             GenaiTarget(ep="cpu", device="cpu"),
         ),
         transformer_onnx_passes=(strip_gqa_default_attrs,),

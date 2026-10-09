@@ -400,7 +400,12 @@ EP_DEVICE_SPECS: Final[tuple[EPDeviceSpec, ...]] = (
         use_defaults_for_genai=True,
     ),
     EPDeviceSpec(ep="VitisAIExecutionProvider", device="npu"),
-    EPDeviceSpec(ep="OpenVINOExecutionProvider", device="gpu"),
+    EPDeviceSpec(
+        ep="OpenVINOExecutionProvider",
+        device="gpu",
+        default_provider_options={"device_type": "GPU"},
+        use_defaults_for_genai=True,
+    ),
     EPDeviceSpec(ep="MIGraphXExecutionProvider", device="gpu"),
     EPDeviceSpec(ep="TensorrtExecutionProvider", device="gpu"),
     EPDeviceSpec(ep="NvTensorRTRTXExecutionProvider", device="gpu"),
