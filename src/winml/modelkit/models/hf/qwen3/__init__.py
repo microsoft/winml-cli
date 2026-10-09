@@ -17,9 +17,7 @@ from .genai import (
     PipelineStage,
     build_decoder_pipeline_stages,
     build_genai_config,
-    build_npu_load_config,
     build_qwen3_transformer_only_stages,
-    openvino_stage_session_options,
     strip_gqa_default_attrs,
     write_genai_bundle,
 )
@@ -30,9 +28,7 @@ __all__ = [
     "PipelineStage",
     "build_decoder_pipeline_stages",
     "build_genai_config",
-    "build_npu_load_config",
     "build_qwen3_transformer_only_stages",
-    "openvino_stage_session_options",
     "strip_gqa_default_attrs",
     "write_genai_bundle",
 ]

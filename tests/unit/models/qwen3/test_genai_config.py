@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from types import SimpleNamespace
 from typing import ClassVar
 from unittest.mock import patch
@@ -18,9 +17,7 @@ from winml.modelkit.models.hf.qwen3 import (
     DecoderIOMapping,
     PipelineStage,
     build_genai_config,
-    build_npu_load_config,
     build_qwen3_transformer_only_stages,
-    openvino_stage_session_options,
     write_genai_bundle,
 )
 from winml.modelkit.models.hf.qwen3.genai import (
@@ -392,36 +389,6 @@ class TestDetectFormatPatterns:
         result = _detect_format_patterns(names, num_layers=1)
         assert result == {"keys_": "keys_%d", "vals_": "vals_%d"}
 
-
-# ---------------------------------------------------------------------------
-# Tests: OpenVINO NPU options and load configuration
-# ---------------------------------------------------------------------------
-
-
-class TestOpenVINOSessionOptions:
-    def test_default_npu_options(self) -> None:
-        options = openvino_stage_session_options("test.context")
-        assert options["log_id"] == "test.context"
-        assert options["intra_op_num_threads"] == 2
-        assert options["inter_op_num_threads"] == 1
-        provider = options["provider_options"][0]["openvino"]
-        assert provider["device_type"] == "NPU"
-        assert json.loads(provider["load_config"]) == {
-            "NPU": {
-                "CACHE_MODE": "OPTIMIZE_SPEED",
-                "NPU_COMPILER_TYPE": "PLUGIN",
-                "NPU_QDQ_OPTIMIZATION": "YES",
-                "NPU_TURBO": "YES",
-            }
-        }
-        assert set(provider) == {"device_type", "load_config"}
-
-    def test_weights_default_is_absolute(self, tmp_path, monkeypatch) -> None:
-        monkeypatch.chdir(tmp_path)
-        config = json.loads(build_npu_load_config(weights_path="model weights"))
-        path = Path(config["NPU"]["WEIGHTS_PATH"])
-        assert path.is_absolute()
-        assert path == tmp_path / "model weights"
 
 # ---------------------------------------------------------------------------
 # Tests: build_qwen3_transformer_only_stages

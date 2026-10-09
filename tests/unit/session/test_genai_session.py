@@ -851,9 +851,9 @@ class TestEPOverride:
         )
         effective, _ = session._apply_ep_override(cfg)
         stage = effective["model"]["decoder"]["pipeline"][0]["context"]
-        assert stage["session_options"]["provider_options"] == [
-            {"openvino": {"device_type": "NPU"}}
-        ]
+        provider = stage["session_options"]["provider_options"][0]["openvino"]
+        assert provider["device_type"] == "NPU"
+        assert json.loads(provider["load_config"])["NPU"]["NPU_TURBO"] == "YES"
 
     def test_reroute_openvino_defaults_device_type_without_device(self, bundle_dir: Path) -> None:
         # No --device: fall back to the EP's primary supported device (npu).
@@ -863,9 +863,20 @@ class TestEPOverride:
         )
         effective, _ = session._apply_ep_override(cfg)
         stage = effective["model"]["decoder"]["pipeline"][0]["context"]
-        assert stage["session_options"]["provider_options"] == [
-            {"openvino": {"device_type": "NPU"}}
-        ]
+        provider = stage["session_options"]["provider_options"][0]["openvino"]
+        assert provider["device_type"] == "NPU"
+        assert json.loads(provider["load_config"])["NPU"]["NPU_TURBO"] == "YES"
+
+    def test_openvino_non_npu_does_not_apply_npu_defaults(self, bundle_dir: Path) -> None:
+        session = GenaiSession(bundle_dir, ep="openvino", device="gpu")
+        cfg = self._pipeline_cfg(
+            {"context": {"session_options": {"provider_options": [{"dml": {}}]}}}
+        )
+        effective, _ = session._apply_ep_override(cfg)
+        provider = effective["model"]["decoder"]["pipeline"][0]["context"][
+            "session_options"
+        ]["provider_options"][0]["openvino"]
+        assert provider == {"device_type": "GPU"}
 
     def test_reroute_synthesizes_device_type_for_vitisai(self, bundle_dir: Path) -> None:
         session = GenaiSession(bundle_dir, ep="vitisai", device="npu")
@@ -929,9 +940,14 @@ class TestEPOverride:
         provider = effective["model"]["decoder"]["pipeline"][0]["context"]["session_options"][
             "provider_options"
         ][0]["openvino"]
-        assert provider == {
-            "device_type": "NPU",
-            "load_config": '{"NPU":{"NPU_TURBO":"NO"}}',
+        assert provider["device_type"] == "NPU"
+        assert json.loads(provider["load_config"]) == {
+            "NPU": {
+                "CACHE_MODE": "OPTIMIZE_SPEED",
+                "NPU_COMPILER_TYPE": "PLUGIN",
+                "NPU_QDQ_OPTIMIZATION": "YES",
+                "NPU_TURBO": "NO",
+            }
         }
 
     def test_force_different_hardware_ep_drops_foreign_options(self, bundle_dir: Path) -> None:

@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ....onnx import strip_node_attrs
+from ....session import lookup_device_spec, short_ep_name
 from ....utils.constants import normalize_ep_name
 from ....utils.genai import (
     DEFAULT_CONTEXT_FILENAME,
@@ -62,125 +63,41 @@ if TYPE_CHECKING:
 # Qwen3-specific NPU execution-provider routing (QNN / VitisAI / OpenVINO)
 # ---------------------------------------------------------------------------
 
-_OPENVINO_NPU_DEFAULTS = {
-    "NPU_TURBO": "YES",
-    "NPU_QDQ_OPTIMIZATION": "YES",
-    "NPU_COMPILER_TYPE": "PLUGIN",
-    "CACHE_MODE": "OPTIMIZE_SPEED",
-}
-
-
-def qnn_stage_session_options(log_id: str, soc_model: str = "60") -> dict:
-    """Return the ``session_options`` block that routes a stage to QNN HTP.
-
-    Args:
-        log_id: ORT log identifier (shown in ORT logs), e.g.
-            ``"onnxruntime-genai.context"``.
-        soc_model: Snapdragon SoC model number passed to the QNN HTP backend.
-            ``"60"`` targets Snapdragon 8 Gen 3 (X Elite).  Change for other
-            SoCs (e.g. ``"55"`` for 8 Gen 2, ``"73"`` for 8 Elite).
-
-    Returns:
-        Dict suitable for the ``session_options`` key of a pipeline stage in
-        ``genai_config.json``.
-    """
-    return {
-        "log_id": log_id,
-        "provider_options": [
-            {
-                "qnn": {
-                    "backend_path": "QnnHtp.dll",
-                    "htp_performance_mode": "burst",
-                    "htp_graph_finalization_optimization_mode": "3",
-                    "soc_model": soc_model,
-                }
-            }
-        ],
-        "intra_op_num_threads": 2,
-        "inter_op_num_threads": 1,
-    }
-
-
-def vitisai_stage_session_options(log_id: str) -> dict:
-    """Return the ``session_options`` block that routes a stage to the AMD NPU.
-
-    Routes a Qwen3 transformer stage to the AMD Ryzen AI NPU via the VitisAI
-    execution provider.  The provider options match the AMD reference inference
-    configuration (``waic_target_vaiml_cpp_me`` VAIML C++ backend with the
-    XMC runner and linear-slice disabled).
-
-    Args:
-        log_id: ORT log identifier (shown in ORT logs), e.g.
-            ``"onnxruntime-genai.context"``.
-
-    Returns:
-        Dict suitable for the ``session_options`` key of a pipeline stage in
-        ``genai_config.json``.
-    """
-    return {
-        "log_id": log_id,
-        "provider_options": [
-            {
-                "vitisai": {
-                    "target": "waic_target_vaiml_cpp_me",
-                    "xmc_runner_config": "1",
-                    "no_linear_slice": "1",
-                }
-            }
-        ],
-        "intra_op_num_threads": 8,
-        "inter_op_num_threads": 1,
-    }
-
-
-def build_npu_load_config(
-    *,
-    weights_path: str | Path | None = None,
-) -> str:
-    """Build the JSON-string ``load_config`` for the OpenVINO NPU plugin.
-
-    Args:
-        weights_path: Optional external-weights directory. Emitted paths are
-            absolute so loading a derived bundle does not change their meaning.
-
-    Returns:
-        Serialized OpenVINO load configuration, not a filename.
-    """
-    npu_config = dict(_OPENVINO_NPU_DEFAULTS)
-    if weights_path is not None:
-        npu_config["WEIGHTS_PATH"] = str(Path(weights_path).expanduser().resolve())
-
-    return json.dumps({"NPU": npu_config}, sort_keys=True)
-
-
-def openvino_stage_session_options(
-    log_id: str,
-    *,
-    weights_path: str | Path | None = None,
-) -> dict:
-    """Return session options routing a transformer stage to the Intel NPU.
-
-    ``load_config`` is a JSON string containing OpenVINO properties, not ORT
-    session entries. Plugin registration, ABI device binding, and EPContext
-    compilation remain owned by the existing session/compiler infrastructure.
-    See :func:`build_npu_load_config` for the optional configuration arguments.
-    """
-    return {
-        "log_id": log_id,
-        "provider_options": [
-            {
-                "openvino": {
-                    "device_type": "NPU",
-                    "load_config": build_npu_load_config(weights_path=weights_path),
-                }
-            }
-        ],
-        "intra_op_num_threads": 2,
-        "inter_op_num_threads": 1,
-    }
-
-
 def _stage_session_options(
+    log_id: str,
+    ep: str,
+    device: str,
+    *,
+    provider_options: dict[str, str] | None = None,
+    intra_op_num_threads: int = 2,
+) -> dict:
+    """Return session options for any cataloged EP/device target.
+
+    Args:
+        log_id: ORT log identifier.
+        ep: Execution provider alias or full name.
+        device: Concrete device category.
+        provider_options: Options overlaid on the catalog defaults.
+        intra_op_num_threads: Stage intra-op thread count.
+
+    Returns:
+        Dict suitable for the ``session_options`` key of a pipeline stage in
+        ``genai_config.json``.
+    """
+    canonical = normalize_ep_name(ep)
+    spec = lookup_device_spec(canonical, device)
+    if spec is None:
+        raise ValueError(f"Unsupported GenAI stage target: ep={ep!r}, device={device!r}")
+    options = {**spec.default_provider_options, **(provider_options or {})}
+    return {
+        "log_id": log_id,
+        "provider_options": [{short_ep_name(canonical): options}],
+        "intra_op_num_threads": intra_op_num_threads,
+        "inter_op_num_threads": 1,
+    }
+
+
+def _transformer_stage_session_options(
     ep: str,
     soc_model: str,
     *,
@@ -202,24 +119,62 @@ def _stage_session_options(
     if canonical != "OpenVINOExecutionProvider" and openvino_weights_path is not None:
         raise ValueError("OpenVINO configuration requires ep='openvino'")
     if canonical == "QNNExecutionProvider":
+        provider_options = {
+            "backend_path": "QnnHtp.dll",
+            "soc_model": soc_model,
+        }
         return (
-            qnn_stage_session_options("onnxruntime-genai.context", soc_model=soc_model),
-            qnn_stage_session_options("onnxruntime-genai.iterator", soc_model=soc_model),
+            _stage_session_options(
+                "onnxruntime-genai.context", ep, "npu", provider_options=provider_options
+            ),
+            _stage_session_options(
+                "onnxruntime-genai.iterator", ep, "npu", provider_options=provider_options
+            ),
         )
     if canonical == "VitisAIExecutionProvider":
+        provider_options = {
+            "target": "waic_target_vaiml_cpp_me",
+            "xmc_runner_config": "1",
+            "no_linear_slice": "1",
+        }
         return (
-            vitisai_stage_session_options("onnxruntime-genai.context"),
-            vitisai_stage_session_options("onnxruntime-genai.iterator"),
+            _stage_session_options(
+                "onnxruntime-genai.context",
+                ep,
+                "npu",
+                provider_options=provider_options,
+                intra_op_num_threads=8,
+            ),
+            _stage_session_options(
+                "onnxruntime-genai.iterator",
+                ep,
+                "npu",
+                provider_options=provider_options,
+                intra_op_num_threads=8,
+            ),
         )
     if canonical == "OpenVINOExecutionProvider":
+        spec = lookup_device_spec(canonical, "npu")
+        if spec is None:
+            raise ValueError("OpenVINO NPU is missing from the EP/device catalog")
+        load_config = json.loads(spec.default_provider_options["load_config"])
+        if openvino_weights_path is not None:
+            load_config["NPU"]["WEIGHTS_PATH"] = str(
+                Path(openvino_weights_path).expanduser().resolve()
+            )
+        provider_options = {"load_config": json.dumps(load_config, sort_keys=True)}
         return (
-            openvino_stage_session_options(
+            _stage_session_options(
                 "onnxruntime-genai.context",
-                weights_path=openvino_weights_path,
+                ep,
+                "npu",
+                provider_options=provider_options,
             ),
-            openvino_stage_session_options(
+            _stage_session_options(
                 "onnxruntime-genai.iterator",
-                weights_path=openvino_weights_path,
+                ep,
+                "npu",
+                provider_options=provider_options,
             ),
         )
     return None, None
@@ -297,7 +252,7 @@ def build_qwen3_transformer_only_stages(
         ``(stages, decoder_io)`` — see
         :func:`~winml.modelkit.utils.genai.build_decoder_pipeline_stages`.
     """
-    ctx_opts, iter_opts = _stage_session_options(
+    ctx_opts, iter_opts = _transformer_stage_session_options(
         ep,
         soc_model,
         openvino_weights_path=openvino_weights_path,
@@ -360,7 +315,7 @@ def write_genai_bundle(
     """
     if normalize_ep_name(ep) == "OpenVINOExecutionProvider" and openvino_weights_path is None:
         openvino_weights_path = output_dir
-    ctx_opts, iter_opts = _stage_session_options(
+    ctx_opts, iter_opts = _transformer_stage_session_options(
         ep,
         soc_model,
         openvino_weights_path=openvino_weights_path,
@@ -394,12 +349,8 @@ __all__ = [
     "PipelineStage",
     "build_decoder_pipeline_stages",
     "build_genai_config",
-    "build_npu_load_config",
     "build_qwen3_transformer_only_stages",
-    "openvino_stage_session_options",
-    "qnn_stage_session_options",
     "strip_gqa_default_attrs",
-    "vitisai_stage_session_options",
     "write_genai_bundle",
 ]
 

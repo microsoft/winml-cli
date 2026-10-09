@@ -64,6 +64,7 @@ from ..utils.constants import (
 from .ep_device import (
     VALID_EPS,
     device_from_provider_option_hints,
+    lookup_device_spec,
     short_ep_name,
 )
 from .ep_registry import WinMLEPRegistry
@@ -1107,19 +1108,61 @@ class GenaiSession:
             return
 
         alias = short_ep_name(ep)
+        device = self._device or EP_SUPPORTED_DEVICES[ep][0]
+        spec = lookup_device_spec(ep, device)
+        defaults = (
+            dict(spec.default_provider_options)
+            if spec is not None and spec.use_defaults_for_genai
+            else {}
+        )
         if self._stage_targets_ep(current_po, ep):
-            # Re-selecting the stage's own EP: preserve its shipped options
-            # verbatim (even when empty) — this is a byte-for-byte no-op.
-            opts = self._existing_opts_for_ep(current_po, ep)
+            opts = self._merge_provider_options(
+                defaults,
+                self._existing_opts_for_ep(current_po, ep),
+            )
         elif borrow_opts:
-            opts = dict(borrow_opts)
+            opts = self._merge_provider_options(defaults, borrow_opts)
         else:
-            opts = self._default_opts_for_device(ep)
-        opts = {**opts, **self._provider_options}
+            opts = self._merge_provider_options(defaults, self._default_opts_for_device(ep))
+        opts = self._merge_provider_options(opts, self._provider_options)
         if not isinstance(so, dict):
             so = {}
             stage_cfg["session_options"] = so
         so["provider_options"] = [{alias: opts}]
+
+    @staticmethod
+    def _merge_provider_options(
+        defaults: dict[str, Any],
+        overrides: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Merge provider options, preserving nested JSON configuration defaults."""
+        merged = {**defaults, **overrides}
+        for key in defaults.keys() & overrides.keys():
+            try:
+                default_value = json.loads(defaults[key])
+                override_value = json.loads(overrides[key])
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if isinstance(default_value, dict) and isinstance(override_value, dict):
+                merged[key] = json.dumps(
+                    GenaiSession._merge_nested_dicts(default_value, override_value),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+        return merged
+
+    @staticmethod
+    def _merge_nested_dicts(
+        defaults: dict[str, Any],
+        overrides: dict[str, Any],
+    ) -> dict[str, Any]:
+        merged = copy.deepcopy(defaults)
+        for key, value in overrides.items():
+            if isinstance(value, dict) and isinstance(merged.get(key), dict):
+                merged[key] = GenaiSession._merge_nested_dicts(merged[key], value)
+            else:
+                merged[key] = value
+        return merged
 
     def _default_opts_for_device(self, ep: EPName) -> dict[str, Any]:
         """Synthesize provider options for *ep* when the bundle defines none.
