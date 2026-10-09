@@ -138,14 +138,14 @@ def intercept_value_ranges() -> Iterator[dict[str, dict[str, Any]]]:
         )
 
     # Patch generate() on all subclasses that override it
-    patched_classes = []
+    patched_classes: list[type[Any]] = []
 
-    def _patch_subclasses(base: type) -> None:
+    def _patch_subclasses(base: type[Any]) -> None:
         for cls in base.__subclasses__():
             if "generate" in cls.__dict__:
                 originals[(cls, "generate")] = cls.__dict__["generate"]
                 # Monkey-patch optimum's untyped generator hierarchy.
-                cls.generate = _make_generate_wrapper(cls.__dict__["generate"])  # type: ignore[attr-defined]
+                cls.generate = _make_generate_wrapper(cls.__dict__["generate"])
                 patched_classes.append(cls)
             _patch_subclasses(cls)
 
@@ -162,4 +162,4 @@ def intercept_value_ranges() -> Iterator[dict[str, dict[str, Any]]]:
                 staticmethod(originals[method_name]),
             )
         for cls in patched_classes:
-            cls.generate = originals[(cls, "generate")]  # type: ignore[attr-defined]
+            cls.generate = originals[(cls, "generate")]
