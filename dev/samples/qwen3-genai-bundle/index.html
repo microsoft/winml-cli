@@ -2211,21 +2211,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-2-tune-context-and-prefill-lengths-optional" class="md-nav__link">
+  <a href="#step-2-run-the-bundle-generate-text" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 2: Tune context and prefill lengths (optional)
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-3-run-the-bundle-generate-text" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 3: Run the bundle (generate text)
+        Step 2: Run the bundle (generate text)
       
     </span>
   </a>
@@ -2725,21 +2714,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#step-2-tune-context-and-prefill-lengths-optional" class="md-nav__link">
+  <a href="#step-2-run-the-bundle-generate-text" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Step 2: Tune context and prefill lengths (optional)
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#step-3-run-the-bundle-generate-text" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Step 3: Run the bundle (generate text)
+        Step 2: Run the bundle (generate text)
       
     </span>
   </a>
@@ -2811,13 +2789,13 @@ runtime metadata and tokenizer that onnxruntime-genai loads together:</p>
 <tr>
 <td><code>ctx.onnx</code></td>
 <td>Transformer <strong>prefill</strong> graph (processes the prompt)</td>
-<td>NPU (QNN or VitisAI)</td>
+<td>NPU (QNN, VitisAI, or OpenVINO)</td>
 <td><code>w8a16</code></td>
 </tr>
 <tr>
 <td><code>iter.onnx</code></td>
 <td>Transformer <strong>decode</strong> graph (one token per step)</td>
-<td>NPU (QNN or VitisAI)</td>
+<td>NPU (QNN, VitisAI, or OpenVINO)</td>
 <td><code>w8a16</code></td>
 </tr>
 <tr>
@@ -2844,18 +2822,22 @@ runtime metadata and tokenizer that onnxruntime-genai loads together:</p>
 composite: prefill bakes in a context sequence length, decode is fixed to a
 single token. The embedding table and vocab projection stay on CPU. Splitting the
 model this way lets the compute-heavy transformer run on the selected NPU while
-the memory-bound companions stay on CPU.</p>
+the memory-bound companions stay on CPU. On Intel, OpenVINO runs the <code>context</code>
+and <code>iterator</code> stages on the NPU; the embedding lookup and <code>lm_head</code> projection
+remain on CPU.</p>
 <h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
 <ul>
 <li>winml-cli installed and <code>winml</code> on your PATH.</li>
 <li>A network connection to download Qwen3 weights from HuggingFace on first run.</li>
-<li>For NPU inference, a QNN (Qualcomm) or VitisAI (AMD) execution provider.
-  CPU inference does not require either NPU provider.</li>
+<li>For NPU inference, a compatible QNN (Qualcomm), VitisAI (AMD), or OpenVINO
+  (Intel) execution provider. Intel NPU runs also require a compatible Intel NPU
+  driver and OpenVINO NPU plugin, available through a compatible ONNX Runtime
+  OpenVINO EP installation. CPU inference does not require an NPU provider.</li>
 </ul>
 <h2 id="overall-workflow">Overall workflow<a class="headerlink" href="#overall-workflow" title="Permanent link">&para;</a></h2>
 <pre class="mermaid"><code>graph LR
     A["winml build -m Qwen/Qwen3-0.6B --export-type optimized"] --&gt; B[Genai bundle recipe]
-    B --&gt; C[ctx.onnx / iter.onnx — NPU]
+    B --&gt; C[ctx.onnx / iter.onnx — selected NPU]
     B --&gt; D[embeddings.onnx — CPU]
     B --&gt; E[lm_head.onnx — CPU]
     C --&gt; F[genai_config.json + tokenizer]
@@ -2872,8 +2854,9 @@ recipe for that resolved target, so on an NPU host no flags are needed:</p>
 <p>This builds (or reuses from cache) all four components and assembles them, writing
 <code>out/qwen3-bundle/genai_config.json</code> alongside the ONNX graphs and tokenizer.
 <code>--output-dir</code> is required — the bundle is a directory — and <code>--use-cache</code> is not
-supported for bundles. The recipe supports CPU, QNN/NPU, and VitisAI/NPU;
-other resolved targets fail fast. Pin the provider to select a target explicitly:</p>
+supported for bundles. The recipe supports CPU, QNN/NPU, VitisAI/NPU, and
+OpenVINO/NPU; other resolved targets fail fast. Pin the provider to select a
+target explicitly:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Qualcomm Snapdragon NPU</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>winml<span class="w"> </span>build<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>-o<span class="w"> </span>out/qwen3-bundle<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span>--export-type<span class="w"> </span>optimized<span class="w"> </span>--ep<span class="w"> </span>qnn<span class="w"> </span>--device<span class="w"> </span>npu
@@ -2881,6 +2864,10 @@ other resolved targets fail fast. Pin the provider to select a target explicitly
 </span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="c1"># AMD Ryzen AI NPU</span>
 </span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>winml<span class="w"> </span>build<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>-o<span class="w"> </span>out/qwen3-bundle<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">  </span>--export-type<span class="w"> </span>optimized<span class="w"> </span>--ep<span class="w"> </span>vitisai<span class="w"> </span>--device<span class="w"> </span>npu
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="c1"># Intel NPU (OpenVINO)</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>winml<span class="w"> </span>build<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>-o<span class="w"> </span>out/qwen3-bundle<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">  </span>--export-type<span class="w"> </span>optimized<span class="w"> </span>--ep<span class="w"> </span>openvino<span class="w"> </span>--device<span class="w"> </span>npu
 </span></code></pre></div>
 <p>The Qwen3 transformer's quantization scheme is fixed by its recipe (<code>w8a16</code>, the
 scheme its NPU export is tuned for), so it is not overridable — passing a
@@ -2903,30 +2890,20 @@ generic</code> always forces the stock build, even on the NPU. A pinned
 <code>--ep</code>/<code>--device</code> that contradicts the recipe fails fast rather than silently
 reverting.</p>
 </div>
-<h2 id="step-2-tune-context-and-prefill-lengths-optional">Step 2: Tune context and prefill lengths (optional)<a class="headerlink" href="#step-2-tune-context-and-prefill-lengths-optional" title="Permanent link">&para;</a></h2>
-<p><code>winml build</code> uses the recipe defaults: context length (static KV cache) <code>2048</code>
-and prefill sequence length <code>64</code>. To change those, use the equivalent developer
-script, which exposes the extra knobs and delegates to the same builder:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>scripts/qwen3.py<span class="w"> </span><span class="nb">export</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>--device<span class="w"> </span>npu<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>--output<span class="w"> </span>out/qwen3-bundle<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span>--max-cache-len<span class="w"> </span><span class="m">4096</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">  </span>--prefill-seq-len<span class="w"> </span><span class="m">128</span>
-</span></code></pre></div>
-<p>The script also accepts <code>--embeddings &lt;onnx&gt;</code> and <code>--lm-head &lt;onnx&gt;</code> to reuse
-pre-built companions (skipping their builds), and <code>--force-rebuild</code> to rebuild
-everything from scratch. The developer script's <code>--device npu</code> shortcut targets
-QNN; use <code>winml build --ep vitisai --device npu</code> for an AMD bundle.</p>
-<h2 id="step-3-run-the-bundle-generate-text">Step 3: Run the bundle (generate text)<a class="headerlink" href="#step-3-run-the-bundle-generate-text" title="Permanent link">&para;</a></h2>
+<h2 id="step-2-run-the-bundle-generate-text">Step 2: Run the bundle (generate text)<a class="headerlink" href="#step-2-run-the-bundle-generate-text" title="Permanent link">&para;</a></h2>
 <p>The assembled bundle runs through onnxruntime-genai. Benchmark prompt processing
 and token generation on the NPU with <code>winml perf</code>:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Qualcomm Snapdragon NPU</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>out/qwen3-bundle<span class="w"> </span>--runtime<span class="w"> </span>ort-genai<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--compile<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span>--compile-timeout<span class="w"> </span><span class="m">600</span><span class="w"> </span>--max-new-tokens<span class="w"> </span><span class="m">20</span><span class="w"> </span>--prompt<span class="w"> </span><span class="s2">"What is the capital of France?"</span>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="c1"># AMD Ryzen AI NPU</span>
-</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>out/qwen3-bundle<span class="w"> </span>--runtime<span class="w"> </span>ort-genai<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--ep<span class="w"> </span>vitisai<span class="w"> </span>--compile<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">  </span>--compile-timeout<span class="w"> </span><span class="m">600</span><span class="w"> </span>--max-new-tokens<span class="w"> </span><span class="m">20</span><span class="w"> </span>--prompt<span class="w"> </span><span class="s2">"What is the capital of France?"</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Qualcomm Snapdragon NPU</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>out/qwen3-bundle<span class="w"> </span>--runtime<span class="w"> </span>ort-genai<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--compile<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>--compile-timeout<span class="w"> </span><span class="m">600</span><span class="w"> </span>--max-new-tokens<span class="w"> </span><span class="m">20</span><span class="w"> </span>--prompt<span class="w"> </span><span class="s2">"What is the capital of France?"</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="c1"># AMD Ryzen AI NPU</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>out/qwen3-bundle<span class="w"> </span>--runtime<span class="w"> </span>ort-genai<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--ep<span class="w"> </span>vitisai<span class="w"> </span>--compile<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span>--compile-timeout<span class="w"> </span><span class="m">600</span><span class="w"> </span>--max-new-tokens<span class="w"> </span><span class="m">20</span><span class="w"> </span>--prompt<span class="w"> </span><span class="s2">"What is the capital of France?"</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="c1"># Intel NPU (OpenVINO)</span>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>out/qwen3-bundle<span class="w"> </span>--runtime<span class="w"> </span>ort-genai<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--ep<span class="w"> </span>openvino<span class="w"> </span>--compile<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="w">  </span>--compile-timeout<span class="w"> </span><span class="m">600</span><span class="w"> </span>--max-new-tokens<span class="w"> </span><span class="m">20</span><span class="w"> </span>--prompt<span class="w"> </span><span class="s2">"What is the capital of France?"</span>
 </span></code></pre></div>
 <p><code>winml perf</code> registers the selected WinML EP and runs the bundle's <code>context</code> and
 <code>iterator</code> stages on that NPU, while the CPU companions handle the embedding
@@ -2935,22 +2912,44 @@ session/native load, best-effort weight-upload estimate, cold-start TTFT/total,
 request/model TTFT, prefill throughput, steady-state decode throughput, full
 request latency, optional RAM/VRAM deltas, and a results JSON under
 <code>~/.cache/winml/perf/</code>. Exact weight-upload telemetry is currently <code>null</code> because
-onnxruntime-genai does not expose it; the estimate is labeled in JSON.</p>
+onnxruntime-genai does not expose it; the estimate is labeled in JSON.
+Intel NPU availability and performance depend on the installed driver, OpenVINO
+plugin, hardware, and model compatibility; this Qwen3 recipe does not imply that
+all Intel NPU models are supported.</p>
 <div class="admonition tip">
 <p class="admonition-title">One command from a model id (auto-build)</p>
 <p><code>winml perf --runtime ort-genai</code> also accepts a HuggingFace <strong>model id</strong> directly.
 When <code>-m</code> is not a prebuilt bundle directory, it builds the genai bundle on demand
 (into <code>~/.cache/winml/</code>, reused on later runs) and then benchmarks it — no separate
 <code>winml build</code> step:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>--runtime<span class="w"> </span>ort-genai<span class="w"> </span>--compile<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>--compile-timeout<span class="w"> </span><span class="m">600</span><span class="w"> </span>--max-new-tokens<span class="w"> </span><span class="m">20</span><span class="w"> </span>--prompt<span class="w"> </span><span class="s2">"What is the capital of France?"</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>--runtime<span class="w"> </span>ort-genai<span class="w"> </span>--compile<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>--compile-timeout<span class="w"> </span><span class="m">600</span><span class="w"> </span>--max-new-tokens<span class="w"> </span><span class="m">20</span><span class="w"> </span>--prompt<span class="w"> </span><span class="s2">"What is the capital of France?"</span>
 </span></code></pre></div>
 <p>Without a device or EP override, the model-ID shortcut targets QNN/NPU.
 An explicit <code>--device</code> or <code>--ep</code> also selects the transformer build target,
-not just the inference target. For example, a CPU run does not require QNN:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>--runtime<span class="w"> </span>ort-genai<span class="w"> </span>--device<span class="w"> </span>cpu<span class="w"> </span>--no-compile<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>--warmup<span class="w"> </span><span class="m">2</span><span class="w"> </span>--iterations<span class="w"> </span><span class="m">10</span><span class="w"> </span>--max-new-tokens<span class="w"> </span><span class="m">20</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span>--prompt<span class="w"> </span><span class="s2">"What is the capital of France?"</span>
+not just the inference target. To auto-build for an Intel NPU, explicitly
+select OpenVINO:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>--runtime<span class="w"> </span>ort-genai<span class="w"> </span>--ep<span class="w"> </span>openvino<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span>--compile<span class="w"> </span>--compile-timeout<span class="w"> </span><span class="m">600</span><span class="w"> </span>--max-new-tokens<span class="w"> </span><span class="m">20</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span>--prompt<span class="w"> </span><span class="s2">"What is the capital of France?"</span>
+</span></code></pre></div>
+<p>Optional OpenVINO NPU tuning can be passed at runtime with the repeatable
+<code>--ep-options KEY=VALUE</code> option. For example, this sets the OpenVINO
+<code>load_config</code> provider option while running the model:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>--runtime<span class="w"> </span>ort-genai<span class="w"> </span>--ep<span class="w"> </span>openvino<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>--ep-options<span class="w"> </span><span class="s1">'load_config={"NPU":{"NPU_TURBO":"YES"}}'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span>--compile<span class="w"> </span>--compile-timeout<span class="w"> </span><span class="m">600</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span>--max-new-tokens<span class="w"> </span><span class="m">20</span><span class="w"> </span>--prompt<span class="w"> </span><span class="s2">"What is the capital of France?"</span>
+</span></code></pre></div>
+<p><code>--ep-options</code> is forwarded to <code>GenaiSession</code> and overrides provider options
+on the selected hardware stages at runtime; its values are not embedded in
+a model-ID auto-built bundle. If overriding <code>load_config</code>, include all NPU
+properties you want in its JSON value. These vendor-specific options are
+optional; omit them to use the bundle's OpenVINO settings. For example, a
+CPU run does not require QNN:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>Qwen/Qwen3-0.6B<span class="w"> </span>--runtime<span class="w"> </span>ort-genai<span class="w"> </span>--device<span class="w"> </span>cpu<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span>--warmup<span class="w"> </span><span class="m">2</span><span class="w"> </span>--iterations<span class="w"> </span><span class="m">10</span><span class="w"> </span>--max-new-tokens<span class="w"> </span><span class="m">20</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span>--prompt<span class="w"> </span><span class="s2">"What is the capital of France?"</span>
 </span></code></pre></div>
 <p>Use <code>--ep vitisai --device npu --compile</code> for VitisAI. Auto-building rejects
 targets not supported by the recipe; a prebuilt bundle can still be passed
@@ -2958,24 +2957,6 @@ to <code>perf</code> for a runtime override. Explicit targets have
 separate bundle caches, so a CPU run never reuses a QNN build. CPU companions
 retain their recipe precisions. <code>-o/--output</code> stays the results-JSON path,
 and <code>--rebuild</code> forces a fresh bundle for the selected target.</p>
-</div>
-<div class="admonition warning">
-<p class="admonition-title"><code>--compile</code> is required on the NPU</p>
-<p>The genai NPU path needs <code>--compile</code> (EPContext pre-compilation). The context
-and iterator stages are compiled together when they use the same provider
-options, allowing both EPContext graphs to reference one shared weight
-<code>.bin</code>. Without <code>--compile</code>, onnxruntime-genai compiles the NPU context
-in-memory at model-creation time, which can fault before the first token.
-Use <code>--compile-timeout &lt;seconds&gt;</code> to bound compilation before falling back
-to the original ONNX.</p>
-</div>
-<div class="admonition note">
-<p class="admonition-title">Known caveat: non-zero exit on teardown</p>
-<p>On Windows ARM64, after generation completes and the results JSON is saved, the
-process may exit with a native <code>0xC0000374</code> (heap corruption) during
-onnxruntime-genai / QNN-EP <strong>teardown</strong>. This fires after all work is done — the
-generated tokens and the saved perf metrics are unaffected — and originates in the
-native runtime below winml-cli, not in the bundle or the build.</p>
 </div>
 <h2 id="how-it-maps-to-the-composite-system">How it maps to the composite system<a class="headerlink" href="#how-it-maps-to-the-composite-system" title="Permanent link">&para;</a></h2>
 <p>The bundle reuses winml-cli's existing composite-model machinery — it does not add
