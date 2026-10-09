@@ -27,8 +27,7 @@ $ winml build [options]
 | `--output-dir` | `-o` | path | `None` | Directory for all build artifacts. Mutually exclusive with `--use-cache`. |
 | `--use-cache/--no-use-cache` | | flag | `false` | Store artifacts in the winml-cli global cache (`~/.cache/winml/`). Mutually exclusive with `--output-dir`. |
 | `--rebuild/--no-rebuild` | | flag | `false` | Overwrite existing artifacts and re-run the full pipeline. |
-| `--quant` | | flag | `true` | Run the quantization stage, overriding the config. |
-| `--no-quant` | | flag | `false` | Skip the quantization stage, overriding the config. |
+| `--quant/--no-quant` | | flag | `true` | Run the quantization stage (use `--no-quant` to skip), overriding the config. |
 | `--no-compile` / `--compile` | | flag | `None` | Override compilation. `--compile` forces enable (config must have a compile section). `--no-compile` forces skip. Default: inherit from config. |
 | `--optimize/--no-optimize` | | flag | `true` | Run the optimization stage (use `--no-optimize` to skip). |
 | `--ep` | | string | `None` | Target execution provider for the analyzer (e.g., `qnn`). Falls back to the compile config EP if not set. |

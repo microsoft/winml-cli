@@ -19,7 +19,7 @@ $ winml optimize [options]
 | `--model` | `-m` | `PATH` | *(required unless listing)* | Input ONNX model file. Not required when `--list-capabilities` or `--list-rewrites` is used. |
 | `--output` | `-o` | `PATH` | `{input}_opt.onnx` | Output path for the optimized model. Defaults to the input filename with `_opt` inserted before the extension. |
 | `--config` | `-c` | `PATH` | *(none)* | YAML or JSON configuration file. Fields in the file override capability defaults; CLI flags override the file. |
-| `ort-graph-optimization` | | capability | enabled | Run or skip ORTGraphPipe. Disabling it does not implicitly enable compatibility rewrites or disable other pipes. Config key: `ort-graph-optimization` (boolean); its CLI flags are generated using the `--enable-<name>` / `--disable-<name>` pattern below. |
+| `--enable-ort-graph-optimization` / `--disable-ort-graph-optimization` | | flag | enabled | Run or skip ORTGraphPipe. Disabling it does not implicitly enable compatibility rewrites or disable other pipes. Config key: `ort-graph-optimization` (boolean). |
 | `--verbose` | `-v` | flag | off | Enable verbose output. |
 | `--list-capabilities` | `-l` | flag | off | Print all registered optimization capabilities grouped by category and exit. Add `--verbose` for descriptions and ORT names. |
 | `--list-rewrites` | | flag | off | Print all available pattern-rewrite families with their source-to-target mappings and exit. |

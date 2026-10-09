@@ -125,7 +125,7 @@ def intercept_value_ranges() -> Iterator[dict[str, dict[str, Any]]]:
          'token_type_ids': {'min': 0, 'max': 2, 'method': 'random_int_tensor'}}
     """
     captured: dict[str, dict] = {}
-    originals: dict[str | tuple[type[Any], str], Any] = {}
+    originals: dict = {}
 
     # Patch static tensor gen methods on the base class
     for method_name in _TENSOR_GEN_METHODS:
@@ -138,14 +138,14 @@ def intercept_value_ranges() -> Iterator[dict[str, dict[str, Any]]]:
         )
 
     # Patch generate() on all subclasses that override it
-    patched_classes: list[type[Any]] = []
+    patched_classes = []
 
-    def _patch_subclasses(base: type[Any]) -> None:
-        subclasses: list[type[Any]] = base.__subclasses__()
-        for cls in subclasses:
+    def _patch_subclasses(base: type) -> None:
+        for cls in base.__subclasses__():
             if "generate" in cls.__dict__:
                 originals[(cls, "generate")] = cls.__dict__["generate"]
-                cls.generate = _make_generate_wrapper(cls.__dict__["generate"])
+                # Monkey-patch optimum's untyped generator hierarchy.
+                cls.generate = _make_generate_wrapper(cls.__dict__["generate"])  # type: ignore[attr-defined]
                 patched_classes.append(cls)
             _patch_subclasses(cls)
 
@@ -162,4 +162,4 @@ def intercept_value_ranges() -> Iterator[dict[str, dict[str, Any]]]:
                 staticmethod(originals[method_name]),
             )
         for cls in patched_classes:
-            cls.generate = originals[cls, "generate"]
+            cls.generate = originals[(cls, "generate")]  # type: ignore[attr-defined]

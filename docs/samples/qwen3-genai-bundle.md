@@ -154,26 +154,23 @@ all Intel NPU models are supported.
       --prompt "What is the capital of France?"
     ```
 
-    The optional `--openvino-config` flag embeds a vendor-specific OpenVINO
-    load-config JSON while auto-building a model ID; it requires `--ep openvino`.
-    The repository-root `npu_config_npuw.json` is an optional example with
-    vendor-specific NPU properties such as `NPU_TURBO`,
-    `NPU_QDQ_OPTIMIZATION`, `NPU_COMPILER_TYPE`, and `CACHE_MODE`; supported
-    values can depend on the driver and plugin version. Run the command from the
-    repository root to use that relative path:
+    Optional OpenVINO NPU tuning can be passed at runtime with the repeatable
+    `--ep-options KEY=VALUE` option. For example, this sets the OpenVINO
+    `load_config` provider option while running the model:
 
     ```bash
     winml perf -m Qwen/Qwen3-0.6B --runtime ort-genai --ep openvino --device npu \
-      --openvino-config npu_config_npuw.json --compile --compile-timeout 600 \
+      --ep-options 'load_config={"NPU":{"NPU_TURBO":"YES"}}' \
+      --compile --compile-timeout 600 \
       --max-new-tokens 20 --prompt "What is the capital of France?"
     ```
 
-    These settings are optional; omit `--openvino-config` to use the driver's
-    default compiler configuration. The file is not required at inference time:
-    its values are embedded in the auto-built bundle. `--openvino-config` is for
-    model-ID auto-build, not for a prebuilt bundle; the prebuilt-bundle command
-    above uses the options already stored in that bundle. For example, a CPU run
-    does not require QNN:
+    `--ep-options` is forwarded to `GenaiSession` and overrides provider options
+    on the selected hardware stages at runtime; its values are not embedded in
+    a model-ID auto-built bundle. If overriding `load_config`, include all NPU
+    properties you want in its JSON value. These vendor-specific options are
+    optional; omit them to use the bundle's OpenVINO settings. For example, a
+    CPU run does not require QNN:
 
     ```bash
     winml perf -m Qwen/Qwen3-0.6B --runtime ort-genai --device cpu \

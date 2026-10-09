@@ -8,7 +8,6 @@ edit_uri: edit/main/docs/
 docs_dir: docs
 
 exclude_docs: |
-  /README.md
   /design/
   /naming-convention.md
   /pytest-best-practices.md
@@ -89,7 +88,6 @@ nav:
       - Installation: getting-started/installation.md
       - Quickstart: getting-started/quickstart.md
       - UI Quickstart: getting-started/ui-quickstart.md
-      - CGC Onboarding: getting-started/cgc-onboarding.md
       - Use with AI Agent:
           - Overview: getting-started/agent-skill/index.md
           - Use WinML CLI: getting-started/agent-skill/use-winml-cli.md
@@ -132,8 +130,6 @@ nav:
       - BERT — Config + Build + Perf: samples/bert-config-build.md
       - CLIP — Composite Models: samples/clip-composite.md
       - Qwen3 — Genai Bundle: samples/qwen3-genai-bundle.md
-      - ResNet-50 — PyTorch to CGIR: samples/resnet50-cgir.md
-      - YOLO11 — ONNX to CGIR: samples/yolo11-cgir.md
   - Tutorials:
       - Overview: tutorials/index.md
       - Hugging Face Model to NPU: tutorials/npu-convnext.md
