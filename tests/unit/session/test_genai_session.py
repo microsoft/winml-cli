@@ -2872,6 +2872,61 @@ class TestSharedGroupExternalWeights:
         (tmp_path / "genai_config.json").write_text(json.dumps(cfg), encoding="utf-8")
         return GenaiSession(tmp_path, compile=True), group, cfg
 
+    @staticmethod
+    def _group_with_colliding_locations(
+        tmp_path: Path,
+        *,
+        identical: bool,
+    ) -> tuple[GenaiSession, list]:
+        import numpy as np
+        import onnx
+
+        group = []
+        for index, (stage_key, directory) in enumerate(
+            (("context", "context"), ("iterator", "iterator"))
+        ):
+            stage_dir = tmp_path / directory
+            stage_dir.mkdir()
+            values = np.ones((4, 4), dtype=np.float32)
+            if not identical:
+                values *= index + 1
+            weight = onnx.numpy_helper.from_array(values, "w")
+            graph = onnx.helper.make_graph(
+                [onnx.helper.make_node("MatMul", ["x", "w"], ["y"])],
+                stage_key,
+                [onnx.helper.make_tensor_value_info("x", onnx.TensorProto.FLOAT, [1, 4])],
+                [onnx.helper.make_tensor_value_info("y", onnx.TensorProto.FLOAT, [1, 4])],
+                [weight],
+            )
+            filename = f"{directory}/{stage_key}.onnx"
+            onnx.save_model(
+                onnx.helper.make_model(graph),
+                str(tmp_path / filename),
+                save_as_external_data=True,
+                location="weights.bin",
+                size_threshold=0,
+            )
+            group.append((stage_key, filename, "openvino", {}))
+        (tmp_path / "genai_config.json").write_text(
+            json.dumps({"model": {"type": "decoder-pipeline", "decoder": {"pipeline": []}}}),
+            encoding="utf-8",
+        )
+        return GenaiSession(tmp_path, compile=True), group
+
+    def test_different_sidecars_with_same_destination_are_not_shareable(
+        self, tmp_path: Path
+    ) -> None:
+        session, group = self._group_with_colliding_locations(tmp_path, identical=False)
+
+        assert session._stages_shareable(group) is False
+
+    def test_identical_sidecars_with_same_destination_remain_shareable(
+        self, tmp_path: Path
+    ) -> None:
+        session, group = self._group_with_colliding_locations(tmp_path, identical=True)
+
+        assert session._stages_shareable(group) is True
+
     def test_recompile_refreshes_copied_weight_sidecars(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

@@ -1540,9 +1540,10 @@ class GenaiSession:
         EPContext model (or missing) cannot participate in a fresh shared
         compile and forces the group back onto the per-stage path.
         """
-        from ..onnx import is_compiled_onnx
+        from ..onnx import get_external_data_files, is_compiled_onnx
 
         first_opts = stages[0][3]
+        external_sources: dict[Path, Path] = {}
         for _stage_key, onnx_filename, _ep_alias, ep_opts in stages:
             if ep_opts != first_opts:
                 return False
@@ -1554,7 +1555,43 @@ class GenaiSession:
                     return False
             except (ValueError, OSError):
                 return False
+            try:
+                locations = get_external_data_files(src)
+            except (ValueError, OSError):
+                return False
+            for location in locations:
+                source = (src.parent / location).resolve()
+                destination = (
+                    self._bundle_dir / self._COMPILED_SUBDIR / location
+                ).resolve()
+                previous = external_sources.get(destination)
+                if previous is not None and not self._files_identical(previous, source):
+                    logger.info(
+                        "Stages cannot share an EPContext: external-data destination %s "
+                        "would combine different files %s and %s",
+                        destination,
+                        previous,
+                        source,
+                    )
+                    return False
+                external_sources[destination] = source
         return True
+
+    @staticmethod
+    def _files_identical(left: Path, right: Path) -> bool:
+        """Compare two external-data files without loading them fully into memory."""
+        try:
+            if left.samefile(right):
+                return True
+            if left.stat().st_size != right.stat().st_size:
+                return False
+            with left.open("rb") as left_file, right.open("rb") as right_file:
+                while left_chunk := left_file.read(1024 * 1024):
+                    if left_chunk != right_file.read(len(left_chunk)):
+                        return False
+                return right_file.read(1) == b""
+        except OSError:
+            return False
 
     def _process_single_stage(
         self,
