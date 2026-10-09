@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import numpy as np
 
@@ -60,6 +61,63 @@ def simple_onnx_model(tmp_path: Path) -> Path:
 class TestRandomDataset:
     """Tests for RandomDataset class."""
 
+    def test_random_inputs_are_generated_only_when_requested(
+        self, simple_onnx_model: Path
+    ) -> None:
+        from winml.modelkit.datasets import RandomDataset
+        from winml.modelkit.onnx import InputTensorSpec
+
+        with patch.object(
+            InputTensorSpec, "to_tensor", autospec=True, side_effect=InputTensorSpec.to_tensor
+        ) as generate:
+            dataset = RandomDataset(str(simple_onnx_model), max_samples=10)
+            assert len(dataset) == 10
+            generate.assert_not_called()
+
+            sample = dataset[3]
+            assert sample["A"].shape == (1, 4)
+            assert sample["sample_id"].item() == 3
+            assert generate.call_count == 1
+
+    def test_indexed_random_samples_replay_without_changing_global_rng(
+        self, simple_onnx_model: Path
+    ) -> None:
+        import torch
+
+        from winml.modelkit.datasets import RandomDataset
+
+        rng_state = torch.random.get_rng_state().clone()
+        dataset = RandomDataset(str(simple_onnx_model), max_samples=3, seed=123)
+        last = dataset[2]["A"]
+        first = dataset[0]["A"]
+        replay = dataset[2]["A"]
+
+        torch.testing.assert_close(last, replay)
+        assert not torch.equal(first, last)
+        assert torch.equal(torch.random.get_rng_state(), rng_state)
+
+    def test_bool_inputs_remain_boolean_during_calibration(self, tmp_path: Path) -> None:
+        from winml.modelkit.datasets import DatasetCalibrationReader
+        from winml.modelkit.onnx import get_io_config
+
+        graph = helper.make_graph(
+            [helper.make_node("Identity", ["selector"], ["selected"])],
+            "boolean_input",
+            [helper.make_tensor_value_info("selector", TensorProto.BOOL, [1, 64])],
+            [helper.make_tensor_value_info("selected", TensorProto.BOOL, [1, 64])],
+        )
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+        model_path = tmp_path / "boolean_input.onnx"
+        onnx.save(model, str(model_path))
+
+        assert get_io_config(str(model_path))["input_types"] == [np.dtype("bool")]
+        reader = DatasetCalibrationReader(
+            model_name="test-model", task="random", max_samples=1, model_path=str(model_path)
+        )
+        sample = reader.get_next()
+        assert sample is not None
+        assert sample["selector"].dtype == np.bool_
+
     def test_random_dataset_with_model_path(self, simple_onnx_model: Path) -> None:
         """RandomDataset should work when model_path is provided."""
         from winml.modelkit.datasets import RandomDataset
@@ -74,6 +132,52 @@ class TestRandomDataset:
         sample = dataset[0]
         assert "A" in sample  # Input name from ONNX model
         assert sample["A"].shape == (1, 4)
+
+    def test_random_dataset_with_io_config(self) -> None:
+        from unittest.mock import patch
+
+        from winml.modelkit.datasets import RandomDataset
+
+        io_config = {
+            "input_names": ["input"],
+            "input_shapes": [[1, 3]],
+            "input_types": [np.dtype("float32")],
+            "value_ranges": {"input": (-1.0, 1.0)},
+        }
+        with patch(
+            "winml.modelkit.onnx.get_io_config",
+            side_effect=AssertionError("artifact must not be parsed"),
+        ):
+            dataset = RandomDataset(model_path=None, io_config=io_config, max_samples=2)
+
+        assert len(dataset) == 2
+        assert dataset[0]["input"].shape == (1, 3)
+
+    def test_model_path_remains_authoritative(self, simple_onnx_model: Path) -> None:
+        from unittest.mock import patch
+
+        from winml.modelkit.datasets import RandomDataset
+
+        conflicting_io_config = {
+            "input_names": ["wrong_input"],
+            "input_shapes": [[1, 99]],
+            "input_types": [np.dtype("int64")],
+        }
+        with patch("winml.modelkit.onnx.get_io_config") as get_io_config:
+            get_io_config.return_value = {
+                "input_names": ["A"],
+                "input_shapes": [[1, 4]],
+                "input_types": [np.dtype("float32")],
+            }
+            dataset = RandomDataset(
+                model_path=str(simple_onnx_model),
+                io_config=conflicting_io_config,
+                max_samples=1,
+            )
+
+        get_io_config.assert_called_once_with(str(simple_onnx_model))
+        assert set(dataset[0]) == {"A", "sample_id"}
+        assert dataset[0]["A"].shape == (1, 4)
 
     def test_random_dataset_generates_correct_dtype(self, simple_onnx_model: Path) -> None:
         """RandomDataset should generate data with correct dtype."""

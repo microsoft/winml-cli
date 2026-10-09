@@ -178,6 +178,11 @@ parameters:
     displayName: 'OV: self-hosted agent name (Agent.Name)'
     type: string
     default: NPU-OV2
+  - name: dmlPinnedAgents
+    displayName: 'Agents whose DML perf eval pins the sole physical GPU (empty disables)'
+    type: object
+    default:
+      - NPU-OV2
   - name: ovPairs
     displayName: 'OV: EP/device pairs (any of: dml_gpu, mlas_cpu, ov_cpu, ov_gpu, ov_npu)'
     type: object
@@ -223,6 +228,7 @@ stages:
         parameters:
           agentName: ${{ parameters.ovAgentName }}
           agentSuffix: ov
+          dmlPinnedAgents: ${{ parameters.dmlPinnedAgents }}
           pairNames: ${{ parameters.ovPairs }}
           models: ${{ parameters.models }}
           modelTimeout: ${{ parameters.modelTimeout }}

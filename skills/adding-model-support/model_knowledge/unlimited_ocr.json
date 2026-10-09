@@ -1,0 +1,47 @@
+{
+  "_meta": {
+    "family": "unlimited_ocr",
+    "hf_model_type": "unlimited-ocr",
+    "models_tested": ["baidu/Unlimited-OCR @ feature-extraction (vision tower) @ fp32 @ cpu"],
+    "diagnostic_only": [],
+    "last_updated": "2026-07-01",
+    "epistemics_warning": "unlimited_ocr-001 is VALIDATED via actual winml config + winml build + ORT-CPU L0 + PyTorch-eager L2 parity on 2026-07-01. The generative DeepSeek-V2 decoder half is explicitly OUT OF SCOPE and unexported — do not read this finding as full-model support."
+  },
+  "findings": [
+    {
+      "id": "unlimited_ocr-001",
+      "title": "VALIDATED — Effort-L1 contribution exports ONLY the vision tower (SAM+CLIP+projector) sub-graph under feature-extraction; the full model is a trust_remote_code generative VLM whose DeepSeek-V2 decoder is out of scope; full L0/L2 ladder PASS on CPU",
+      "observation": "baidu/Unlimited-OCR (model_type `unlimited-ocr`, architecture `UnlimitedOCRForCausalLM`, a DeepSeek-OCR clone) is a trust_remote_code vision-language OCR model. Its full `forward` is generative and NOT ONNX-traceable: it performs data-dependent image tiling, Python-level loops over crop counts (`torch.sum(...).item()`), and `masked_scatter_(...).cuda()` splicing of image embeddings into a DeepSeek-V2 (MoE + MLA) causal LM. Implemented `src/winml/modelkit/models/hf/unlimited_ocr.py` (2026-07-01): a `UnlimitedOCRVisionTowerWrapper(nn.Module)` whose `from_pretrained` loads the full model via `AutoModel.from_pretrained(id, trust_remote_code=True)` then `.get_model()` to reach the base module, and whose `forward` isolates the deterministic vision path — `sam_feat = sam_model(pixel_values); clip_feat = vision_model(pixel_values, sam_feat); fused = cat(clip_feat[:, 1:], sam_feat.flatten(2).permute(0, 2, 1)); return projector(fused)` — plus a from-scratch `UnlimitedOCRVisionIOConfig(OnnxConfig)` registered via `@register_onnx_overwrite('unlimited-ocr', 'feature-extraction', library_name='transformers')` with a `generate_dummy_inputs` override that pins pixel_values to a fixed [1, 3, 1024, 1024] tensor (SAM ViT-B input geometry). Goal-ladder verdict on baidu/Unlimited-OCR @ feature-extraction @ cpu: **L0 PASS** (`winml build` complete 368.6s — Export 144.1s + Optimize 210.3s — autoconf converged after 2 iters applying gelu_fusion + matmul_add_fusion + highdimRTR_lowdimRTR; optimized.onnx 1.5 GB; onnx.checker OK; ORT-CPU run OK, output image_embeds [1, 256, 1280]); **L2 PASS** (cosine vs PyTorch eager on identical zero input: cos=1.000000, max_abs_diff=2.825e-05 on the CLI artifact, 3.308e-05 on an earlier ad-hoc torch.onnx.export — within fp32 tolerance); **L1 measured** (ad-hoc CPU perf mean=3067.27ms, P50=2911.87ms, P90=3601.13ms, throughput=0.33 samples/sec over 20 iters — the SAM 1024x1024 dual-encoder is heavy); **L3 CLI-BLOCKED** (feature-extraction vision embeddings have no default-dataset eval, same status as vilt-003 / mgp_str-004). Exported ONNX: single input pixel_values [batch, 3, 1024, 1024] float32 (only batch dynamic; H,W pinned) -> single output image_embeds [batch, 256, 1280] float32.",
+      "scope": {
+        "validated_on": ["baidu/Unlimited-OCR @ feature-extraction (vision tower) @ fp32 @ cpu (2026-07-01)"],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "DML / QNN / OpenVINO EPs (OpenVINO EP host-blocked this session — missing onnxruntime_providers_shared.dll, per _meta-016/-037; CPU is the universal floor)",
+          "The generative DeepSeek-V2 (MoE + MLA) decoder half — no OnnxConfig exists; Optimum ships deepseek_v3, NOT deepseek_v2; out of scope per the use-winml-cli generative deferral",
+          "Non-1024 input tiles (the vision tower pins 1024x1024 to match SAM ViT-B; the model's own multi-resolution tiling logic lives in the unexported generative wrapper)",
+          "fp16 / quantized vision tower"
+        ]
+      },
+      "effort_tier_required": "L1 (from-scratch OnnxConfig + sub-graph wrapper + from_pretrained classmethod + pinned dummy-input override). No vendor OnnxConfig exists for unlimited-ocr; the wrapper isolates a composite three-module vision path that has no single stock forward.",
+      "goal_tier_reached": "L2 PASS on the vision tower (SAM + CLIP + projector); the generative decoder is intentionally NOT exported (L0 unreachable for the full model).",
+      "recipe_template": "temp/unlimitedocr_ft.json produced by `winml config -m baidu/Unlimited-OCR --task feature-extraction --trust-remote-code`. After the L1 registration in models/hf/unlimited_ocr.py is in place, `winml config` auto-detects `UnlimitedOCRVisionTowerWrapper` and emits input pixel_values [1,3,1024,1024] -> output image_embeds with zero further intervention. Publish under examples/recipes/baidu_Unlimited-OCR/ when promoting past temp/.",
+      "gotchas": [
+        "**Full `UnlimitedOCRModel.forward` is NOT ONNX-traceable.** It uses `torch.sum(...).item()` on crop counts, Python `for` loops over per-image tile counts, and `masked_scatter_(...).cuda()` to splice image embeddings into the LM. The fix is a wrapper whose `forward` calls ONLY the deterministic vision path (sam_model -> vision_model(x, sam_feat) -> cat -> projector), bypassing all tiling/scatter control flow. The wrapper does not touch the decoder.",
+        "**Load with `AutoModel`, NOT `AutoModelForCausalLM`.** The repo's `auto_map` registers `UnlimitedOCRForCausalLM` under `AutoModel` only; `AutoModelForCausalLM.from_pretrained(...)` fails with `Unrecognized configuration class`. After loading, call `.get_model()` to reach the base module that owns `sam_model` / `vision_model` / `projector`.",
+        "**Custom code has undeclared deps.** The remote `modeling_*.py` imports `addict`, `matplotlib`, `einops`, `easydict` — none are winml runtime deps. A fresh venv needs them installed before `trust_remote_code=True` load succeeds.",
+        "**The vision tower is a THREE-module composite, not a single `vision_tower` attribute.** An early recipe draft assumed `model.vision_tower(pixel_values)`; the real base module exposes separate `sam_model` (SAM ViT-B, ~179 weight tensors), `vision_model` (CLIP-L-14, ~293), and `projector` (MLP, 2). `vision_model` takes BOTH pixel_values and the SAM feature map as positional args. The CLS token is dropped (`clip_feat[:, 1:]`) before concatenating the flattened SAM features.",
+        "**H,W must be STATIC 1024x1024.** SAM ViT-B has a fixed input size; declaring H/W dynamic is unverified and the model's own multi-resolution handling lives in the unexported tiling logic. Only the batch dim is dynamic in the OnnxConfig.",
+        "**`Einsum ... is not supported` ERRORs during build are EP op-probe noise, not failures.** The optimizer probes each EP's op coverage; SAM attention Einsum nodes log as unsupported on some EPs but the CPU/DML build still completes and the artifact is valid (autoconf converged, onnx.checker OK).",
+        "**`winml inspect` cannot load this model** — it hardcodes `trust_remote_code=False` and has no `--trust-remote-code` flag (inspect.py:316). Use `winml config -m <id> --task feature-extraction --trust-remote-code` as the first probe instead. Filed as `_meta-041` in skill_meta/findings.json with a paired SKILL.md Step 1 edit."
+      ],
+      "feature_gaps_filed": [
+        "OUT-OF-SCOPE: the generative DeepSeek-V2 (MoE + MLA) decoder has no export path. Optimum ships a `deepseek_v3` OnnxConfig but NOT `deepseek_v2`; a future decoder contribution would be Effort-L2+ (KV-cache + MLA + MoE routing) and depends on the use-winml-cli generative-decoder support (deferred to late 2026).",
+        "FILE: `winml inspect` needs a `--trust-remote-code` flag + must stop hardcoding `trust_remote_code=False` at inspect.py:316, so custom-code models can be inspected the same way `config`/`build`/`eval` already allow (see `_meta-041`)."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "L0 verified via `Build complete in 368.6s` from the winml build run + `temp/verify_cli_build.py` (onnx.checker OK, ORT-CPU run OK, output (1,256,1280)); L2 verified via `temp/verify_cli_build.py` (cos=1.000000, max_abs=2.825e-05 vs PyTorch eager) and the earlier ad-hoc `temp/verify_vision_tower_l2.py` (cos=1.000000, max_abs=3.308e-05); wrapper mechanism verified by direct eager forward in `temp/export_vision_tower_attempt.py`. Registration verified by `tests/unit/models/unlimited_ocr/test_onnx_config.py` (6 network-free tests PASS) + `winml config` auto-detecting `UnlimitedOCRVisionTowerWrapper`.",
+      "resolution": "VALIDATED — shipped as Effort-L1 / Outcome-L1 vision-tower contribution. Files: `src/winml/modelkit/models/hf/unlimited_ocr.py` (new), `src/winml/modelkit/models/hf/__init__.py` (registration wiring), `tests/unit/models/unlimited_ocr/test_onnx_config.py` (new, 6 tests), this finding. The generative decoder remains unexported by design.",
+      "last_updated": "2026-07-01"
+    }
+  ]
+}

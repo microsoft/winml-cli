@@ -91,6 +91,18 @@ class TestCommonProperties:
         handle = make_fake_ort_ep_device(ep_name="OpenVINOExecutionProvider", device_type="NPU")
         assert WinMLDevice(handle).hardware_name == "<unknown>"
 
+    def test_adapter_luid_reads_device_metadata(self) -> None:
+        handle = make_fake_ort_ep_device(
+            ep_name="OpenVINOExecutionProvider",
+            device_type="GPU",
+            device_metadata={"LUID": "57733"},
+        )
+        assert WinMLDevice(handle).adapter_luid == 57733
+
+    def test_adapter_luid_missing_returns_none(self) -> None:
+        handle = make_fake_ort_ep_device(ep_name="OpenVINOExecutionProvider", device_type="CPU")
+        assert WinMLDevice(handle).adapter_luid is None
+
     def test_vendor_passes_through(self) -> None:
         handle = make_fake_ort_ep_device(
             ep_name="OpenVINOExecutionProvider",

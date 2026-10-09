@@ -1,0 +1,153 @@
+{
+  "_meta": {
+    "family": "deberta",
+    "hf_model_type": "deberta-v2",
+    "models_tested": [
+      "cross-encoder/nli-deberta-v3-base",
+      "mixedbread-ai/mxbai-rerank-base-v1"
+    ],
+    "last_updated": "2026-08-13",
+    "epistemics_warning": "Observational findings, not ground truth. Re-validate on new checkpoints / ORT versions / EPs before relying on a finding to skip work."
+  },
+  "findings": [
+    {
+      "id": "deberta-001",
+      "title": "deberta-v2 (incl. DeBERTa-v3 checkpoints) text-classification is VENDOR-ONLY in Optimum — L0\u2605 recipe, zero source code.",
+      "observation": "cross-encoder/nli-deberta-v3-base reports config model_type='deberta-v2' (DeBERTa-v3 shares the v2 architecture). Optimum-coverage probe (after forcing `import optimum.exporters.onnx.model_configs`): vendor onnx tasks for 'deberta-v2' = [feature-extraction, fill-mask, multiple-choice, question-answering, text-classification, token-classification]; added_by_winml=[]. No src/winml/modelkit/models/hf/deberta*.py exists and none is needed. winml 0.x @ 2026-07-16.",
+      "scope": {
+        "validated_on": [
+          "cross-encoder/nli-deberta-v3-base @ fp32 @ cpu"
+        ],
+        "falsified_on": [
+          "QNN 17/17 static-support subclaim only: cross-encoder/nli-deberta-v3-base@6c749ce3425cd33b46d187e45b92bbf96ee12ec7 @ fp32+fp16 @ ORT 1.24.5 classified OP/ai.onnx/GatherElements partial (16/17 supported, runtime_support=false); see deberta-005"
+        ],
+        "not_yet_tested_on": [
+          "deberta-v2 @ qnn-npu / dml-gpu / openvino-*",
+          "other deberta-v2 tasks (question-answering, token-classification, fill-mask)"
+        ]
+      },
+      "effort_tier_required": "L0\u2605",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/cross-encoder_nli-deberta-v3-base/cpu/cpu/text-classification_fp32_config.json",
+      "gotchas": [
+        "NO token_type_ids: deberta-v2 has type_vocab_size=0, so the export inputs are ONLY input_ids + attention_mask (unlike bert-family text-classification which adds token_type_ids). The recipe's export.input_tensors must omit token_type_ids; winml baseline auto-config already resolves to the 2-input signature.",
+        "DebertaV2ForSequenceClassification pools the FIXED first token via ContextPooler (hidden_states[:, 0]), NOT an eos/special-token search. So this is NOT the _meta-017 special-token-pooling class: `winml perf` with random dummy inputs runs cleanly (no `Gather indices=-1` crash) and the _meta-053 probabilistic-baseline flakiness does not apply (baseline build is deterministic).",
+        "NLI label order for this checkpoint is id2label={0:contradiction, 1:entailment, 2:neutral}, which differs from the GLUE/MNLI dataset label order (0:entailment, 1:neutral, 2:contradiction). A `winml eval` against nyu-mll/glue mnli would need a label remap; this recipe ships WITHOUT an eval block to avoid reporting a mis-mapped accuracy (mirrors facebook/bart-large-mnli's recipe).",
+        "fp32 on CPU is heavy: 786 MB artifact, ~5.9 s/inference at seq_len=512 (throughput 0.17 samples/s, RAM +618 MB). Do not infer fp16 behavior from another EP or a quant:null recipe: build the exact CPU fp16 tuple with current explicit metadata and verify FLOAT16/size/perf evidence."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "L2 numeric parity vs PyTorch on 4 real NLI sentence pairs (recipe-built CPU/fp32 ONNX): cosine=1.000000, max-abs=1.9e-6, argmax agreement 4/4 \u2014 the trained 3-way NLI head and DeBERTa disentangled attention (24x GatherElements) export losslessly at opset 17. winml analyze --ep all: 568 ops / 17 unique; QNN-NPU 17/17 supported, OpenVINO-NPU 17/17 supported (GatherElements included), VitisAI all-unknown (no rule data). Baseline build on main also PASSES (auto-config), so the contribution's delta is the curated CPU float recipe (fp32+fp16) + the L2 trained-head-preservation proof, not making-it-build.",
+      "last_updated": "2026-07-31"
+    },
+    {
+      "id": "deberta-002",
+      "title": "deberta-v2 reranker (num_labels=1) reuses the SAME byte-identical text-classification recipe as the NLI head \u2014 second family model was essentially free.",
+      "observation": "mixedbread-ai/mxbai-rerank-base-v1 is a cross-encoder reranker: config model_type='deberta-v2', arch=stock DebertaV2ForSequenceClassification, num_labels=1 (single relevance logit -> output logits[1,1]), type_vocab_size=0, vocab 128100, max_pos 512 \u2014 structurally identical to cross-encoder/nli-deberta-v3-base except num_labels (1 vs 3). The recipe (cpu/cpu/text-classification_{fp32,fp16}) is BYTE-IDENTICAL (SHA256 59e337...d968) to the NLI recipe: model_id is passed via `winml build -m ...` not stored in the recipe, and the output width is config-driven (num_labels), so one deberta-v2 text-classification recipe serves the whole task family. Optimum VENDOR-ONLY, baseline build on main PASSES (default pipeline 973s incl. quantize->uint8/16 327MB; float recipe-build 633.6s = export 369.6 + optimize 256.9, no quantize).",
+      "scope": {
+        "validated_on": [
+          "mixedbread-ai/mxbai-rerank-base-v1 @ fp32 @ cpu"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "mxbai-rerank @ dml-gpu / openvino (proper NPU validation \u2014 see perf note)",
+          "mxbai-rerank-large-v1 / other deberta-v2 reranker sizes"
+        ]
+      },
+      "effort_tier_required": "L0\u2605",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/mixedbread-ai_mxbai-rerank-base-v1/cpu/cpu/text-classification_fp32_config.json",
+      "gotchas": [
+        "Reranker L2 must verify RANKING order, not just per-pair logit parity: a reranker's job is to rank candidate documents for a query, so the L2 check tokenizes (query, document) cross-encoder pairs and asserts argsort(relevance_scores) agrees between PyTorch and ONNX \u2014 not only cosine/max-abs on the raw logits. Both held: cos=1.000000, max-abs=1.097e-5, ranking 4/4 identical, top-1 doc agrees.",
+        "The recipe fixes export.batch_size=1, so the built ONNX has a STATIC batch dim [1,512] and onnxruntime rejects a batched [N,512] feed ('Got invalid dimensions for input: attention_mask ... Got: N Expected: 1'). Run each (query, doc) pair individually at batch=1 and stack; PyTorch can still batch for the reference side.",
+        "All deberta-001 gotchas apply unchanged (no token_type_ids; ContextPooler fixed-position-0 pooling so perf random dummies are safe; fp32 heavy on CPU)."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "L2 parity on recipe-built CPU/fp32 ONNX vs PyTorch across 4 (query, document) reranking pairs: per-pair cosine=1.000000, max-abs=1.097e-5; PyTorch scores [3.375,-1.318,-5.662,-6.075] vs ONNX [3.375,-1.318,-5.662,-6.075]; induced ranking [0,1,2,3] identical (relevant doc ranked #1, irrelevant last). winml analyze --ep all: 568 ops / 17 unique, QNN-NPU 17/17 + OpenVINO-NPU 17/17 supported (identical op profile to deberta-001). Perf: CPU/fp32 avg 7027.85 ms, 0.14 samples/s, RAM +624.7 MB (consistent with NLI ~5.9 s). NOTE: on this host `winml perf` WITHOUT --device auto-selected QNN/NPU and ran at avg 523.99 ms / 1.91 samples/s (~13x faster than CPU) \u2014 a promising NPU data point, but NOT a full NPU validation (no NPU-side L2 parity yet), so coverage stays cpu-only/partial.",
+      "last_updated": "2026-07-16"
+    },
+    {
+      "id": "deberta-003",
+      "title": "The explicit CPU fp16 recipe materially realizes FLOAT16 and preserves two-pair NLI parity, but it was slower than fp32 on the tested host.",
+      "observation": "At microsoft/winml-cli PR #1244 rebased candidate ac594976b0906a0fe5b17e98744a05932bd66c1c (parent e7b132d5f30c96c11ca818ef30d9b1ec6c867e15), cross-encoder/nli-deberta-v3-base@6c749ce3425cd33b46d187e45b92bbf96ee12ec7 was built with examples/recipes/cross-encoder_nli-deberta-v3-base/cpu/cpu/text-classification_fp16_config.json on CPUExecutionProvider using WinML source 0.3.0 and ONNX Runtime 1.24.5. The resolved config retained quant.mode=fp16 and fp16_keep_io_types=true. The artifact contained 225 FLOAT16 initializers and 437,265,408 external-data bytes versus fp32's 225 FLOAT initializers and 824,199,168 bytes (ratio 0.530533668289). CPU perf measured fp16 mean/p50 389.293/393.143 ms, 2.57 samples/s, and 285.38 MB total RSS versus fp32 332.598/335.852 ms, 3.01 samples/s, and 275.65 MB. On two real SNLI premise/hypothesis pairs, fp16 versus PyTorch had cosine 1.0, max absolute delta 0.000835418701171875, and 2/2 predicted-class agreement; fp32 max absolute delta was 2.86102294921875e-06 with the same agreement.",
+      "scope": {
+        "validated_on": [
+          "cross-encoder/nli-deberta-v3-base@6c749ce3425cd33b46d187e45b92bbf96ee12ec7 @ fp16 @ CPUExecutionProvider @ ORT 1.24.5 @ winml-cli ac594976b0906a0fe5b17e98744a05932bd66c1c"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "cross-encoder/nli-deberta-v3-base @ fp16 @ DML/QNN/OpenVINO/VitisAI",
+          "other deberta-v2 checkpoints or sequence lengths",
+          "larger CPU perf samples or hosts sufficient to explain the observed fp16 slowdown"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/cross-encoder_nli-deberta-v3-base/cpu/cpu/text-classification_fp16_config.json",
+      "gotchas": [
+        "A filename or `--precision fp16` flag is not realization evidence. Confirm FLOAT16 initializer counts, external-data reduction, output dtype/shape, perf, and parity on the exact recipe-built artifact.",
+        "Do not infer an fp16 CPU speedup from the smaller artifact: this r2 host run measured fp16 about 17.0% slower by mean latency and about 14.6% lower in throughput than fp32."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Confidence is high for precision realization, parity, and the measured exact-host tuple because all claims come from loaded final artifacts and exact-head runs. The cause and generality of the fp16 slowdown are not established; another host, ORT version, sequence length, or EP could falsify the performance ordering.",
+      "last_updated": "2026-08-13"
+    },
+    {
+      "id": "deberta-004",
+      "title": "SNLI evaluation must align labels by authoritative names, and a two-row result proves only bounded functional-smoke semantics.",
+      "observation": "At microsoft/winml-cli PR #1244 rebased candidate ac594976b0906a0fe5b17e98744a05932bd66c1c (parent e7b132d5f30c96c11ca818ef30d9b1ec6c867e15), the final fp32 CPU artifact from examples/recipes/cross-encoder_nli-deberta-v3-base/cpu/cpu/text-classification_fp32_config.json was evaluated with stanfordnlp/snli@cdb5c3d5eed6ead6e5a341c8e56e669bb666725b, plain_text validation, on WinML source 0.3.0 and ONNX Runtime 1.24.5. SNLI ClassLabel names are [entailment, neutral, contradiction], while the pinned checkpoint label2id is {contradiction:0, entailment:1, neutral:2}; authoritative name alignment therefore maps dataset IDs {0:1, 1:2, 2:0}. The run selected the first two usable source-order rows without shuffle, processed exactly 2 with 0 skipped, and capped fan-out at one premise/hypothesis pair per row, static batch 1, and sequence length 512. Both target and prediction names were checked before accepting accuracy=1.0.",
+      "scope": {
+        "validated_on": [
+          "cross-encoder/nli-deberta-v3-base@6c749ce3425cd33b46d187e45b92bbf96ee12ec7 @ fp32 @ CPUExecutionProvider @ stanfordnlp/snli@cdb5c3d5eed6ead6e5a341c8e56e669bb666725b @ ORT 1.24.5"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "benchmark-scale SNLI or MultiNLI accuracy",
+          "fp16 or accelerator functional smoke",
+          "other NLI datasets whose ClassLabel names or unknown-label handling differ"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/cross-encoder_nli-deberta-v3-base/cpu/cpu/text-classification_fp32_config.json",
+      "gotchas": [
+        "Never compare raw dataset IDs to checkpoint logits for this checkpoint; dataset ID 0 means entailment while checkpoint ID 0 means contradiction.",
+        "Accuracy 1.0 on two deterministic rows is functional-smoke evidence for input, remap, prediction, and metric plumbing only. It is not representative accuracy, benchmark quality, fp16 accuracy, or accelerator coverage."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Confidence is high for the pinned dataset/checkpoint name mapping and bounded run accounting because schema, target names, prediction names, revision, row order, and fan-out were retained. Confidence is intentionally absent for population accuracy beyond these two rows.",
+      "last_updated": "2026-08-13"
+    },
+    {
+      "id": "deberta-005",
+      "title": "Final fp32/fp16 graphs map every node to the full 12-layer DeBERTa hierarchy, while QNN GatherElements remains a static partial-support signal rather than runtime proof.",
+      "observation": "At microsoft/winml-cli PR #1244 rebased candidate ac594976b0906a0fe5b17e98744a05932bd66c1c (parent e7b132d5f30c96c11ca818ef30d9b1ec6c867e15), component analysis of the recipe-built cross-encoder/nli-deberta-v3-base artifacts mapped 568/568 fp32 nodes and 569/569 fp16 nodes with zero omissions. Each artifact had 29 component records: encoder setup, a five-node embeddings region, attention and FFN for every encoder layer 0 through 11, ContextPooler, a zero-node dropout component removed for inference, and classifier. HTP metadata reported DebertaV2ForSequenceClassification with 184,424,451 parameters, 243 modules, and 89 traced modules (36.6%). Raw fp32/fp16 op profiles contained 568/569 nodes and 17 unique types; both had 24 GatherElements nodes, while fp16 added one Cast (3 versus 2). For QNNExecutionProvider, static rules classified 16/17 types supported and OP/ai.onnx/GatherElements partial with none unsupported, but QNN runtime_support=false and runtime execution, perf, and parity remain untested. Analyze marked CUDA, MIGraphX, QNN, TensorRT, and DML deferred on this host; only the NvTensorRTRTX and OpenVINO rows reported runtime_support=true.",
+      "scope": {
+        "validated_on": [
+          "cross-encoder/nli-deberta-v3-base@6c749ce3425cd33b46d187e45b92bbf96ee12ec7 @ fp32+fp16 graph analysis @ opset 17 @ ORT 1.24.5 @ winml-cli ac594976b0906a0fe5b17e98744a05932bd66c1c"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "QNN NPU runtime execution, perf, and numeric parity for GatherElements",
+          "other deberta-v2 checkpoints, tasks, graph optimizations, or opsets",
+          "whether the 89/243 HTP trace ratio changes with another Transformers or Torch version"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/cross-encoder_nli-deberta-v3-base/cpu/cpu/text-classification_{fp32,fp16}_config.json",
+      "gotchas": [
+        "Treat the exported hierarchy literally: embeddings owns five graph nodes, while dropout owns none because it was removed for inference; both component records are required for complete source-to-graph accounting.",
+        "Do not restate QNN rule coverage as NPU support. GatherElements is partial and runtime_support=false here, so a capable QNN host must still run the exact artifact and parity checks.",
+        "On the e7b132d5 base containing merged microsoft/winml-cli#1298, ANALYZE-PARTIAL-SUCCESS reflects complete parseable seven-EP and optimization output emitted before a non-zero unavailable-provider registration exit; this reuses _meta-071 and does not create a new methodology finding."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Confidence is high for graph completeness and raw op counts because every final node was mapped and the r2 compact (5 entries) and heavy (93 entries) manifests rehashed without mismatch. The #1298-sensitive quality refresh passed 113 changed optimization tests with 6 skipped plus local partitions: analyze 1526 passed/45 skipped; models 1523 passed/6 skipped/2 xfailed; optim 582 passed/16 skipped/1 xfailed; commands 3555 passed/9 skipped; remaining 869 passed/2 skipped/1 deselected. Confidence is limited to static-rule classification for QNN; no QNN runtime claim is made. HTP modules_traced is retained as observed metadata, not treated as the denominator for ONNX node coverage.",
+      "last_updated": "2026-08-13"
+    }
+  ]
+}

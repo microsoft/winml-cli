@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import click
@@ -29,6 +30,7 @@ from winml.modelkit.utils.cli import (
     optimize_option,
     overwrite_option,
     parse_ep_options,
+    parse_options,
     precision_option,
     quant_option,
 )
@@ -80,6 +82,71 @@ class TestParseEpOptions:
     def test_empty_key_raises(self) -> None:
         with pytest.raises(click.BadParameter):
             parse_ep_options(("=value",))
+
+
+class TestParseOptions:
+    """Tests for dataclass-driven primitive KEY=VALUE options."""
+
+    @dataclass(frozen=True)
+    class Options:
+        enabled: bool = False
+        count: int = 1
+        ratio: float = 1.0
+        label: str = "default"
+
+    def test_parses_primitive_values(self) -> None:
+        assert parse_options(
+            (
+                "enabled=true",
+                "count=4",
+                "ratio=1.5",
+                "label=fast",
+            ),
+            self.Options,
+        ) == self.Options(enabled=True, count=4, ratio=1.5, label="fast")
+
+    def test_false_is_case_insensitive(self) -> None:
+        assert parse_options(
+            ("enabled=FALSE",),
+            self.Options,
+        ) == self.Options()
+
+    def test_duplicate_key_uses_last_value(self) -> None:
+        assert parse_options(
+            ("count=1", "count=2"),
+            self.Options,
+        ) == self.Options(count=2)
+
+    def test_hyphenated_key_maps_to_underscored_field(self) -> None:
+        @dataclass(frozen=True)
+        class HyphenatedOptions:
+            external_weights: bool = False
+
+        assert parse_options(
+            ("external-weights=true",),
+            HyphenatedOptions,
+        ) == HyphenatedOptions(external_weights=True)
+
+    def test_empty_values_use_dataclass_defaults(self) -> None:
+        assert parse_options((), self.Options) == self.Options()
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "missing-separator",
+            "=true",
+            "unknown=true",
+            "enabled=yes",
+            "count=one",
+            "ratio=fast",
+        ],
+    )
+    def test_invalid_value_raises(self, value: str) -> None:
+        with pytest.raises(click.BadParameter):
+            parse_options(
+                (value,),
+                self.Options,
+            )
 
 
 class TestNoColorOption:

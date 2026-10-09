@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Literal, TypeAlias, cast, get_args, overload
 
 
@@ -19,7 +20,9 @@ __all__ = [
     "EP_ALIAS_NAMES",
     "EP_NAMES",
     "EP_SUPPORTED_DEVICES",
+    "EXPORT_TARGETS",
     "ORT_SESSION_COMPILER",
+    "RUNTIME_BACKENDS",
     "RUNTIME_NAMES",
     "SUPPORTED_DEVICES",
     "SUPPORTED_EPS",
@@ -28,9 +31,12 @@ __all__ = [
     "EPAlias",
     "EPName",
     "EPNameOrAlias",
+    "ExportTarget",
+    "RuntimeBackend",
     "RuntimeName",
     "extract_ep_options",
     "normalize_ep_name",
+    "resolve_runtime_api_backend",
 ]
 
 
@@ -46,6 +52,7 @@ EPName = Literal[
     "QNNExecutionProvider",
     "TensorrtExecutionProvider",
     "VitisAIExecutionProvider",
+    "WinMLCGExecutionProvider",
 ]
 
 # Shorthand aliases users can pass on the CLI (case-insensitive at the parser layer).
@@ -60,6 +67,7 @@ EPAlias = Literal[
     "nv_tensorrt_rtx",
     "migraphx",
     "tensorrt",
+    "winmlcg",
 ]
 
 # Either an alias or a full name — what user-facing entry points accept before normalization.
@@ -80,10 +88,40 @@ ORT_SESSION_COMPILER: CompilerName = "ort_session"
 # Runtime-iterable form of ``CompilerName`` (e.g. for the CLI choice list).
 COMPILER_NAMES: tuple[CompilerName, ...] = get_args(CompilerName)
 
-
 # Inference runtimes selectable via ``winml perf --runtime``.
-RuntimeName = Literal["auto", "winml-ort", "ort-genai"]
+RuntimeName = Literal["auto", "winml-ort", "ort-genai", "winml-runtime"]
 RUNTIME_NAMES: tuple[RuntimeName, ...] = get_args(RuntimeName)
+
+
+RuntimeBackend = Literal["ort", "cgc"]
+RUNTIME_BACKENDS: tuple[RuntimeBackend, ...] = get_args(RuntimeBackend)
+
+
+def resolve_runtime_api_backend(
+    runtime: str,
+    model_path: object,
+    backend: RuntimeBackend | None = None,
+) -> RuntimeBackend | None:
+    """Validate and resolve the backend used by the Windows ML Runtime API."""
+    if backend is not None and backend not in RUNTIME_BACKENDS:
+        raise ValueError(
+            f"Invalid Runtime API backend {backend!r}; expected one of {RUNTIME_BACKENDS}."
+        )
+    if runtime != "winml-runtime":
+        if backend is not None:
+            raise ValueError("--backend is only supported with --runtime winml-runtime.")
+        return None
+    is_mlir = (
+        isinstance(model_path, (str, Path))
+        and Path(model_path).suffix.lower() == ".mlir"
+    )
+    if is_mlir and backend == "ort":
+        raise ValueError("MLIR inputs require the CGC backend.")
+    return "cgc" if is_mlir or backend is None else backend
+
+# Output formats selectable via ``winml export --target``.
+ExportTarget = Literal["onnx", "cgir"]
+EXPORT_TARGETS: tuple[ExportTarget, ...] = get_args(ExportTarget)
 
 
 # Supported execution providers — derived from the ``EPName`` Literal above so
@@ -104,6 +142,7 @@ EP_ALIASES: dict[EPAlias, EPName] = {
     "nv_tensorrt_rtx": "NvTensorRTRTXExecutionProvider",
     "migraphx": "MIGraphXExecutionProvider",
     "tensorrt": "TensorrtExecutionProvider",
+    "winmlcg": "WinMLCGExecutionProvider",
 }
 
 # Runtime-iterable forms of the Literal types above (for membership checks, choice lists).
@@ -219,6 +258,7 @@ EP_SUPPORTED_DEVICES: dict[EPName, tuple[DeviceType, ...]] = {
     "OpenVINOExecutionProvider": ("npu", "gpu", "cpu"),
     "TensorrtExecutionProvider": ("gpu",),
     "DmlExecutionProvider": ("gpu",),
+    "WinMLCGExecutionProvider": ("gpu",),
     "CPUExecutionProvider": ("cpu",),
     "VitisAIExecutionProvider": ("npu",),
 }

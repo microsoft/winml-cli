@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..ep_path import VALID_SOURCE_TAGS, DirectorySource, EPEntry
+    from ._runtime_import import import_runtime
     from .ep_device import (
         DEVICE_TO_DEVICE_TYPE,
         DEVICE_TYPE_TO_DEVICE,
@@ -49,17 +50,20 @@ if TYPE_CHECKING:
         GenerationConfig,
         GenerationTiming,
     )
+    from .monitor import NvTensorRTRTXMonitor
     from .monitor.ep_monitor import EPMonitor, NullEPMonitor, WinMLEPMonitor
     from .monitor.hw_monitor import HWMonitor
     from .monitor.openvino_monitor import OpenVinoMonitor
     from .monitor.qnn_monitor import QNNMonitor
     from .monitor.vitisai_monitor import VitisAIMonitor
     from .qairt.qairt_session import WinMLQairtSession
+    from .runtime_session import WinMLRuntimeSession
     from .session import InferenceError, PerfContext, SessionState, WinMLSession
     from .stats import PerfStats
 
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+    "import_runtime": ("._runtime_import", "import_runtime"),
     "VALID_SOURCE_TAGS": ("..ep_path", "VALID_SOURCE_TAGS"),
     "DirectorySource": ("..ep_path", "DirectorySource"),
     "EPEntry": ("..ep_path", "EPEntry"),
@@ -107,8 +111,10 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "HWMonitor": (".monitor.hw_monitor", "HWMonitor"),
     "OpenVinoMonitor": (".monitor.openvino_monitor", "OpenVinoMonitor"),
     "QNNMonitor": (".monitor.qnn_monitor", "QNNMonitor"),
+    "NvTensorRTRTXMonitor": (".monitor", "NvTensorRTRTXMonitor"),
     "VitisAIMonitor": (".monitor.vitisai_monitor", "VitisAIMonitor"),
     "WinMLQairtSession": (".qairt.qairt_session", "WinMLQairtSession"),
+    "WinMLRuntimeSession": (".runtime_session", "WinMLRuntimeSession"),
     "InferenceError": (".session", "InferenceError"),
     "PerfContext": (".session", "PerfContext"),
     "SessionState": (".session", "SessionState"),
@@ -141,6 +147,7 @@ __all__ = [
     "HWMonitor",
     "InferenceError",
     "NullEPMonitor",
+    "NvTensorRTRTXMonitor",
     "OpenVinoMonitor",
     "PerfContext",
     "PerfStats",
@@ -157,6 +164,7 @@ __all__ = [
     "WinMLEPRegistrationFailed",
     "WinMLEPRegistry",
     "WinMLQairtSession",
+    "WinMLRuntimeSession",
     "WinMLSession",
     "auto_detect_device",
     "available_eps_for_device",
@@ -167,6 +175,7 @@ __all__ = [
     "ep_to_device",
     "eps_for_device",
     "expand_ep_name",
+    "import_runtime",
     "known_ep_short_names",
     "lookup_device_spec",
     "resolve_device",

@@ -117,6 +117,7 @@ def test_operator_metrics_omits_unset_onnx_metadata_only():
     assert "onnx_attributes" not in serialized
     assert "onnx_inputs" not in serialized
     assert "onnx_outputs" not in serialized
+    assert "onnx_nodes" not in serialized
     assert serialized["start_time_us"] is None
 
 

@@ -1,0 +1,128 @@
+{
+  "version": 1,
+  "max_cases_per_round": 3,
+  "selection": "Match EP/device and current graph anchors; cases are scoped analogies, never proof.",
+  "cases": [
+    {
+      "id": "conv-add-bn-interaction",
+      "status": "confirmed",
+      "ep": "QNNExecutionProvider",
+      "device": "NPU",
+      "anchor_ops": [
+        "Conv",
+        "Add",
+        "BatchNormalization",
+        "Split"
+      ],
+      "keywords": [
+        "bundle",
+        "non-additive",
+        "batchnorm"
+      ],
+      "lesson": "Individually weak graph passes may form a strongly positive interaction bundle.",
+      "path": "cases/conv-add-bn-interaction.json",
+      "sha256": "b852e34fa9016b2402a7bb8be75c0aa625ac64d183afe0876aa48b34d7cc8d3c"
+    },
+    {
+      "id": "grouped-conv-qdq-boundary",
+      "status": "confirmed-performance-provisional-quality",
+      "ep": "QNNExecutionProvider",
+      "device": "NPU",
+      "anchor_ops": [
+        "Conv",
+        "Slice",
+        "Split",
+        "Concat",
+        "QuantizeLinear",
+        "DequantizeLinear"
+      ],
+      "keywords": [
+        "grouped-conv",
+        "kernel-reachability",
+        "qdq-boundary",
+        "dominant-hotspot"
+      ],
+      "lesson": "Treat grouped-Conv representation and QDQ boundary placement as a scoped interaction when a region dominates provider time.",
+      "path": "cases/grouped-conv-qdq-boundary.json",
+      "sha256": "22b71a3a9f42ea73e8b7868bedb876356b8f2eaf493ac3b420a1d01d969dedcf"
+    },
+    {
+      "id": "positive-exp-scale",
+      "status": "confirmed-performance-provisional-quality",
+      "ep": "QNNExecutionProvider",
+      "device": "NPU",
+      "anchor_ops": [
+        "Exp",
+        "Mul",
+        "Reshape"
+      ],
+      "keywords": [
+        "log-domain",
+        "positive-scale",
+        "floating-reorder"
+      ],
+      "lesson": "A finite positive post-Exp scale can move into the log domain with explicit quality validation.",
+      "path": "cases/positive-exp-scale.json",
+      "sha256": "df216cf0c84857982db5ecc1ef17c11096704b0346ca2ec9606de1323dd23368"
+    },
+    {
+      "id": "singleton-tail-layout-regression",
+      "status": "rejected",
+      "ep": "QNNExecutionProvider",
+      "device": "NPU",
+      "anchor_ops": [
+        "Reshape",
+        "Squeeze",
+        "Unsqueeze",
+        "Transpose"
+      ],
+      "keywords": [
+        "layout",
+        "singleton-tail",
+        "negative-case"
+      ],
+      "lesson": "Deleting shape-only views can reduce ONNX nodes while adding provider layout work and regressing latency.",
+      "path": "cases/singleton-tail-layout-regression.json",
+      "sha256": "a7fad58bb9affb2951e209322dbc85926adcf638bff0ff76a75efe02c94d5457"
+    },
+    {
+      "id": "split-slice-representation",
+      "status": "confirmed",
+      "ep": "QNNExecutionProvider",
+      "device": "NPU",
+      "anchor_ops": [
+        "Split",
+        "Slice"
+      ],
+      "keywords": [
+        "routing",
+        "representation",
+        "canonicalization"
+      ],
+      "lesson": "Split and Slice are competing scoped representations; measure both directions.",
+      "path": "cases/split-slice-representation.json",
+      "sha256": "a933bddbd2446c11d5382f5da75542e4e4748ac698945072b49f2b07617ba3b4"
+    },
+    {
+      "id": "split-unlocks-affine",
+      "status": "confirmed",
+      "ep": "QNNExecutionProvider",
+      "device": "NPU",
+      "anchor_ops": [
+        "Conv",
+        "Slice",
+        "Split",
+        "Mul",
+        "Add"
+      ],
+      "keywords": [
+        "nested-route",
+        "channel-affine",
+        "interaction"
+      ],
+      "lesson": "Route normalization can expose global channel intervals and unlock a much larger affine fold.",
+      "path": "cases/split-unlocks-affine.json",
+      "sha256": "a7b4351a68930b51ed01ed4595b2f379604d460259a8ef9a6025ede5d0085169"
+    }
+  ]
+}

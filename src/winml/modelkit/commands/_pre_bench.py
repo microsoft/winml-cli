@@ -47,13 +47,14 @@ def print_pre_bench_block(
     ep_source: str,
     ep_version: str | None,
     ep_dll_path: str,
+    runtime_api_backend: str | None = None,
 ) -> None:
     """Print the pre-benchmark identity block.
 
     Layout (Option B — see the mockup design doc for the target shape):
 
     - Identity: ``Model:`` (bold cyan; ``(HF)`` / ``(local)`` suffix), plus
-      an ``ONNX:`` line when a cached artifact path is supplied.
+      an ``Artifact:`` line when a cached artifact path is supplied.
     - Surface: ``Task:``, ``Opset:``, ``Inputs:``, ``Outputs:`` — each
       omitted when the source field is empty / ``None``.
     - Device: ``Device:`` (resolved short name + hardware name in dim
@@ -68,8 +69,8 @@ def print_pre_bench_block(
         task: Resolved task string (e.g. ``"image-classification"``).
         opset: ONNX opset for the surface block.
         inputs / outputs: I/O spec triples. Empty / ``None`` skips the row.
-        cached_onnx_path: Path of the compiled ONNX cached on disk (HF
-            path only). Rendered on a dedicated ``ONNX:`` line.
+        cached_onnx_path: Path of the model artifact on disk (ONNX or MLIR).
+            Rendered on a dedicated ``Artifact:`` line.
         onnx_file: Raw ``.onnx`` file path when the user bypassed HF.
         device: Resolved device short name (``"npu"`` / ``"gpu"`` /
             ``"cpu"``). Never the literal ``"auto"`` — callers are
@@ -84,6 +85,8 @@ def print_pre_bench_block(
             ``v<version>`` chunk when absent).
         ep_dll_path: Full path to the plugin DLL. Empty string signals a
             built-in EP and renders as ``(bundled with ORT)``.
+        runtime_api_backend: Runtime API backend, when applicable. CGC does
+            not expose EP information.
     """
     # --- Model panel: identity + surface ---------------------------------
     model_lines: list[Text] = []
@@ -92,7 +95,7 @@ def print_pre_bench_block(
             _labeled_line("Model:", f"[bold cyan]{model_id}[/bold cyan]  [dim](HF)[/dim]")
         )
         if cached_onnx_path:
-            model_lines.append(_labeled_line("ONNX:", f"[dim]{cached_onnx_path}[/dim]"))
+            model_lines.append(_labeled_line("Artifact:", f"[dim]{cached_onnx_path}[/dim]"))
     elif onnx_file:
         model_lines.append(
             _labeled_line("Model:", f"[bold cyan]{onnx_file}[/bold cyan]  [dim](local)[/dim]")
@@ -112,16 +115,20 @@ def print_pre_bench_block(
 
     # --- Device panel: resolved device + EP + DLL -------------------------
     hw_suffix = f"  [dim]({hardware_name})[/dim]" if hardware_name else ""
-    ep_line = f"[cyan]{ep}[/cyan]@[cyan]{ep_source}[/cyan]"
-    if ep_version:
-        ep_line += f"  [green]v{ep_version}[/green]"
-    dll_display = ep_dll_path if ep_dll_path else "(bundled with ORT)"
-
     device_lines: list[Text] = [
         _labeled_line("Device:", f"[cyan]{device}[/cyan]{hw_suffix}"),
-        _labeled_line("EP:", ep_line),
-        _labeled_line("EP DLL:", f"[dim]{dll_display}[/dim]"),
     ]
+    if runtime_api_backend != "cgc":
+        ep_line = f"[cyan]{ep}[/cyan]@[cyan]{ep_source}[/cyan]"
+        if ep_version:
+            ep_line += f"  [green]v{ep_version}[/green]"
+        dll_display = ep_dll_path if ep_dll_path else "(bundled with ORT)"
+        device_lines.extend(
+            [
+                _labeled_line("EP:", ep_line),
+                _labeled_line("EP DLL:", f"[dim]{dll_display}[/dim]"),
+            ]
+        )
     console.print(Panel(Group(*device_lines), title="Device", expand=True))
 
 

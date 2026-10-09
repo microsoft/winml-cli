@@ -260,7 +260,7 @@ def test_single_model_passes_runtime_options_factory_to_session(monkeypatch):
     import winml.modelkit.models.winml.base as base_module
 
     session = MagicMock()
-    monkeypatch.setattr(base_module, "WinMLSession", session)
+    monkeypatch.setitem(base_module.SESSION_CLASSES, "winml-ort", session)
     ep_device = MagicMock()
     session_options = MagicMock()
 
@@ -272,7 +272,7 @@ def test_single_model_passes_runtime_options_factory_to_session(monkeypatch):
     )
 
     session.assert_called_once_with(
-        onnx_path=base_module.Path("model.onnx"),
+        base_module.Path("model.onnx"),
         ep_device=ep_device,
         provider_options={"key": "value"},
         session_options=session_options,

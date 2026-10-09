@@ -1,0 +1,163 @@
+{
+  "_meta": {
+    "family": "hubert",
+    "hf_model_type": "hubert",
+    "models_tested": ["xbgoose/hubert-large-speech-emotion-recognition-russian-dusha-finetuned@2eaa20433d7e6d5be7587b5f9f0057527ed274ba"],
+    "last_updated": "2026-08-23",
+    "epistemics_warning": "Observational findings, not ground truth. Re-validate on new checkpoints / ORT versions / EPs before relying on a finding to skip work."
+  },
+  "findings": [
+    {
+      "id": "hubert-001",
+      "title": "HISTORICAL: HuBERT audio-classification built and perfed on CPU at L0 effort",
+      "observation": "xbgoose/hubert-large-speech-emotion-recognition-russian-dusha-finetuned exported and ran with zero recipe customization. Export produced 1150 nodes optimized to 771 nodes (13 unique op types). Input shape [1, 16000] float32 (1s of 16kHz audio). Both fp32 and fp16 passed build+perf on cpu/cpu. Analyze confirmed full accelerator support on NvTensorRTRTX, QNN, and OpenVINO EPs.",
+      "scope": {
+        "validated_on": [
+          "xbgoose/hubert-large-speech-emotion-recognition-russian-dusha-finetuned @ fp32 @ cpu",
+          "xbgoose/hubert-large-speech-emotion-recognition-russian-dusha-finetuned @ fp16 @ cpu"
+        ],
+        "falsified_on": [
+          "xbgoose/hubert-large-speech-emotion-recognition-russian-dusha-finetuned@2eaa20433d7e6d5be7587b5f9f0057527ed274ba @ Transformers 5.14.1 requires export.compatibility.transformers_attention=eager in the refreshed FP32/FP16 recipes; see hubert-002"
+        ],
+        "not_yet_tested_on": [
+          "hubert @ fp32 @ NvTensorRTRTX",
+          "hubert @ fp32 @ QNN",
+          "hubert @ fp32 @ OpenVINO",
+          "hubert @ w8a8 @ any EP"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L1",
+      "recipe_template": "examples/recipes/xbgoose_hubert-large-speech-emotion-recognition-russian-dusha-finetuned/cpu/cpu/audio-classification_fp32_config.json",
+      "gotchas": [
+        "fp16 on CPU is slower than fp32 — expected behavior due to CPU upcasting fp16→fp32 at runtime, not a defect"
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "CPU fp16 slowdown is well-known ORT behavior: CPU EP lacks native fp16 compute, upcasts every op. Would be falsified if a future ORT version adds CPU fp16 kernels.",
+      "last_updated": "2026-07-24"
+    },
+    {
+      "id": "hubert-002",
+      "title": "Transformers 5 HuBERT CPU recipes need eager attention metadata and preserve FP32/FP16 parity without an FP16 CPU speedup",
+      "observation": "Candidate e2667d973ca9f55437f8a5604d3ee2b4b42ba8f3 refreshed both exact CPU recipes for xbgoose/hubert-large-speech-emotion-recognition-russian-dusha-finetuned@2eaa20433d7e6d5be7587b5f9f0057527ed274ba by adding export.compatibility.transformers_attention=eager. On winml 0.3.0, Transformers 5.14.1, PyTorch 2.13.0, and onnxruntime-windowsml 1.24.5.202604171637, resolved configs also enabled gelu_fusion and matmul_add_fusion. HTP export identified HubertForSequenceClassification with 315,702,405 parameters, 409 modules, 118 traced modules, and 236 execution steps. FP32 produced 771 nodes, 420 FLOAT plus 11 INT64 initializers, and 1,262,802,308 external-data bytes; FP16 produced 773 nodes, 420 FLOAT16 plus 11 INT64 initializers, preserved FP32 I/O, and 631,400,642 bytes. CPU perf was FP32 mean/P50/P90 137.563/135.837/144.559 ms at 7.27 samples/s and +90.66 MB inference RSS, versus FP16 167.434/165.904/179.107 ms at 5.97 samples/s and +43.36 MB. Identical named-input PyTorch parity passed: FP32 cosine 1.0 and max-abs 1.0133e-05; FP16 cosine 0.9999966 and max-abs 0.0115724. Static Analyze counted 771 ops/13 types for FP32 and 773 ops/14 types for FP16; populated NvTensorRTRTX, QNN, and OpenVINO rule rows classified every present op supported, but these are not accelerator runtime verdicts.",
+      "scope": {
+        "validated_on": [
+          "xbgoose/hubert-large-speech-emotion-recognition-russian-dusha-finetuned@2eaa20433d7e6d5be7587b5f9f0057527ed274ba @ audio-classification @ fp32 @ CPUExecutionProvider @ candidate e2667d973ca9f55437f8a5604d3ee2b4b42ba8f3",
+          "xbgoose/hubert-large-speech-emotion-recognition-russian-dusha-finetuned@2eaa20433d7e6d5be7587b5f9f0057527ed274ba @ audio-classification @ fp16 @ CPUExecutionProvider @ candidate e2667d973ca9f55437f8a5604d3ee2b4b42ba8f3"
+        ],
+        "falsified_on": [],
+        "refines": ["hubert-001"],
+        "not_yet_tested_on": [
+          "Actual NvTensorRTRTX, QNN, OpenVINO, DML, CUDA, MIGraphX, TensorRT, or VitisAI runtime execution",
+          "W8A8 or W8A16 on any execution provider"
+        ]
+      },
+      "effort_tier_required": "L0 (recipe refresh only; current toolchain requires explicit eager-attention compatibility metadata)",
+      "goal_tier_reached": "L0/L1/L2 PASS for cpu/cpu/fp32 and cpu/cpu/fp16; L3 FP32 CPU evidence is recorded separately in hubert-004",
+      "recipe_template": "examples/recipes/xbgoose_hubert-large-speech-emotion-recognition-russian-dusha-finetuned/cpu/cpu/audio-classification_<fp32|fp16>_config.json",
+      "gotchas": [
+        "Regenerate historical HuBERT recipes under Transformers 5 with export.compatibility.transformers_attention=eager; the accepted candidate changes only that JSON pointer in each recipe.",
+        "Build FP16 with explicit --precision fp16 and verify 420 FLOAT16 initializers plus the approximately 0.5 external-data size ratio; recipe naming alone does not prove realized precision.",
+        "FP16 halved external weights and reduced measured inference RSS but was slower than FP32 on this CPU; do not claim a CPU latency improvement.",
+        "The optimized component join mapped 517 nodes and retained 254 FP32 / 256 FP16 generated-name gaps explicitly; do not infer missing lineage or promote static rule coverage to runtime support."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Exact recipe-authority builds, resolved configs, initializer/size inspection, CPU perf, identical-input PyTorch parity, and complete 12-row static Analyze JSON were independently reproduced from the candidate. The eager-attention requirement is toolchain-era specific; non-CPU execution remains untested.",
+      "resolution": "PASS at tester root C:/temp/audio-model-batch/1211-russian-emotion/tester/20260822-e2667d9-r2-final; public reproduction closed Prerequisites, L0 FP32/FP16, L1 FP32/FP16, L2, L3, Analyze FP32/FP16, and Quality from a clean root.",
+      "last_updated": "2026-08-23"
+    },
+    {
+      "id": "hubert-003",
+      "title": "The Russian DUSHA checkpoint uses an exact five-label mapping that must not inherit the upstream four-class enum",
+      "observation": "The pinned checkpoint config maps exactly neutral=0, angry=1, positive=2, sad=3, and other=4. The pinned DUSHA paper defines neutral as calm or still voice with no expressed emotion regardless of text sentiment; angry as anger or annoyance including yelling, gritted-teeth speech, or negative emphasis; positive as smile, laughter, admiration, playful tone, or positive emphasis; sad as sadness, melancholy, or a faded voice; and other as too-quiet, hissing/rattling, or no-voice recordings. The upstream four-class baseline enum instead uses angry=0, sad=1, neutral=2, positive=3 and excludes other, so it cannot determine this checkpoint's IDs. Candidate e2667d9 used an explicit exact-string mapping to checkpoint IDs, with no synonym, translation, case-folding, positional, or inferred mapping.",
+      "scope": {
+        "validated_on": [
+          "xbgoose/hubert-large-speech-emotion-recognition-russian-dusha-finetuned@2eaa20433d7e6d5be7587b5f9f0057527ed274ba @ xbgoose/dusha@e3e309de7723f4dc4a0230b4b9d725061d561044 scalar Value(string) labels @ candidate e2667d973ca9f55437f8a5604d3ee2b4b42ba8f3"
+        ],
+        "falsified_on": [
+          "Using the DUSHA four-class baseline enum angry=0, sad=1, neutral=2, positive=3 for this five-class checkpoint",
+          "Inferring checkpoint IDs by source order, translation, synonym matching, or case folding"
+        ],
+        "not_yet_tested_on": [
+          "Other HuBERT emotion checkpoints or DUSHA-derived checkpoints with different id2label metadata"
+        ]
+      },
+      "effort_tier_required": "L0 model recipe on the exact PR #1329 scalar-string evaluator dependency",
+      "goal_tier_reached": "L3 functional smoke PASS on FP32 CPU after complete atomic label prevalidation",
+      "recipe_template": "examples/recipes/xbgoose_hubert-large-speech-emotion-recognition-russian-dusha-finetuned/cpu/cpu/audio-classification_fp32_config.json",
+      "gotchas": [
+        "Treat checkpoint id2label as the ID authority and the pinned DUSHA paper as the meaning authority; neither source alone authorizes remapping.",
+        "The exact scalar-string mapping must be complete and prevalidated before inference: neutral->0, angry->1, positive->2, sad->3, other->4.",
+        "The other class is part of the checkpoint contract and includes unusable/no-voice audio; do not silently drop it to match the upstream four-class experiment."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The pinned checkpoint config, paper semantics, explicit mapping artifact, scalar-string compatibility suite, and five represented source labels establish this exact mapping. A different checkpoint revision with changed id2label must be revalidated rather than inheriting these IDs.",
+      "resolution": "Validated through the PR #1329 scalar-string mapping path contained by candidate e2667d973ca9f55437f8a5604d3ee2b4b42ba8f3.",
+      "last_updated": "2026-08-23"
+    },
+    {
+      "id": "hubert-004",
+      "title": "The fixed one-second HuBERT graph supports a five-row functional smoke only under explicit single-window accounting",
+      "observation": "The checkpoint feature extractor expects normalized mono 16 kHz waveform audio and its model card allows padding/truncation to 160,000 samples (10 seconds), but the exported ONNX contract is fixed input_values float32[1,16000] to logits float32[1,5]. The accepted FP32 CPU Eval decoded with SoundFile, downmixed stereo, resampled to 16 kHz, truncated long clips to the first 16,000 samples, right-padded short clips, and ran exactly one forward for each of five selected rows with no multi-window fan-out. Requested/selected/processed/rejected were 5/5/5/0, all five checkpoint classes were represented, accuracy was 0.2, and represented-class macro-F1 was 0.08. This proves evaluator, preprocessing, mapping, and inference operability only; five hand-selected rows cannot support checkpoint-quality or population-accuracy claims.",
+      "scope": {
+        "validated_on": [
+          "xbgoose/hubert-large-speech-emotion-recognition-russian-dusha-finetuned@2eaa20433d7e6d5be7587b5f9f0057527ed274ba @ xbgoose/dusha@e3e309de7723f4dc4a0230b4b9d725061d561044 rows 0,1,6,7,20 @ fp32 @ CPUExecutionProvider @ candidate e2667d973ca9f55437f8a5604d3ee2b4b42ba8f3"
+        ],
+        "falsified_on": [
+          "Reporting the 5-row accuracy=0.2 or macro-F1=0.08 as representative checkpoint quality or a DUSHA benchmark"
+        ],
+        "not_yet_tested_on": [
+          "FP16 Eval or any non-CPU Eval tuple; L3 is the single final-SHA FP32 CPU functional smoke",
+          "Full ten-second model-card windows, multi-window utterance aggregation, or population-scale DUSHA metrics"
+        ]
+      },
+      "effort_tier_required": "L0 model recipe on the exact PR #1329 scalar-string evaluator dependency",
+      "goal_tier_reached": "L3 functional smoke PASS for the single FP32 CPU row",
+      "recipe_template": "examples/recipes/xbgoose_hubert-large-speech-emotion-recognition-russian-dusha-finetuned/cpu/cpu/audio-classification_fp32_config.json",
+      "gotchas": [
+        "Distinguish the model card's maximum 160,000-sample preprocessing window from the checked-in graph's fixed 16,000-sample input.",
+        "Preserve row and fan-out bounds: five source rows, one 16,000-sample forward per row, five total forwards, no multi-window aggregation.",
+        "Report requested, selected, processed, rejected, represented classes, accuracy, and represented-class macro-F1 together with the functional-smoke-only disclaimer."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The public reproduction bundle self-materialized the pinned inputs and exact candidate, then closed L3 from a clean root. The result establishes bounded operability, not quality; any longer-window or multi-window policy requires separate evidence.",
+      "resolution": "L3 PASS in tester verdict_table.json and the clean public reproduction root public-clean-repro-e2667d9-r5.",
+      "last_updated": "2026-08-23"
+    },
+    {
+      "id": "hubert-005",
+      "title": "All five selected DUSHA smoke inputs are byte-identical official crowd_test members with zero podcast overlap",
+      "observation": "The five selected xbgoose/dusha@e3e309de7723f4dc4a0230b4b9d725061d561044 WAVs were streamed against the official DUSHA crowd.tar and matched exact crowd_test/wavs members byte-for-byte: neutral row 0 ada344669196aa8b9af02695f032c75804cbfbcee53b270253e92715529939d9, sad row 1 85adceb46c2615ee737d4ab451f85738fc46e8cb509f870df640e5787705823e, angry row 6 15d1dc08596911609578a2e5ed1b7170f51acdb4eddd7de7c6efaef28e05655b, positive row 7 36588ebcc27a35acf1fb0af3b0e4a8fc2238214285b40f856d4b2221f37dd8aa, and other row 20 e7f360a4ee07d28453ad8420d39ebb5520f43970ab2a716465de2b0797a21e3c. Official paper_setups crowd_test.jsonl and dusha_test.jsonl are byte-identical (SHA-256 7537ee08ffce93e3c059faae8a1cbf25d659347fbfdb1114a86ea12252da6b2), while podcast_test.jsonl has SHA-256 6cafef6df4e141c7c0af4bc164d4a3e2ec9f3c421c73bbdf302136f5d3251897 and overlaps none of the selected rows. The pinned upstream distribution statement says Crowd audio is directly distributed, whereas Podcast audio is withheld because of a license issue. Official English license text grants worldwide, royalty-free, non-sublicensable, non-exclusive, irrevocable reproduction and making-available rights subject to retained attribution/notices, modification indication, no endorsement, and no additional restrictive terms; the public bundle retained attribution and stated that audio was unmodified.",
+      "scope": {
+        "validated_on": [
+          "xbgoose/dusha@e3e309de7723f4dc4a0230b4b9d725061d561044 source rows 0,1,6,7,20 @ official DUSHA crowd.tar streamed verification @ upstream revision 5c5c5f87044803fcccdf7e149ef5384c95cff107"
+        ],
+        "falsified_on": [
+          "Treating selected Crowd WAVs as Podcast content or relying on restricted Podcast audio",
+          "Using the five local hashes without retaining source, license, attribution, and modification-status evidence"
+        ],
+        "not_yet_tested_on": [
+          "Any DUSHA rows other than the five exact hashes listed in this finding",
+          "Redistribution scenarios beyond bounded local functional evaluation and scratch evidence retention"
+        ]
+      },
+      "effort_tier_required": "L0 model recipe with planner-owned license and provenance clearance",
+      "goal_tier_reached": "L3 functional smoke PASS on the five license-cleared Crowd rows",
+      "recipe_template": "examples/recipes/xbgoose_hubert-large-speech-emotion-recognition-russian-dusha-finetuned/cpu/cpu/audio-classification_fp32_config.json",
+      "gotchas": [
+        "Crowd and Podcast are different source domains. Do not generalize this clearance to withheld Podcast audio or to unverified DUSHA rows.",
+        "Retain creator identification, copyright/license/disclaimer notices, a source URI, modification status, and no-endorsement/no-extra-restrictions statements with reproduced inputs.",
+        "Bind provenance by exact member path, byte length, and SHA-256; dataset ownership or filename similarity alone is insufficient."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The planner's streamed archive verifier found all five targets under crowd_test/wavs and confirmed byte identity; official paper manifests distinguish Crowd from Podcast, and selected podcast overlap is zero. This proof is hash-specific and does not authorize unrelated rows or Podcast media.",
+      "resolution": "License/provenance CLEARED in charter-r2 and retained by the clean public reproduction bundle's DUSHA attribution artifact.",
+      "last_updated": "2026-08-23"
+    }
+  ]
+}

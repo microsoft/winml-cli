@@ -373,6 +373,12 @@ class TestORTGraphPipeBuildConfig:
 
         assert config.optimization_level == 2
 
+    def test_disable_graph_optimization_disables_graph_pipe(self) -> None:
+        config = ORTGraphPipe.build_config(ort_graph_optimization=False, gelu_fusion=True)
+
+        assert config.optimization_level == 0
+        assert ORTGraphPipe.should_process(config) is False
+
     def test_verbose_kwarg_passed_through(self) -> None:
         """verbose kwarg is passed to config."""
         config = ORTGraphPipe.build_config(verbose=True)
@@ -393,9 +399,12 @@ class TestGraphCapabilitiesIntegrity:
         assert ORTGraphPipe.capabilities is GRAPH_CAPABILITIES
 
     def test_all_caps_have_ort_name(self) -> None:
-        """All capabilities in GRAPH_CAPABILITIES have ort_name."""
+        """Optimizer capabilities have ORT names; the stage switch does not."""
         for name, cap in GRAPH_CAPABILITIES.items():
             assert hasattr(cap, "ort_name"), f"{name} missing ort_name"
+            if name == "ort-graph-optimization":
+                assert cap.ort_name is None
+                continue
             assert cap.ort_name, f"{name} has empty ort_name"
 
     def test_most_bool_caps_are_default_false(self) -> None:
@@ -409,7 +418,7 @@ class TestGraphCapabilitiesIntegrity:
         from winml.modelkit.optim.registry import BoolCapability
 
         # Capabilities that are allowed to have default=True
-        allowed_default_true = {"constant-folding"}
+        allowed_default_true = {"constant-folding", "ort-graph-optimization"}
 
         for name, cap in GRAPH_CAPABILITIES.items():
             if isinstance(cap, BoolCapability):

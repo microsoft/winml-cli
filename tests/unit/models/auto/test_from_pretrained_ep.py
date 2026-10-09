@@ -39,6 +39,8 @@ def _install_stubs(monkeypatch: pytest.MonkeyPatch, *, compile_provider: str | N
 
     received: dict[str, Any] = {}
     fake_build_config = MagicMock()
+    fake_build_config.skip_optimize = False
+    fake_build_config.quant = MagicMock()
     if compile_provider is None:
         fake_build_config.compile = None
     else:
@@ -56,13 +58,18 @@ def _install_stubs(monkeypatch: pytest.MonkeyPatch, *, compile_provider: str | N
     fake_ep_device = MagicMock()
     fake_ep_device.device.device_type = "CPU"
     fake_ep_device.device.ep_name = "CPUExecutionProvider"
+
+    def resolve_target(target: EPDeviceTarget, **kwargs: Any) -> EPDeviceTarget:
+        received["resolve_backend"] = kwargs.get("backend")
+        return EPDeviceTarget(
+            ep=target.ep if target.ep != "auto" else "QNNExecutionProvider",
+            device=target.device,
+        )
+
     monkeypatch.setattr(
         session_pkg,
         "resolve_device",
-        lambda target: EPDeviceTarget(
-            ep=target.ep if target.ep != "auto" else "QNNExecutionProvider",
-            device=target.device,
-        ),
+        resolve_target,
     )
     monkeypatch.setattr(
         session_pkg.WinMLEPRegistry,
@@ -102,6 +109,26 @@ def test_explicit_ep_reaches_build_when_compile_is_none(
         "Without this, analyze_onnx defaults to ep=None and aggregates across "
         "all EPs."
     )
+
+
+def test_runtime_non_cgc_target_preserves_build_stages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from winml.modelkit.models import WinMLAutoModel
+
+    received = _install_stubs(monkeypatch, compile_provider="QNNExecutionProvider")
+
+    with pytest.raises(_StopAfterEpCheckError):
+        WinMLAutoModel.from_pretrained(
+            "microsoft/resnet-50",
+            runtime="winml-runtime",
+        )
+
+    build_config = received["config"]
+    assert received["resolve_backend"] == "cgc"
+    assert build_config.skip_optimize is False
+    assert build_config.quant is not None
+    assert build_config.compile is not None
 
 
 def test_compile_provider_used_when_user_ep_absent(
@@ -227,11 +254,18 @@ def test_allow_unsupported_nodes_reaches_composite(monkeypatch: pytest.MonkeyPat
     )
 
     result = WinMLAutoModel.from_pretrained(
-        "some/composite", task="faketask", allow_unsupported_nodes=True
+        "some/composite",
+        task="faketask",
+        ep_device=MagicMock(),
+        runtime="winml-runtime",
+        backend="ort",
+        allow_unsupported_nodes=True,
     )
 
     assert result == "COMPOSITE_SENTINEL"
     assert received.get("allow_unsupported_nodes") is True
+    assert received.get("runtime") == "winml-runtime"
+    assert received.get("backend") == "ort"
 
 
 def test_cache_reuse_does_not_eagerly_load_hf_weights(

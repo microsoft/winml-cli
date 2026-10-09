@@ -1,0 +1,46 @@
+{
+  "id": "conv-add-bn-interaction",
+  "status": "confirmed",
+  "scope": {
+    "ep": "QNNExecutionProvider",
+    "device": "NPU",
+    "graph_requirements": [
+      "static channel routing and affine leaves coexist with inference Conv-Add-BatchNormalization chains",
+      "all folded parameters are immutable, floating, finite, and broadcast-safe",
+      "the complete capability order is structurally applicable"
+    ]
+  },
+  "observation": "Route normalization, channel-affine folding, and Conv-Add-BatchNormalization folds were individually weak or regressive but strongly positive together.",
+  "mechanism": "Representation and constant folding changed the complete lowering context; component latency effects were non-additive.",
+  "transformation": {
+    "bundle": ["route representation normalization", "Conv channel-affine folding", "Conv-Add-BatchNormalization folding"],
+    "preserve": ["public I/O", "static parameter semantics", "provider options across paired runs"]
+  },
+  "expected_evidence": {
+    "graph": "All declared component deltas occur together in the candidate",
+    "trace": "Bundle-level lowering improves without new fallback or fragmentation"
+  },
+  "outcome": {
+    "components": "Individual passes were weak, neutral, or regressive in isolation.",
+    "bundle": "The complete structurally justified bundle produced a confirmed paired gain.",
+    "decision": "Attribute benefit to the bundle; do not distribute it to individual members."
+  },
+  "safety": ["static inference BatchNormalization", "immutable finite parameters", "exact capability order", "same provider options", "correctness and paired bundle confirmation"],
+  "counterexamples": ["Standalone results did not explain the bundle gain.", "Do not assign the complete gain to an individual member or demand standalone leadership before testing a structurally justified interaction."],
+  "provenance": {
+    "evidence_class": "paired-performance-confirmed",
+    "scope_note": "exact model, graph occurrence, toolchain, artifacts, and measurements remain run-local"
+  },
+  "generic_review": {
+    "verdict": "GENERIC_CASE_APPROVED",
+    "reviewer": "independent-graph-scout",
+    "content_sha256": "0a976837b0de5587add642fa1805f1a4dbce4744cb717f747c19abd6daf1feac"
+  },
+  "discovery": {
+    "ep": "QNNExecutionProvider",
+    "device": "NPU",
+    "anchor_ops": ["Conv", "Add", "BatchNormalization", "Split"],
+    "keywords": ["bundle", "non-additive", "batchnorm"],
+    "lesson": "Individually weak graph passes may form a strongly positive interaction bundle."
+  }
+}

@@ -1,0 +1,178 @@
+{
+  "_meta": {
+    "family": "audio-spectrogram-transformer",
+    "hf_model_type": "audio-spectrogram-transformer",
+    "models_tested": [
+      "MIT/ast-finetuned-audioset-10-10-0.4593@f826b80d28226b62986cc218e5cec390b1096902 @ audio-classification @ fp32/fp16 @ CPUExecutionProvider"
+    ],
+    "last_updated": "2026-08-21",
+    "epistemics_warning": "Observational findings from one AST checkpoint on WinML 0.3.0 and CPUExecutionProvider. Re-validate on other AST checkpoints, datasets, precisions, EPs, and runtime versions."
+  },
+  "findings": [
+    {
+      "id": "audio-spectrogram-transformer-001",
+      "title": "Audio classification target shape determines single-label versus multi-label decoding and metrics",
+      "observation": "MIT/ast-finetuned-audioset-10-10-0.4593@f826b80d28226b62986cc218e5cec390b1096902 was validated with examples/recipes/MIT_ast-finetuned-audioset-10-10-0.4593/cpu/cpu/audio-classification_<precision>_config.json on WinML 0.3.0 and CPUExecutionProvider. The generalized evaluator resolves scalar datasets.ClassLabel targets to one model class and scores argmax accuracy plus represented-class macro-F1. It resolves Sequence[ClassLabel|string] targets to deduplicated multi-hot vectors over the model's contiguous id2label space, applies independent sigmoid probabilities, and scores sample and micro average precision. The pinned AudioSet rows contain sequence-valued MIDs and produced finite two-row fp32/fp16 functional-smoke AP without collapsing targets through argmax.",
+      "scope": {
+        "validated_on": [
+          "MIT/ast-finetuned-audioset-10-10-0.4593@f826b80d28226b62986cc218e5cec390b1096902 @ fp32 @ CPUExecutionProvider @ agkphysics/AudioSet@0c609e8302cf139307f639c57652032af0a88041 balanced/test first 2 rows",
+          "MIT/ast-finetuned-audioset-10-10-0.4593@f826b80d28226b62986cc218e5cec390b1096902 @ fp16 @ CPUExecutionProvider @ optional two-row confirmation"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "Another AST checkpoint with scalar single-label supervision",
+          "An AST checkpoint whose config lacks contiguous id2label IDs"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/MIT_ast-finetuned-audioset-10-10-0.4593/cpu/cpu/audio-classification_<precision>_config.json",
+      "gotchas": [
+        "Map official dataset label IDs to model IDs exactly; an unmapped sequence value must fail closed.",
+        "Parallel human-readable labels are fallback alignment evidence, not a replacement for authoritative MID mapping."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Confirmed by source inspection, focused scalar and sequence tests, semantic audit, and finite final real-row sample/micro AP.",
+      "last_updated": "2026-08-21"
+    },
+    {
+      "id": "audio-spectrogram-transformer-002",
+      "title": "This AST checkpoint requires one static rank-3 feature tensor rather than a rank-2 waveform tensor",
+      "observation": "Sealed tester evidence retained for microsoft/winml-cli PR #1326 candidate 1bd919b583aa8ccd974e35fa6a1a132ac7e1c9f8 shows that the realized WinML 0.3.0 builds from examples/recipes/MIT_ast-finetuned-audioset-10-10-0.4593/cpu/cpu/audio-classification_<precision>_config.json bind float32 input_values[1,1024,128] to float32 logits[1,527] for MIT/ast-finetuned-audioset-10-10-0.4593@f826b80d28226b62986cc218e5cec390b1096902. Each build is an external-data pair: fp32 model.onnx is 157,360 bytes and model.onnx.data is 352,271,436 bytes with 206 FLOAT initializers; fp16 model.onnx is 157,563 bytes and model.onnx.data is 176,135,718 bytes with 206 FLOAT16 initializers. Thus fp16 changes internal weight precision while fp16_keep_io_types preserves the fp32 I/O contract. Analyze reports fp32 total_operators=374 and unique_operator_types=14, led by Reshape=121, Gemm=73, and Transpose=50; fp16 has 376 operators and 15 types because it adds two boundary Cast nodes while retaining those same three leading counts. For both precisions, the available rules classify every op type as supported on NvTensorRTRTXExecutionProvider/GPU, QNNExecutionProvider/NPU, QNNExecutionProvider/GPU, OpenVINOExecutionProvider/NPU, OpenVINOExecutionProvider/GPU, and OpenVINOExecutionProvider/CPU; CUDAExecutionProvider/GPU, MIGraphXExecutionProvider/GPU, TensorrtExecutionProvider/GPU, DmlExecutionProvider/GPU, CPUExecutionProvider/CPU, and VitisAIExecutionProvider/NPU have runtime_support=false and no classifications, so Analyze does not establish runtime support for those targets. HTP export metadata records 86,594,063 parameters, 53/167 traced/total modules, 106 execution steps, and the top-level ASTForAudioClassification hierarchy ASTModel plus ASTMLPHead; ASTModel contains ASTEmbeddings/ASTPatchEmbeddings and twelve ASTLayer children with ASTAttention and ASTMLP submodules. Both checked-in recipes specify optim: {}, while both realized build configs enable gelu_fusion=true and matmul_add_fusion=true. The audio adapter preserves both non-batch dimensions after ASTFeatureExtractor and performs one forward per selected row.",
+      "scope": {
+        "validated_on": [
+          "MIT/ast-finetuned-audioset-10-10-0.4593@f826b80d28226b62986cc218e5cec390b1096902 @ fp32/fp16 @ CPUExecutionProvider"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "AST checkpoints exported with different max_length or frequency-bin dimensions",
+          "Dynamic-shape AST exports"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/MIT_ast-finetuned-audioset-10-10-0.4593/cpu/cpu/audio-classification_<precision>_config.json",
+      "gotchas": [
+        "Generic waveform padding logic applies only to rank-2 model inputs; rank-3 extracted features require exact static shape validation.",
+        "Do not infer an fp16 input tensor from an fp16 model artifact when keep-I/O-types preserves float32 inputs and outputs.",
+        "Treat runtime_support=false Analyze rows as missing rule/runtime coverage, not as unsupported-op evidence or runtime validation.",
+        "Diff the checked-in recipe against winml_build_config.json: an empty optim object realizes GELU and MatMul-plus-Add fusion for this build."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Confirmed by sealed fp32/fp16 ONNX external-data pairs, initializer inspection, Analyze reports, HTP export metadata, resolved build configurations, artifact validation, perf model information, and identical-input parity.",
+      "last_updated": "2026-08-21"
+    },
+    {
+      "id": "audio-spectrogram-transformer-003",
+      "title": "Portable AST evaluation must explicitly decode encoded audio, downmix channels, and convert sample rates",
+      "observation": "For MIT/ast-finetuned-audioset-10-10-0.4593@f826b80d28226b62986cc218e5cec390b1096902 using the fp32/fp16 CPU recipes on WinML 0.3.0, agkphysics/AudioSet@0c609e8302cf139307f639c57652032af0a88041 rows were cast to datasets.Audio(decode=False). SoundFile 0.14.0 decoded raw bytes or a materialized path to float32 frames-by-channels. Verified row -1PZQg5Gi8A decoded identically from bytes and path as [480000,2] at 48000 Hz, was downmixed to [480000], and resampled to [160000] at 16000 Hz before ASTFeatureExtractor. The final clean reproduction had TorchCodec neither installed nor used.",
+      "scope": {
+        "validated_on": [
+          "MIT/ast-finetuned-audioset-10-10-0.4593@f826b80d28226b62986cc218e5cec390b1096902 @ agkphysics/AudioSet@0c609e8302cf139307f639c57652032af0a88041 FLAC rows @ SoundFile 0.14.0 @ CPUExecutionProvider"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "Audio codecs outside the deployed libsndfile coverage",
+          "Audio datasets exposing only remote URLs rather than embedded bytes or local paths"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/MIT_ast-finetuned-audioset-10-10-0.4593/cpu/cpu/audio-classification_<precision>_config.json",
+      "gotchas": [
+        "Do not let Hugging Face Datasets implicitly select TorchCodec before evaluator preprocessing.",
+        "SoundFile stereo arrays are frames-by-channels here; downmix across axis 1 before resampling."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Bytes/path equality, source/downmix/resample shapes, final zero-reject evaluation, and the no-TorchCodec environment were all retained.",
+      "last_updated": "2026-08-21"
+    },
+    {
+      "id": "audio-spectrogram-transformer-004",
+      "title": "Bounding a streaming Audio dataset must preserve raw rows without reapplying source Features encoding",
+      "observation": "While evaluating MIT/ast-finetuned-audioset-10-10-0.4593@f826b80d28226b62986cc218e5cec390b1096902 with its fp32/fp16 CPU recipes on WinML 0.3.0, materializing list(dataset.take(N)) with Dataset.from_list(rows, features=dataset.features) invoked Audio.encode_example and could require TorchCodec even after Audio(decode=False). The generalized repair uses Dataset.from_list(rows) without source Features so Arrow infers the raw bytes/path structure. A regression test installs an encoder that raises if called and proves two rows reach the explicit decoder with requested/selected/processed/rejected accounting of 2/2/2/0.",
+      "scope": {
+        "validated_on": [
+          "MIT/ast-finetuned-audioset-10-10-0.4593@f826b80d28226b62986cc218e5cec390b1096902 @ agkphysics/AudioSet@0c609e8302cf139307f639c57652032af0a88041 streaming first 2 rows @ CPUExecutionProvider"
+        ],
+        "falsified_on": [
+          "Assuming Audio(decode=False) alone prevents feature encoding during Dataset.from_list materialization"
+        ],
+        "not_yet_tested_on": [
+          "Other media feature types whose encode_example mutates or requires optional native dependencies",
+          "Streaming datasets whose raw row payload cannot be represented by inferred Arrow structure"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/MIT_ast-finetuned-audioset-10-10-0.4593/cpu/cpu/audio-classification_<precision>_config.json",
+      "gotchas": [
+        "Selection and materialization are separate media-boundary operations; audit both for implicit decoding or encoding.",
+        "Retain requested, selected, processed, rejected, and rejected-by-reason accounting after materialization changes."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The original traceback reached Features.encode_column then Audio.encode_example; the focused test was red before the repair and green after it, and final pinned evaluation passed without TorchCodec.",
+      "last_updated": "2026-08-21"
+    },
+    {
+      "id": "audio-spectrogram-transformer-005",
+      "title": "A portable public audio-row audit must pin source identity and preserve independently decodable bytes",
+      "observation": "The successful WinML 0.3.0 reproduction for MIT/ast-finetuned-audioset-10-10-0.4593@f826b80d28226b62986cc218e5cec390b1096902 pinned agkphysics/AudioSet revision 0c609e8302cf139307f639c57652032af0a88041, config balanced, split test, and the first two streaming rows without shuffle. It cast Audio(decode=False), recorded video IDs, labels, source paths, encoded byte counts and SHA-256 values, verified SoundFile bytes/path equality, and materialized both FLAC payloads. The encoded row hashes were 5eaa1cc31c1e29dc27efa6f8e9d4cd1fa97c563bf1f957f15e0c3f3ab02333bd and caab6d2ab8c7350729c6240f9bd11b83b48d1478356980584f9f82cf56c3db13.",
+      "scope": {
+        "validated_on": [
+          "MIT/ast-finetuned-audioset-10-10-0.4593@f826b80d28226b62986cc218e5cec390b1096902 @ WinML 0.3.0 clean public reproduction @ CPUExecutionProvider"
+        ],
+        "falsified_on": [
+          "A public prerequisite audit may rely on the dataset library's default Audio decoder when product evaluation deliberately avoids it"
+        ],
+        "not_yet_tested_on": [
+          "Datasets whose license or terms prohibit retaining sample bytes",
+          "Mutable streaming sources without revision-addressed row order"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/MIT_ast-finetuned-audioset-10-10-0.4593/cpu/cpu/audio-classification_<precision>_config.json",
+      "gotchas": [
+        "Audit scripts are part of reproducibility and must obey the same decode contract as product evaluation.",
+        "Hash the encoded payload, not only decoded floating-point arrays, to make source-row identity portable."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Two prerequisite-audit attempts failed before the corrected audit and complete clean reproduction exited successfully; only the successful pinned protocol is retained as reusable guidance.",
+      "last_updated": "2026-08-21"
+    },
+    {
+      "id": "audio-spectrogram-transformer-006",
+      "title": "CPU fp16 was functionally valid but slower and more memory-intensive than fp32 on the tested host",
+      "observation": "Fresh WinML 0.3.0 CPUExecutionProvider measurements for MIT/ast-finetuned-audioset-10-10-0.4593@f826b80d28226b62986cc218e5cec390b1096902 used examples/recipes/MIT_ast-finetuned-audioset-10-10-0.4593/cpu/cpu/audio-classification_<precision>_config.json. fp32 measured p50 651.103 ms, 1.53 samples/s, and 379.24 MB total RSS delta; fp16 measured p50 819.998 ms, 1.16 samples/s, and 432.98 MB total RSS delta. Both artifacts built, validated, passed parity, and completed bounded functional smoke, so precision support did not imply a CPU performance gain on this host.",
+      "scope": {
+        "validated_on": [
+          "MIT/ast-finetuned-audioset-10-10-0.4593@f826b80d28226b62986cc218e5cec390b1096902 @ fp32/fp16 @ CPUExecutionProvider @ 2026-08-21 tester host"
+        ],
+        "falsified_on": [
+          "Assuming fp16 necessarily improves CPU latency or memory for this checkpoint"
+        ],
+        "not_yet_tested_on": [
+          "Other CPU microarchitectures or ONNX Runtime builds",
+          "GPU and NPU execution providers"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/MIT_ast-finetuned-audioset-10-10-0.4593/cpu/cpu/audio-classification_<precision>_config.json",
+      "gotchas": [
+        "Report exact precision-tuple measurements; do not collapse fp32 and fp16 into an EP-level support claim.",
+        "Treat the two-row evaluation only as functional smoke, not evidence that fp32 and fp16 have representative equal accuracy."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "The measurements are fresh within the sealed clean run, but the host/runtime mechanism for the fp16 regression was not isolated.",
+      "last_updated": "2026-08-21"
+    }
+  ]
+}

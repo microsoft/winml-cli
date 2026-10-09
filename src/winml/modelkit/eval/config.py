@@ -11,11 +11,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from ..utils.constants import EPNameOrAlias
+from ..utils.constants import EPNameOrAlias, RuntimeBackend
 from ..utils.eval_utils import EvalMode
 
 
-EvalRuntime = Literal["winml-ort", "pytorch"]
+EvalRuntime = Literal["winml-ort", "winml-runtime", "pytorch"]
 
 
 @dataclass
@@ -107,7 +107,7 @@ class WinMLEvaluationConfig:
 
     Attributes:
         model_id: HuggingFace model ID for config/preprocessor resolution.
-        model_path: Path to .onnx model file, or a ``{role: path}`` dict for
+        model_path: Path to an ONNX or MLIR model file, or a ``{role: path}`` dict for
             composite models (e.g. ``{"image-encoder": "...", "text-encoder": "..."}``).
             None = build from model_id.
         input_data: Path to a ``.npz`` archive of real input tensors for
@@ -116,14 +116,18 @@ class WinMLEvaluationConfig:
             randomly generated ones. The leading axis of each array is the sample
             axis, so one archive can hold ``N`` samples; all inputs must share the
             same leading length.
-        reference_path: Path to a second ``.onnx`` file used as the reference in
+        reference_path: Path to an ONNX file used as the reference in
             ``--mode compare``. When set, both ``model_path`` and ``reference_path``
             load as WinML model instances and their output tensors are compared
             directly, so no ``model_id`` / ``task`` / HF reference is needed.
         reference_device: Device used for a reference ONNX model. Defaults to CPU.
+        reference_device_luid: Optional physical adapter LUID for a reference
+            ONNX model.
         reference_ep: Explicit execution provider for a reference ONNX model.
         task: HF pipeline task. Auto-detected from model_id if omitted.
         device: Target device for inference.
+        device_luid: Optional adapter LUID from ``winml sys`` used to select a
+            physical adapter within the resolved EP/device pair.
         ep: Explicit execution provider (e.g., "qnn", "dml"). Overrides
             device-to-provider mapping when provided.
         shape_config: Shape overrides for the auto-generated HuggingFace export
@@ -139,12 +143,13 @@ class WinMLEvaluationConfig:
 
             - ``"winml-ort"`` (default): export Hugging Face checkpoints to ONNX
               and evaluate with WinML.
+            - ``"winml-runtime"``: evaluate a pre-built CGC MLIR artifact.
             - ``"pytorch"``: evaluate the original Hugging Face checkpoint.
         mode: Evaluation mode (see :data:`EvalMode`).
 
-            - ``"onnx"`` (default): evaluate the ONNX candidate on the
+            - ``"onnx"`` (default): evaluate the candidate model on the
               labeled dataset.
-            - ``"compare"``: compare ONNX vs HF reference output tensors
+            - ``"compare"``: compare candidate vs reference output tensors
               on identical random inputs and report tensor-similarity
               metrics per output tensor. When ``reference_path`` is set,
               the reference is a second ONNX file instead of the HF model.
@@ -161,9 +166,11 @@ class WinMLEvaluationConfig:
     input_data: str | None = None
     reference_path: str | None = field(default=None, metadata={"cli_name": "reference"})
     reference_device: str = "cpu"
+    reference_device_luid: str | None = None
     reference_ep: EPNameOrAlias | None = None
     task: str | None = None
     device: str = "auto"
+    device_luid: str | None = None
     precision: str = "auto"
     ep: EPNameOrAlias | None = None
     allow_unsupported_nodes: bool = False
@@ -187,6 +194,7 @@ class WinMLEvaluationConfig:
     use_cache: bool = True
     rebuild: bool = False
     runtime: EvalRuntime = "winml-ort"
+    backend: RuntimeBackend | None = None
     trust_remote_code: bool = False
     _auto_device_selected: bool = field(default=False, repr=False, compare=False, kw_only=True)
     _pipeline_device_override: str | None = field(
@@ -208,6 +216,8 @@ class WinMLEvaluationConfig:
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
         result: dict = {"runtime": self.runtime}
+        if self.backend is not None:
+            result["backend"] = self.backend
         if self.model_id is not None:
             result["model_id"] = self.model_id
         if self.model_path is not None:
@@ -217,11 +227,15 @@ class WinMLEvaluationConfig:
         if self.reference_path is not None:
             result["reference_path"] = self.reference_path
             result["reference_device"] = self.reference_device
+            if self.reference_device_luid is not None:
+                result["reference_device_luid"] = self.reference_device_luid
         if self.reference_ep is not None:
             result["reference_ep"] = self.reference_ep
         if self.task is not None:
             result["task"] = self.task
         result["device"] = self.device
+        if self.device_luid is not None:
+            result["device_luid"] = self.device_luid
         if self.precision != "auto":
             result["precision"] = self.precision
         if self.ep is not None:
@@ -247,7 +261,7 @@ class WinMLEvaluationConfig:
             result["output_path"] = str(self.output_path)
         if self.mode != "onnx":
             result["mode"] = self.mode
-        if self.runtime == "winml-ort":
+        if self.runtime in ("winml-ort", "winml-runtime"):
             result["skip_build"] = self.skip_build
             result["use_cache"] = self.use_cache
             result["rebuild"] = self.rebuild
@@ -278,9 +292,11 @@ class WinMLEvaluationConfig:
             input_data=data.get("input_data"),
             reference_path=data.get("reference_path"),
             reference_device=data.get("reference_device", "cpu"),
+            reference_device_luid=data.get("reference_device_luid"),
             reference_ep=data.get("reference_ep"),
             task=data.get("task"),
             device=data.get("device", "auto"),
+            device_luid=data.get("device_luid"),
             precision=data.get("precision", "auto"),
             ep=data.get("ep"),
             allow_unsupported_nodes=data.get("allow_unsupported_nodes", False),
@@ -297,5 +313,6 @@ class WinMLEvaluationConfig:
             use_cache=data.get("use_cache", True),
             rebuild=data.get("rebuild", False),
             runtime=data.get("runtime", "winml-ort"),
+            backend=data.get("backend"),
             trust_remote_code=data.get("trust_remote_code", False),
         )

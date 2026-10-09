@@ -24,7 +24,7 @@ class TestPyTorchRuntimeCli:
         result = CliRunner().invoke(eval, ["--help"])
 
         assert result.exit_code == 0
-        assert "--runtime [winml-ort|pytorch]" in result.output
+        assert "--runtime [winml-ort|winml-runtime|pytorch]" in result.output
 
     def test_pytorch_runtime_dispatches_pytorch(self, tmp_path) -> None:
         captured: dict[str, WinMLEvaluationConfig] = {}
@@ -129,6 +129,7 @@ class TestPyTorchRuntimeCli:
         ("field", "value"),
         [
             ("ep", "cpu"),
+            ("device_luid", "0x00000000_0x00000001"),
             ("use_cache", True),
             ("skip_build", True),
             ("quant", True),
@@ -168,6 +169,10 @@ class TestPyTorchRuntimeCli:
         ("args", "expected_flag"),
         [
             (["--ep", "cpu"], "--ep"),
+            (
+                ["--device-luid", "0x00000000_0x00000001"],
+                "--device-luid",
+            ),
             (["--precision", "fp16"], "--precision"),
             (["--no-quant"], "--quant/--no-quant"),
             (["--no-optimize"], "--optimize/--no-optimize"),

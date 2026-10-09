@@ -1,0 +1,47 @@
+{
+  "id": "positive-exp-scale",
+  "status": "confirmed-performance-provisional-quality",
+  "scope": {
+    "ep": "QNNExecutionProvider",
+    "device": "NPU",
+    "graph_requirements": [
+      "Exp output reaches a Mul through only static element-order-preserving views",
+      "the Mul scale is immutable floating, finite, strictly positive, and provably broadcastable",
+      "the pre-Exp insertion or bias-combination point preserves element correspondence"
+    ]
+  },
+  "observation": "A broadcast positive scale remained as a full-tensor Mul after Exp.",
+  "mechanism": "For finite strictly positive C, Exp(z)*C equals Exp(z+log(C)); combining log(C) with an existing bias removes the full-tensor Mul without adding runtime work.",
+  "transformation": {
+    "before": "Exp(z) -> shape-only view -> Mul(C)",
+    "after": "Exp(z + log(C)) -> shape-only view",
+    "parameter_update": "pre_exp_bias'=pre_exp_bias+log(C)"
+  },
+  "expected_evidence": {
+    "graph": "Eligible post-Exp Mul disappears and output identity is preserved",
+    "trace": "The corresponding QNN Mul disappears without new Transpose or partition"
+  },
+  "outcome": {
+    "performance": "Correctness-valid paired target-device evidence confirmed an incremental gain for a matching graph.",
+    "mechanism": "Matched provider trace removed the expected multiply without new layout or partition work.",
+    "quality": "Tensor correctness and performance were tested; floating-point reordering still requires task-appropriate quality acceptance for each matching run."
+  },
+  "safety": ["floating C", "finite and strictly positive values", "proven broadcasting and element correspondence", "multi-sample tensor validation", "task-appropriate quality validation when outputs are user-visible"],
+  "counterexamples": ["Zero, negative, non-finite, dynamic, or ambiguously broadcast scales are ineligible.", "The floating-point operation order changes, so algebra alone is not a quality verdict."],
+  "provenance": {
+    "evidence_class": "paired-performance-confirmed-provisional-quality",
+    "scope_note": "exact model, graph occurrence, toolchain, artifacts, and measurements remain run-local"
+  },
+  "generic_review": {
+    "verdict": "GENERIC_CASE_APPROVED",
+    "reviewer": "independent-graph-scout",
+    "content_sha256": "c6a459f0fb04616615466804a550c4224a3bdcfcd312f28ca824ad81645b9ed2"
+  },
+  "discovery": {
+    "ep": "QNNExecutionProvider",
+    "device": "NPU",
+    "anchor_ops": ["Exp", "Mul", "Reshape"],
+    "keywords": ["log-domain", "positive-scale", "floating-reorder"],
+    "lesson": "A finite positive post-Exp scale can move into the log domain with explicit quality validation."
+  }
+}

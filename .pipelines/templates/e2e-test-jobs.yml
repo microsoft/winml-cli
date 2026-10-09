@@ -21,6 +21,10 @@ parameters:
   #   mlas_cpu, ov_cpu, ov_gpu, ov_npu, trtrtx_gpu
   - name: pairNames
     type: object
+  # Opt-in for shared RDP development agents; affects DML perf eval and perf pytest.
+  - name: dmlPinnedAgents
+    type: object
+    default: []
   # Inline list of models to test. Each entry: { hf_id: <str>, task: <str> }.
   # `task` is optional — omit (or leave empty) to let winml infer.
   - name: models
@@ -228,6 +232,10 @@ jobs:
                       if ($task) {
                           $uvArgs += @("--task", $task)
                       }
+                      $pinDml = '${{ containsValue(parameters.dmlPinnedAgents, parameters.agentName) }}'
+                      if ($name -eq 'dml_gpu' -and $pinDml -eq 'True') {
+                          $uvArgs += "--pin-single-dml-gpu"
+                      }
                       if ($isLastPair) {
                           $uvArgs += "--clean-cache"
                       }
@@ -255,6 +263,12 @@ jobs:
       # ----------------------------------------------------------------------
       - ${{ each target in parameters.pytestTargets }}:
           - powershell: |
+              $env:WINML_E2E_PIN_SINGLE_DML_GPU = '0'
+              $pinDml = '${{ containsValue(parameters.dmlPinnedAgents, parameters.agentName) }}'
+              if ('${{ target }}' -eq 'perf' -and $pinDml -eq 'True') {
+                  $env:WINML_E2E_PIN_SINGLE_DML_GPU = '1'
+                  Write-Host "DML perf tests will exercise the physical GPU on this shared RDP agent."
+              }
               uv run --no-sync python -m pytest tests/e2e/test_${{ target }}_e2e.py -m e2e --timeout=${{ parameters.pytestTimeout }} --junitxml="$(Agent.TempDirectory)/junit-${{ parameters.agentSuffix }}-${{ target }}.xml" -v
               exit $LASTEXITCODE
             workingDirectory: $(Build.SourcesDirectory)

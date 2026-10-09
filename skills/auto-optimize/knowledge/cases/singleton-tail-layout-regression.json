@@ -1,0 +1,45 @@
+{
+  "id": "singleton-tail-layout-regression",
+  "status": "rejected",
+  "scope": {
+    "ep": "QNNExecutionProvider",
+    "device": "NPU",
+    "graph_requirements": [
+      "shape-only Reshape, Squeeze, or Unsqueeze views surround provider-sensitive output paths",
+      "removing those views can change rank or layout decisions even when tensor values are unchanged"
+    ]
+  },
+  "observation": "Deleting shape-only singleton-tail operations reduced ONNX structure but materially regressed NPU latency.",
+  "mechanism": "The views were effectively QNN layout metadata; removing them caused additional Transpose/layout work instead of removing device computation.",
+  "transformation": {
+    "before": "rank-preserving Reshape/Squeeze/Unsqueeze tail around provider-sensitive outputs",
+    "after": "shorter ONNX tail with altered provider layout decisions"
+  },
+  "expected_evidence": {
+    "graph": "Fewer shape-view nodes",
+    "trace": "Negative case showed added Transpose/layout work and worse accelerator execution"
+  },
+  "outcome": {
+    "verdict": "rejected",
+    "latency": "Material paired regression on QNN NPU",
+    "lesson": "Fewer ONNX nodes did not mean less provider work"
+  },
+  "safety": ["Treat view removal as a provider-layout experiment", "require matched trace and partition audit", "reject added layout work unless end-to-end performance proves otherwise"],
+  "counterexamples": ["Shape-only in ONNX does not imply cost-free or removable in provider lowering.", "Static graph simplification is not a performance objective by itself."],
+  "provenance": {
+    "evidence_class": "paired-performance-rejected",
+    "scope_note": "exact model, graph occurrence, toolchain, artifacts, and measurements remain run-local"
+  },
+  "generic_review": {
+    "verdict": "GENERIC_CASE_APPROVED",
+    "reviewer": "independent-graph-scout",
+    "content_sha256": "22ea203d1dee7b64f0d30190fed9c3d6ae24d6498270554d8a84bc00d8c09744"
+  },
+  "discovery": {
+    "ep": "QNNExecutionProvider",
+    "device": "NPU",
+    "anchor_ops": ["Reshape", "Squeeze", "Unsqueeze", "Transpose"],
+    "keywords": ["layout", "singleton-tail", "negative-case"],
+    "lesson": "Deleting shape-only views can reduce ONNX nodes while adding provider layout work and regressing latency."
+  }
+}

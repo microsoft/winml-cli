@@ -63,6 +63,7 @@ from ..loader.config import WinMLLoaderConfig, resolve_loader_config
 from ..optim.config import WinMLOptimizationConfig
 from ..quant.config import WinMLQuantizationConfig
 from ..utils.config_utils import merge_config
+from ..utils.constants import normalize_ep_name
 
 
 # NOTE: WinMLEvaluationConfig is imported lazily to avoid pulling
@@ -78,7 +79,7 @@ if TYPE_CHECKING:
     from torch import nn
 
     from ..eval.config import WinMLEvaluationConfig  # noqa: TC004
-    from ..utils.constants import EPNameOrAlias
+    from ..utils.constants import EPNameOrAlias, RuntimeBackend
 
 ExportPolicyTargetRequest = tuple[str | None, str | None]
 
@@ -108,7 +109,9 @@ class WinMLBuildConfig:
         optim: Optimization configuration
         quant: Quantization configuration
         compile: Compilation configuration
+        convert: Optional ONNX-to-MLIR export configuration for the build CLI
         eval: Evaluation configuration
+        is_cgc: Whether the build uses CGC compatibility optimization policy
 
     Example:
         from winml.modelkit.config import WinMLBuildConfig
@@ -143,6 +146,8 @@ class WinMLBuildConfig:
     auto: bool = True
     # Skip ORT optimization. Pre-quantized inputs also clear ``quant``.
     skip_optimize: bool = False
+    convert: WinMLExportConfig | None = None
+    is_cgc: bool = False
 
     def __post_init__(self) -> None:
         # Lazy import: inject into module globals so typing.get_type_hints()
@@ -160,6 +165,7 @@ class WinMLBuildConfig:
         export_data = config_dict.get("export", {})
         quant_data = config_dict.get("quant")
         compile_data = config_dict.get("compile")
+        convert_data = config_dict.get("convert")
         eval_data = config_dict.get("eval")
         eval_cfg = None
         if eval_data is not None:
@@ -177,6 +183,10 @@ class WinMLBuildConfig:
             eval=eval_cfg,
             auto=config_dict.get("auto", True),
             skip_optimize=config_dict.get("skip_optimize", False),
+            convert=(
+                WinMLExportConfig.from_dict(convert_data) if convert_data is not None else None
+            ),
+            is_cgc=config_dict.get("is_cgc", False),
         )
 
     def to_dict(self) -> dict:
@@ -186,6 +196,8 @@ class WinMLBuildConfig:
             result["auto"] = False
         if self.skip_optimize:
             result["skip_optimize"] = True
+        if self.is_cgc:
+            result["is_cgc"] = True
         result.update(
             {
                 "export": self.export.to_dict() if self.export is not None else None,
@@ -200,6 +212,8 @@ class WinMLBuildConfig:
             result["loader"] = loader_dict
         if self.eval is not None:
             result["eval"] = self.eval.to_dict()
+        if self.convert is not None:
+            result["convert"] = self.convert.to_dict()
         return result
 
     def validate(self) -> None:
@@ -250,6 +264,9 @@ class WinMLBuildConfig:
             not self.compile.ep_config or not self.compile.ep_config.provider
         ):
             errors.append("compile.ep_config.provider is required when compile is enabled")
+
+        if self.convert is not None and self.convert.target != "cgir":
+            errors.append("convert.target must be 'cgir'")
 
         if errors:
             raise ValueError("Invalid WinMLBuildConfig:\n" + "\n".join(f"  - {e}" for e in errors))
@@ -385,6 +402,7 @@ def _apply_target_policy(
     device: str,
     precision: str,
     ep: str | None,
+    backend: RuntimeBackend | None = None,
 ) -> None:
     """Apply resolved device/precision policy to quant and compile sections."""
     from ..sysinfo.hardware import get_available_devices
@@ -409,6 +427,7 @@ def _apply_target_policy(
         ep=resolved_ep,
         available_devices=available_devices,
         task=config.loader.task,
+        backend=backend,
     )
 
     # Mutate quant in place so calibration identity fields stamped by
@@ -488,6 +507,7 @@ def resolve_quant_compile_config(
     precision: str = "auto",
     ep: str | None = None,
     task: str | None = None,
+    backend: RuntimeBackend | None = None,
 ) -> tuple[WinMLQuantizationConfig | None, WinMLCompileConfig | None]:
     """Resolve quantization and compilation config from device/precision policy.
 
@@ -501,6 +521,7 @@ def resolve_quant_compile_config(
             "int16", or "w{x}a{y}" e.g. "w8a16").
         ep: Explicit execution provider override.
         task: Model task (used for precision heuristics, e.g., LLM on GPU).
+        backend: Runtime backend used to resolve default precision and compilation.
 
     Returns:
         Tuple of (quant_config, compile_config). Either may be None when the
@@ -528,6 +549,7 @@ def resolve_quant_compile_config(
         ep=resolved_ep,
         available_devices=available_devices,
         task=task,
+        backend=backend,
     )
 
     if policy.device == "auto":
@@ -565,6 +587,20 @@ def resolve_quant_compile_config(
 # =============================================================================
 
 
+def _apply_cgc_config(
+    config: WinMLBuildConfig, *, backend: RuntimeBackend | None, ep: str | None
+) -> None:
+    """Populate CGC optimization and conversion stages and disable compilation."""
+    if backend == "cgc" or normalize_ep_name(ep) == "WinMLCGExecutionProvider":
+        config.is_cgc = True
+        config.skip_optimize = False
+        config.auto = False
+        config.optim = WinMLOptimizationConfig.for_cgc()
+        config.compile = None
+    if backend == "cgc" and config.convert is None:
+        config.convert = WinMLExportConfig(target="cgir")
+
+
 def generate_onnx_build_config(
     onnx_path: str | Path,
     *,
@@ -574,6 +610,7 @@ def generate_onnx_build_config(
     ep: str | None = None,
     override: BuildConfigOverride | None = None,
     no_compile: bool = False,
+    backend: RuntimeBackend | None = None,
 ) -> WinMLBuildConfig:
     """Generate build config for a pre-exported ONNX model (Scenario D).
 
@@ -625,6 +662,7 @@ def generate_onnx_build_config(
             precision=precision,
             ep=ep,
             task=task,
+            backend=backend,
         )
 
         if is_quantized_onnx(onnx_path_resolved):
@@ -646,6 +684,8 @@ def generate_onnx_build_config(
         # override's default field, but ONNX builds use export=None to signal
         # "already exported, skip export stage".
         config.export = None
+
+    _apply_cgc_config(config, backend=backend, ep=ep)
 
     # no_compile overrides policy and override — applied last so it always wins
     if no_compile:
@@ -828,6 +868,7 @@ def generate_hf_build_config(
     export_policy_target: ExportPolicyTargetRequest | None = None,
     policy_overrides_config: bool = False,
     no_compile: bool = False,
+    backend: RuntimeBackend | None = None,
 ) -> WinMLBuildConfig: ...
 
 
@@ -849,6 +890,7 @@ def generate_hf_build_config(
     export_policy_target: ExportPolicyTargetRequest | None = None,
     policy_overrides_config: bool = False,
     no_compile: bool = False,
+    backend: RuntimeBackend | None = None,
 ) -> list[WinMLBuildConfig]: ...
 
 
@@ -874,6 +916,7 @@ def generate_hf_build_config(
     export_policy_target: ExportPolicyTargetRequest | None = None,
     policy_overrides_config: bool = False,
     no_compile: bool = False,
+    backend: RuntimeBackend | None = None,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]: ...
 
 
@@ -894,6 +937,7 @@ def generate_hf_build_config(
     export_policy_target: ExportPolicyTargetRequest | None = None,
     policy_overrides_config: bool = False,
     no_compile: bool = False,
+    backend: RuntimeBackend | None = None,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]:
     """Generate WinMLBuildConfig for a HuggingFace model (Scenarios A/B/C).
 
@@ -1059,6 +1103,7 @@ def generate_hf_build_config(
             device=device,
             precision=precision,
             ep=ep,
+            backend=backend,
         )
 
     if override:
@@ -1102,7 +1147,10 @@ def generate_hf_build_config(
             device=device,
             precision=precision,
             ep=ep,
+            backend=backend,
         )
+
+    _apply_cgc_config(parent_config, backend=backend, ep=ep)
 
     # no_compile overrides policy — applied last so it always wins
     if no_compile:
@@ -1148,7 +1196,10 @@ def generate_hf_build_config(
         )
         logger.info("Found %d submodules matching '%s'", len(submodules), module)
 
-        return [_build_submodule_config(sub_info, parent_config) for sub_info in submodules]
+        return [
+            _build_submodule_config(sub_info, parent_config, backend=backend, ep=ep)
+            for sub_info in submodules
+        ]
 
     return parent_config
 
@@ -1175,6 +1226,7 @@ def generate_build_config(
     ep: str | None = None,
     export_policy_target: ExportPolicyTargetRequest | None = None,
     onnx_path: str | Path | None = None,
+    backend: RuntimeBackend | None = None,
 ) -> WinMLBuildConfig: ...
 
 
@@ -1195,6 +1247,7 @@ def generate_build_config(
     ep: str | None = None,
     export_policy_target: ExportPolicyTargetRequest | None = None,
     onnx_path: str | Path | None = None,
+    backend: RuntimeBackend | None = None,
 ) -> list[WinMLBuildConfig]: ...
 
 
@@ -1214,6 +1267,7 @@ def generate_build_config(
     ep: str | None = None,
     export_policy_target: ExportPolicyTargetRequest | None = None,
     onnx_path: str | Path | None = None,
+    backend: RuntimeBackend | None = None,
 ) -> WinMLBuildConfig | list[WinMLBuildConfig]:
     """Generate WinMLBuildConfig by orchestrating existing modules.
 
@@ -1253,6 +1307,7 @@ def generate_build_config(
             precision=precision,
             ep=ep,
             override=override,
+            backend=backend,
         )
     # Single call resolves against generate_hf_build_config's `module: str | None`
     # overload, which returns WinMLBuildConfig | list[WinMLBuildConfig] — matching
@@ -1273,6 +1328,7 @@ def generate_build_config(
         ep=ep,
         export_policy_target=export_policy_target,
         policy_overrides_config=True,
+        backend=backend,
     )
 
 
@@ -1284,6 +1340,9 @@ def generate_build_config(
 def _build_submodule_config(
     sub_info: SubmoduleInfo,
     parent_config: WinMLBuildConfig,
+    *,
+    backend: RuntimeBackend | None = None,
+    ep: str | None = None,
 ) -> WinMLBuildConfig:
     """Build a WinMLBuildConfig for a single discovered submodule.
 
@@ -1330,7 +1389,7 @@ def _build_submodule_config(
         OutputTensorSpec(name=f"output_{i}") for i in range(len(sub_info.output_shapes))
     ]
 
-    return WinMLBuildConfig(
+    config = WinMLBuildConfig(
         loader=WinMLLoaderConfig(
             # task intentionally omitted — submodules don't have tasks
             model_type=parent_config.loader.model_type,
@@ -1368,6 +1427,8 @@ def _build_submodule_config(
         ),
         compile=copy.deepcopy(parent_config.compile),
     )
+    _apply_cgc_config(config, backend=backend, ep=ep)
+    return config
 
 
 def _merge_export_config(

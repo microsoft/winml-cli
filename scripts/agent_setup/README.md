@@ -74,9 +74,17 @@ After registration, sign out and sign back in to verify the agent console launch
 
 **Only needed on GPU agents that run DirectML (`GPU-DML`) and are accessed over Remote Desktop.** Skip this on CPU/NPU/OpenVINO-only agents.
 
-When you disconnect an RDP session (instead of signing out), Windows detaches the physical display adapter from that session and falls back to the "Microsoft Remote Display Adapter," which has no Direct3D 12 support. DirectML can no longer create a device, so every DirectML CI step fails while the session is disconnected — even though OpenVINO and CPU runs keep working. The symptom in the pipeline is that only the `dml_gpu` eval steps and `test_perf_e2e.py` fail on that agent.
+RDP session transitions on a shared GPU agent can leave stale Remote Display Adapter nodes and duplicate GPU routes. DirectML may then select an unusable route even while the physical GPU remains available. Symptoms include DML device-creation errors and mismatches between ORT and DXCore adapter inventories.
 
-The provided script registers a SYSTEM, event-triggered Scheduled Task (`KeepSessionOnConsole`) that fires on RDP disconnect (TerminalServices-LocalSessionManager **Event ID 24**). After a short settle delay — so a quick reconnect is left alone — it redirects a still-disconnected session back to the physical console via `tscon`, keeping the GPU bound so DirectML continues to work headless.
+The script registers a SYSTEM Scheduled Task (`KeepSessionOnConsole`) triggered by TerminalServices-LocalSessionManager **Event ID 24**. Its enhanced worker matches the version deployed on the shared development agent:
+
+- A remote IP source triggers immediate handling; local/loopback transitions are ignored to avoid disrupting reconnects. Older tasks that only supply a SessionId use a matching Event 24 from the last minute to resolve the source address.
+- Session 1 is eligible; only service Session 0 is excluded. A reconnected session or another user's occupied console is left alone.
+- The worker attempts `tscon` up to three times, waiting two seconds between state checks, and verifies that the target reached console.
+- Only after verification, it removes non-present RDP display nodes (`SWD\REMOTEDISPLAYENUM\*`, phantom/error 45). Physical PCI GPUs and present RDP devices are excluded.
+- The optional `-CleanupOnly` mode runs that same cleanup only when a console session exists.
+
+Console recovery and PnP cleanup **do not prove DML readiness** or remove every stale ORT/DXGI route. The worker logs warnings and retains its deployed exit-zero behavior even on errors. Use the separate physical-GPU pin in the E2E pipeline to avoid known duplicate routes, and verify with real inference.
 
 **Register** (run once, elevated — the script reports an error if not elevated):
 
@@ -84,7 +92,7 @@ The provided script registers a SYSTEM, event-triggered Scheduled Task (`KeepSes
 powershell -ExecutionPolicy Bypass -File .\scripts\agent_setup\setup_rdp_gpu_keepalive.ps1
 ```
 
-The script writes the worker to `C:\agent\tools\keep_console.ps1` and logs activity to `C:\agent\tools\keep_console.log`. To verify, disconnect and reconnect your RDP session, then check the log — you should reconnect on the first try, with no `tscon` errors.
+The installer writes the worker to `C:/agent/tools/keep_console.ps1` and logs activity to `C:/agent/tools/keep_console.log`. Re-registering passes both the event SessionId and source address. Its smoke test omits SessionId, so it performs no redirect or device cleanup. To verify recovery during a planned RDP disconnect, check for a verified console transition and review cleanup warnings, then run a DML inference check. Merely editing this branch does not update the installed worker or task.
 
 **Unregister:**
 

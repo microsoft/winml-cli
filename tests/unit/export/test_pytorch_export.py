@@ -145,6 +145,16 @@ class TestInputTensorSpecToTensor:
         assert t.dtype == torch.int64
         assert (t == 1).all()
 
+    @pytest.mark.parametrize("value_range", [None, (0, 2)])
+    def test_bool_tensor_preserves_dtype(self, value_range) -> None:
+        spec = InputTensorSpec(
+            name="selector", dtype="bool", shape=(1, 64), value_range=value_range
+        )
+        tensor = spec.to_tensor()
+        assert tensor.shape == spec.shape
+        assert tensor.dtype == torch.bool
+        assert torch.all((tensor == 0) | (tensor == 1))
+
     def test_bbox_tensor_generates_ordered_coordinates_within_range(self) -> None:
         spec = InputTensorSpec(
             name="bbox",

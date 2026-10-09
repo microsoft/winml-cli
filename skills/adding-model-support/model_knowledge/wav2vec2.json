@@ -1,0 +1,1314 @@
+{
+  "_meta": {
+    "family": "wav2vec2",
+    "hf_model_type": "wav2vec2",
+    "models_tested": [
+      "audeering/wav2vec2-large-robust-24-ft-age-gender @ audio-classification @ fp16 @ cpu",
+      "MahmoudAshraf/mms-300m-1130-forced-aligner @ automatic-speech-recognition @ fp16 @ cpu",
+      "onecxi/open-vakgyata @ audio-classification @ fp32/fp16 @ cpu",
+      "dima806/music_genres_classification @ audio-classification @ fp32/fp16 @ cpu",
+      "prithivMLmods/Common-Voice-Gender-Detection @ audio-classification @ fp32/fp16 @ cpu",
+      "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim @ audio-classification @ fp32/fp16 @ cpu",
+      "MahmoudAshraf/mms-300m-1130-forced-aligner@49402e9577b1158620820667c218cd494cc44486 @ automatic-speech-recognition @ fp32/fp16 @ cpu",
+      "facebook/mms-1b-all @ automatic-speech-recognition @ fp32/fp16 @ cpu",
+      "facebook/mms-1b-all@3d33597edbdaaba14a8e858e2c8caa76e3cec0cd @ automatic-speech-recognition Eval @ fp32 @ cpu @ candidate e9180e05332cae9db3724de824c0183a16cb0043",
+      "facebook/mms-1b-all@3d33597edbdaaba14a8e858e2c8caa76e3cec0cd + jonatasgrosman/wav2vec2-large-xlsr-53-polish@6b1cea36bd8bc5f65ec8081667cd9c0207d51970 @ CTC processor/language compatibility @ candidate 512338dd56080e97efab81da0cf59245ecc02ccf",
+      "jonatasgrosman/wav2vec2-large-xlsr-53-polish@6b1cea36bd8bc5f65ec8081667cd9c0207d51970 @ automatic-speech-recognition @ fp32/fp16 @ cpu @ candidate 78e0713b0ac19142cc6abf65ec93ff359d4d2749",
+      "jakeBland/wav2vec-vm-finetune@663b7dfbe8e08d615c6a83353a119e35d47903bd @ audio-classification @ fp32/fp16 @ cpu"
+    ],
+    "diagnostic_only": [],
+    "last_updated": "2026-08-24",
+    "epistemics_warning": "Observational findings, not ground truth. wav2vec2-001 and wav2vec2-002 record historical winml 0.1.0 behavior; wav2vec2-003 through wav2vec2-010 record sequence-classification and historical emotion-regression evidence; wav2vec2-011 and wav2vec2-012 record ASR/CTC evidence; wav2vec2-015 and wav2vec2-016 supersede the operational PR #1084 facts; wav2vec2-017 supersedes the operational PR #1177 facts on lock-aligned Transformers 5.14.1; wav2vec2-018 adds scalar-string audio-classification Eval evidence from a candidate stacked on Draft PR #1326; wav2vec2-019 and wav2vec2-020 add exact recipe, precision, Analyze, and ClassLabel Eval evidence for jakeBland/wav2vec-vm-finetune; wav2vec2-021 through wav2vec2-024 add exact-candidate MMS language, CTC reconstruction, bounded WER/CER, artifact, and component evidence; wav2vec2-025 adds final-head empty-hypothesis deletion accounting while preserving empty-reference and decoder-failure rejection; wav2vec2-026 adds exact-candidate optional-LM fallback and adapter-aware language validation across real Polish and MMS processors; wav2vec2-027 adds source-order selection, duplicate semantic-ID preservation, emitted row provenance/accounting, and pre-inference source-index validation; wav2vec2-028 adds final-candidate Polish recipe, artifact, parity, perf, Analyze, normalization, and bounded functional-smoke evidence while reusing wav2vec2-026/027. Re-validate on new checkpoints, datasets, languages, input shapes, ORT versions, and non-CPU EPs before relying on them to skip work."
+  },
+  "findings": [
+    {
+      "id": "wav2vec2-001",
+      "title": "VALIDATED — Effort-L0★ (recipe-only) turns an unbuildable custom trust_remote_code wav2vec2 head into a buildable audio-classification ONNX; the delta is forcing the correct task via `winml config -t`, because auto-config mis-resolves the task and the build fails.",
+      "observation": "audeering/wav2vec2-large-robust-24-ft-age-gender is a custom `trust_remote_code` model: config.json architectures=[\"Model\"] (an AgeGenderModel = wav2vec2 backbone + age-regression head + gender-classification head). Baseline `winml build` (no recipe) FAILS with exit 2: `Error: wav2vec2 doesn't support task text-classification for the onnx backend. Supported tasks are: feature-extraction, automatic-speech-recognition, audio-classification, audio-frame-classification, audio-xvector.` Root cause: auto-config resolves this custom head to `text-classification`, which the ONNX backend does not support for wav2vec2. `winml inspect` separately mis-resolves the task to `next-sentence-prediction` (\"Exporter: No ONNX config available\"). Classic `_meta-008`: probe/inspect coverage ≠ build success. Diligence ladder (Step 4c): `winml build --task ...` FAILS (no such option — `winml build` has no --task flag); `winml config -t audio-classification --trust-remote-code -d cpu -p fp16 -o <cfg>` SUCCEEDS and emits a standard audio-classification recipe. Recipe build then SUCCEEDS: fp32 exit 0 (210.5s: Export 96.5s + Optimize 45.5s, 1.2 GB), fp16 exit 0 (166.8s: Export 93.8s + Optimize 41.6s + FP16 29.4s). fp16 artifact verified genuinely fp16: 428 FLOAT16 initializers, 0 FLOAT32. Structural: IR 8, opset 17, IN input_values [1,16000] float32, OUT logits [1,3] float32.",
+      "scope": {
+        "validated_on": [
+          "audeering/wav2vec2-large-robust-24-ft-age-gender @ audio-classification @ fp16 @ cpu (2026-07-12, winml 0.1.0)"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "DML / QNN / OpenVINO / VitisAI / NvTensorRTRTX EPs (host availability per `_meta-016` — CPU is the universal floor)",
+          "L2 numerical parity vs PyTorch reference (skipped this turn — the custom AgeGenderModel forward returns age+gender, not a single logits tensor; a parity harness would need a custom adapter)",
+          "L3 winml eval (audio-classification default-dataset availability not confirmed)"
+        ]
+      },
+      "effort_tier_required": "L0★ (recipe-only, no code). The build works with stock wav2vec2 audio-classification export once the task is forced; no new models/hf/wav2vec2.py is needed.",
+      "goal_tier_reached": "L1 PASS (L0 build + structural PASS; L1 perf PASS on CPU: mean=133.95ms, P50=132.06ms, P90=140.35ms, throughput=7.47 samples/sec, std=6.77ms over 20 iters; model load +1227.0 MB RAM, inference +43.7 MB). L2/L3 not attempted.",
+      "recipe_template": "examples/recipes/audeering_wav2vec2-large-robust-24-ft-age-gender/audio-classification_fp16_config.json — copy-able for any wav2vec2 audio-classification checkpoint. Per `_meta-038` real-engineering gate: Gate-1 (recipe vs `winml config -t audio-classification` autoconf) IDENTICAL, Gate-2 FAIL-without-recipe (stock `winml build` auto-config picks `text-classification` and errors out) — so this is a genuine engineering delta, NOT catalog-only.",
+      "gotchas": [
+        "**Custom trust_remote_code head defeats auto task resolution.** config.json architectures=[\"Model\"] (not a standard `Wav2Vec2ForSequenceClassification`), so neither `winml inspect` nor `winml build` auto-config lands on the correct ONNX task. You MUST force the task. `winml build` has NO --task flag — the only lever is `winml config -t <task>` to pre-generate the recipe, then `winml build -c <recipe>`.",
+        "**The exported head is 3-way (logits[1,3]), not the model's native age+gender multi-head.** The winml audio-classification export path traces a single classification head; verify downstream consumers expect a 3-logit output rather than the original {age scalar, gender 2-way} structure. This is why L2 parity was deferred — the eager AgeGenderModel returns a tuple, not `logits`.",
+        "**--trust-remote-code is required at BOTH config and build time** (custom modeling code). Omitting it aborts before export.",
+        "**Input is raw waveform `input_values [1,16000]` (1 s @ 16 kHz), value_range [-1,1].** Not tokens. Downstream feature extraction (Wav2Vec2FeatureExtractor) is NOT part of the ONNX graph."
+      ],
+      "feature_gaps_filed": [
+        "FILE (Lane A `_meta`): `winml build` has no --task flag while `winml config -t` does; the only way to override a mis-resolved task at build time is to pre-generate a recipe. Worth a `_meta-NNN` finding + a one-line note in the skill so future runs skip the `winml build --task` dead-end (Step 4b trigger #1 CLI-surprise)."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Baseline failure reproduced (exit 2, text-classification unsupported); recipe build reproduced twice (fp32 + fp16, both exit 0); fp16-ness confirmed by onnx initializer dtype count (428 FLOAT16 / 0 FLOAT32); perf confirmed via `winml perf` (results JSON at ~/.cache/winml/perf/model/20260712-165430.json). Would be falsified if a future ORT/winml version's auto-config correctly resolves the custom head to audio-classification without a recipe (then the delta collapses to catalog-only).",
+      "resolution": "VALIDATED — shipped as Effort-L0★ / Goal-L1 (CPU-only). Branch: `shzhen/add-wav2vec2-age-gender` (Lane B). Historical files included the new recipe and an `examples/recipes/README.md` table row. This predates `_meta-069`; the README row is historical evidence only and is no longer a permitted deliverable or template for future runs. No code change (L0★).",
+      "last_updated": "2026-07-12"
+    },
+    {
+      "id": "wav2vec2-002",
+      "title": "HISTORICAL winml 0.1.0: Wav2Vec2ForCTC required an explicit AutoModelForCTC loader override",
+      "observation": "MahmoudAshraf/mms-300m-1130-forced-aligner is a STANDARD (non-trust_remote_code) `Wav2Vec2ForCTC` model (config architectures=[\"Wav2Vec2ForCTC\"], model_type wav2vec2, vocab_size 31). Baseline `winml build` (no recipe) FAILS: auto-config resolves task=automatic-speech-recognition and tries to load it as `AutoModelForSpeechSeq2Seq`, which errors: `Unrecognized configuration class Wav2Vec2Config for this kind of AutoModel: AutoModelForSpeechSeq2Seq. Model type should be one of DiaConfig, ... WhisperConfig.` Root cause: winml's ASR auto-loader assumes seq2seq (Whisper-style encoder-decoder), but wav2vec2 ASR is a CTC head (single encoder + linear). Fix: `winml config -t automatic-speech-recognition --model-class AutoModelForCTC --model-type wav2vec2` emits a recipe that loads the correct class. Recipe build SUCCEEDS: fp16 exit 0 (250.6s: Export 93.9s + Optimize 42.9s + FP16 29.8s), final artifact 602 MB. fp16 verified: 426 FLOAT16 inits, 0 FLOAT32. Structural: IN input_values [1,16000] float32, OUT logits [1,49,31] (49 CTC frames × 31-token vocab). L1 perf CPU: mean 134.84ms, P50 133.91ms, throughput 7.42 samples/sec.",
+      "scope": {
+        "validated_on": [
+          "MahmoudAshraf/mms-300m-1130-forced-aligner @ automatic-speech-recognition @ fp16 @ cpu (2026-07-12, winml 0.1.0)"
+        ],
+        "falsified_on": [
+          "MahmoudAshraf/mms-300m-1130-forced-aligner@49402e9577b1158620820667c218cd494cc44486 @ automatic-speech-recognition @ fp32/fp16 @ CPUExecutionProvider (2026-07-27, winml 0.2.0/main): auto-config derived AutoModelForCTC without an override; see wav2vec2-011"
+        ],
+        "refines": [
+          "wav2vec2-001"
+        ],
+        "not_yet_tested_on": [
+          "DML / QNN / OpenVINO / VitisAI / NvTensorRTRTX EPs (host availability, CPU is the floor)",
+          "L2 parity vs PyTorch (CTC logits argmax alignment — deferred)",
+          "L3 winml eval (ASR default-dataset + WER metric not confirmed)"
+        ]
+      },
+      "effort_tier_required": "Historical L0★ on winml 0.1.0. Current main derives AutoModelForCTC for the cited checkpoint; see wav2vec2-011.",
+      "goal_tier_reached": "L1 PASS (L0 build + structural PASS; L1 perf PASS on CPU). L2/L3 not attempted.",
+      "recipe_template": "examples/recipes/MahmoudAshraf_mms-300m-1130-forced-aligner/automatic-speech-recognition_fp16_config.json — copy-able for any Wav2Vec2ForCTC / MMS ASR checkpoint. `_meta-038` gate: Gate-1 (recipe vs `winml config -t ... --model-class AutoModelForCTC` autoconf) IDENTICAL; Gate-2 FAIL-without-recipe (stock build loads AutoModelForSpeechSeq2Seq and errors) — genuine engineering delta, NOT catalog-only.",
+      "gotchas": [
+        "This loader override is historical winml 0.1.0 evidence, not a current-main requirement. Re-run the recipe-free baseline before adding loader.model_class; wav2vec2-011 shows current main deriving AutoModelForCTC.",
+        "**Output is CTC frame logits [1, T, vocab], not generated text.** For mms-300m-1130 that is [1,49,31] (T scales with audio length; 31 = char/token vocab). Alignment/decoding (CTC collapse, forced-alignment) happens downstream of the ONNX graph.",
+        "**Input is raw waveform input_values [1,16000] (1s @ 16kHz), value_range [-1,1]** — not tokens; feature extraction is outside the graph."
+      ],
+      "feature_gaps_filed": [
+        "FILE (Lane A `_meta`, shared with wav2vec2-001): document that CTC-family ASR models need `--model-class AutoModelForCTC`; winml's default ASR loader assumes seq2seq. A future winml improvement could auto-detect `*ForCTC` architectures and pick AutoModelForCTC without a recipe (would collapse this delta to catalog-only)."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Baseline failure reproduced (AutoModelForSpeechSeq2Seq rejects Wav2Vec2Config); recipe build reproduced (exit 0, 250.6s); fp16 confirmed by initializer dtype count (426/0); perf confirmed via winml perf ([1,49,31] output). Falsified if a future winml auto-detects CTC architectures.",
+      "resolution": "VALIDATED — shipped as Effort-L0★ / Goal-L1 (CPU-only). Branch: `shzhen/add-mms-forced-aligner` (Lane B). Historical files included the new recipe and an `examples/recipes/README.md` table row. This predates `_meta-069`; the README row is historical evidence only and is no longer a permitted deliverable or template for future runs. No code change (L0★).",
+      "last_updated": "2026-07-12"
+    },
+    {
+      "id": "wav2vec2-003",
+      "title": "VALIDATED — a standard stable-LayerNorm Wav2Vec2ForSequenceClassification checkpoint needs no task or loader override and preserves CPU numerical parity at fp32 and fp16",
+      "observation": "onecxi/open-vakgyata@f2754058e485dfc65cc62589b8d0e21c1d328399 declares Wav2Vec2ForSequenceClassification and resolves directly to task=audio-classification, loader.model_class=AutoModelForAudioClassification, and eager Transformers attention. The accepted 2026-08-22 successor used winml 0.3.0, Transformers 5.14.1, and onnxruntime-windowsml 1.24.5.202604171637 on candidate 1a64af009e4737fb2a172da4171966a6c93d5e2a stacked directly on approved Draft #1326 head 1bd919b583aa8ccd974e35fa6a1a132ac7e1c9f8. Override-free CPU builds from the two checked-in recipes passed at opset 17 with float32 input_values[1,16000] and logits[1,10]; the repaired FP16 command explicitly used `--precision fp16` without `--no-quant`. FP32 has 129 nodes, 86 FLOAT plus 13 INT64 initializers, and 234,990,980 external-data bytes; FP16 has the same 129 semantic nodes plus two public-boundary Cast nodes, 86 FLOAT16 plus 13 INT64 initializers, and 117,495,490 external-data bytes. HTP metadata reports 58,746,794 parameters, 89 modules, 32 traced modules, and 64 execution steps; resolved optimization enables gelu_fusion and matmul_add_fusion. CPU perf was FP32 mean/P50/P90 39.112/38.295/43.858 ms at 25.57 samples/s and +107.19 MB RAM, versus FP16 52.949/53.341/55.728 ms at 18.89 samples/s and +43.53 MB RAM. On identical named one-second input bytes, PyTorch parity passed: FP32 cosine 0.999999999946133, max-abs 0.00022792816162109375; FP16 cosine 0.9999997509129488, max-abs 0.009529590606689453; both were finite and preserved argmax class 8 (mr-IN). Component mapping accounted for 129/129 semantic nodes in each precision with zero gaps. Static Analyze counted FP32 129 ops/14 types and FP16 131 ops/15 types, dominated by Reshape=32, Transpose=23, Gemm=19, LayerNormalization=15, Gelu=10, and Add=9; NvTensorRTRTX GPU, QNN NPU/GPU, and OpenVINO CPU/GPU/NPU rule sets classified every present type supported, while CUDA, MIGraphX, TensorRT, DML, CPU, and VitisAI had no rule data. These classifications are static evidence, not accelerator runtime execution.",
+      "scope": {
+        "validated_on": [
+          "onecxi/open-vakgyata@f2754058e485dfc65cc62589b8d0e21c1d328399 @ audio-classification @ fp32 @ CPUExecutionProvider (2026-07-18, winml 0.2.0, onnxruntime-windowsml 1.24.5.202604171637)",
+          "onecxi/open-vakgyata@f2754058e485dfc65cc62589b8d0e21c1d328399 @ audio-classification @ fp16 @ CPUExecutionProvider (2026-07-18, winml 0.2.0, onnxruntime-windowsml 1.24.5.202604171637)",
+          "onecxi/open-vakgyata@f2754058e485dfc65cc62589b8d0e21c1d328399 @ audio-classification @ fp32/fp16 @ CPUExecutionProvider (2026-08-22, candidate 1a64af0, winml 0.3.0, Transformers 5.14.1, ORT Windows ML 1.24.5.202604171637)"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "DML / QNN / OpenVINO / VitisAI / NvTensorRTRTX runtime execution; analyze rule classifications are static evidence only",
+          "Functional-smoke task metrics for FP16 or any non-CPU tuple; the accepted 2026-08-22 L3 smoke is FP32 CPU only"
+        ]
+      },
+      "effort_tier_required": "L0 (recipe-only coverage declaration; current main already resolves and builds the standard checkpoint)",
+      "goal_tier_reached": "L0/L1/L2 PASS for cpu/cpu/fp32 and cpu/cpu/fp16; L3 functional smoke PASS for the single required FP32 CPU evaluation row",
+      "recipe_template": "examples/recipes/onecxi_open-vakgyata/cpu/cpu/audio-classification_<fp32|fp16>_config.json",
+      "gotchas": [
+        "The FP16 recipe owns quant.mode=fp16 and fp16_keep_io_types=true, but the accepted build command still requires `--precision fp16` without `--no-quant`. Prove realized precision from FLOAT16 initializers, the approximately half-size external payload, and the two expected public-boundary Cast nodes; preserve that exact command in the tier-complete public reproduction handoff per `_meta-116`.",
+        "Current generated configs require export.compatibility.transformers_attention=eager and resolve optim.gelu_fusion=true plus optim.matmul_add_fusion=true; preserve those derived semantics when refreshing historical recipes.",
+        "On this CPU and checkpoint, FP16 remained slower than FP32 (P50 53.341 ms versus 38.295 ms) despite halving external weight bytes and reducing measured RAM delta; do not infer CPU latency improvement from storage reduction.",
+        "Analyze exit 1 is ANALYZE-PARTIAL-SUCCESS when both complete JSON reports and component mappings are present. Separate populated static rule classifications from rule-less providers, and never promote either category to runtime execution support."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Fresh contract-compliant builds, independent structural checks, perf, identical-byte named-input PyTorch parity, complete component mapping, and static Analyze reports passed for both CPU precisions. The no-recipe-override behavior is checkpoint-specific evidence for a standard Wav2Vec2ForSequenceClassification declaration and does not refute wav2vec2-001's custom generic-head task-resolution failure or wav2vec2-002's historical CTC loader evidence.",
+      "resolution": "Refreshed from immutable tester successor root 20260822-1a64af0-r11 (successor_verdict.json SHA-256 873c878b95804dde81629116311080852dd918916a1896e5b15e65e3dea21f18): Effort/Outcome L0, full required CPU precision coverage, highest Goal L3 PASS. Runtime evidence is repaired and PASS; public command closure is separately governed by `_meta-116`.",
+      "last_updated": "2026-08-22"
+    },
+    {
+      "id": "wav2vec2-013",
+      "title": "VALIDATED — generalized fixed-window audio-classification eval turns an unsupported task into meaningful L3 support without model-specific branching or a universal dataset",
+      "observation": "On current-main commit 67169d45c40ed8326065e87ed29d19623b79cbb4, `winml eval --task audio-classification` failed before dataset loading with `Task 'audio-classification' is not supported`. Draft #1326 generalized the task registry/schema and evaluator rather than branching on onecxi/open-vakgyata or installing a universal dataset. For rank-2 waveform graphs, the evaluator decodes raw audio with SoundFile, downmixes channels, rationally resamples to the checkpoint rate, normalizes, processes every consecutive static ONNX window, right-pads only the final window, runs one forward per window, computes one arithmetic mean over window logits per utterance, and decodes a single argmax through checkpoint id2label. For rank-3+ static feature graphs, it preserves the extracted tensor and validates non-batch dimensions rather than flattening into waveform windows. It filters aligned labels before bounded selection and reports requested, eligible, selected, processed, rejected, rejection-reason, and per-label counts. The accepted 2026-08-22 candidate stacked directly on exact Draft #1326 head 1bd919b583aa8ccd974e35fa6a1a132ac7e1c9f8 and passed a pinned FP32 CPU FLEURS smoke over nine utterances: 9 requested/eligible/selected/processed, 0 rejected, 133 total one-second windows, 7 to 27 windows per utterance, and one prediction per utterance. Full quality gates also passed: Ruff, mypy over 439 source files, 3,640 command/config/build/compiler/session/eval tests, and 1,538 model/loader/dataset/export tests. The earlier 90-row-per-precision evidence remains valid historical breadth; the current run is the bounded final-candidate smoke required by the charter.",
+      "scope": {
+        "validated_on": [
+          "onecxi/open-vakgyata@f2754058e485dfc65cc62589b8d0e21c1d328399 @ audio-classification eval @ fp32 @ CPUExecutionProvider (2026-07-26, winml 0.2.0, onnxruntime-windowsml 1.24.5.202604171637)",
+          "onecxi/open-vakgyata@f2754058e485dfc65cc62589b8d0e21c1d328399 @ audio-classification eval @ fp16 @ CPUExecutionProvider (2026-07-26, winml 0.2.0, onnxruntime-windowsml 1.24.5.202604171637)",
+          "onecxi/open-vakgyata@f2754058e485dfc65cc62589b8d0e21c1d328399 @ pinned google/fleurs nine-utterance full-window smoke @ fp32 @ CPUExecutionProvider (2026-08-22, candidate 1a64af0 on Draft #1326 head 1bd919b5)",
+          "synthetic fixed-shape [1,8] ONNX audio classifier @ explicit saved ClassLabel dataset @ CPUExecutionProvider (CLI integration acceptance: accuracy=1.0, macro_f1=1.0, 4/4 processed)"
+        ],
+        "falsified_on": [],
+        "refines": [
+          "wav2vec2-003"
+        ],
+        "not_yet_tested_on": [
+          "Dynamic-length or multi-input audio-classification ONNX graphs; the validated evaluator requires exactly one static input",
+          "Audio-classification heads whose output is not one [1, classes] logits tensor, including custom multi-head age/gender models",
+          "Non-Wav2Vec2 audio-classification families and non-CPU execution providers"
+        ]
+      },
+      "effort_tier_required": "L2 (shared task-family eval registry, schema, preprocessing, prediction aggregation, metrics, and compatibility tests)",
+      "goal_tier_reached": "L3 PASS for the required single FP32 CPU functional smoke; L0-L2 passed for both cpu/cpu/fp32 and cpu/cpu/fp16 tuples",
+      "recipe_template": "examples/recipes/onecxi_open-vakgyata/cpu/cpu/audio-classification_<fp32|fp16>_config.json (unchanged; the support delta is generalized eval code, not recipe semantics)",
+      "gotchas": [
+        "Do not add a universal default dataset for audio-classification: labels may mean language, emotion, intent, speaker, age, gender, or acoustic events. Require an explicit semantically compatible labeled dataset.",
+        "Static waveform graphs need utterance-aware handling outside ONNX. Do not silently truncate long audio: preprocess at the checkpoint sampling rate, evaluate every deterministic fixed-size window, then aggregate logits once per utterance.",
+        "For a fixed input_values[1,16000] contract at 16 kHz, use consecutive one-second windows, right-pad only the final window, account for valid and padded samples, and average the complete set of window logits exactly once per utterance.",
+        "Filter to authoritative label overlap before balanced sampling so unsupported classes cannot consume the bounded sample budget; preserve requested, eligible, selected, processed, rejected, rejection-reason, and per-label counts.",
+        "Do not rely implicitly on Hugging Face Datasets' decoded Audio value. Datasets 4.x materializes it through TorchCodec, whose wheel can require a compatible PyTorch build and full-shared FFmpeg DLLs. The validated portable path casts Audio to decode=False, reads raw bytes/path with SoundFile, and keeps soundfile in the audio extra; test at least one real Hub row, not only in-memory arrays.",
+        "This generalized single-logits evaluator does not establish semantic compatibility for wav2vec2-001's custom age/gender multi-head output or wav2vec2-002's frame-level CTC output."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The baseline registry and schema lacked audio-classification and the baseline command exited before data loading. The generalized path on exact Draft #1326 passed schema checks, focused evaluator regressions, broad CPU CI partitions, and a pinned real-media final-candidate run whose 133 windows produced exactly nine utterance predictions. No model ID or FLEURS default is embedded in shared source.",
+      "resolution": "Bound to immutable tester successor root 20260822-1a64af0-r11 (successor_verdict.json SHA-256 873c878b95804dde81629116311080852dd918916a1896e5b15e65e3dea21f18); the evaluator remains owned by Draft #1326, while the open-vakgyata contribution remains recipe-only. Public L2/L3 reproduction must satisfy `_meta-116`.",
+      "last_updated": "2026-08-22"
+    },
+    {
+      "id": "wav2vec2-014",
+      "title": "VALIDATED — FLEURS supports a meaningful nine-locale open-vakgyata smoke eval only with exact authoritative mapping and explicit en_us/en-IN exclusion",
+      "observation": "The pinned onecxi/open-vakgyata checkpoint's exact ten-class order is 0 en-IN, 1 hi-IN, 2 or-IN, 3 bn-IN, 4 ta-IN, 5 te-IN, 6 kn-IN, 7 ml-IN, 8 mr-IN, and 9 gu-IN. Pinned google/fleurs revision 70bb2e84b976b7e960aa89f1c648e09c59f894dd has exact locale-bearing scalar ClassLabel names for nine classes, mapped authoritatively as hi_in->1, or_in->2, bn_in->3, ta_in->4, te_in->5, kn_in->6, ml_in->7, mr_in->8, and gu_in->9. FLEURS en_us is US English, not the checkpoint's Indian English en-IN, so an explicit exclusion probe must reject it before inference; any model prediction of class 0 en-IN on the nine-label subset remains an ordinary error. The accepted 2026-08-22 FP32 CPU smoke selected the first deterministic matching validation row from each exact config, processed 9/9 with zero rejects across 133 full-utterance windows, and produced accuracy 0.5555555555555556 plus represented-class macro-F1 0.4259259259259259. Earlier direct streaming runs selected ten test rows per exact locale and processed 90/90 for each precision with accuracy 0.5777777777777777 and merged nine-class macro-F1 0.47146993066533294. Both evidence sets are bounded semantic/operability smokes, not population FLEURS benchmarks or representative checkpoint-quality claims.",
+      "scope": {
+        "validated_on": [
+          "onecxi/open-vakgyata@f2754058e485dfc65cc62589b8d0e21c1d328399 @ google/fleurs@70bb2e84b976b7e960aa89f1c648e09c59f894dd exact nine-locale 90-row subset @ fp32 @ CPUExecutionProvider",
+          "onecxi/open-vakgyata@f2754058e485dfc65cc62589b8d0e21c1d328399 @ google/fleurs@70bb2e84b976b7e960aa89f1c648e09c59f894dd exact nine-locale 90-row subset @ fp16 @ CPUExecutionProvider",
+          "onecxi/open-vakgyata@f2754058e485dfc65cc62589b8d0e21c1d328399 @ google/fleurs@70bb2e84b976b7e960aa89f1c648e09c59f894dd exact nine-locale 9-row validation subset @ fp32 @ CPUExecutionProvider (2026-08-22, candidate 1a64af0)"
+        ],
+        "falsified_on": [
+          "Inferring FLEURS en_us as checkpoint en-IN from shared language text or approximate locale normalization"
+        ],
+        "not_yet_tested_on": [
+          "A checkpoint-owner-authoritative Indian-English dataset mapped to class 0 en-IN",
+          "Population-scale metrics over all 7,095 eligible FLEURS test rows",
+          "A dataset with string labels rather than an authoritative ClassLabel feature"
+        ]
+      },
+      "effort_tier_required": "L2 for the generalized evaluator; the checkpoint/dataset pairing additionally requires an explicit user-supplied label mapping",
+      "goal_tier_reached": "L3 PASS for the accepted single FP32 CPU nine-utterance functional smoke; historical 90-utterance direct runs also passed for each CPU precision",
+      "recipe_template": "examples/recipes/onecxi_open-vakgyata/cpu/cpu/audio-classification_<fp32|fp16>_config.json",
+      "gotchas": [
+        "Locale suffixes are semantic, not formatting noise. Case/punctuation normalization cannot authorize a regional remap; en_us and en-IN must remain distinct unless an authoritative source explicitly equates them.",
+        "An explicit mapping is authoritative and should target checkpoint IDs, not inferred positional correspondence. Missing or zero-overlap mappings must fail closed before sampling or inference.",
+        "Retain all accounting needed to distinguish selection from execution: requested, eligible, selected, processed, rejected, rejection reasons, rows examined per config, represented checkpoint IDs, total windows, and minimum/maximum windows per utterance.",
+        "Report accuracy and macro-F1 together. Accuracy answers total utterance correctness; macro-F1 weights each eligible class equally and is necessary when class balance or class-specific collapse matters. When evidence is split by locale/config, merge confusion matrices and recompute macro-F1; never average the per-locale macro-F1 values.",
+        "Predictions outside the eligible reference-label subset remain errors. Do not drop an en-IN prediction merely because en-IN has no FLEURS reference row in this exact-locale subset."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The pinned ClassLabel inventory, checkpoint id2label, explicit nine-label mapping, en_us exclusion probe, deterministic row selection, complete window accounting, zero rejection count, and finite metrics establish the current semantic chain. Earlier equal fp32/fp16 metrics remain historical breadth; the accepted final-candidate L3 obligation measured FP32 CPU only.",
+      "resolution": "Bound to immutable tester successor root 20260822-1a64af0-r11 (successor_verdict.json SHA-256 873c878b95804dde81629116311080852dd918916a1896e5b15e65e3dea21f18); preserve the exact ten-class order, 9/10 authoritative coverage, en_us exclusion, full-window accounting, bounded-smoke disclaimer, and `_meta-116` public L3 command closure downstream.",
+      "last_updated": "2026-08-22"
+    },
+    {
+      "id": "wav2vec2-004",
+      "title": "VALIDATED — standard Wav2Vec2ForSequenceClassification (music genre, 10-class) builds and achieves L2 parity with dynamo=false; fp16 ~20% slower on CPU as expected",
+      "observation": "dima806/music_genres_classification is a standard Wav2Vec2ForSequenceClassification checkpoint (10 music genre classes). Effort L0 recipe-only, no custom code needed. Build: fp32 (360.9MB) and fp16 (180.5MB) both clean. L1 perf on CPU: fp32 mean=57ms (17.5 sps), fp16 mean=69ms (14.6 sps) — fp16 ~20% slower due to CPU fp16→fp32 cast overhead (consistent with wav2vec2-003 observation). L2 numerical parity vs PyTorch: fp32 cosine=1.0, max_abs=6e-05; fp16 cosine=0.999983, max_abs=2.7e-02 — excellent even at fp16. Recipe uses dynamo=false matching peer recipes (baseline generated dynamo=true but all shipped wav2vec2 recipes use false). winml eval CLI-BLOCKED: audio-classification task not in eval registry (same gap as wav2vec2-003).",
+      "scope": {
+        "validated_on": [
+          "dima806/music_genres_classification @ audio-classification @ fp32 @ CPUExecutionProvider (2026-07-23, winml 0.2.0)",
+          "dima806/music_genres_classification @ audio-classification @ fp16 @ CPUExecutionProvider (2026-07-23, winml 0.2.0)"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "DML / QNN / OpenVINO / VitisAI / NvTensorRTRTX EPs",
+          "Goal L3 task metric: audio-classification not in winml eval registry"
+        ]
+      },
+      "effort_tier_required": "L0 (recipe-only, standard checkpoint resolves correctly without overrides)",
+      "goal_tier_reached": "L2 PASS for cpu/cpu/fp32 and cpu/cpu/fp16",
+      "recipe_template": "examples/recipes/dima806_music_genres_classification/cpu/cpu/audio-classification_<fp32|fp16>_config.json",
+      "gotchas": [
+        "fp16 on CPU is consistently ~20% slower than fp32 for wav2vec2 family (cast overhead); do not expect latency improvement from fp16 on CPU-only deployment.",
+        "dynamo=false is the correct export setting for wav2vec2; dynamo=true may be generated by baseline config but peer recipes consistently use false."
+      ],
+      "feature_gaps_filed": [
+        "CLI feature gap (shared with wav2vec2-003): audio-classification not registered in winml eval task registry"
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Reinforces wav2vec2-003: standard Wav2Vec2ForSequenceClassification needs no overrides, fp16 CPU slowdown is architectural (not model-specific), L2 parity is excellent. Fourth wav2vec2 data point confirming the pattern.",
+      "resolution": "Validated as Effort L0 / Goal L2 / Outcome L0. Branch: model/dima806-music-genres-classification (Lane B).",
+      "last_updated": "2026-07-23"
+    },
+    {
+      "id": "wav2vec2-005",
+      "title": "VALIDATED — standard Wav2Vec2ForSequenceClassification (gender detection, 2-class) builds out of box; L2 parity excellent at both precisions",
+      "observation": "prithivMLmods/Common-Voice-Gender-Detection is a standard Wav2Vec2ForSequenceClassification checkpoint (2 classes: female/male). Effort L0, no overrides needed — auto-config resolves audio-classification correctly. Build: fp32 and fp16 both exit 0. L1 perf on CPU: fp32 mean=49ms, fp16 mean=63ms — fp16 ~29% slower (consistent with wav2vec2-003/004 CPU cast overhead pattern). L2 numerical parity vs PyTorch: fp32 cosine=1.0, max_abs=1e-5; fp16 cosine=1.0, max_abs=3e-3 — excellent. L3 CLI-BLOCKED: audio-classification not in eval registry. Analyze: rules parquet files not downloaded on host (recorded as unavailable, not a failure).",
+      "scope": {
+        "validated_on": [
+          "prithivMLmods/Common-Voice-Gender-Detection @ audio-classification @ fp32 @ CPUExecutionProvider (2026-07-24, winml 0.2.0)",
+          "prithivMLmods/Common-Voice-Gender-Detection @ audio-classification @ fp16 @ CPUExecutionProvider (2026-07-24, winml 0.2.0)"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "DML / QNN / OpenVINO / VitisAI / NvTensorRTRTX EPs",
+          "Goal L3 task metric: audio-classification not in winml eval registry"
+        ]
+      },
+      "effort_tier_required": "L0 (recipe-only, standard checkpoint resolves correctly without overrides)",
+      "goal_tier_reached": "L2 PASS for cpu/cpu/fp32 and cpu/cpu/fp16",
+      "recipe_template": "examples/recipes/prithivMLmods_Common-Voice-Gender-Detection/cpu/cpu/audio-classification_<fp32|fp16>_config.json",
+      "gotchas": [
+        "fp16 on CPU ~29% slower than fp32 (consistent with wav2vec2 family pattern of CPU fp16->fp32 cast overhead).",
+        "analyze rules parquet files may not be present on all hosts; this blocks static EP rule classification but is not a build/perf/parity failure."
+      ],
+      "feature_gaps_filed": [
+        "CLI feature gap (shared with wav2vec2-003/004): audio-classification not registered in winml eval task registry"
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Fifth wav2vec2 data point reinforcing: standard Wav2Vec2ForSequenceClassification needs no overrides, fp16 CPU slowdown is architectural, L2 parity is excellent across all tested checkpoints. No new behavior observed.",
+      "resolution": "Validated as Effort L0 / Goal L2 / Outcome L0.",
+      "last_updated": "2026-07-24"
+    },
+    {
+      "id": "wav2vec2-006",
+      "title": "Audeering dimensional-emotion wav2vec2 checkpoints require an in-tree variant wrapper for their model-card-only regression head",
+      "observation": "For audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim, HF config says model_type=wav2vec2, architecture Wav2Vec2ForSpeechClassification, problem_type=regression, num_labels=3, but the actual EmotionModel/RegressionHead is defined only in the model-card README: no auto_map, no remote .py, and not trust_remote_code-loadable. Stock Wav2Vec2ForSequenceClassification does not match the checkpoint head keys (wav2vec2.*, classifier.dense.*, classifier.out_proj.*) and exports a random/wrong head. The accepted implementation routes only this recipe through loader.model_type=wav2vec2_emotion_regression + model_class=EmotionModel, then commands/build.py:1602-1608 passes the override to loader/hf.py:227-237, loader/resolution.py:452-453 and 515-517 choose MODEL_CLASS_MAPPING, and models/hf/wav2vec2.py:96-98 registers EmotionModel; __init__.py:98-103 imports the config and :119-138 includes the wav2vec2 mapping. Artifact facts: export_htp_metadata.json reports class EmotionModel, model_type wav2vec2_emotion_regression, task audio-classification, 165,336,707 parameters, 231 modules, 71 modules traced (71/231), top children Wav2Vec2Model + RegressionHead; winml_build_config.json autoconf filled optim.gelu_fusion=true and optim.matmul_add_fusion=true from recipe optim={}; quant remains null.",
+      "scope": {
+        "validated_on": [
+          "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim @ fp32 @ CPUExecutionProvider"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "stock Wav2Vec2ForSequenceClassification checkpoints with standard classifier heads",
+          "other audeering wav2vec2 emotion checkpoints"
+        ]
+      },
+      "effort_tier_required": "L1",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/audeering_wav2vec2-large-robust-12-ft-emotion-msp-dim/audio-classification_fp32_config.json",
+      "gotchas": [
+        "Do not treat Optimum VENDOR-ONLY wav2vec2/audio-classification coverage as proof that this checkpoint head is stock-loadable; inspect architectures and checkpoint weight keys before assigning L0/L0★.",
+        "The recipe deliberately uses variant loader.model_type=wav2vec2_emotion_regression so stock wav2vec2 remains untouched."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Confirmed by checkpoint key mismatch against the stock class and by L2 PyTorch-vs-ONNX parity after routing through the in-tree EmotionModel variant. Falsify by finding an audeering checkpoint with auto_map/remote code or stock Wav2Vec2ForSequenceClassification-compatible classifier keys.",
+      "last_updated": "2026-07-11"
+    },
+    {
+      "id": "wav2vec2-007",
+      "title": "The in-tree EmotionModel export preserves the trained regression head numerically on fp32 CPU",
+      "observation": "L2 validation for audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim using recipe examples/recipes/audeering_wav2vec2-large-robust-12-ft-emotion-msp-dim/audio-classification_fp32_config.json reached PyTorch-vs-ONNX cosine 0.9999998807907104 and max-abs 1.6689e-6 on deterministic random input (seed 0), plus zeros-anchor ONNX-vs-reference max-abs 2.98e-7 against reference logits [[0.5460754, 0.6062266, 0.40431657]]. L0 output tensors were hidden_states[1,1024] and logits[1,3]. Artifact facts: export_htp_metadata.json reports class EmotionModel, model_type wav2vec2_emotion_regression, task audio-classification, 165,336,707 parameters, 231 modules, 71 modules traced (71/231), top children Wav2Vec2Model + RegressionHead; winml_build_config.json autoconf filled optim.gelu_fusion=true and optim.matmul_add_fusion=true from recipe optim={}; quant remains null.",
+      "scope": {
+        "validated_on": [
+          "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim @ fp32 @ CPUExecutionProvider"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "DirectMLExecutionProvider parity",
+          "QNN/OpenVINO/VitisAI runtime parity"
+        ]
+      },
+      "effort_tier_required": "L1",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/audeering_wav2vec2-large-robust-12-ft-emotion-msp-dim/audio-classification_fp32_config.json",
+      "gotchas": [
+        "Shape-only L0 is insufficient for this checkpoint: random/stock and trained heads both emit logits[1,3]; require L2 numeric parity to prove the learned head exported."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The deterministic reference and random-input parity confirm that the exported ONNX graph uses the trained audeering regression head rather than a randomly initialized stock classifier. Falsify with a repeated parity run that matches shape but diverges numerically from PyTorch.",
+      "last_updated": "2026-07-11"
+    },
+    {
+      "id": "wav2vec2-008",
+      "title": "Historical PR #1084 precision mismatch: the fp16 request built fp32 and was renamed instead of rebuilt",
+      "observation": "The recipe was ORIGINALLY shipped as audio-classification_fp16_config.json, but winml_build_config.json has quant=null and no fp16 cast field; tester initializer inspection found 233 FLOAT and 0 FLOAT16 initializers (plus 10 INT64), so the built ONNX is fp32 — an instance of the known _meta-014 filename-vs-artifact precision trap. The independent reviewer flagged this on PR #1084 and the recipe was renamed to audio-classification_fp32_config.json so the filename matches the artifact (quant stays null = fp32). Artifact facts: export_htp_metadata.json reports class EmotionModel, model_type wav2vec2_emotion_regression, task audio-classification, 165,336,707 parameters, 231 modules, 71 modules traced (71/231), top children Wav2Vec2Model + RegressionHead; winml_build_config.json autoconf filled optim.gelu_fusion=true and optim.matmul_add_fusion=true from recipe optim={}; quant remains null.",
+      "scope": {
+        "validated_on": [
+          "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim @ fp32 @ CPUExecutionProvider"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+            "a rebuilt fp16 tuple using `--precision fp16` with FLOAT16/size/perf proof"
+        ]
+      },
+      "effort_tier_required": "L1",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/audeering_wav2vec2-large-robust-12-ft-emotion-msp-dim/audio-classification_fp32_config.json",
+      "gotchas": [
+        "Review initializer dtypes, artifact size, and the perf precision line; filename and recipe fields alone do not prove realized precision.",
+        "PR #1084 historically renamed `_fp16_` to `_fp32_`. Current `_meta-065/_meta-077` instead requires repairing and rebuilding the exact fp16 tuple; renaming is not an fp16 resolution."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The historical mismatch is confirmed by the build config and initializer census. The rename records what PR #1084 shipped, but current precision policy supersedes it as a repair strategy.",
+      "last_updated": "2026-07-31"
+    },
+    {
+      "id": "wav2vec2-009",
+      "title": "The audeering wav2vec2 fp32 graph has 410 ops across 14 ONNX op types; QNN rules fully cover it while OpenVINO partially flags Slice",
+      "observation": "analyze_all.json for temp\\audeering_emotion_test\\model.onnx reports opset 17, producer pytorch 2.12.0, 410 total operators and 14 unique op types: Unsqueeze 1, Conv 8, Transpose 63, LayerNormalization 33, Gelu 20, Reshape 122, Gemm 75, Slice 1, Add 25, Mul 24, MatMul 24, Softmax 12, ReduceMean 1, Tanh 1. Per-EP rules: QNNExecutionProvider/NPU runtime_support=true, 410 supported / 0 partial / 0 unsupported / 0 unknown; OpenVINOExecutionProvider/NPU runtime_support=false, has_warnings=true, 409 supported / 1 partial / 0 unsupported / 0 unknown with partial OP/ai.onnx/Slice at /wav2vec2/encoder/pos_conv_embed/padding/Slice; VitisAIExecutionProvider/NPU runtime_support=false, 0 supported / 0 partial / 0 unsupported / 410 unknown. CPUExecutionProvider was the actual L1 runtime target, but standalone analyze ships no CPU rules, so CPU op coverage is expected to be all-unknown/not applicable. Artifact facts: export_htp_metadata.json reports class EmotionModel, model_type wav2vec2_emotion_regression, task audio-classification, 165,336,707 parameters, 231 modules, 71 modules traced (71/231), top children Wav2Vec2Model + RegressionHead; winml_build_config.json autoconf filled optim.gelu_fusion=true and optim.matmul_add_fusion=true from recipe optim={}; quant remains null.",
+      "scope": {
+        "validated_on": [
+          "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim @ fp32 @ CPUExecutionProvider",
+          "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim @ fp32 @ QNNExecutionProvider rules-only NPU analyze",
+          "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim @ fp32 @ OpenVINOExecutionProvider rules-only NPU analyze",
+          "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim @ fp32 @ VitisAIExecutionProvider rules-only NPU analyze"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "actual QNN NPU runtime execution",
+          "actual OpenVINO NPU runtime execution",
+          "actual VitisAI NPU runtime execution"
+        ]
+      },
+      "effort_tier_required": "L1",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/audeering_wav2vec2-large-robust-12-ft-emotion-msp-dim/audio-classification_fp32_config.json",
+      "gotchas": [
+        "Do not read analyze rule coverage as runtime execution: QNN/OpenVINO/VitisAI entries are static rule classifications; CPUExecutionProvider was the perf runtime."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "Operator counts and rule classifications are observed from analyze_all.json; accelerator runtime behavior is not confirmed because L1 perf ran on CPU only. Falsify by running the built ONNX on the accelerator EP and comparing actual partition/fallback behavior.",
+      "last_updated": "2026-07-11"
+    },
+    {
+      "id": "wav2vec2-010",
+      "title": "The audeering wav2vec2-large emotion regression artifact is a large fp32 CPU model with roughly 380-420 ms CPU latency",
+      "observation": "L1 CPUExecutionProvider perf for audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim fp32: an initial idle-machine run reported avg 161.38 ms / p50 151.65 ms / throughput 6.20 samples/s, but that reading did NOT reproduce. Independent re-measurement (reviewer + a 4-run producer re-run on PR #1084) showed avg ~377-416 ms (representative avg 381.46 ms, throughput ~2.62 samples/s, with a one-off 1278.88 ms max-latency outlier). RAM total ~+693.8 to +697.7 MB (load ~+607 MB, inference ~+91 MB). Treat ~380-420 ms as the reproducible CPU fp32 latency; the 161 ms reading was a non-reproducible idle-host outlier. export_htp_metadata.json reports 165,336,707 parameters, 231 modules, 71 modules traced (71/231), class EmotionModel, top children Wav2Vec2Model + RegressionHead; winml_build_config.json autoconf filled optim.gelu_fusion=true and optim.matmul_add_fusion=true from recipe optim={}; quant remains null.",
+      "scope": {
+        "validated_on": [
+          "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim @ fp32 @ CPUExecutionProvider"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "DmlExecutionProvider latency/memory",
+          "quantized or fp16 variants",
+          "longer audio_sequence_length than 16000"
+        ]
+      },
+      "effort_tier_required": "L1",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/audeering_wav2vec2-large-robust-12-ft-emotion-msp-dim/audio-classification_fp32_config.json",
+      "gotchas": [
+        "Expect large-model RAM: ~+694 MB total on CPU for batch=1, 16000 samples, fp32.",
+        "CPU latency is highly host-load sensitive: 161 ms (idle) vs ~380-416 ms (loaded) — report a representative multi-run number, not a single best run."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "Performance and memory are empirical on the tester host. Treat as a floor for similar fp32 CPU runs, not a portable guarantee across hardware, ORT versions, or sequence lengths.",
+      "last_updated": "2026-07-11"
+    },
+    {
+      "id": "wav2vec2-011",
+      "title": "VALIDATED — exact winml 0.2.0/main derives AutoModelForCTC for this standard Wav2Vec2ForCTC checkpoint without a loader.model_class recipe override, falsifying wav2vec2-002's historical loader mechanism",
+      "observation": "MahmoudAshraf/mms-300m-1130-forced-aligner@49402e9577b1158620820667c218cd494cc44486 was tested on exact winml 0.2.0 main commit 57c2cdf2381cc3a55f1ef065d247d838b3c6a0db. A fresh recipe-free fp32 baseline selected AutoModelForCTC and built successfully, and both candidate recipes omit loader.model_class; their resolved winml_build_config.json files retain only loader.task=automatic-speech-recognition and loader.model_type=wav2vec2. Fresh CPU builds passed: fp32 IR 8/opset 17, 967 nodes, 428 FLOAT + 6 INT64 initializers, 1,261,886,852 external-data bytes, SHA-256 65bc89fcf572dd85e7e10fff743be374ae6c805f082d33293a3efb2704c3782c; fp16 IR 8/opset 17, 969 nodes, 428 FLOAT16 + 6 INT64 initializers, 630,943,426 external-data bytes, SHA-256 3f9d6ab667656f3a412e664ef3f7a49b269cf50cff811cb9de08f84a86b7c701. Both preserve FP32 input_values[1,16000] and logits[1,49,31]; fp16 therefore halves external weight bytes while keeping FP32 I/O, with two boundary Cast nodes. HTP metadata reports Wav2Vec2ForCTC, 315,469,471 parameters, 409 modules, and 118 traced modules for both exports. Named-input one-iteration winml perf measured fp32 mean/P50=166.081/166.081 ms, 6.02 samples/s, and fp16 mean/P50=180.291/180.291 ms, 5.55 samples/s; supplementary three-iteration ORT CPU measurements were fp32 mean/P50=135.2947/130.2887 ms, 7.3913 samples/s, +1,320,439,808-byte peak RSS, and fp16 mean/P50=357.1973/346.7656 ms, 2.7996 samples/s, +2,951,737,344-byte peak RSS. L2 against a fresh pinned AutoModelForCTC PyTorch reference on identical deterministic input passed: fp32 cosine=0.9999999999993118, max_abs=0.00003471970558166504, mean_abs=0.000005141229241831354; fp16 cosine=0.999999914482318, max_abs=0.016648292541503906, mean_abs=0.001753806826303553. Static analysis completed for both artifacts across seven provider classifications (exit 1 only because QNN had partial operators): fp32 has 967 operators/14 types and fp16 969/15, with Add=251, MatMul=194, Mul=112, Transpose=111, Reshape=96, LayerNormalization=57 dominant; QNN marks Add, Div, Erf, IsNaN, and Mul partial and no operator unsupported, while runtime-unavailable providers remain unknown rather than runtime-validated.",
+      "scope": {
+        "validated_on": [
+          "MahmoudAshraf/mms-300m-1130-forced-aligner@49402e9577b1158620820667c218cd494cc44486 @ automatic-speech-recognition @ fp32 @ CPUExecutionProvider (2026-07-27, winml 0.2.0, main 57c2cdf2381cc3a55f1ef065d247d838b3c6a0db)",
+          "MahmoudAshraf/mms-300m-1130-forced-aligner@49402e9577b1158620820667c218cd494cc44486 @ automatic-speech-recognition @ fp16 @ CPUExecutionProvider (2026-07-27, winml 0.2.0, main 57c2cdf2381cc3a55f1ef065d247d838b3c6a0db)"
+        ],
+        "falsified_on": [],
+        "refines": [
+          "wav2vec2-002"
+        ],
+        "not_yet_tested_on": [
+          "Other Wav2Vec2ForCTC, HubertForCTC, or MMS checkpoints; this single-checkpoint current-main result does not establish class-wide CTC loader behavior",
+          "Non-CPU runtime execution; static provider classifications are not runtime verdicts",
+          "winml releases or main commits other than exact winml 0.2.0 commit 57c2cdf2381cc3a55f1ef065d247d838b3c6a0db",
+          "Goal L3 task metric: automatic-speech-recognition is CLI-BLOCKED because winml eval has no ASR evaluator or defensible default forced-alignment dataset"
+        ]
+      },
+      "effort_tier_required": "L0 (recipe-only precision coverage; current main already derives the correct CTC loader and builds without a recipe)",
+      "goal_tier_reached": "L2 PASS for cpu/cpu/fp32 and cpu/cpu/fp16; supplementary L3 is CLI-BLOCKED for both precisions",
+      "recipe_template": "examples/recipes/MahmoudAshraf_mms-300m-1130-forced-aligner/cpu/cpu/automatic-speech-recognition_<fp32|fp16>_config.json",
+      "gotchas": [
+        "Do not carry forward wav2vec2-002's loader.model_class=AutoModelForCTC override as a current-main requirement for this checkpoint: exact winml 0.2.0/main derives AutoModelForCTC when loader.model_class is absent.",
+        "The fp16 recipe must retain quant.mode=fp16 and fp16_keep_io_types=true and be built with --precision fp16 without --no-quant; the resulting graph has FLOAT16 weights but deliberately FLOAT input/output tensors.",
+        "CPU fp16 reduced external data from 1,261,886,852 to 630,943,426 bytes but was slower than fp32 in both the one-iteration CLI measurement and supplementary three-iteration harness; size reduction does not imply CPU latency improvement.",
+        "Static analysis exit 1 is not an analysis failure here: all seven provider rows were produced, with QNN partial Add/Div/Erf/IsNaN/Mul classifications causing the nonzero exit. Runtime-unavailable provider rows must not be promoted to execution support claims.",
+        "winml eval rejects automatic-speech-recognition before dataset execution for both precisions; the pinned model card names only a generic forced-alignment dataset, so no dataset, subset, revision, or metric may be invented."
+      ],
+      "feature_gaps_filed": [
+        "#1229 — add automatic-speech-recognition/forced-alignment support to winml eval, including schema, audio+transcript dataset adapter, preprocessing, and an appropriate WER/alignment metric surface: https://github.com/microsoft/winml-cli/issues/1229"
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The counter-mechanism is directly confirmed on exact current main: recipe-free inspect/config/build selected AutoModelForCTC, and fresh fp32/fp16 recipes whose resolved loader has no model_class both built and passed L2. This explicitly falsifies wav2vec2-002's claim that a loader.model_class override is required on current winml, but only for the cited checkpoint/version/commit; it does not deny the recorded winml 0.1.0 failure, generalize to other CTC families/checkpoints, or affect wav2vec2-001's custom trust_remote_code task-resolution mechanism.",
+      "resolution": "Validated as Effort L0 / Goal L2 on both required CPU precisions. The only effective precision-specific recipe delta is fp16 conversion; loader.model_class is intentionally absent because current main derives AutoModelForCTC.",
+      "last_updated": "2026-07-27"
+    },
+    {
+      "id": "wav2vec2-012",
+      "title": "A 964.8M-parameter Wav2Vec2ForCTC checkpoint preserves CPU fp32/fp16 L2 parity when optimization bypass is independent from pre-quantized detection",
+      "observation": "facebook/mms-1b-all@3d33597edbdaaba14a8e858e2c8caa76e3cec0cd was validated on winml 0.2.0 at main 3a2b2f7db5e70bb1f9039dd9037697ef92b2bc2a plus the shared build-stage repair. HTP export reports 964,845,850 parameters, 1,009 modules, 262 traced modules, and 524 execution steps. Exact CPUExecutionProvider builds finalized external-data artifacts for fp32 (3,860,232,537 bytes; 1,100 FLOAT initializers) and fp16 (1,930,538,427 bytes; 1,100 FLOAT16 initializers; FLOAT input/output preserved). L1 fp32 mean/P50 was 308.472/310.079 ms at 3.24 samples/s with 112.29 MB total RSS delta; fp16 was 357.660/352.498 ms at 2.80 samples/s with 43.22 MB total RSS delta. Against pinned PyTorch logits on the same seed-1177 input_values[1,16000], fp32 cosine was 0.999999999999145 with max-absolute delta 0.000118255615234375; fp16 cosine was 0.9999999582748615 with max-absolute delta 0.0211029052734375. Static analyze emitted complete seven-EP JSON before a provider-bridge 0xC0000005; QNN rules marked Div/Erf/Add/Mul/IsNaN partial and no op unsupported, while unavailable-rule EP rows remained unknown. WinML L3 ASR evaluation is blocked by issue #1229.",
+      "scope": {
+        "validated_on": [
+          "facebook/mms-1b-all@3d33597edbdaaba14a8e858e2c8caa76e3cec0cd @ automatic-speech-recognition @ fp32 @ CPUExecutionProvider (2026-07-28, winml 0.2.0, main 3a2b2f7d + shared skip-optimize/prequantized repair)",
+          "facebook/mms-1b-all@3d33597edbdaaba14a8e858e2c8caa76e3cec0cd @ automatic-speech-recognition @ fp16 @ CPUExecutionProvider (2026-07-28, winml 0.2.0, main 3a2b2f7d + shared skip-optimize/prequantized repair)"
+        ],
+        "falsified_on": [],
+        "refines": [
+          "wav2vec2-002",
+          "wav2vec2-003"
+        ],
+        "not_yet_tested_on": [
+          "Runtime build/perf/eval on DML, QNN, OpenVINO, VitisAI, NvTensorRTRTX, CUDA, MIGraphX, and TensorRT; analyze classifications are static rule evidence only",
+          "CPU w8a8 and w8a16, which are not required by the CPU precision plan",
+          "Goal L3 WER or another task metric; winml eval ASR support is blocked by open issue #1229"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2 PASS for cpu/cpu/fp32 and cpu/cpu/fp16; supplementary L3 is CLI-BLOCKED by #1229",
+      "recipe_template": "examples/recipes/facebook_mms-1b-all/cpu/cpu/automatic-speech-recognition_<fp32|fp16>_config.json",
+      "gotchas": [
+        "For raw external-data ONNX larger than 2 GB, --no-optimize must remain independent from pre-quantized detection: skip optimization, but still execute quant.mode=fp16 for a requested fp16 artifact.",
+        "For an actually QDQ/QOperator-prequantized input, optimization and re-quantization must both remain suppressed; explicit stage intent is not evidence that a graph is pre-quantized.",
+        "Verify fp16 from finalized initializer dtypes and artifact size, not the recipe filename or --precision flag. This run produced 1,100 FLOAT16 initializers and a 0.500109 fp16/fp32 artifact-size ratio with FLOAT I/O preserved.",
+        "CPU fp16 reduced artifact and inference RSS but was slower than fp32 on this host (P50 352.498 ms versus 310.079 ms); do not infer CPU speedup from reduced weight size.",
+        "winml analyze --ep all can emit complete seven-EP JSON and then exit 0xC0000005 after 'Init provider bridge failed'. Validate JSON completeness and retain the nonzero exit honestly; do not reinterpret static classifications as runtime support.",
+        "The exported graph emits frame logits [1,49,154]. CTC decoding and language-adapter orchestration remain outside the graph, and current winml eval cannot measure ASR WER (#1229)."
+      ],
+      "feature_gaps_filed": [
+        "#1229 - feat(eval): support automatic speech recognition metrics"
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Confirmed by focused HF/ONNX/CLI regressions for raw and detected-prequantized inputs, fresh >2 GB fp32/fp16 final artifacts, dtype/size inspection, perf, and deterministic PyTorch parity. The model-family reach is limited to this MMS checkpoint and CPU tuples; a future large external-data model or another EP can falsify generality without invalidating these observations.",
+      "resolution": "Validated as Effort L2 / Goal L2 / Outcome L2 with full required CPU precision coverage. The obsolete model-specific Wav2Vec2 mapping from original PR #1177 is not part of the candidate; generalized CTC resolution is inherited from merged PR #1154.",
+      "last_updated": "2026-07-28"
+    },
+    {
+      "id": "wav2vec2-015",
+      "title": "Audeering dimensional-emotion export requires the custom trained regression head and the Transformers 5 model lifecycle",
+      "observation": "A FULL-RERUN of PR #1084 on winml 0.2.0 candidate d35f08ab27cb3dac703c5dd02bc5e35cae76993a, main bd80a26a0309ef6b2edd6d6a03a1e9479fecffea, Transformers 5.14.1, and ONNX Runtime 1.27.0 confirmed that stock main now detects audio-classification and builds Wav2Vec2ForSequenceClassification in 74.3s, but initializes classifier.bias and classifier.weight randomly. The stock [1,3] output is therefore shape-compatible but semantically wrong for the checkpoint's trained mean-pooling RegressionHead. The variant remains data-driven through loader.model_type=wav2vec2_emotion_regression and model_class=EmotionModel rather than checkpoint-ID hardcoding. Transformers 5 additionally requires two lifecycle details: shadow the ClassVar-annotated config.model_type on the config instance with object.__setattr__, and call post_init() instead of init_weights() so all_tied_weights_keys and other final bookkeeping exist. Before the post_init repair, fresh export failed with `'EmotionModel' object has no attribute 'all_tied_weights_keys'`; after it, both precision builds and all quality gates passed. HTP metadata reports EmotionModel, 165,336,707 parameters, 231 modules, 71 traced modules, and top children Wav2Vec2Model plus RegressionHead.",
+      "scope": {
+        "validated_on": [
+          "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim @ audio-classification @ fp32/fp16 @ CPUExecutionProvider (2026-08-12, winml 0.2.0 candidate d35f08ab, Transformers 5.14.1, ORT 1.27.0)"
+        ],
+        "falsified_on": [],
+        "refines": ["wav2vec2-006", "wav2vec2-007"],
+        "not_yet_tested_on": [
+          "Other audeering dimensional-emotion checkpoints",
+          "Non-CPU runtime execution; accelerator Analyze rows are static rule classifications only"
+        ]
+      },
+      "effort_tier_required": "L1",
+      "goal_tier_reached": "L3 functional smoke PASS with L2 parity on both CPU precisions",
+      "recipe_template": "examples/recipes/audeering_wav2vec2-large-robust-12-ft-emotion-msp-dim/cpu/cpu/audio-classification_<fp32|fp16>_config.json",
+      "gotchas": [
+        "Build success and logits[1,3] do not prove the trained head exported; require numerical parity because the stock random classifier has the same shape.",
+        "Custom PreTrainedModel subclasses on Transformers 5 must use post_init() for final tied-weight bookkeeping.",
+        "Do not assign directly to config.model_type under Transformers 5 typing and do not mutate Wav2Vec2Config.model_type globally; shadow the variant on only the recipe-selected config instance."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The random-head mechanism is confirmed by stock-main load warnings and candidate PyTorch-to-ONNX parity. The Transformers 5 mechanism is confirmed by the pre-repair all_tied_weights_keys export failure, a constructor regression, and successful fresh exports after post_init().",
+      "resolution": "PR #1084 candidate d35f08ab retains the custom EmotionModel and adds lock-aligned Transformers 5 lifecycle repairs plus a constructor regression.",
+      "last_updated": "2026-08-12"
+    },
+    {
+      "id": "wav2vec2-016",
+      "title": "Lock-aligned audeering emotion artifacts preserve FP32/FP16 parity and complete component/operator coverage",
+      "observation": "Sealed tester-r4 evidence for candidate d35f08ab produced fresh CPU artifacts from the checked-in recipes. FP32: 410 nodes, 234 FLOAT plus 10 INT64 initializers, 661,351,812 external-data bytes, mean/P50 68.24/66.33 ms, 14.65 samples/s, and +89.9 MB RAM. FP16: 413 nodes, 234 FLOAT16 plus 10 INT64 initializers, 330,675,906 bytes, mean/P50 75.27/74.58 ms, 13.28 samples/s, and +43.4 MB RAM; FP16 halves weight storage and inference RAM but is slower on this CPU. Both preserve FP32 input_values[1,16000] and hidden_states[1,1024]/logits[1,3]. Seed-0 PyTorch parity passed: FP32 logits cosine 0.9999999999999797 and max-abs 1.5497207641601562e-6; FP16 cosine 0.9999999969830777 and max-abs 9.143352508544922e-5. One real-audio FP32 CPU functional smoke produced finite continuous [arousal, dominance, valence]=[0.5396079421043396, 0.5892048478126526, 0.47451817989349365], explicitly not an accuracy benchmark. Component mapping covered 410/410 FP32 and 413/413 FP16 nodes with zero unmapped nodes. Explicit static Analyze runs classified all 14 FP32 or 15 FP16 operator types supported on each populated NvTensorRTRTX/GPU, OpenVINO/CPU/GPU/NPU, and QNN/GPU/NPU rules target. CI gates passed: models partition 1515 passed, 6 skipped, 2 xfailed; Ruff passed; mypy found no issues in 434 files.",
+      "scope": {
+        "validated_on": [
+          "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim @ audio-classification @ fp32/fp16 @ CPUExecutionProvider (2026-08-12, candidate d35f08ab, Transformers 5.14.1, ORT 1.27.0)",
+          "same artifacts @ NvTensorRTRTX/OpenVINO/QNN populated static rules targets (analysis only, not runtime execution)"
+        ],
+        "falsified_on": [],
+        "refines": ["wav2vec2-008", "wav2vec2-009", "wav2vec2-010"],
+        "not_yet_tested_on": [
+          "Actual accelerator runtime execution or parity",
+          "Representative dimensional-emotion accuracy; the one-sample L3 result proves only functional operability",
+          "Audio lengths other than the fixed 16000-sample recipe input"
+        ]
+      },
+      "effort_tier_required": "L1",
+      "goal_tier_reached": "L3 functional smoke PASS; L0/L1/L2 PASS for cpu/cpu/fp32 and cpu/cpu/fp16",
+      "recipe_template": "examples/recipes/audeering_wav2vec2-large-robust-12-ft-emotion-msp-dim/cpu/cpu/audio-classification_<fp32|fp16>_config.json",
+      "gotchas": [
+        "Use --precision fp16 without --no-quant and verify FLOAT16 initializers plus approximately half-size external data.",
+        "Reduced FP16 storage/RAM does not imply CPU speedup; this host measured FP16 P50 74.58 ms versus FP32 66.33 ms.",
+        "Static rule support across accelerator targets is not runtime execution support.",
+        "The L3 metric is functional_output_validity=1.0 on one pinned real sample; do not report it as classification or regression accuracy."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Artifact precision is confirmed by initializer dtypes and byte sizes; trained-head semantics by identical-input PyTorch parity; component coverage by complete ONNX node-scope accounting; accelerator conclusions remain static-only.",
+      "resolution": "Current PR #1084 evidence supersedes the historical fp32-only precision, old graph, and 380-420 ms host measurements operationally while retaining them as versioned history.",
+      "last_updated": "2026-08-12"
+    },
+    {
+      "id": "wav2vec2-017",
+      "title": "Current main makes PR #1177 recipe-only and builds facebook/mms-1b-all at FP32 and FP16 under Transformers 5",
+      "observation": "A FULL-RERUN of PR #1177 on main 8079522ee692645569508d11abd4a0ea45a40987, winml 0.2.0, Transformers 5.14.1, PyTorch 2.13.0, and ORT 1.27.0 confirmed that shared resolve_task passes model_type=wav2vec2 to Optimum and selects AutoModelForCTC without a model-specific registry. Clean-main inspect and a fresh recipe-free FP32 build loaded Wav2Vec2ForCTC with 964.8M parameters; the obsolete src/winml/modelkit/models/hf/wav2vec2.py and its mapping tests were removed from the PR. Fresh generated recipes require export.compatibility.transformers_attention=eager. FP32 and actual FP16 CPU builds completed in 546.1s and 596.5s. Final external weights were 3,859,383,684 and 1,929,691,842 bytes; both preserve input_values float32[1,16000] to logits float32[1,49,154]. FP32 has 1,096 FLOAT initializers; FP16 has 1,096 FLOAT16 initializers and two boundary Cast nodes. Bounded CPU perf was FP32 mean 301.452 ms / 3.32 samples/s and FP16 mean 335.36 ms / 2.98 samples/s. Seed-1177 PyTorch parity passed: FP32 cosine 0.999999999999424, max-abs 0.0001041889; FP16 cosine 0.9999999554162311, max-abs 0.0249351263; both preserved all 49 frame argmax IDs. One pinned real-audio one-second FP32 smoke decoded non-empty text, proving processor-to-CTC functionality without claiming WER or accuracy.",
+      "scope": {
+        "validated_on": [
+          "facebook/mms-1b-all @ automatic-speech-recognition @ fp32/fp16 @ CPUExecutionProvider (2026-08-12, main 8079522e, Transformers 5.14.1, ORT 1.27.0)"
+        ],
+        "falsified_on": [
+          "PR #1177's model-specific Wav2Vec2 AutoModelForCTC mapping requirement on current main"
+        ],
+        "refines": ["wav2vec2-002", "wav2vec2-011", "wav2vec2-012"],
+        "not_yet_tested_on": [
+          "Actual OpenVINO, QNN, VitisAI, DML, or GPU/NPU runtime execution",
+          "ASR WER or representative accuracy; current winml eval does not register automatic-speech-recognition"
+        ]
+      },
+      "effort_tier_required": "L0 (recipe-only; shared current-main resolution already supplies AutoModelForCTC)",
+      "goal_tier_reached": "L3 functional smoke PASS; L0/L1/L2 PASS for cpu/cpu/fp32 and cpu/cpu/fp16",
+      "recipe_template": "examples/recipes/facebook_mms-1b-all/cpu/cpu/automatic-speech-recognition_<fp32|fp16>_config.json",
+      "gotchas": [
+        "Regenerate old Wav2Vec2 recipes under Transformers 5 so export.compatibility.transformers_attention=eager is retained.",
+        "Do not restore a custom Wav2Vec2 task mapping: current shared resolver and its Wav2Vec2-versus-Whisper regression already select AutoModelForCTC.",
+        "FP16 halves external weight storage but was 11.2% slower than FP32 on this CPU; do not claim a CPU speedup.",
+        "winml eval rejects automatic-speech-recognition and winml run is disabled. The bounded real-audio processor/ORT/CTC smoke proves only functional operability, not WER or accuracy.",
+        "Static rules covered OpenVINO CPU/GPU/NPU and QNN GPU/NPU, but classified all 13 FP32 or 14 FP16 operator types unknown. This is a rule-data gap, not runtime support evidence. QNN information additionally reports missing rules for Gelu and Gemm, plus FP16 NPU LayerNormalization shape inference."
+      ],
+      "feature_gaps_filed": [
+        "#1229 - feat(eval): support automatic speech recognition metrics"
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The no-custom-code mechanism is confirmed by clean-main inspect/config/build and the existing shared resolver regressions. Precision is confirmed by initializer dtype and byte-size evidence; semantics by identical-input PyTorch parity; component analysis accounts exactly for all 386 Gemm, 153 LayerNormalization, 96 MatMul, and 48 Softmax/Mul/Relu nodes across the 48-layer encoder.",
+      "resolution": "PR #1177 should contain only regenerated CPU FP32 and FP16 recipes; generalized CTC resolution remains owned by current main.",
+      "last_updated": "2026-08-12"
+    },
+    {
+      "id": "wav2vec2-018",
+      "title": "Scalar string audio labels require complete atomic prevalidation against checkpoint IDs before inference",
+      "observation": "prithivMLmods/Common-Voice-Gender-Detection@ebbf41293c8dbea45c5bb0de6e3ef77bf89cc2ee was validated on WinML 0.3.0 with a model-support candidate stacked on microsoft/winml-cli Draft PR #1326 head 1bd919b583aa8ccd974e35fa6a1a132ac7e1c9f8 rather than copying its generalized audio evaluator. Candidate e4d19ba1d4af532ba4cf0b047ff2fb395ac9d868 added a class-wide datasets.Value('string') path and validated mapping structure, but an independent valid-then-unknown two-row probe falsified its fail-before-inference claim by observing one model forward before DatasetValidationError. Repaired candidate 8010667eb20d0eb08e916157a6cc5080c91d385d materializes and resolves every selected target before the first prediction. The same probe then passed with forward_count=0 and no partial output, while the 18-test compatibility suite preserved scalar ClassLabel and sequence ClassLabel/string multi-label behavior. A fresh pinned AsmaaQ/gender_audio_1080@47f6563cf1b819cbf1cbc8569a8dfe8fc426bab3 fp32 CPU L3 run retained accuracy=1.0, represented-class macro-F1=1.0, ten windows, and requested/selected/processed/rejected counts 2/2/2/0. This is bounded functional smoke over both represented classes, not representative gender-classification accuracy. L0 build, L1 perf, L2 parity, and Analyze remain explicitly reused from e4d19ba after unchanged artifact payloads were rehashed; evaluator, L3, CI, and static evidence are fresh on 8010667.",
+      "scope": {
+        "validated_on": [
+          "prithivMLmods/Common-Voice-Gender-Detection@ebbf41293c8dbea45c5bb0de6e3ef77bf89cc2ee @ fp32 @ CPUExecutionProvider @ AsmaaQ/gender_audio_1080@47f6563cf1b819cbf1cbc8569a8dfe8fc426bab3 test first exact female+male rows @ candidate 8010667eb20d0eb08e916157a6cc5080c91d385d",
+          "audio-classification evaluator compatibility plus valid-then-unknown zero-forward discriminator @ scalar ClassLabel plus sequence ClassLabel/string targets @ candidate 8010667eb20d0eb08e916157a6cc5080c91d385d"
+        ],
+        "falsified_on": [
+          "Accepting scalar datasets.Value('string') labels without an explicit complete mapping",
+          "Inferring checkpoint IDs from source order, case folding, fuzzy matching, or label position",
+          "Candidate e4d19ba1d4af532ba4cf0b047ff2fb395ac9d868 resolved selected scalar-string targets inside the inference loop: a valid row followed by an unknown row produced forward_count=1 before DatasetValidationError"
+        ],
+        "refines": [
+          "wav2vec2-005",
+          "wav2vec2-013",
+          "wav2vec2-014"
+        ],
+        "not_yet_tested_on": [
+          "Scalar string datasets with more than two checkpoint classes",
+          "Scalar string datasets whose authoritative labels do not exactly match mapping keys",
+          "Representative population accuracy or non-CPU execution providers"
+        ]
+      },
+      "effort_tier_required": "L2 (shared audio-classification target-schema and resolver extension on the exact Draft PR #1326 dependency)",
+      "goal_tier_reached": "L3 functional smoke PASS on fp32 CPU; L0/L1/L2 PASS for cpu/cpu/fp32 and cpu/cpu/fp16",
+      "recipe_template": "examples/recipes/prithivMLmods_Common-Voice-Gender-Detection/cpu/cpu/audio-classification_<fp32|fp16>_config.json",
+      "gotchas": [
+        "Treat an explicit mapping as a semantic contract to contiguous checkpoint IDs. Validate mapping structure before selection, then materialize and resolve every target in the bounded selected subset before the first model forward; per-row resolution inside the inference loop can leak partial inference before a later invalid target fails.",
+        "Do not route ClassLabel or sequence-valued targets through the new scalar-string branch; their established decoding and metric semantics must remain stable.",
+        "For a bounded single-label smoke, select deterministically after exact mapped-label eligibility filtering and compute macro-F1 over represented classes from aggregate counts. Report represented_classes and class_coverage with the score.",
+        "Preserve stacked and mixed evidence provenance: repaired candidate 8010667eb20d0eb08e916157a6cc5080c91d385d depends on Draft PR #1326 head 1bd919b583aa8ccd974e35fa6a1a132ac7e1c9f8. L0-L2 and Analyze were reused from parent e4d19ba only after payload rehash; evaluator, L3, CI, and static checks are fresh on 8010667. A future remote ref must resolve to 8010667 and retain the dependency as an ancestor before public reproduction."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The rejected e4d19ba probe observed forward_count=1, proving that mapping-shape validation alone was not atomic across selected rows. Candidate 8010667 pre-resolves the selected targets and passes the same probe with forward_count=0 and no partial output. Its full evaluator suite reports 18 passed; fresh L3 preserves exact female/male resolution, deterministic represented-class sampling, raw SoundFile decoding, full fixed-window aggregation, ten windows, and finite metrics. Final tester ACCEPT is bound to successor-verdict SHA-256 b13f2ca2ee8cd07865f3f4f194b86dc5390e104d6c455e84646f7d8e76ff6c0e and immutable integrity evidence at tester/20260821-8010667-successor-r1/final/integrity-manifest.json.",
+      "resolution": "Technical ACCEPT and DOWNSTREAM-READY-WITH-EXPLAINER-CONDITION at exact candidate 8010667eb20d0eb08e916157a6cc5080c91d385d. No product or tester repair blocker remains. Exact remote-ref publication and truthful PR wording remain explainer-owned shipment conditions.",
+      "last_updated": "2026-08-21"
+    },
+    {
+      "id": "wav2vec2-019",
+      "title": "A standard voicemail Wav2Vec2ForSequenceClassification checkpoint preserves CPU FP32/FP16 parity, but FP16 halves external weights without improving CPU latency",
+      "observation": "jakeBland/wav2vec-vm-finetune@663b7dfbe8e08d615c6a83353a119e35d47903bd was validated at candidate d15ac73b633d5bb0209a0b1a2e2f4e468df49e92 on winml 0.3.0 and onnxruntime-windowsml 1.24.5.202604171637. The checked-in FP32 and FP16 CPU recipes are structurally identical to current-main `winml config` output: standard AutoModelForAudioClassification/wav2vec2 loading, opset 17, dynamo=false, eager Transformers attention, input_values float32[1,16000] in [-1,1], logits float32[1,2], gelu_fusion=true, matmul_add_fusion=true, and no compile stage; FP16 additionally uses quant.mode=fp16 with fp16_keep_io_types=true and no nodes_to_exclude. HTP metadata reports Wav2Vec2ForSequenceClassification with 315,701,634 parameters, 409 modules, and 118 traced modules. FP32 produced 426 FLOAT initializers and 1,262,811,524 external-data bytes; FP16 produced 426 FLOAT16 initializers, two public-boundary Casts, and 631,405,250 bytes. Twenty-iteration CPU perf was FP32 mean/P50 133.304/130.776 ms and 7.50 samples/s versus FP16 155.551/155.420 ms and 6.43 samples/s. Identical named-input PyTorch parity passed at FP32 cosine 0.9999999999995335/max-abs 8.30e-06 and FP16 cosine 0.9999999998848055/max-abs 2.87e-05, with matching class-1 argmax. Analyze emitted complete FP32 and FP16 JSON: 771 ops/13 types and 773 ops/14 types respectively; rule-covered NvTensorRTRTX, QNN, and OpenVINO rows classified every op supported. Analyze exit 1 was host packaging only: OpenVINO registration could not load onnxruntime_providers_shared.dll (Error 126), not a model compatibility failure.",
+      "scope": {
+        "validated_on": [
+          "jakeBland/wav2vec-vm-finetune@663b7dfbe8e08d615c6a83353a119e35d47903bd @ audio-classification @ fp32 @ CPUExecutionProvider @ candidate d15ac73b633d5bb0209a0b1a2e2f4e468df49e92 (2026-08-22, winml 0.3.0, onnxruntime-windowsml 1.24.5.202604171637)",
+          "jakeBland/wav2vec-vm-finetune@663b7dfbe8e08d615c6a83353a119e35d47903bd @ audio-classification @ fp16 @ CPUExecutionProvider @ candidate d15ac73b633d5bb0209a0b1a2e2f4e468df49e92 (2026-08-22, winml 0.3.0, onnxruntime-windowsml 1.24.5.202604171637)"
+        ],
+        "falsified_on": [],
+        "refines": [
+          "wav2vec2-003",
+          "wav2vec2-004",
+          "wav2vec2-005"
+        ],
+        "not_yet_tested_on": [
+          "Non-CPU runtime execution; Analyze rule classifications are static evidence only",
+          "Other voicemail checkpoints or audio lengths beyond the pinned first-two-seconds contract"
+        ]
+      },
+      "effort_tier_required": "L0 (recipe-only verified CPU coverage; both recipes equal current-main generated configuration)",
+      "goal_tier_reached": "L2 PASS for cpu/cpu/fp32 and cpu/cpu/fp16; model-level L3 evidence is recorded separately in wav2vec2-020",
+      "recipe_template": "examples/recipes/jakeBland_wav2vec-vm-finetune/cpu/cpu/audio-classification_<fp32|fp16>_config.json",
+      "gotchas": [
+        "Use the standard AutoModelForAudioClassification path and eager Transformers attention; the pinned checkpoint needs no remote-code trust or model-specific loader branch.",
+        "FP16 halves external initializer bytes and preserves float32 public IO, but it was slower than FP32 on this CPU. Treat memory reduction, parity, and latency as separate claims.",
+        "Analyze exit 1 is not automatically an operator failure. Here both complete JSON files had no partial or unsupported ops; the only failure was host OpenVINO DLL registration. CUDA, MIGraphX, TensorRT, and DML had no shipped rule data and remain unknown, not unsupported.",
+        "The exact candidate was not yet advertised by a public remote ref at tester seal time. This is an explainer-owned reproducibility condition and does not change the technical PASS; require the eventual ref to resolve to d15ac73b633d5bb0209a0b1a2e2f4e468df49e92 with dependency 1bd919b583aa8ccd974e35fa6a1a132ac7e1c9f8 as its parent."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Recipe-authority builds, realized dtype/size inspection, named-input ORT execution, 20-iteration perf, and identical-input PyTorch parity independently passed for both CPU precisions. Complete Analyze JSON separates the OpenVINO host packaging error from model op coverage. A capable non-CPU runtime result or a repaired OpenVINO package can extend or falsify only those untested runtime classifications, not the sealed CPU measurements.",
+      "resolution": "Technical PASS at exact tester root C:/temp/audio-model-batch/1114-wav2vec-vm/tester/20260822-d15ac73-r3. Coverage is full for the chartered CPU FP32/FP16 matrix with no technical blocker; public candidate-ref publication remains explainer-owned.",
+      "last_updated": "2026-08-22"
+    },
+    {
+      "id": "wav2vec2-020",
+      "title": "The voicemail checkpoint's authoritative ClassLabel path supports a full bounded 42-row first-two-seconds Eval with exact human/voicemail semantics",
+      "observation": "For jakeBland/wav2vec-vm-finetune@663b7dfbe8e08d615c6a83353a119e35d47903bd, checkpoint id2label is exactly 0=human and 1=voicemail. The pinned public herbiel/id-voicemail-dataset-v2@3761e739c2b499461739f61f826ad4208467c7f7 default/test split exposes scalar ClassLabel(names=['human','voicemail']) with fingerprint b1fc4518bf13edee, 20 human rows, and 22 voicemail rows. Final-candidate FP32 CPU Eval used the established ClassLabel.int2str path on all 42 rows: Audio(decode=False), SoundFile float32 decode, mono mixing, rational resampling to 16 kHz, deterministic truncate/right-pad to the first 32,000 samples, two consecutive named input_values float32[1,16000] forwards, arithmetic-mean logits, then one argmax per row. All 42 requested/eligible/selected rows processed with zero rejects, capping fan-out at 2 classes, 42 rows, 2 windows per row, and 84 inference windows. Predictions represented both classes at 20 human/22 voicemail; accuracy was 0.9523809523809523, represented-class macro-F1 0.9522727272727273, and confusion matrix [[19,1],[1,21]]. This is exact pinned-dataset functional validation, not reproduction of the checkpoint card's proprietary-data benchmark or a general voicemail-accuracy claim.",
+      "scope": {
+        "validated_on": [
+          "jakeBland/wav2vec-vm-finetune@663b7dfbe8e08d615c6a83353a119e35d47903bd @ herbiel/id-voicemail-dataset-v2@3761e739c2b499461739f61f826ad4208467c7f7 default/test all 42 rows @ fp32 @ CPUExecutionProvider @ candidate d15ac73b633d5bb0209a0b1a2e2f4e468df49e92"
+        ],
+        "falsified_on": [
+          "Treating stale auxiliary YAML that mentions a silence label as authoritative over the pinned runtime ClassLabel schema",
+          "Treating one 16,000-sample ONNX window as the checkpoint card's full first-two-seconds decision contract"
+        ],
+        "refines": [
+          "wav2vec2-013",
+          "wav2vec2-018"
+        ],
+        "not_yet_tested_on": [
+          "FP16 Eval or any non-CPU Eval tuple; L3 is the single chartered final-SHA FP32 CPU functional run",
+          "Different dataset or checkpoint revisions, silence/unknown labels, or population-scale voicemail accuracy",
+          "Scalar Value('string') targets; this dataset uses the established scalar ClassLabel path and does not require Draft PR #1329"
+        ]
+      },
+      "effort_tier_required": "L0 model recipe on exact approved Draft PR #1326 evaluator dependency; no evaluator code change for this ClassLabel dataset",
+      "goal_tier_reached": "L3 functional smoke PASS on fp32 CPU after L0-L2 passed for both CPU precisions",
+      "recipe_template": "examples/recipes/jakeBland_wav2vec-vm-finetune/cpu/cpu/audio-classification_fp32_config.json",
+      "gotchas": [
+        "Checkpoint metadata, not the abbreviation 'VM', establishes human versus voicemail semantics. Preserve exact checkpoint id2label and pinned ClassLabel.int2str values; do not infer label order from rows, stale card metadata, or fuzzy text matching.",
+        "The task contract spans the first two seconds even though the static ONNX input is one second. Decode and normalize one row, cap it at 32,000 samples, run exactly two 16,000-sample windows, and mean logits once per row; do not report per-window samples as independent examples.",
+        "Use the established ClassLabel path. The dependent scalar-string mapping extension in Draft PR #1329 is unrelated and must not be pulled into this checkpoint solely because both ultimately produce text labels.",
+        "Preserve requested, eligible, selected, processed, rejected, per-class, and fan-out counts. Report accuracy and represented-class macro-F1 together, and label the 42-row result bounded functional validation rather than a proprietary-data benchmark reproduction."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The sealed Eval artifact binds checkpoint and dataset revisions, exact schema and labels, every row's source rate/frame count, two window logits, row-level mean logits, prediction, aggregate counts, metrics, and zero rejects. Both authoritative classes and both prediction classes are represented. A future revision with schema drift or additional labels must fail identity validation rather than inherit this mapping.",
+      "resolution": "L3 PASS in sealed tester artifact eval/fp32-pinned-42.json (SHA-256 017ff366c1b09bbaed22ef4b1dd8f391c1950050aa3876a9127e8c0306790a7a) under tester root 20260822-d15ac73-r3.",
+      "last_updated": "2026-08-22"
+    },
+    {
+      "id": "wav2vec2-021",
+      "title": "MMS CTC language selection must preserve the processor's adapter code independently from the dataset locale",
+      "observation": "facebook/mms-1b-all@3d33597edbdaaba14a8e858e2c8caa76e3cec0cd was accepted at candidate e9180e05332cae9db3724de824c0183a16cb0043 on WinML 0.3.0 with the checkpoint processor's active target_lang=eng and 154-token vocabulary. The pinned google/fleurs@70bb2e84b976b7e960aa89f1c648e09c59f894dd evaluation source uses config en_us. The evaluator keeps those identifiers distinct: dataset locale selects rows, while tokenizer/processor metadata selects the MMS language adapter and decode vocabulary. It validates the ONNX logits vocabulary dimension against the active tokenizer before inference and does not branch on facebook/mms-1b-all. This metadata-driven separation is the reusable contract for Polish, Portuguese, Russian, and other Wav2Vec2/MMS CTC checkpoints: derive the checkpoint's published processor or adapter language code, preserve the dataset's independent locale/config, and reject a missing or mismatched vocabulary rather than translating locale strings by guesswork.",
+      "scope": {
+        "validated_on": [
+          "facebook/mms-1b-all@3d33597edbdaaba14a8e858e2c8caa76e3cec0cd @ target_lang eng + google/fleurs en_us @ fp32 @ CPUExecutionProvider @ candidate e9180e05332cae9db3724de824c0183a16cb0043"
+        ],
+        "falsified_on": [
+          "Treating google/fleurs config en_us as the MMS tokenizer target-language identifier",
+          "Selecting an adapter or decode vocabulary from the checkpoint ID instead of processor/tokenizer metadata"
+        ],
+        "refines": [
+          "wav2vec2-002",
+          "wav2vec2-011",
+          "wav2vec2-017"
+        ],
+        "not_yet_tested_on": [
+          "Polish, Portuguese, or Russian Wav2Vec2/MMS CTC checkpoints and their exact dataset locale mappings",
+          "Runtime switching among multiple MMS adapters in one process",
+          "Non-MMS Wav2Vec2 CTC tokenizers whose language selection surface differs"
+        ]
+      },
+      "effort_tier_required": "L2 (shared metadata-driven CTC evaluator and validation)",
+      "goal_tier_reached": "L3 functional smoke PASS on the single chartered FP32 CPU path; L0-L2 PASS for CPU FP32 and FP16",
+      "recipe_template": "examples/recipes/facebook_mms-1b-all/cpu/cpu/automatic-speech-recognition_<fp32|fp16>_config.json",
+      "gotchas": [
+        "Dataset locale and checkpoint adapter code are separate authorities. Preserve en_us for FLEURS row selection and eng for this MMS tokenizer; never normalize one into the other by spelling similarity.",
+        "Load the processor at the pinned checkpoint revision and validate target language plus active vocabulary before inference. The ONNX graph emits logits only; adapter/tokenizer orchestration remains outside it.",
+        "For future Polish, Portuguese, and Russian models, record the exact checkpoint language code, processor/tokenizer class, vocabulary size, dataset config, and revision before reusing this path. This English result is a template, not validation of those languages."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The final functional-smoke artifact records target_lang=eng, two processed rows, zero rejects, and logits decoded with the pinned processor. The charter independently records FLEURS config en_us and the 154-token active English vocabulary. A future checkpoint that cannot expose an active language/vocabulary through processor metadata would falsify class-wide reuse, not this exact run.",
+      "resolution": "Bound to final tester terminal seal SHA-256 35bbead370d66cb792c9da964b9f2293a5c1329509e7ee17457aa9f37a94357a and sealed verdict_table.json SHA-256 993486546bcb53961248598bbbcf656458993179ae637cee89c37234619190b7.",
+      "last_updated": "2026-08-23"
+    },
+    {
+      "id": "wav2vec2-022",
+      "title": "Static Wav2Vec2 CTC graphs require full-utterance window reconstruction before processor decoding",
+      "observation": "The accepted facebook/mms-1b-all recipes expose one float32 input_values tensor with static shape [1,16000] and one float32 logits tensor [1,49,154] per window. Candidate e9180e05332cae9db3724de824c0183a16cb0043 adds a class-wide CTC evaluator that decodes raw audio bytes/path with SoundFile, mixes to mono, resamples to the processor's 16 kHz rate, partitions each utterance into deterministic 16,000-sample windows, right-pads only the final window, and rejects rows beyond the 64-window cap with an explicit reason. It takes frame-wise argmax for each window, inserts the processor-derived CTC blank ID between windows, concatenates token IDs, and calls processor.batch_decode once. The processor therefore owns repeat collapse, blank removal, delimiter handling, and vocabulary decoding across the reconstructed utterance; the evaluator does not hand-roll text from logits or score windows as independent samples.",
+      "scope": {
+        "validated_on": [
+          "facebook/mms-1b-all@3d33597edbdaaba14a8e858e2c8caa76e3cec0cd @ static input_values[1,16000] -> logits[1,49,154] @ fp32 @ CPUExecutionProvider @ candidate e9180e05332cae9db3724de824c0183a16cb0043"
+        ],
+        "falsified_on": [
+          "Silently truncating a long utterance to the first static ONNX window",
+          "Decoding each window independently and joining text strings",
+          "Omitting a blank separator between adjacent window token streams"
+        ],
+        "refines": [
+          "wav2vec2-013",
+          "wav2vec2-017"
+        ],
+        "not_yet_tested_on": [
+          "Dynamic-length Wav2Vec2 CTC ONNX inputs, which should run the full utterance without fixed-window reconstruction",
+          "Static window sizes other than 16,000 samples or models with multiple required ONNX inputs",
+          "Utterances exceeding the 64-window cap"
+        ]
+      },
+      "effort_tier_required": "L2 (shared audio decode, static-window inference, and CTC sequence reconstruction)",
+      "goal_tier_reached": "L3 functional smoke PASS on FP32 CPU",
+      "recipe_template": "examples/recipes/facebook_mms-1b-all/cpu/cpu/automatic-speech-recognition_fp32_config.json",
+      "gotchas": [
+        "Argmax is only the frame-token selection step. Delegate CTC blank removal, repeated-token collapse, delimiter handling, and character/token decoding to the pinned processor.",
+        "Use a processor-derived blank ID between static windows so equal boundary tokens cannot collapse into one token accidentally.",
+        "Preserve one dataset row as one scored utterance regardless of window count; report selected/processed/rejected rows and the fixed-window fan-out cap separately."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Focused CTC regressions and the final two-row FLEURS smoke passed on the exact candidate. The static input/output contract is independently sealed in both CPU artifacts. Dynamic graphs and other fixed dimensions remain explicitly untested.",
+      "resolution": "Bound to final public reproduction manifest SHA-256 1927ecda88eb0590626958a5c284f6642e550a5e88672107f7b1540d1b453991 and sealed functional-smoke evidence in the final tester root.",
+      "last_updated": "2026-08-23"
+    },
+    {
+      "id": "wav2vec2-023",
+      "title": "CTC WER and CER are corpus-level bounded functional-smoke metrics, not representative accuracy",
+      "observation": "At exact candidate e9180e05332cae9db3724de824c0183a16cb0043, the new automatic-speech-recognition evaluator processed the first two deterministic google/fleurs@70bb2e84b976b7e960aa89f1c648e09c59f894dd en_us validation rows on the FP32 CPU artifact, rejected zero rows, and reported corpus WER=0.75 and CER=0.37037037037037035. Predictions and references are Unicode-safe trimmed and whitespace-collapsed before scoring; WER and CER are computed once over the accepted corpus rather than averaged per row or per window. The sample limit is two, batch size one, and static fan-out is capped at 64 windows per utterance. These finite metrics prove pinned media decode, complete-utterance ONNX execution, CTC decoding, transcript normalization, accounting, and metric emission. They do not establish representative FLEURS quality, a pass threshold, FP16 accuracy, or quality in another language.",
+      "scope": {
+        "validated_on": [
+          "facebook/mms-1b-all@3d33597edbdaaba14a8e858e2c8caa76e3cec0cd @ google/fleurs@70bb2e84b976b7e960aa89f1c648e09c59f894dd en_us/validation first two deterministic rows @ fp32 @ CPUExecutionProvider @ candidate e9180e05332cae9db3724de824c0183a16cb0043"
+        ],
+        "falsified_on": [
+          "Calling the two-row WER/CER result representative checkpoint accuracy",
+          "Averaging per-window or per-row edit-rate percentages instead of computing corpus WER/CER from accumulated text"
+        ],
+        "refines": [
+          "wav2vec2-011",
+          "wav2vec2-012",
+          "wav2vec2-017"
+        ],
+        "not_yet_tested_on": [
+          "Representative or population-scale FLEURS accuracy",
+          "FP16 Eval and every non-CPU tuple",
+          "Polish, Portuguese, Russian, or multilingual mixed-language corpora"
+        ]
+      },
+      "effort_tier_required": "L2 (shared CTC ASR evaluator and metrics)",
+      "goal_tier_reached": "L3 functional smoke PASS for the single final-SHA FP32 CPU path",
+      "recipe_template": "examples/recipes/facebook_mms-1b-all/cpu/cpu/automatic-speech-recognition_fp32_config.json",
+      "gotchas": [
+        "Normalize hypotheses and references with Unicode-safe trim plus whitespace collapse, but do not introduce case folding, punctuation deletion, transliteration, or language-specific substitutions without an explicit metric contract.",
+        "Report predictions, references, processed/rejected counts, rejection reasons, dataset identity, selection rule, and fan-out caps with WER/CER so a finite number cannot hide partial execution.",
+        "L3 is one FP32 CPU functional path. Do not infer Eval results for FP16, accelerator EPs, other checkpoint revisions, or future Polish/Portuguese/Russian models from parity alone."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The accepted functional-smoke JSON contains both predictions and references, 2/2 processed rows, zero rejects, target_lang=eng, WER, and CER. Full quality gates and 20 focused CTC tests passed. Broader accuracy remains deliberately outside the charter.",
+      "resolution": "Bound to sealed post-push-tester-closure-response.json SHA-256 f4b817df6ed1eb125225c7aad23eb353d6705b86063046a441dae718f4b65bec and terminal closure 10/10 PASS.",
+      "last_updated": "2026-08-23"
+    },
+    {
+      "id": "wav2vec2-024",
+      "title": "Exact-candidate MMS artifacts preserve FP32/FP16 parity and expose reusable Wav2Vec2 component boundaries, while FP16 remains slower on CPU",
+      "observation": "Final post-push testing of candidate e9180e05332cae9db3724de824c0183a16cb0043 produced clean CPU artifacts from both recipes. FP32 model.onnx is 747,498 bytes (SHA-256 c1a21c6685f7f5b51474213b95481e37c407e5c5fc1ddf0c75379c3c7cd7830f) with a 3,859,383,684-byte payload (SHA-256 af6e8952adff4278c0d9d883988ab799f7c367748a5b49f6a54ea9d6c7952c15); FP16 model.onnx is 745,238 bytes (SHA-256 df4cdb478b162b3567c2f6c7c5accf7027bc17275abe3fa5588b9c2653da46dd) with a 1,929,691,842-byte payload (SHA-256 3b89dc6c8bbc7c929e76bc753ce56f31a7d5b4c36576ba8d0ea364994ec16e22). Twenty-iteration CPU perf measured FP32 mean/P50 347.594/350.13 ms at 2.88 samples/s and FP16 421.026/418.761 ms at 2.38 samples/s. Identical-input parity passed: FP32 cosine 0.9999999999981509, SQNR 110.6083 dB, max-abs 0.0001412630; FP16 cosine 0.9999999214712589, SQNR 64.8659 dB, max-abs 0.0230236053. HTP export retains Wav2Vec2ForCTC's reusable boundaries: seven-convolution feature extractor, 512-to-1280 feature projection, positional convolution, 48 stable-layer-norm encoder blocks with 16-head attention, 1280-to-5120-to-1280 feed-forward and 16-dimensional adapters, then the 1280-to-154 CTC head. Standalone Analyze emitted 12 provider records over 1,921 operators and 13 op types, with 1,235 graph nodes mapped to frozen semantic components; six records had populated runtime-rule support and no record contained errors or warnings. Analyze classifications remain static evidence, not accelerator execution.",
+      "scope": {
+        "validated_on": [
+          "facebook/mms-1b-all@3d33597edbdaaba14a8e858e2c8caa76e3cec0cd @ automatic-speech-recognition @ fp32 @ CPUExecutionProvider @ candidate e9180e05332cae9db3724de824c0183a16cb0043",
+          "facebook/mms-1b-all@3d33597edbdaaba14a8e858e2c8caa76e3cec0cd @ automatic-speech-recognition @ fp16 @ CPUExecutionProvider @ candidate e9180e05332cae9db3724de824c0183a16cb0043",
+          "same FP32 artifact @ 12-provider static Analyze records (analysis only, not runtime execution)"
+        ],
+        "falsified_on": [],
+        "refines": [
+          "wav2vec2-012",
+          "wav2vec2-017"
+        ],
+        "not_yet_tested_on": [
+          "Actual accelerator runtime execution, partitioning, latency, or parity",
+          "Other Wav2Vec2/MMS sizes, layer counts, adapter dimensions, vocabulary sizes, or audio window lengths",
+          "CPU precisions other than the chartered FP32 and FP16 tuples"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L0/L1/L2 PASS for CPU FP32 and FP16; L3 functional smoke PASS for FP32 CPU",
+      "recipe_template": "examples/recipes/facebook_mms-1b-all/cpu/cpu/automatic-speech-recognition_<fp32|fp16>_config.json",
+      "gotchas": [
+        "FP16 halves external weight storage but was 19.6% slower by P50 on this CPU. Keep storage, memory, numerical parity, and latency as separate claims.",
+        "Map future Polish, Portuguese, and Russian Wav2Vec2-family graphs through the same component names only after checking their pinned config and exported hierarchy; language heads, vocabularies, layer counts, and adapters may differ.",
+        "A 12-row Analyze report with six populated rule records is static compatibility evidence. Unknown or rule-less rows are not unsupported, and populated rule support is not runtime execution support.",
+        "The shared --no-optimize pipeline-control lesson is methodology finding _meta-096. Do not duplicate it as a new model or methodology claim; preserve its rule that skip intent stays independent from actual pre-quantized graph detection and requested FP16 conversion."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Exact public branch acquisition, fresh clean-root builds, artifact hashes, 20-iteration perf, identical-input PyTorch parity, component mapping, and all-EP static analysis are sealed by the final tester integrity manifest. Component names come from the frozen model-breakdown profile; reuse is architectural guidance, not proof for sibling checkpoints.",
+      "resolution": "Bound to final integrity_manifest.json SHA-256 d890f509c7f6c076359bb2397988962df8ac3d008cfb7362ad2d19b4c0125fe4 and public-reproduction-manifest.json SHA-256 1927ecda88eb0590626958a5c284f6642e550a5e88672107f7b1540d1b453991.",
+      "last_updated": "2026-08-23"
+    },
+    {
+      "id": "wav2vec2-025",
+      "title": "A successfully decoded empty CTC hypothesis is a valid scored prediction and contributes deletions",
+      "observation": "Independent review comment 5383666732 found that candidate 48661b15ded2380c9d8b292cc663dd48bf5f2a17 conflated a successful normalized empty decode with decode failure: references ['hello world', 'good day'] and predictions ['', 'good day'] incorrectly produced WER=0.0, CER=0.0, one processed sample, and one rejected sample. Repaired candidate 8eafeb5f9d7513c9f178ad5ca978071f9272323a removes only the post-decode truthiness rejection. Final public testing processed both rows with zero skipped or rejected samples and reported corpus WER=0.5 and CER=11/19; two successful empty hypotheses produced WER=1.0 and CER=1.0 with both rows processed. The semantic boundary remains fail-closed: an empty normalized reference is rejected, and an explicit decoder failure is rejected with its reason. A successful empty hypothesis is therefore not missing data or a decoder error; it is a valid prediction whose absent words and characters contribute deletion edits to corpus WER/CER.",
+      "scope": {
+        "validated_on": [
+          "facebook/mms-1b-all@3d33597edbdaaba14a8e858e2c8caa76e3cec0cd @ automatic-speech-recognition evaluator edge accounting @ fp32 @ CPUExecutionProvider @ candidate 8eafeb5f9d7513c9f178ad5ca978071f9272323a"
+        ],
+        "falsified_on": [
+          "Candidate 48661b15ded2380c9d8b292cc663dd48bf5f2a17 rejected a successful empty hypothesis as 'decoded prediction is empty', producing WER=0.0/CER=0.0 instead of WER=0.5/CER=11/19 for reviewer comment 5383666732"
+        ],
+        "refines": [
+          "wav2vec2-023"
+        ],
+        "not_yet_tested_on": [
+          "Non-Wav2Vec2 CTC evaluator families or alternative decoder implementations",
+          "Representative corpus quality; the reviewer discriminator and two-row FLEURS run are bounded semantic checks"
+        ]
+      },
+      "effort_tier_required": "L2 (shared CTC evaluator metric and sample-accounting semantics)",
+      "goal_tier_reached": "L3 functional smoke PASS on final-SHA FP32 CPU; empty-hypothesis edge accounting PASS",
+      "recipe_template": "examples/recipes/facebook_mms-1b-all/cpu/cpu/automatic-speech-recognition_fp32_config.json",
+      "gotchas": [
+        "Do not use prediction truthiness to detect CTC decode failure. A decoder that returns an empty string successfully has produced a valid hypothesis; retain it in corpus predictions so reference tokens become deletions.",
+        "Keep empty-reference validation separate and fail-closed. An empty normalized reference cannot supply a valid scoring denominator and remains rejected.",
+        "Keep explicit decoder failures separate from successful empty output. Reject the failure with its reason; do not silently skip it or reinterpret it as a scored empty hypothesis.",
+        "Report processed_samples, skipped_samples, rejected_samples, and rejection_reasons with WER/CER. The accepted evaluator performs no separate skipping, so skipped_samples is explicitly zero."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The same exact-head tester run distinguishes all three states: successful empty decode is processed and contributes deletions; empty normalized reference is rejected; decoder failure is rejected. Focused regressions, the 25-test CTC suite, 661-test eval suite, final-SHA FLEURS smoke, and all five CI partitions passed. A decoder API that cannot distinguish success-with-empty-output from failure would require a different explicit result contract rather than a truthiness guard.",
+      "resolution": "Bound to producer successor deliverable SHA-256 b0e86ffce7b1d93a4dbad0e933f2674fcbce084bed98626014badf75ad21cf0d, tester successor verdict SHA-256 8e76a7b868f9dc707926b16861f4647629e64e45a5538f67f39a6c9da1a92909, and terminal public seal SHA-256 8cbbb6e356dbc5c1fbf4f07a0816fd1bb09e45da1e4f123068e22781ce618334 (PASS, CLOSED, 12/12).",
+      "last_updated": "2026-08-23"
+    },
+    {
+      "id": "wav2vec2-026",
+      "title": "CTC processor loading may fall back from an unavailable optional LM to greedy decoding, while adapter-language requirements remain metadata-driven and fail closed",
+      "observation": "At exact PR #1335 candidate 512338dd56080e97efab81da0cf59245ecc02ccf with pyctcdecode absent, AutoProcessor for jonatasgrosman/wav2vec2-large-xlsr-53-polish@6b1cea36bd8bc5f65ec8081667cd9c0207d51970 selected Wav2Vec2ProcessorWithLM and raised the exact optional-dependency error. The evaluator catches only an ImportError whose message identifies both Wav2Vec2ProcessorWithLM and pyctcdecode, then composes Wav2Vec2Processor from the checkpoint's AutoFeatureExtractor and AutoTokenizer for greedy CTC decoding. The real Polish probe resolved Wav2Vec2FeatureExtractor + Wav2Vec2CTCTokenizer, sampling_rate=16000, vocab_size=40, target_lang=null, no LM decoder, and greedy decode '-a'. When AutoProcessor succeeds, including an available LM processor, the evaluator returns it unchanged; unrelated import failures and incompatible fallback components fail closed. Language handling is separately derived from model/tokenizer metadata: an ordinary non-adapter Wav2Vec2CTCTokenizer may validly keep target_lang=null, while facebook/mms-1b-all@3d33597edbdaaba14a8e858e2c8caa76e3cec0cd exposes adapter_attn_dim and must activate or preserve a valid adapter language. The real MMS probe preserved target_lang=eng with vocab_size=154 and rejected both 'not-a-real-adapter' and missing active language. No checkpoint ID selects either path.",
+      "scope": {
+        "validated_on": [
+          "jonatasgrosman/wav2vec2-large-xlsr-53-polish@6b1cea36bd8bc5f65ec8081667cd9c0207d51970 @ Wav2Vec2ProcessorWithLM optional pyctcdecode unavailable -> greedy Wav2Vec2Processor @ candidate 512338dd56080e97efab81da0cf59245ecc02ccf",
+          "facebook/mms-1b-all@3d33597edbdaaba14a8e858e2c8caa76e3cec0cd @ adapter target_lang eng + invalid/missing adapter rejection @ candidate 512338dd56080e97efab81da0cf59245ecc02ccf"
+        ],
+        "falsified_on": [
+          "Treating ordinary Wav2Vec2CTCTokenizer target_lang=null as an initialization error",
+          "Falling back to greedy decoding for an unrelated processor-loading ImportError",
+          "Replacing an available Wav2Vec2ProcessorWithLM instead of preserving it",
+          "Accepting an MMS adapter-capable tokenizer with an invalid or missing active language"
+        ],
+        "refines": [
+          "wav2vec2-021"
+        ],
+        "not_yet_tested_on": [
+          "A real installed pyctcdecode LM checkpoint in the sealed public environment; preservation is regression-tested with a supplied LM processor",
+          "Non-Wav2Vec2 CTC families and processor classes",
+          "Polish #1207 L0-L3 acceptance; its charter is only technically cleared for planner reentry and the bounded processor/decode probe is not its acceptance metric"
+        ]
+      },
+      "effort_tier_required": "L2 (shared CTC processor selection and adapter-aware language validation)",
+      "goal_tier_reached": "Candidate technical closure PASS; real Polish and MMS processor/language probes PASS; MMS final-SHA FP32 CPU L3 functional smoke PASS; #1207 remains pending independent-review-driven planner reentry",
+      "recipe_template": "examples/recipes/<checkpoint>/cpu/cpu/automatic-speech-recognition_<fp32|fp16>_config.json; processor and language behavior is derived from pinned checkpoint metadata, not the recipe path or model ID",
+      "gotchas": [
+        "Keep the fallback discriminator exact. Only the missing optional pyctcdecode failure for Wav2Vec2ProcessorWithLM authorizes reconstruction of a greedy Wav2Vec2Processor; propagate every unrelated processor-loading error.",
+        "Preserve an LM processor whenever AutoProcessor can construct it. Optional-dependency fallback is a degraded decoder choice, not a reason to disable an available language model.",
+        "Do not require target_lang for every CTC tokenizer. Null is valid for ordinary single-language Wav2Vec2CTCTokenizer checkpoints with no adapter metadata.",
+        "For MMS-style adapter-capable checkpoints, derive the requested/active language from model and tokenizer metadata, validate activation, and reject invalid or absent adapter languages before inference.",
+        "Do not hardcode jonatasgrosman/wav2vec2-large-xlsr-53-polish, facebook/mms-1b-all, Polish, or English in the selection logic; these model IDs are evidence fixtures, not branch keys."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Candidate source selects the fallback from exception type/message and selects language handling from adapter_attn_dim plus tokenizer/config target-language metadata. Focused regressions explicitly cover optional-LM fallback, available-LM preservation, unrelated ImportError propagation, incompatible fallback components, ordinary null target_lang, MMS metadata selection/preservation, invalid adapter rejection, and missing active-language rejection. The public run recorded 13 focused tests passed, 32 full CTC evaluator tests passed, 668 eval tests passed, 716 loader/build compatibility tests passed, all five CI partitions passed, and 9/9 GitHub checks successful.",
+      "resolution": "Bound to candidate 512338dd56080e97efab81da0cf59245ecc02ccf, public-acquisition-verdict.json SHA-256 36e071b2aaadbc86744d9e02def05c70cbb05494cb17c51502c3e3079daecf91, ctc-compatibility-probe.json SHA-256 88b78621f085321a6c9987b78ef66d5205a08548fe397a9bcc902aa3ae097e86, and integrity-manifest.json sealed 2026-08-23T07:44:16.513093+00:00 with PASS/CLOSED technical status and PENDING_INDEPENDENT_REVIEW shipment status.",
+      "last_updated": "2026-08-23"
+    },
+    {
+      "id": "wav2vec2-027",
+      "title": "CTC bounded selection requires deterministic seeded shuffle and composite row/media provenance",
+      "observation": "Polish #1207 charter-r3 proved that google/fleurs@70bb2e84b976b7e960aa89f1c648e09c59f894dd pl_pl/validation uses non-unique sentence IDs: 122 ID values repeat because different recordings may share a transcription. The pre-repair non-streaming evaluator sorted the full split by `id` and selected two distinct recordings with IDs [1510,1510], while the streaming path selected the pinned first source rows [1525,1657]. Shared CTC dependency e633f2e5c33d1784e311116f0e86a2bd0bd8a074 removed semantic-ID sorting and deduplication, assigned enumerated source indices, and emitted selected IDs, indices, audio basenames, per-row provenance, and requested/selected/processed/rejected/skipped accounting. Independent review of stacked PR #1343 then found that this was still incomplete: missing or boolean dataset IDs, missing audio paths, and duplicate audio paths all reached inference. Repaired dependency head 0d242174c25c062a21d40dceb645eace21a3f888 validates each selected row before inference as a composite of a unique nonnegative source index, a valid JSON-stable scalar dataset ID, and at least one stable redacted audio key or basename; duplicate normalized media keys/basenames are rejected, while duplicate semantic IDs remain valid when source and media identities differ. Independent review of PR #1335 then found that CTC selection ignored `DatasetConfig.shuffle` and `seed` and always truncated first-N. Exact repair head 3402b7b4b1990a0932551a3d69d3838df0e70bda attaches original source indices before reordering, applies one seeded bounded-buffer iterable shuffle before `take(samples)` in both configured modes, repeats seed 123 exactly, distinguishes seed 456, selects identical original indices across streaming/non-streaming sources below and beyond the 1000-row buffer, and consumes an infinite-style source finitely. Sealed public probes preserved pinned non-shuffled Polish rows [1525,1657] at indices [0,1] with basenames [10018492969996036091.wav,10288018704489549018.wav], accepted duplicate ID 1525 for distinct first.wav/second.wav rows, rejected the complete malformed/missing/duplicate identity matrix with zero transcription/model calls, preserved successful empty-hypothesis deletion scoring and ordinary Wav2Vec2 no-LM/null-target-language behavior, and retained MMS target_lang=eng plus a fresh two-row FP32 L3 smoke.",
+      "scope": {
+        "validated_on": [
+          "jonatasgrosman/wav2vec2-large-xlsr-53-polish@6b1cea36bd8bc5f65ec8081667cd9c0207d51970 @ google/fleurs@70bb2e84b976b7e960aa89f1c648e09c59f894dd pl_pl/validation @ shared CTC dependency e633f2e5c33d1784e311116f0e86a2bd0bd8a074",
+          "jonatasgrosman/wav2vec2-large-xlsr-53-polish@6b1cea36bd8bc5f65ec8081667cd9c0207d51970 @ google/fleurs@70bb2e84b976b7e960aa89f1c648e09c59f894dd pl_pl/validation @ composite identity repair 0d242174c25c062a21d40dceb645eace21a3f888",
+          "facebook/mms-1b-all@3d33597edbdaaba14a8e858e2c8caa76e3cec0cd @ google/fleurs@70bb2e84b976b7e960aa89f1c648e09c59f894dd en_us/validation @ fp32 @ CPUExecutionProvider @ composite identity repair 0d242174c25c062a21d40dceb645eace21a3f888",
+          "microsoft/winml-cli PR #1335 exact head 3402b7b4b1990a0932551a3d69d3838df0e70bda @ seeded CTC bounded selection: seed-123/seed-456 discriminators, streaming/non-streaming equality below and beyond the 1000-row buffer, finite infinite-style-source consumption, original source-index provenance, and PASS/CLOSED public seal"
+        ],
+        "falsified_on": [
+          "Sorting bounded non-streaming selection by the FLEURS sentence id, which changed source rows and made streaming/non-streaming selection disagree",
+          "Treating repeated semantic IDs as duplicate rows",
+          "Ignoring DatasetConfig.shuffle/seed and truncating first-N before requested seeded reordering",
+          "Using mode-specific shuffle algorithms whose selected original indices diverge beyond the iterable shuffle buffer",
+          "Materializing an unbounded streaming source or losing original source indices during shuffle",
+          "Accepting a missing or malformed selected source index, scalar dataset ID, or stable redacted audio identity after inference begins",
+          "Accepting duplicate source indices or normalized media keys/basenames as distinct selected rows"
+        ],
+        "refines": [
+          "wav2vec2-021",
+          "wav2vec2-023",
+          "wav2vec2-025",
+          "wav2vec2-026"
+        ],
+        "not_yet_tested_on": [
+          "Stratified CTC selection, where the ordering authority and boundedness contract must be frozen separately",
+          "Non-FLEURS ASR datasets and non-Wav2Vec2 CTC families",
+          "Dataset backends that expose stable native row keys instead of enumerated source indices"
+        ]
+      },
+      "effort_tier_required": "L2 (shared CTC evaluator selection, provenance, and accounting)",
+      "goal_tier_reached": "Dependency technical closure PASS; composite-identity public acquisition PASS/CLOSED 20/20; fresh MMS FP32 CPU L3 functional smoke PASS",
+      "recipe_template": "examples/recipes/<checkpoint>/cpu/cpu/automatic-speech-recognition_fp32_config.json; dataset source order and row provenance are evaluator evidence, not recipe semantics",
+      "gotchas": [
+        "A dataset `id` may identify sentence content rather than a unique recording. Never use it as a bounded-selection sort key or deduplication key unless the pinned dataset contract proves uniqueness and ordering semantics.",
+        "For shuffle=false, take the first N rows in pinned source order in both streaming and non-streaming modes. Do not sort the bounded rows afterward.",
+        "For shuffle=true, apply DatasetConfig.seed before the sample bound through the same bounded-buffer shuffle path in both modes. Require fixed-seed reproducibility and identical selected original source indices below and beyond the buffer size.",
+        "Attach original source indices before shuffle and retain them in emitted provenance. Prove bounded buffering with a consumption ceiling on an unbounded streaming fixture; do not materialize the source to force mode equivalence.",
+        "Keep repeated semantic IDs when their source indices differ; they are distinct evaluation rows and may have different media or annotations.",
+        "Emit requested, selected, processed, rejected, and skipped counts with each selected row's source index, valid scalar dataset ID, and stable redacted media key/basename so the metric denominator and exact rows are auditable without exposing local paths.",
+        "Reject missing or malformed source indices, dataset IDs, and media identities before inference. Reject duplicate source indices and duplicate normalized media keys/basenames, but do not reject legitimate duplicate semantic IDs when source and media identities differ.",
+        "Preserve wav2vec2-025 empty-hypothesis scoring, wav2vec2-021/wav2vec2-026 MMS target-language handling, and wav2vec2-026 ordinary Wav2Vec2 optional-LM fallback while changing selection logic."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The pre-repair mode disagreement and repeated FLEURS IDs establish the source-order defect; independent PR #1343 review established that source index alone did not identify a selected recording. Exact-head 0d242174 public probes provide the composite discriminator: both modes return identical source-order rows; each row emits source index, valid scalar dataset ID, and redacted media identity; repeated semantic IDs survive when media differs; every missing/malformed component and duplicate row/media identity raises DatasetValidationError with zero inference calls. PR #1335 review then isolated ignored shuffle configuration; exact-head 3402b7b4 probes confirm seeded shuffle occurs before truncation, shares bounded-buffer behavior across modes, preserves original indices, and consumes an infinite-style source finitely. Compatibility probes independently preserve empty hypotheses, MMS target_lang=eng, and ordinary Wav2Vec2 fallback.",
+      "resolution": "Bound to exact PR #1335 head 3402b7b4b1990a0932551a3d69d3838df0e70bda, producer successor deliverable SHA-256 d31b760303507f6e92104d54c710bdda832a53bd1425642bc4a775557480dc31, and tester public integrity manifest SHA-256 fc173b1ea9ae5c53402b4b2be211cda8b7b8dd22dfd49d8935e069dd4b9f04f5, sealed 2026-08-24T03:34:44.536046+00:00 with PASS/CLOSED status and no blockers.",
+      "last_updated": "2026-08-24"
+    },
+    {
+      "id": "wav2vec2-028",
+      "title": "The final Polish Wav2Vec2ForCTC candidate reaches CPU FP32/FP16 parity and a provenance-bound FP32 functional smoke without an undeclared language model",
+      "observation": "Final public testing of jonatasgrosman/wav2vec2-large-xlsr-53-polish@6b1cea36bd8bc5f65ec8081667cd9c0207d51970 on exact candidate 78e0713b0ac19142cc6abf65ec93ff359d4d2749, stacked directly on accepted CTC dependency e633f2e5c33d1784e311116f0e86a2bd0bd8a074 from Draft PR #1335, closed L0-L3 on CPU with winml-modelkit 0.3.0 and onnxruntime-windowsml 1.24.5.202604171637. The two-recipe delta from historical merged PR #1207 adds eager Transformers attention plus a pinned non-streaming google/fleurs@70bb2e84b976b7e960aa89f1c648e09c59f894dd pl_pl/validation two-row Eval contract; it preserves AutoModelForCTC, dynamo=false, raw float32 input_values[1,16000] in [-1,1], logits[1,49,40], and no nodes_to_exclude. The resolved build adds gelu_fusion=true and matmul_add_fusion=true. Both exports report Wav2Vec2ForCTC with 315,479,720 parameters, 409 modules, 118 traced modules, and 236 execution steps. FP32 has 424 FLOAT plus 11 INT64 initializers and a 1,261,923,716-byte external payload; FP16 has 424 FLOAT16 plus 11 INT64 initializers and a 630,961,858-byte payload while preserving FLOAT input and output. Ten-iteration CPU perf measured FP32 mean/P50 129.693/130.705 ms at 7.71 samples/s and +91.01 MB RSS versus FP16 154.715/154.522 ms at 6.46 samples/s and +43.56 MB RSS. Identical-input parity passed with FP32 cosine 0.9999999999982816, max-abs 0.0000720024, frame argmax agreement 1.0; FP16 cosine 0.9999972943487657, max-abs 0.0894708633, frame argmax agreement 1.0. Static Analyze emitted 12 provider/device rows: FP32 has 769 operators/12 types and FP16 771/13 because of two boundary Cast nodes; this is static classification evidence, not accelerator execution. L3 loaded the ordinary Wav2Vec2 feature extractor/tokenizer through wav2vec2-026's exact optional-pyctcdecode fallback, kept target_lang=null, normalized hypotheses and references with Unicode NFKC plus whitespace collapse, and processed the pinned source rows at indices [0,1], IDs [1525,1657], audio files [10018492969996036091.wav,10288018704489549018.wav] with zero rejected or skipped rows. The resulting WER 0.7115384615384616 and CER 0.17794486215538846 prove decoder, normalization, provenance, accounting, and metric execution only; two rows are not representative Polish accuracy.",
+      "scope": {
+        "validated_on": [
+          "jonatasgrosman/wav2vec2-large-xlsr-53-polish@6b1cea36bd8bc5f65ec8081667cd9c0207d51970 @ automatic-speech-recognition @ fp32 @ CPUExecutionProvider @ candidate 78e0713b0ac19142cc6abf65ec93ff359d4d2749",
+          "jonatasgrosman/wav2vec2-large-xlsr-53-polish@6b1cea36bd8bc5f65ec8081667cd9c0207d51970 @ automatic-speech-recognition @ fp16 @ CPUExecutionProvider @ candidate 78e0713b0ac19142cc6abf65ec93ff359d4d2749",
+          "same FP32 artifact @ google/fleurs@70bb2e84b976b7e960aa89f1c648e09c59f894dd pl_pl/validation source indices [0,1] @ functional smoke only",
+          "same FP32/FP16 artifacts @ 12-provider static Analyze rows (analysis only, not runtime execution)"
+        ],
+        "falsified_on": [
+          "An ordinary single-language Wav2Vec2CTCTokenizer requires non-null target_lang",
+          "The checkpoint must install or silently claim pyctcdecode/LM decoding to run CTC Eval",
+          "CPU FP16 weight compression implies lower latency"
+        ],
+        "refines": [
+          "wav2vec2-002",
+          "wav2vec2-011",
+          "wav2vec2-026",
+          "wav2vec2-027"
+        ],
+        "not_yet_tested_on": [
+          "Representative or population-scale Polish ASR accuracy; the accepted two-row WER/CER is a functional smoke only",
+          "FP16 Eval and every non-CPU runtime tuple; static Analyze rows are not execution evidence",
+          "An environment where the checkpoint's declared LM processor and pyctcdecode are both available",
+          "A fresh recipe-free Polish loader baseline on the final toolchain; preserve historical PR #1207's then-current AutoModelForSpeechSeq2Seq failure until this exact checkpoint is retested without its explicit AutoModelForCTC recipe field",
+          "Audio windows other than fixed mono float32 [1,16000] at 16 kHz"
+        ]
+      },
+      "effort_tier_required": "L0 model-owned recipe delta on accepted shared CTC evaluator dependencies; no checkpoint-specific product code",
+      "goal_tier_reached": "L0/L1/L2 PASS for CPU FP32 and FP16; L3 functional smoke PASS for the single final-SHA FP32 CPU path",
+      "recipe_template": "examples/recipes/jonatasgrosman_wav2vec2-large-xlsr-53-polish/cpu/cpu/automatic-speech-recognition_<fp32|fp16>_config.json",
+      "gotchas": [
+        "Use one second of 16 kHz mono waveform as float32 input_values[1,16000] in [-1,1]. Feature extraction and CTC decoding remain outside the ONNX graph.",
+        "FP16 means FLOAT16 weights with fp16_keep_io_types=true; verify initializer dtypes and payload size while preserving FP32 input_values and logits. On this CPU, FP16 halved weight storage and inference RSS but was 18.2% slower by P50.",
+        "Do not add an undeclared language-model dependency. Reuse wav2vec2-026's exact missing-pyctcdecode discriminator and greedy ordinary Wav2Vec2 processor fallback; target_lang=null is valid because this checkpoint has no adapter-language contract.",
+        "Keep the pinned FLEURS revision, pl_pl config, validation split, source order, indices, IDs, and audio basenames together. The semantic IDs are not unique; wav2vec2-027 and _meta-117 already own that methodology rule.",
+        "Normalize scoring text with NFKC and whitespace collapse only. Do not infer case folding, punctuation deletion, transliteration, or Polish-specific substitutions.",
+        "Treat WER/CER 0.7115/0.1779 as functional-smoke evidence over exactly two pinned rows, not checkpoint quality, regression threshold, or a benchmark claim.",
+        "The candidate depends on the shared CTC evaluator stack from Draft PR #1335 at e633f2e5; the two recipes alone do not provide processor fallback, normalization, source-order provenance, or complete accounting."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Final public acquisition, exact parent/tree checks, artifact hashes, CPU perf, identical-input parity, 12-row static Analyze, focused CTC tests, complete CI partitions, and the pinned two-row L3 result all passed. Processor fallback and target_lang semantics are consolidated under wav2vec2-026; source-order/provenance semantics are consolidated under wav2vec2-027 and _meta-117 rather than duplicated as new methodology findings.",
+      "resolution": "Bound to public candidate head 78e0713b0ac19142cc6abf65ec93ff359d4d2749, final tester integrity-manifest.json SHA-256 34606fdb263ee0a9ef25c088ac3f2123d1648f1bd60bd1522cdf98ece149d48a, and post-push-public-verdict.json SHA-256 22ea202635d60306fc830ac83b103a3a5a7c36d4aa87dbcae7eb344503406cb8 (PASS, CLOSED, 20/20).",
+      "last_updated": "2026-08-24"
+    },
+    {
+      "id": "wav2vec2-029",
+      "title": "Pinned dima806 music-genre recipes produce true FP32 and FP16 Wav2Vec2 sequence-classification artifacts with fixed one-second waveform I/O",
+      "observation": "At candidate 95506e515042b10567c4392ada4481df079f2dfd, checkpoint dima806/music_genres_classification@5f71fb1e2c6bedcddb2bfb1e929fc70655780902 built from examples/recipes/dima806_music_genres_classification/cpu/cpu/audio-classification_{fp32,fp16}_config.json on winml 0.2.0, Transformers 4.57.6, and onnxruntime-windowsml 1.27.1.202607110137. Both graphs use IR 8 and ai.onnx opset 17 with FLOAT input_values[1,16000] and FLOAT logits[1,10]. FP32 has 385 nodes, 216 FLOAT plus 60 INT64 initializers, and 378,438,918 final bytes. FP16 has 387 nodes, 216 FLOAT16 plus 60 INT64 initializers, two boundary Cast nodes, and 189,296,375 final bytes (0.5002 of FP32) while preserving FP32 I/O. HTP export reports Wav2Vec2ForSequenceClassification with 94,571,146 parameters, 223 modules, 70 traced modules, and 140 execution steps.",
+      "scope": {
+        "validated_on": [
+          "dima806/music_genres_classification@5f71fb1e2c6bedcddb2bfb1e929fc70655780902 @ audio-classification @ fp32/fp16 @ CPUExecutionProvider (2026-09-03, candidate 95506e51, ORT 1.27.1.202607110137)"
+        ],
+        "falsified_on": [],
+        "refines": ["wav2vec2-004"],
+        "not_yet_tested_on": ["Actual accelerator runtime execution", "Dynamic waveform length or batch size"]
+      },
+      "effort_tier_required": "L2 (shared audio evaluator support plus recipe refresh)",
+      "goal_tier_reached": "L3 functional smoke PASS; L0-L2 PASS for cpu/cpu/fp32 and cpu/cpu/fp16",
+      "recipe_template": "examples/recipes/dima806_music_genres_classification/cpu/cpu/audio-classification_<fp32|fp16>_config.json",
+      "gotchas": [
+        "Both recipes pin export.compatibility.transformers_attention=eager, dynamo=false, opset 17, and input_values[1,16000] in [-1,1]; resolved optimization fills gelu_fusion=true and matmul_add_fusion=true.",
+        "The FP16 recipe retains quant.mode=fp16 and fp16_keep_io_types=true. Verify 216 FLOAT16 initializers and approximately half-size external data; the recipe name alone is not precision evidence."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Fresh structural validation loaded and checked both final external-data artifacts. The FP16 dtype census, two Cast nodes, half-size payload, and preserved FLOAT I/O discriminate real conversion from a renamed FP32 graph.",
+      "resolution": "Validated from tester-4eb6900f-20260903-r6 and rebound to final candidate 95506e51 because all later commits changed only evaluator/tests, not recipes or model build surfaces.",
+      "last_updated": "2026-09-03"
+    },
+    {
+      "id": "wav2vec2-030",
+      "title": "Dima806 music-genre FP16 halves artifact storage and lowers measured RAM but is slower than FP32 on CPU while preserving bounded PyTorch parity",
+      "observation": "Ten measured CPU iterations after three warmups gave FP32 mean/P50 49.85/49.94 ms, 20.06 samples/s, and +62.5 MB RAM versus FP16 59.48/59.17 ms, 16.81 samples/s, and +41.3 MB RAM. L2 used the same real deetsadi GTZAN WAV opened from its virtual archive path, decoded mono 22,050 Hz, resampled and feature-extractor-normalized to FLOAT32 input_values[1,16000]. Against pinned PyTorch, FP32 cosine=1.0 and max_abs=1.0371208190917969e-05 under frozen bounds cosine>=0.9999/max_abs<=0.01; FP16 cosine=0.9999998211860657 and max_abs=0.0035549402236938477 under cosine>=0.999/max_abs<=0.05. Both preserved top-1 ID 6.",
+      "scope": {
+        "validated_on": [
+          "dima806/music_genres_classification@5f71fb1e2c6bedcddb2bfb1e929fc70655780902 @ audio-classification @ fp32/fp16 @ CPUExecutionProvider (2026-09-03, candidate evidence rebound to 95506e51)"
+        ],
+        "falsified_on": [],
+        "refines": ["wav2vec2-003", "wav2vec2-004"],
+        "not_yet_tested_on": ["Other CPU hardware or thread settings", "Accelerator perf/parity"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2 PASS for cpu/cpu/fp32 and cpu/cpu/fp16",
+      "recipe_template": "examples/recipes/dima806_music_genres_classification/cpu/cpu/audio-classification_<fp32|fp16>_config.json",
+      "gotchas": [
+        "FP16 reduced final bytes by about 50% and measured RAM by 21.2 MB but increased mean latency by 19.3%; do not infer CPU speedup from storage or memory reduction.",
+        "Virtual archive paths such as zip://...::hf://... must be opened through the dataset filesystem/xopen layer before passing the resulting file object or bytes to SoundFile."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The same normalized real-audio tensor was fed by ONNX input name to both precision artifacts and the pinned PyTorch reference; frozen precision-specific thresholds were satisfied without changing bounds after execution.",
+      "resolution": "Current measurements supersede wav2vec2-004's older approximate 57/69 ms and parity values for this exact checkpoint/environment while preserving that historical evidence.",
+      "last_updated": "2026-09-03"
+    },
+    {
+      "id": "wav2vec2-031",
+      "title": "GTZAN functional smoke requires exact scalar-string genre mapping and bounded utterance-level window aggregation",
+      "observation": "Final-SHA FP32 CPU Eval used danilotpnta/GTZAN_genre_classification@77564793c44e244eaff98a267bb7ba7cc1bda0b1 config gtzan/train. Its authoritative target is genre Value('string'); exact case-sensitive mapping sent blues->checkpoint ID 3 and classical->ID 5, with no integer coercion or path inference. Selection scanned 101 rows to choose one embedded-WAV row per represented genre: 2 requested/selected/decoded/processed, 0 rejected. Each 30.013333-second mono PCM_16 WAV at 22,050 Hz was decoded to float32, resampled to 16,000 Hz, capped at 2 seconds/32,000 samples, split into two fixed 16,000-sample windows, and aggregated by arithmetic mean of per-window logits once per utterance before argmax/id2label. Four total inference windows produced blues->jazz and classical->classical, accuracy=0.5 and macro_f1=0.5 across two represented of ten model classes.",
+      "scope": {
+        "validated_on": [
+          "dima806/music_genres_classification@5f71fb1e2c6bedcddb2bfb1e929fc70655780902 @ danilotpnta/GTZAN_genre_classification@77564793c44e244eaff98a267bb7ba7cc1bda0b1 gtzan/train @ fp32 @ CPUExecutionProvider (2026-09-03, candidate 95506e51)"
+        ],
+        "falsified_on": ["Treating scalar string labels as integer IDs or inferring genre from the audio path"],
+        "refines": ["wav2vec2-013", "wav2vec2-014"],
+        "not_yet_tested_on": ["Representative GTZAN accuracy", "All ten classes in one Eval run", "Additional precisions or EPs for L3"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3 functional smoke PASS on the single required final-SHA FP32 CPU path",
+      "recipe_template": "examples/recipes/dima806_music_genres_classification/cpu/cpu/audio-classification_fp32_config.json",
+      "gotchas": [
+        "A scalar Value('string') target is a valid authoritative classification label. Preserve it as a string key and apply only an exact configurable mapping to checkpoint IDs.",
+        "The reported 0.5 accuracy/macro-F1 is smoke-only over two rows and two represented classes; it is not benchmark-quality or representative model accuracy.",
+        "Cap duration and windows explicitly. Long clips must aggregate all retained window logits once per utterance rather than count windows as independent dataset rows."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The final evaluator result, row-semantics record, exact mapping file, embedded audio hashes, and processed/window counts agree. A focused regression proves a non-identity scalar-string mapping reaches model IDs without int coercion.",
+      "resolution": "Candidate 95506e51 generalized scalar string targets in the audio evaluator; dataset identity and mapping remain command/config metadata with no production dataset literals.",
+      "last_updated": "2026-09-03"
+    },
+    {
+      "id": "wav2vec2-032",
+      "title": "Dima806 optimized graphs have complete op inventories but only partial architecture-region mapping; populated accelerator results are static rule evidence",
+      "observation": "Analyze emitted complete JSON for both final artifacts and exited 1 with ANALYZE-PARTIAL-SUCCESS. FP32 has 385 operators/14 types; FP16 has 387/15 because of two Casts. Dominant counts are Reshape=126, Gemm=75, Transpose=51, Add=26, and LayerNormalization=26. Architecture joins map 246 nodes to the convolutional feature encoder, feature projection, 12 encoder layers, projector, time-mean pooling, and classifier; 139 FP32 or 141 FP16 optimized/fused support nodes remain explicitly unmapped because scope was removed, rather than guessed by op type. Populated NvTensorRTRTX/GPU, QNN/GPU, and OpenVINO/GPU static rule rows classify every observed op type supported; CUDA, MIGraphX, TensorRT, and DML runtime_support=false rows contain no classifications.",
+      "scope": {
+        "validated_on": [
+          "dima806/music_genres_classification@5f71fb1e2c6bedcddb2bfb1e929fc70655780902 @ fp32/fp16 final ONNX Analyze @ candidate evidence rebound to 95506e51"
+        ],
+        "falsified_on": [],
+        "refines": ["wav2vec2-009", "wav2vec2-016"],
+        "not_yet_tested_on": ["Actual NvTensorRTRTX, QNN, or OpenVINO runtime execution", "Component mapping before optimization removes node scope"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3 functional smoke PASS with supplementary Analyze partial success",
+      "recipe_template": "examples/recipes/dima806_music_genres_classification/cpu/cpu/audio-classification_<fp32|fp16>_config.json",
+      "gotchas": [
+        "Do not promote static rule classifications to accelerator runtime support claims.",
+        "Optimization can remove hierarchy scope from fused/support nodes; preserve partial/unmapped counts instead of assigning components from operator names alone.",
+        "Analyze exit 1 can accompany complete useful JSON; adjudicate result completeness and classifications, not exit code alone."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "Operator counts and static rule classifications are directly observed. Accelerator execution and the cause of each removed scope are not runtime-confirmed.",
+      "resolution": "Retain ANALYZE-PARTIAL-SUCCESS and exact mapping limitations in downstream reporting.",
+      "last_updated": "2026-09-03"
+    },
+    {
+      "id": "wav2vec2-033",
+      "title": "Audio dataset handling must preserve raw media and non-audio label features, and scalar string targets require exact configurable mapping",
+      "observation": "The Model12 repair chain exposed three task-family implementation constraints. First, Datasets 5.0.1 streaming Audio(decode=False) can still call Audio.encode_example during cast/iteration and import TorchCodec; raw bytes or virtual paths must survive until the evaluator's SoundFile path. Second, virtual zip://...::hf://... paths are not ordinary local filenames and require xopen/dataset-filesystem opening before SoundFile. Third, replacing the complete Features mapping while changing Audio can destroy non-audio ClassLabel semantics; only the media feature should be reconstructed. The original deetsadi/GTZAN_audio@4659a07b613a196c6f23ed8f6357021e88bd86dc additionally emitted a malformed raw generator label despite superficially usable schema/rows, forcing Planner re-entry. The accepted replacement uses embedded WAV bytes and authoritative genre Value('string'); candidate 95506e51 accepts scalar strings and maps exact configured keys without int coercion or path inference.",
+      "scope": {
+        "validated_on": [
+          "dima806/music_genres_classification Model12 repair chain 4eb6900f -> 70417c9a -> 7adf0d1f -> 95506e51 @ Datasets 5.0.1/SoundFile 0.14.0",
+          "danilotpnta/GTZAN_genre_classification@77564793c44e244eaff98a267bb7ba7cc1bda0b1 @ embedded WAV bytes + genre Value('string')"
+        ],
+        "falsified_on": ["deetsadi/GTZAN_audio@4659a07b613a196c6f23ed8f6357021e88bd86dc as a valid L3 labeled source for this run"],
+        "refines": ["wav2vec2-013"],
+        "not_yet_tested_on": ["Non-WAV archive members", "Image/video feature casts", "A valid streaming ClassLabel source after media-only reconstruction"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3 functional smoke PASS after Planner re-entry and three Producer/Tester repair iterations",
+      "recipe_template": "examples/recipes/dima806_music_genres_classification/cpu/cpu/audio-classification_<fp32|fp16>_config.json",
+      "gotchas": [
+        "Probe raw generator audio and label values, not only decoded public rows or schema; feature encoding can fail before evaluator logic.",
+        "When disabling backend media decode, preserve every non-media feature object and verify ClassLabel names remain intact.",
+        "Open virtual archive paths through xopen or the dataset filesystem before SoundFile.",
+        "For Value('string') labels, use exact configurable string-to-checkpoint-ID mapping; never int-coerce or infer labels from media paths."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Each failed candidate isolated a distinct boundary, and the final replacement-row probe plus two-row L3 run confirmed embedded-byte decode, scalar-string mapping, 2-second cap, and two-window aggregation. Generalization beyond audio classification remains observational.",
+      "resolution": "Model/task implementation guidance is captured here; the novel cross-task dataset-selection and feature-preservation contract is `_meta-115`.",
+      "last_updated": "2026-09-03"
+    },
+    {
+      "id": "wav2vec2-034",
+      "title": "A 966M-parameter MMS language classifier builds as external-data FP32 and true FP16 after large-model shape-inference serialization fallback",
+      "observation": "facebook/mms-lid-256@edc73fd00996e671dfc59d16436a29b12b10588a was built at winml candidate 2e0516d378111677492758aa522ff8135b13a990 from examples/recipes/facebook_mms-lid-256/cpu/cpu/audio-classification_{fp32,fp16}_config.json with Transformers 4.57.6 and ONNX Runtime 1.27.1. HTP metadata reports Wav2Vec2ForSequenceClassification, 966,222,720 parameters, 1,009 modules, 262 traced modules, and 524 execution steps. FP32 finalized with 908 FLOAT initializers and 3,864,155,136 external bytes (3,864,865,108 total model bytes). During FP16 conversion, shape inference could not serialize the large external-data graph, so the existing fallback retried with shape inference disabled; the build completed with 908 FLOAT16 initializers, 1,932,077,056 external bytes (1,932,787,081 total), FP32 input_values[1,16000] and logits[1,256], and two precision-boundary Cast nodes. Resolved config filled gelu_fusion=true and matmul_add_fusion=true and retained transformers_attention=eager, quant.mode=fp16, and fp16_keep_io_types=true.",
+      "scope": {
+        "validated_on": ["facebook/mms-lid-256@edc73fd00996e671dfc59d16436a29b12b10588a @ audio-classification @ fp32/fp16 @ CPUExecutionProvider (2026-09-03, candidate 2e0516d3, ORT 1.27.1)"],
+        "falsified_on": [],
+        "refines": ["wav2vec2-017", "wav2vec2-018"],
+        "not_yet_tested_on": ["Another >2 GB Wav2Vec2 sequence-classification checkpoint", "Actual accelerator runtime execution"]
+      },
+      "effort_tier_required": "L2 (generalized audio-classification evaluator carried independently while Model12 PR #1388 is unmerged, plus recipe refresh)",
+      "goal_tier_reached": "L3 functional smoke PASS; L0-L2 PASS for cpu/cpu/fp32 and cpu/cpu/fp16",
+      "recipe_template": "examples/recipes/facebook_mms-lid-256/cpu/cpu/audio-classification_<fp32|fp16>_config.json",
+      "gotchas": [
+        "Large external-data FP16 conversion may need the serialization-specific shape-inference fallback; a warning followed by successful conversion is not itself a precision failure.",
+        "Verify true FP16 from initializer dtypes, approximately half external bytes, preserved FP32 I/O, and boundary Casts; accepted flags or filenames are insufficient.",
+        "The baseline also observed --no-optimize still running Optimize, but that Planner-only observation is outside candidate 2e0516d3 and is not claimed fixed here."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The FP16 stderr records the serialization failure and retry with shape inference disabled; final dtype, byte-size, I/O, inference, and parity checks prove that fallback produced the requested artifact rather than silently retaining FP32.",
+      "resolution": "Validated from sealed Tester r7 runtime artifacts and r11 completion evidence; no new product-side fallback change is attributed to Model13.",
+      "last_updated": "2026-09-03"
+    },
+    {
+      "id": "wav2vec2-035",
+      "title": "MMS-LID FP16 halves storage but is slower and does not reduce process RSS on this CPU while preserving language-logit parity",
+      "observation": "Under the same fresh-child five-iteration protocol on CPUExecutionProvider, MMS-LID FP32 measured mean/median 305.474/297.984 ms and 3.2736 samples/s; FP16 measured 352.231/359.171 ms and 2.8390 samples/s. After warmup, RSS was 3,983,691,776 bytes for FP32 and 4,003,487,744 bytes for FP16, so the half-size artifact did not reduce process RSS in this run. Against pinned PyTorch on the same FLEURS de_de row 2003, FP32 cosine=0.9999999999983611 and max_abs=1.0102987289428711e-05; FP16 cosine=0.9999992021219782 and max_abs=0.00770413875579834. Both preserved top-1 96/nno under bounds frozen before execution.",
+      "scope": {
+        "validated_on": ["facebook/mms-lid-256@edc73fd00996e671dfc59d16436a29b12b10588a @ audio-classification @ fp32/fp16 @ CPUExecutionProvider (2026-09-03, candidate 2e0516d3)"],
+        "falsified_on": [],
+        "refines": ["wav2vec2-003", "wav2vec2-019"],
+        "not_yet_tested_on": ["Other CPU hardware, thread settings, or ORT allocators", "Accelerator perf/parity"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2 PASS for cpu/cpu/fp32 and cpu/cpu/fp16",
+      "recipe_template": "examples/recipes/facebook_mms-lid-256/cpu/cpu/audio-classification_<fp32|fp16>_config.json",
+      "gotchas": [
+        "FP16 reduced external storage by 50.0% but increased mean latency by 15.3% and had slightly higher post-warmup RSS; do not infer CPU speed or memory improvement from weight bytes.",
+        "Use precision-specific bounds frozen before execution and require matching argmax for this language classifier."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "Storage, latency, RSS, and parity are directly measured; the CPU latency/RSS mechanism is not isolated and may vary by allocator, threading, or host.",
+      "resolution": "Report FP16 as a storage tradeoff with preserved parity, not as a CPU performance optimization.",
+      "last_updated": "2026-09-03"
+    },
+    {
+      "id": "wav2vec2-036",
+      "title": "MMS-LID functional smoke needs an exact FLEURS locale-to-ISO-639-3 bridge and remains operable even when two-row accuracy is zero",
+      "observation": "The pinned google/fleurs@70bb2e84b976b7e960aa89f1c648e09c59f894dd de_de/test source encodes German as ClassLabel ID 17 with locale name de_de, while facebook/mms-lid-256 encodes German at checkpoint ID 55 with ISO 639-3 label deu. The final FP32 CPU smoke applied only the explicit de_de->55 mapping, decoded two embedded 16 kHz mono WAV rows, truncated each to one 16,000-sample window, and processed 2/2 rows with zero rejects and two total windows. Predictions cym and nno yielded accuracy=0.0 and macro_f1=0.0. That is L3 PASS-FUNCTIONAL-SMOKE because the pinned media, exact target bridge, preprocessing, inference, decoding, and metrics all operated; it is not a quality, representative-accuracy, or benchmark claim.",
+      "scope": {
+        "validated_on": ["facebook/mms-lid-256@edc73fd00996e671dfc59d16436a29b12b10588a @ google/fleurs@70bb2e84b976b7e960aa89f1c648e09c59f894dd de_de/test @ fp32 @ CPUExecutionProvider (2026-09-03)"],
+        "falsified_on": ["Positional mapping of FLEURS class ID 17 directly to checkpoint class ID 17"],
+        "refines": ["wav2vec2-014", "wav2vec2-020"],
+        "not_yet_tested_on": ["Representative MMS-LID accuracy across multiple languages", "Longer windows or utterance-level multi-window aggregation", "Additional precisions or EPs for L3"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3 functional smoke PASS on final-SHA fp32 CPU",
+      "recipe_template": "examples/recipes/facebook_mms-lid-256/cpu/cpu/audio-classification_fp32_config.json",
+      "gotchas": [
+        "Dataset locale/ClassLabel IDs and checkpoint class IDs are independent namespaces; bridge de_de/German to deu using explicit authoritative labels, never numeric position.",
+        "A zero metric does not fail bounded functional smoke when semantics and accounting are valid; preserve the value and state that no quality threshold applies.",
+        "Two rows from one of 256 classes cover 0.390625% of the output classes and cannot support an accuracy claim."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Pinned dataset features/raw row, checkpoint id2label, explicit mapping file, processed/window accounting, predictions, and confusion matrix agree on the semantic chain.",
+      "resolution": "Retain exact label namespaces and the zero-score smoke disclaimer in the Explainer handoff.",
+      "last_updated": "2026-09-03"
+    },
+    {
+      "id": "wav2vec2-037",
+      "title": "MMS-LID optimized graphs map the stable architecture core but leave optimizer support nodes and FP16 boundary Casts explicit",
+      "observation": "Final component analysis joined both artifacts to the Planner architecture. FP32 has 1,875 nodes and FP16 1,877. Seven semantic regions map 1,189 nodes in each graph: feature encoder 28, feature projection 2, positional convolution 4, 48-layer encoder stack 1,152, projector 1, mean pool 1, classifier 1. Optimizer-generated nodes without unique retained scope remain unmapped: FP32 686 (628 Reshape, 56 Gelu, 1 Add, 1 LayerNormalization), FP16 688 with the same set plus two boundary Casts. FP32 op Analyze reports 1,875 operators/14 types, dominated by Reshape=676, Gemm=387, and Transpose=207. Populated NvTensorRTRTX GPU, QNN NPU/GPU, and OpenVINO NPU/GPU/CPU rule rows classify all 14 types supported; rows without rules remain empty and are not runtime claims.",
+      "scope": {
+        "validated_on": ["facebook/mms-lid-256@edc73fd00996e671dfc59d16436a29b12b10588a @ fp32/fp16 final ONNX component mapping and static Analyze @ candidate 2e0516d3"],
+        "falsified_on": [],
+        "refines": ["wav2vec2-021"],
+        "not_yet_tested_on": ["Actual NvTensorRTRTX, QNN, or OpenVINO runtime execution", "Pre-optimization component mapping of generated support nodes"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3 functional smoke PASS with supplementary partial component mapping",
+      "recipe_template": "examples/recipes/facebook_mms-lid-256/cpu/cpu/audio-classification_<fp32|fp16>_config.json",
+      "gotchas": [
+        "Do not infer a component for optimizer-generated Reshape/Gelu/support nodes after hierarchy scope is lost; retain exact unmapped counts.",
+        "FP16 adds two boundary Casts and two graph nodes while preserving the same mapped semantic scopes.",
+        "Static rule support is not accelerator runtime execution evidence."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "Node counts, retained scopes, unmapped operator counts, and rule classifications are observed; the original component of each optimizer-generated node and accelerator runtime behavior are not proven.",
+      "resolution": "Publish partial mapping and static rule coverage without guessing missing scopes or promoting rules to runtime support.",
+      "last_updated": "2026-09-03"
+    },
+    {
+      "id": "wav2vec2-038",
+      "title": "Gustking deepfake-audio recipes produce true FP32 and FP16 external-data artifacts with a stable-LayerNorm sequence head",
+      "observation": "At rebased candidate c76c0eff5c99dd9fddfbd550e19dd91d3776a058 on base be3e59dd412d4918c5a852aa4d8f0207c34aaf6f, checkpoint Gustking/wav2vec2-large-xlsr-deepfake-audio-classification@f7050b586236dc910d1157f430def2d0647b02b4 built from examples/recipes/Gustking_wav2vec2-large-xlsr-deepfake-audio-classification/cpu/cpu/audio-classification_{fp32,fp16}_config.json on winml 0.0.1.dev0, Transformers 4.57.6, PyTorch 2.14.0, and onnxruntime-windowsml 1.27.1.202607110137. HTP metadata reports Wav2Vec2ForSequenceClassification with 315,701,634 parameters, 409 modules, 118 traced modules, and 236 execution steps. Both opset-17 graphs preserve FLOAT input_values[1,16000] and FLOAT logits[1,2]. FP32 uses 425 FLOAT initializers with 1,262,801,920 external-data bytes; FP16 uses 425 FLOAT16 initializers with 631,400,448 external-data bytes (0.4999995945524061 of FP32), preserves FP32 I/O, and adds two boundary Cast nodes. Resolved config retains dynamo=false and transformers_attention=eager and fills gelu_fusion=true plus matmul_add_fusion=true; the FP16 tuple retains quant.mode=fp16 and fp16_keep_io_types=true.",
+      "scope": {
+        "validated_on": ["Gustking/wav2vec2-large-xlsr-deepfake-audio-classification@f7050b586236dc910d1157f430def2d0647b02b4 @ audio-classification @ fp32/fp16 @ CPUExecutionProvider (2026-09-03, candidate c76c0eff, base be3e59dd, ORT 1.27.1.202607110137)"],
+        "falsified_on": [],
+        "refines": ["wav2vec2-018", "wav2vec2-023"],
+        "not_yet_tested_on": ["Actual accelerator runtime execution", "Dynamic waveform length or batch size"]
+      },
+      "effort_tier_required": "L2 (generalized audio-classification evaluator carried in an isolated droppable support commit while draft PRs #1388/#1389 remain unmerged, plus target-only recipe refresh)",
+      "goal_tier_reached": "L3 functional smoke PASS; L0-L2 PASS for cpu/cpu/fp32 and cpu/cpu/fp16",
+      "recipe_template": "examples/recipes/Gustking_wav2vec2-large-xlsr-deepfake-audio-classification/cpu/cpu/audio-classification_<fp32|fp16>_config.json",
+      "gotchas": [
+        "Verify FP16 from finalized initializer dtype, half-size external data, preserved FLOAT I/O, and boundary Casts; recipe names and accepted flags are not precision proof.",
+        "The rebased shared evaluator commit bf781055 is intentionally separable from target-only commit c76c0eff so it can be dropped if #1388 or #1389 lands; this applies the existing dependency/deduplication contract and is not a new methodology finding.",
+        "The Planner observed --no-optimize still running Optimize, but that behavior is outside this candidate and remains unclaimed and unfixed."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Fresh HTP metadata, resolved configs, structural validation, initializer dtypes, external-data byte counts, inference, and parity jointly distinguish the requested FP32 and FP16 artifacts.",
+      "resolution": "Validated from sealed Model14 Tester manifest fd3b4ef8; preserve rebased droppable evaluator commit bf781055 and target-only recipe commit c76c0eff until overlapping evaluator drafts resolve.",
+      "last_updated": "2026-09-03"
+    },
+    {
+      "id": "wav2vec2-039",
+      "title": "Gustking deepfake-audio FP16 halves storage and measured inference RSS but is slower than FP32 on CPU while preserving class parity",
+      "observation": "At rebased candidate c76c0eff5c99dd9fddfbd550e19dd91d3776a058, ten measured CPUExecutionProvider iterations after three warmups gave FP32 mean/P50 148.523/152.364 ms, 6.73 samples/s, and +91.23 MB total RSS versus FP16 mean/P50 162.778/163.186 ms, 6.14 samples/s, and +43.45 MB total RSS. Against pinned PyTorch on identical seed-14 input_values[1,16000], FP32 cosine=0.9999999983582369 and max_abs=0.000011951662600040436 under frozen bounds cosine>=0.99999/max_abs<=0.001; FP16 cosine=0.9999545270207585 and max_abs=0.002589728683233261 under cosine>=0.999/max_abs<=0.02. Both preserved predicted class 0. Thus this checkpoint's FP16 artifact has a 0.4999995945524061 external-data size ratio and 47.78 MB lower measured total RSS delta, but 14.255 ms higher mean CPU latency while retaining bounded logit and class parity.",
+      "scope": {
+        "validated_on": ["Gustking/wav2vec2-large-xlsr-deepfake-audio-classification@f7050b586236dc910d1157f430def2d0647b02b4 @ audio-classification @ fp32/fp16 @ CPUExecutionProvider (2026-09-03, candidate c76c0eff, base be3e59dd)"],
+        "falsified_on": [],
+        "refines": ["wav2vec2-019", "wav2vec2-024"],
+        "not_yet_tested_on": ["Other CPU hardware, thread settings, or ORT allocators", "Accelerator performance or parity"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2 PASS for cpu/cpu/fp32 and cpu/cpu/fp16",
+      "recipe_template": "examples/recipes/Gustking_wav2vec2-large-xlsr-deepfake-audio-classification/cpu/cpu/audio-classification_<fp32|fp16>_config.json",
+      "gotchas": [
+        "FP16 is a storage/RSS tradeoff on this host, not a CPU speed optimization; report exact tuple measurements instead of generalizing from artifact size.",
+        "The parity input is deterministic synthetic waveform evidence for exporter/runtime fidelity, not evidence about deepfake classification quality."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "Storage, latency, RSS, and parity are directly measured. The cause of the CPU latency/RSS differences is not isolated and can vary by host, allocator, and threading.",
+      "resolution": "Report FP16 as true half-size precision with preserved bounded parity and lower measured RSS, alongside its slower CPU latency.",
+      "last_updated": "2026-09-03"
+    },
+    {
+      "id": "wav2vec2-040",
+      "title": "Deepfake-audio functional smoke requires exact real/fake label identity and utterance-level mean-logit aggregation",
+      "observation": "Final-candidate c76c0eff FP32 CPU Eval used garystafford/deepfake-audio-detection@fcf5344bb7f82b54b6b932291326d29750ef1e82 default/train. Raw-media diligence verified dataset ClassLabel names [real,fake] exactly match checkpoint IDs 0=real and 1=fake; no positional repair, filename inference, or semantic alias was used. Deterministic selection scanned 934 rows to obtain one usable fake and one usable real utterance from 1,866 eligible rows. Both were decoded from raw bytes/path, mixed to mono when needed, resampled to 16 kHz, feature-extractor normalized, capped at 2 seconds, split into at most two 16,000-sample windows, and classified once per utterance by arithmetic mean of window logits before argmax. Exact accounting was requested=2, selected=2, processed=2, inference_windows=4, truncated_samples=2, and rejected=0. Predictions fake->fake and real->real yielded accuracy=1.0, macro_f1=1.0, represented_classes=2/2, and class_coverage=1.0.",
+      "scope": {
+        "validated_on": ["Gustking/wav2vec2-large-xlsr-deepfake-audio-classification@f7050b586236dc910d1157f430def2d0647b02b4 @ garystafford/deepfake-audio-detection@fcf5344bb7f82b54b6b932291326d29750ef1e82 default/train @ fp32 @ CPUExecutionProvider (2026-09-03, candidate c76c0eff, base be3e59dd)"],
+        "falsified_on": ["Inferring deepfake targets from filenames or treating window-level predictions as independent dataset rows"],
+        "refines": ["wav2vec2-020", "wav2vec2-025"],
+        "not_yet_tested_on": ["Representative deepfake-detection accuracy", "More than two utterances or two windows per utterance", "Additional precisions or EPs for L3"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3 functional smoke PASS on the single required final-SHA FP32 CPU path",
+      "recipe_template": "examples/recipes/Gustking_wav2vec2-large-xlsr-deepfake-audio-classification/cpu/cpu/audio-classification_fp32_config.json",
+      "gotchas": [
+        "Preserve exact semantics: dataset 0=real/1=fake and checkpoint 0=real/1=fake are verified identities, not a general numeric-label assumption.",
+        "Aggregate the four retained windows into two utterance predictions by mean logits before argmax; do not inflate the sample count with windows.",
+        "Accuracy=1.0 and macro_f1=1.0 over one row per class are bounded functional-smoke metrics only, not benchmark quality or representative accuracy."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Pinned raw dataset features, decoded real rows, exact checkpoint label map, selection/window accounting, predictions, and confusion matrix agree on the end-to-end semantic chain.",
+      "resolution": "Retain the exact real/fake mapping, mean-logit utterance boundary, four-window cap, and non-benchmark disclaimer in the Explainer handoff.",
+      "last_updated": "2026-09-03"
+    },
+    {
+      "id": "wav2vec2-041",
+      "title": "Gustking optimized graphs retain complete component mapping while Analyze coverage depends on available rule data",
+      "observation": "Final candidate c76c0eff component analysis maps all 747 FP32 nodes and 748 of 749 FP16 nodes to six architecture regions: convolutional feature encoder 35, feature projection 4, 24-layer stable-LayerNorm encoder stack 704, projector 2, temporal mean pool 1, and classifier 1 FP32/2 FP16; only graph_input_cast0, the FP16 graph-input boundary Cast, remains unmapped. FP32 Analyze reports 747 mapped operators across 13 types; FP16 reports 749 total operators across 14 types with 748 mapped and the one input-cast gap. Both are dominated by Reshape=244, Gemm=147, Transpose=111, LayerNormalization=57, and Add=49. Populated static rules classify every observed type supported for NvTensorRTRTX GPU, QNN NPU/GPU, and OpenVINO CPU/GPU/NPU, with no partial or unsupported types. CUDA GPU, MIGraphX GPU, TensorRT GPU, and DML GPU rows have runtime_support=false and empty classifications because no applicable rule data was loaded; those empty rows are absent-rule evidence, not unsupported-operator evidence or runtime verdicts.",
+      "scope": {
+        "validated_on": ["Gustking/wav2vec2-large-xlsr-deepfake-audio-classification@f7050b586236dc910d1157f430def2d0647b02b4 @ fp32/fp16 final ONNX component mapping and static Analyze @ candidate c76c0eff on base be3e59dd"],
+        "falsified_on": [],
+        "refines": ["wav2vec2-021", "wav2vec2-026"],
+        "not_yet_tested_on": ["Actual NvTensorRTRTX, QNN, OpenVINO, CUDA, MIGraphX, TensorRT, or DML runtime execution", "Rule classifications for the four empty provider rows"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3 functional smoke PASS with supplementary complete FP32 and near-complete FP16 component mapping",
+      "recipe_template": "examples/recipes/Gustking_wav2vec2-large-xlsr-deepfake-audio-classification/cpu/cpu/audio-classification_<fp32|fp16>_config.json",
+      "gotchas": [
+        "Do not collapse device rows: populated rules cover NvTensorRTRTX GPU, QNN NPU/GPU, and OpenVINO CPU/GPU/NPU separately.",
+        "An empty classification on a runtime_support=false row means rule data is absent for this analysis; it does not classify the graph's operators as unsupported.",
+        "Static all-supported rules are not accelerator runtime, partition, fallback, performance, or parity evidence."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "Node/component counts and static rule classifications are observed. Accelerator execution and classifications for providers without rule rows are not established.",
+      "resolution": "Publish exact populated and absent-rule rows separately, preserving the single unmapped FP16 boundary Cast and making no accelerator runtime claim.",
+      "last_updated": "2026-09-03"
+    }
+  ]
+}

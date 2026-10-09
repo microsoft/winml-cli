@@ -5,7 +5,7 @@
 """CLI surface tests for ``winml`` (no args) and ``winml --help``.
 
 Both invocations follow the same contract: exit 0 and render the full
-help page, which consists of the gradient banner on stderr and the Click
+help page, which consists of the selected banner on stderr and the Click
 help text (Usage / Options / Commands) on stdout.  The tests here pin the
 *observable output contract* of these two entry points — no mocks, no
 subcommand execution.
@@ -35,16 +35,20 @@ These tests run under the default CI filter (no special marker required).
 from __future__ import annotations
 
 import textwrap
+from io import StringIO
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner, Result
+from rich.console import Console
 
 from winml.modelkit import __version__
 from winml.modelkit.cli import (
     _COMMANDS_DIR,
     _DISABLED_COMMANDS,
     _parse_click_help,
+    _print_banner,
     main,
 )
 
@@ -145,6 +149,58 @@ class TestWinmlHelp:
         result = _invoke("sys", "--help")
         assert result.exit_code == 0
         assert "Windows ML" not in result.stderr
+
+    def test_banner_animation_is_skipped_outside_interactive_terminals(self) -> None:
+        with patch("time.sleep") as mock_sleep:
+            _print_banner(
+                "1.2.3",
+                _console=Console(
+                    file=StringIO(),
+                    force_terminal=False,
+                    color_system=None,
+                ),
+            )
+            mock_sleep.assert_not_called()
+
+    @pytest.mark.parametrize("width", [80, 81, 82, 100])
+    def test_interactive_banner_is_static(self, width: int) -> None:
+        with patch("time.sleep") as mock_sleep:
+            _print_banner(
+                "1.2.3",
+                _console=Console(
+                    file=StringIO(),
+                    force_terminal=True,
+                    color_system="truecolor",
+                    width=width,
+                ),
+            )
+            mock_sleep.assert_not_called()
+
+    def test_removed_banner_style_is_rejected(self) -> None:
+        result = _invoke("--banner-style", "unknown", "--help")
+        assert result.exit_code != 0
+        assert "No such option" in result.output
+
+    # Each row contains two four-column gradient tiles separated by a gap.
+    _MARK_SIGNATURE = "████████  ████████"
+
+    def test_capsule_shows_left_mark_on_wide_terminals(self) -> None:
+        console = Console(file=StringIO(), force_terminal=False, color_system=None, width=90)
+        _print_banner("1.2.3", _console=console)
+        assert self._MARK_SIGNATURE in console.file.getvalue()
+
+    def test_capsule_hides_left_mark_on_narrow_terminals(self) -> None:
+        console = Console(file=StringIO(), force_terminal=False, color_system=None, width=80)
+        _print_banner("1.2.3", _console=console)
+        assert self._MARK_SIGNATURE not in console.file.getvalue()
+
+    def test_capsule_places_version_inside_frame(self) -> None:
+        console = Console(file=StringIO(), force_terminal=False, color_system=None, width=110)
+        _print_banner("1.2.3", _console=console)
+        output = console.file.getvalue()
+        version_line = next(line for line in output.splitlines() if "v1.2.3" in line)
+        assert version_line.strip().startswith("┃")
+        assert version_line.strip().endswith("┃")
 
 
 # ===========================================================================

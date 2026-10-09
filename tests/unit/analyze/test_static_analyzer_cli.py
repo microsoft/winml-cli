@@ -1771,6 +1771,7 @@ class TestAnalyzeEPDeviceSelectionMatrix:
                     ("OpenVINOExecutionProvider", "CPU"),
                     ("TensorrtExecutionProvider", "GPU"),
                     ("DmlExecutionProvider", "GPU"),
+                    ("WinMLCGExecutionProvider", "GPU"),
                     ("CPUExecutionProvider", "CPU"),
                     ("VitisAIExecutionProvider", "NPU"),
                 ],

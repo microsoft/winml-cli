@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from winml.modelkit.eval.image_to_text_evaluator import WinMLImageToTextEvaluator
 from winml.modelkit.inference.pipeline import _HF_PIPELINE_TASK_MAP
@@ -110,7 +110,7 @@ class TestCompute:
 
         result = ev.compute()
 
-        ev.pipe.assert_any_call("img1", text="")
+        assert ev.pipe.call_args_list == [call(sample["image"]) for sample in ev.data]
         assert result["cer"] == 0.0
         assert result["n_samples"] == 2
         assert "cider" in result

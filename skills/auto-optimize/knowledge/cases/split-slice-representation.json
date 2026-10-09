@@ -1,0 +1,46 @@
+{
+  "id": "split-slice-representation",
+  "status": "confirmed",
+  "scope": {
+    "ep": "QNNExecutionProvider",
+    "device": "NPU",
+    "graph_requirements": [
+      "one static axis is fully partitioned by Split or complete sibling Slice routes",
+      "all Slice bounds and steps are immutable and equivalent to the Split sizes",
+      "output order, shape, dtype, names, and consumers can be preserved"
+    ]
+  },
+  "observation": "Equivalent static channel-routing representations can lower differently on QNN NPU.",
+  "mechanism": "Split and sibling Slice can lower differently and can expose different downstream matcher structure; neither representation is intrinsically faster.",
+  "transformation": {
+    "directions": ["static Split -> complete static Slice siblings", "complete static Slice siblings -> static Split"],
+    "requirements": ["constant step-one bounds", "one axis", "non-overlap", "full static coverage", "preserved output mapping"]
+  },
+  "expected_evidence": {
+    "graph": "Exact router replacement with unchanged public outputs",
+    "trace": "Changed routing operators with no unexplained layout or partition regression"
+  },
+  "outcome": {
+    "finding": "Either direction can win depending on the surrounding graph and toolchain.",
+    "interaction": "A representation-only effect may be small while its downstream matcher-enabling effect is material.",
+    "decision": "Treat both directions as scoped paired candidates rather than a universal preference."
+  },
+  "safety": ["static axis and intervals", "unique outputs", "safe consumers", "paired current-device validation"],
+  "counterexamples": ["The opposite direction was confirmed on another graph revision; do not promote either representation globally."],
+  "provenance": {
+    "evidence_class": "paired-performance-confirmed",
+    "scope_note": "exact model, graph occurrence, toolchain, artifacts, and measurements remain run-local"
+  },
+  "generic_review": {
+    "verdict": "GENERIC_CASE_APPROVED",
+    "reviewer": "independent-graph-scout",
+    "content_sha256": "54f30759bba0bd2b562b33d3046545f6f80a1d3288537e27efe6942e145b50cb"
+  },
+  "discovery": {
+    "ep": "QNNExecutionProvider",
+    "device": "NPU",
+    "anchor_ops": ["Split", "Slice"],
+    "keywords": ["routing", "representation", "canonicalization"],
+    "lesson": "Split and Slice are competing scoped representations; measure both directions."
+  }
+}

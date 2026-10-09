@@ -1,0 +1,25 @@
+{
+  "skill_name": "adding-model-support",
+  "description": "Trigger evals: does the skill fire when it should, and stay silent on near-misses against adjacent adding-ep-support, check-model-feasibility, and autoconfig workflows. 9 should-trigger + 9 should-not. Negatives are deliberately tricky keyword-overlap cases, not obvious non-matches. Consume with an externally installed skill-creator description optimizer.",
+  "queries": [
+    { "query": "winml inspect comes back totally blank for ibm-granite/granite-vision and the build crashes with 'unsupported model_type' — how do I add a recipe so it works?", "should_trigger": true },
+    { "query": "I want to contribute Qwen3-Embedding support to winml-cli, where do I add the exporter config", "should_trigger": true },
+    { "query": "timm resnet50 wont load in winml, it says 'Cannot detect task: config has no architectures field' — can we wire timm models up?", "should_trigger": true },
+    { "query": "where do I write the OnnxConfig for a new seq2seq model (nllb-200) so that winml build produces a valid encoder-decoder artifact", "should_trigger": true },
+    { "query": "need to add fp16 / w8a8 / w8a16 recipes for these 8 sentence-transformers feature-extraction models under examples/recipes, they all pass fp16 eval on every EP", "should_trigger": true },
+    { "query": "the loader cant find my model_type for facebook/bart-large-mnli on the NLI task, how do I register it", "should_trigger": true },
+    { "query": "Optimum only covers feature-extraction for mgp-str, I want to subclass MgpstrOnnxConfig and add the image-to-text task with the 3 character heads", "should_trigger": true },
+    { "query": "winml says dinov3 architecture is unrecognized, want to write a from-scratch export config for it", "should_trigger": true },
+    { "query": "how do I add a brand new HF architecture family to the toolkit so winml config emits a recipe for it", "should_trigger": true },
+
+    { "query": "which execution provider should I pick for facebook/dinov2-small on my Snapdragon X Elite laptop — QNN NPU or DML?", "should_trigger": false },
+    { "query": "winml analyze says Conv is unsupported on QNN for my resnet that already has a recipe — why is op coverage reporting that", "should_trigger": false },
+    { "query": "I want to onboard a brand new NPU vendor's runtime as a new execution provider backend in winml-cli", "should_trigger": false },
+    { "query": "my google/vit-base recipe already builds but W8A8 cosine is only 0.85, how do I tune the calibration to get accuracy back", "should_trigger": false },
+    { "query": "how does winml sys --list-ep detect which execution providers are available on the machine", "should_trigger": false },
+    { "query": "the QNN compile backend segfaults on my model, can you explain how the EPContext compile path is structured", "should_trigger": false },
+    { "query": "benchmark resnet50 latency over 100 iterations on CPU with winml perf and give me the json", "should_trigger": false },
+    { "query": "I have a working onnx file already, just convert my pytorch model with torch.onnx.export and quantize it to int8", "should_trigger": false },
+    { "query": "for an already-supported dinov2 recipe, hand-tune the optim fusion passes to squeeze more NPU throughput", "should_trigger": false }
+  ]
+}

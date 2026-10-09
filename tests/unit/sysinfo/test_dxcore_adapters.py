@@ -16,6 +16,7 @@ from winml.modelkit.sysinfo.dxcore_adapters import (
     _LUID,
     _enumerate_for_type,
     _format_luid,
+    _get_memory_mib,
 )
 
 
@@ -77,3 +78,29 @@ def test_enumeration_filters_by_hardware_type_attribute(
 
     assert _enumerate_for_type(ctypes.c_void_p(1), "NPU", _ATTRIBUTE_NPU) == []
     assert calls == [(3, 1, bytes(_ATTRIBUTE_NPU))]
+
+
+def test_get_memory_mib_returns_64_bit_capacity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(dxcore_adapters, "_is_property_supported", lambda *args: True)
+
+    def set_property(
+        adapter: ctypes.c_void_p,
+        property_id: int,
+        value: ctypes.c_uint64,
+    ) -> None:
+        del adapter, property_id
+        value.value = 24 * 1024 * 1024 * 1024
+
+    monkeypatch.setattr(dxcore_adapters, "_get_property", set_property)
+
+    assert _get_memory_mib(ctypes.c_void_p(1), 7) == 24 * 1024
+
+
+def test_get_memory_mib_returns_none_when_unsupported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(dxcore_adapters, "_is_property_supported", lambda *args: False)
+
+    assert _get_memory_mib(ctypes.c_void_p(1), 7) is None

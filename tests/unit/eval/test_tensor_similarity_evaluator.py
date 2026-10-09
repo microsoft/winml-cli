@@ -213,8 +213,8 @@ class TestReferenceLoading:
         assert reference_config.ep == "dml"
         assert reference_config.task is None
         assert load_model.call_args.kwargs["torch_dtype"] is torch.float32
-        # RandomDataset is built over the candidate ONNX I/O.
-        assert evaluator.data.kwargs["model_path"].endswith("cand.onnx")
+        # RandomDataset consumes the already-loaded candidate model schema.
+        assert evaluator.data.kwargs["io_config"] is candidate.io_config
         assert evaluator.data.kwargs["max_samples"] == 5
         assert evaluator.data.kwargs["seed"] == 1
 

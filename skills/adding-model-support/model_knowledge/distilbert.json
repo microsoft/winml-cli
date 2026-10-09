@@ -1,0 +1,93 @@
+{
+  "_meta": {
+    "family": "distilbert",
+    "hf_model_type": "distilbert",
+    "models_tested": [
+      "typeform/distilbert-base-uncased-mnli"
+    ],
+    "last_updated": "2026-07-23",
+    "epistemics_warning": "Observational findings, not ground truth. Re-validate on new checkpoints / ORT versions / EPs before relying on a finding to skip work."
+  },
+  "findings": [
+    {
+      "id": "distilbert-001",
+      "title": "The pinned DistilBERT MNLI checkpoint reaches CPU fp32/fp16 L3 with stable decisions and 0.76 accuracy on the first 100 matched-validation rows",
+      "observation": "At checkpoint revision cfa538a0fddbbd978fefe8966c1aeff7ad409c90 on 2026-07-23, WinML CLI 0.2.0 with ONNX Runtime 1.27.0 built examples/recipes/typeform_distilbert-base-uncased-mnli/cpu/cpu/text-classification_<precision>_config.json for CPUExecutionProvider/cpu. On six fixed semantic premise/hypothesis pairs, fp32 PyTorch/ONNX cosine was 0.999999999999422 with max absolute logit error 1.0728836059570313e-05 and 6/6 argmax agreement; fp16 cosine was 0.9999998731168774 with max absolute error 0.005286037921905518 and 6/6 agreement. Against nyu-mll/glue@bcdcba79d07bc864c1c254ccfcedcce55bcc9a8c, mnli/validation_matched, first 100 rows without shuffle, both artifacts scored accuracy 0.76. CPU perf over 100 iterations plus 10 warmups was fp32 mean/P50 118.287/117.835 ms, 8.45 samples/s, +276.08 MB RSS and fp16 mean/P50 146.715/144.972 ms, 6.82 samples/s, +294.72 MB RSS.",
+      "scope": {
+        "validated_on": [
+          "typeform/distilbert-base-uncased-mnli@cfa538a0fddbbd978fefe8966c1aeff7ad409c90 @ fp32 @ CPUExecutionProvider/cpu",
+          "typeform/distilbert-base-uncased-mnli@cfa538a0fddbbd978fefe8966c1aeff7ad409c90 @ fp16 @ CPUExecutionProvider/cpu"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "other DistilBERT checkpoints, tasks, sequence lengths, batches, or dataset samples beyond the pinned first 100 validation_matched rows",
+          "runtime execution on non-CPU providers"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/typeform_distilbert-base-uncased-mnli/cpu/cpu/text-classification_<precision>_config.json",
+      "gotchas": [
+        "CPU fp16 is a storage reduction, not a latency guarantee: this host measured fp16 slower and with a larger RSS delta than fp32.",
+        "The authoritative checkpoint and GLUE MNLI label maps align only after case normalization and preserve index order 0 entailment, 1 neutral, 2 contradiction."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Independent parity and pinned-dataset evaluation confirmed matching decisions and equal fp32/fp16 accuracy; the measurements are scoped to this checkpoint, host, input shape [1,512], and bounded sample set.",
+      "last_updated": "2026-07-23"
+    },
+    {
+      "id": "distilbert-002",
+      "title": "DistilBERT MNLI fp32/fp16 graphs have stable dominant ops and QNN rules mark GELU-related Div, Erf, Add, and Mul as partial",
+      "observation": "Complete winml analyze --ep all --device all scans with the public central rules tree emitted 11 provider/device records per artifact. The fp32 graph has 224 operators across 17 types; fp16 has 225 across the same 17 types due to one output Cast. Both are dominated by Add 61, MatMul 48, Mul 24, Reshape 24, Transpose 24, and LayerNormalization 13. NvTensorRTRTX GPU and OpenVINO NPU/GPU/CPU classify all 17 types supported. QNN NPU/GPU classify 15 supported plus four partial rule types Div, Erf, Add, and Mul and no unsupported types. CUDA, MIGraphX, DML, CPU, and VitisAI rows contain all 17 types unknown because no applicable static rule rows were present. Frozen hierarchy-name component mapping covers 203/224 fp32 nodes (90.62%) and 203/225 fp16 nodes (90.22%); unmapped exporter/plumbing nodes remain explicit.",
+      "scope": {
+        "validated_on": [
+          "typeform/distilbert-base-uncased-mnli @ fp32 artifact @ public rules all-provider/device static scan",
+          "typeform/distilbert-base-uncased-mnli @ fp16 artifact @ public rules all-provider/device static scan"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "runtime execution on NvTensorRTRTX, QNN, OpenVINO, CUDA, MIGraphX, DML, or VitisAI",
+          "whether QNN partial rule classifications materially affect partitioning or latency"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/typeform_distilbert-base-uncased-mnli/cpu/cpu/text-classification_<precision>_config.json",
+      "gotchas": [
+        "Static rule classifications are not runtime support claims; retain runtime_support and unknown rows.",
+        "Analyze exit 1 is ANALYZE-PARTIAL-SUCCESS here because complete parseable 11-target JSON exists."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "Operator counts, mappings, and static classifications are confirmed on both artifacts; accelerator runtime behavior was not exercised.",
+      "last_updated": "2026-07-23"
+    },
+    {
+      "id": "distilbert-003",
+      "title": "DistilBERT MNLI HTP export traces 28 of 96 modules and true fp16 halves external parameter storage",
+      "observation": "Both fp32 and fp16 export_htp_metadata.json files report DistilBertForSequenceClassification with 66,955,779 parameters, 96 total modules, 28 traced modules (29.17%), and 56 execution steps, rooted at DistilBertForSequenceClassification with a DistilBertModel child containing embeddings and six TransformerBlock children plus the classification head. The fp32 external data is 267,823,104 bytes; fp16 is 133,911,552 bytes, exactly half. The resolved build configs differ from each input recipe only by five materialized defaults: /auto=false, /eval/device=auto, /eval/skip_build=true, /eval/dataset/shuffle=true, and /eval/dataset/seed=42; no optimization was auto-added.",
+      "scope": {
+        "validated_on": [
+          "typeform/distilbert-base-uncased-mnli @ fp32 @ HTP export metadata and resolved build config",
+          "typeform/distilbert-base-uncased-mnli @ fp16 @ HTP export metadata and resolved build config"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "other DistilBERT task heads, shapes, exporter versions, or quantization modes"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/typeform_distilbert-base-uncased-mnli/cpu/cpu/text-classification_<precision>_config.json",
+      "gotchas": [
+        "HTP traced-module coverage is execution-trace evidence, not one-to-one ONNX component coverage.",
+        "Materialized eval defaults must not be mistaken for recipe-authored behavior changes."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Independent fp32/fp16 HTP metadata agree exactly on parameters, module counts, traced modules, execution steps, and hierarchy; artifact sizes prove true fp16 weight conversion.",
+      "last_updated": "2026-07-23"
+    }
+  ]
+}

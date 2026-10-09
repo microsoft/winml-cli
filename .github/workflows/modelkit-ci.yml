@@ -26,7 +26,8 @@ jobs:
               tests/unit/models tests/unit/loader tests/unit/datasets
               tests/unit/export
           - group: optim
-            paths: tests/unit/optim
+            paths: >-
+              tests/unit/optim tests/unit/test_quant_passes.py tests/unit/test_quantizer.py
           - group: commands
             paths: >-
               tests/unit/commands tests/unit/config tests/unit/build
@@ -36,14 +37,15 @@ jobs:
               tests/unit/core tests/unit/onnx tests/unit/cache
               tests/unit/utils tests/unit/test_helpers tests/unit/sysinfo tests/unit/inspect
               tests/unit/optracing tests/unit/serve tests/unit/packaging tests/regression tests/cli
+              skills/adding-model-support/tests skills/auto-optimize/tests
 
     name: test (${{ matrix.group }})
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
@@ -53,7 +55,7 @@ jobs:
 
       - name: Set up Node.js
         if: matrix.group == 'remaining'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
 

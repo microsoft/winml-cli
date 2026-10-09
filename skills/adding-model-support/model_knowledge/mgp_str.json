@@ -1,0 +1,302 @@
+{
+  "_meta": {
+    "family": "mgp_str",
+    "hf_model_type": "mgp-str",
+    "models_tested": ["alibaba-damo/mgp-str-base @ image-to-text @ fp32 @ cpu", "alibaba-damo/mgp-str-base @ image-to-text @ fp16 @ cpu"],
+    "diagnostic_only": [],
+    "last_updated": "2026-08-16",
+    "epistemics_warning": "Observational findings, not ground truth. Re-validate on new checkpoints, ORT versions, and EPs."
+  },
+  "findings": [
+    {
+      "id": "mgp_str-001",
+      "title": "MGP-STR has no @register_onnx_overwrite in the repo — Effort-L1 contribution required (new models/hf/mgp_str.py)",
+      "observation": "No file matching mgp_str.py or mgp-str.py exists under src/winml/modelkit/models/hf/. Direct grep of @register_onnx_overwrite shows no entry for model_type 'mgp-str' anywhere in the repo. HF reports model_type='mgp-str' for alibaba-damo/mgp-str-base. Despite being labelled 'image-to-text', MGP-STR is NOT a generic vision-encoder-decoder: it is a single-stream ViT-style encoder with THREE parallel prediction heads (Character / BPE / WordPiece) that produce three logits tensors fused at inference. The composite vision-encoder-decoder code path does NOT apply.",
+      "scope": {
+        "validated_on": [],
+        "falsified_on": [],
+        "not_yet_tested_on": ["alibaba-damo/mgp-str-base @ * @ *"]
+      },
+      "effort_tier_required": "L1",
+      "goal_tier_reached": "L0 (build will fail without new code — `winml inspect` will report no exporter registered)",
+      "recipe_template": "Cannot use vision_encoder_decoder.json template — different architecture. Closest existing pattern by I/O shape is a vision-feature-extraction recipe (e.g. facebook_dinov2-small) for the encoder, but the three-head output makes a single OnnxConfig non-obvious.",
+      "gotchas": [
+        "Three output tensors (char_logits / bpe_logits / wp_logits) — the OnnxConfig.outputs property must declare all three, and the inference-side image-to-text task may need a custom postprocess callback in TASK_REGISTRY to fuse them (current image-to-text spec expects a single decoder output).",
+        "Optimum may not have a registered OnnxConfig for mgp-str; check optimum.exporters.tasks.TasksManager for coverage before writing a fresh OnnxConfig from scratch.",
+        "Token fusion logic lives in MGP-STR's processor / decode method — moving fusion to ONNX vs leaving it in pre/post-processing is a design decision the contributor needs to make explicit in the PR."
+      ],
+      "feature_gaps_filed": [
+        "FILE: add src/winml/modelkit/models/hf/mgp_str.py with @register_onnx_overwrite('mgp-str', 'image-to-text') + a 3-head OnnxConfig",
+        "FILE: check whether TASK_REGISTRY['image-to-text'] postprocess can accommodate 3-logits fusion, or whether MGP-STR needs a custom task variant"
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Repo grep is definitive for the 'no registration exists' finding. Architecture claim (3-head single-encoder) is from HF model card / standard MGP-STR paper architecture, should be re-verified against the HF config before implementation.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "mgp_str-002",
+      "title": "REFINEMENT of mgp_str-001: Optimum natively covers 'mgp-str' (with hyphen) for feature-extraction — not the L1-from-scratch I claimed",
+      "observation": "TasksManager probe 2026-06-22 PM: optimum registers 'mgp-str' (HYPHEN, matching HF config.json model_type) for task 'feature-extraction'. The HF model card tags alibaba-damo/mgp-str-base as 'image-to-text', but Optimum only covers the feature-extraction (encoder-style) path. So encoder export is L0; the image-to-text task path (which fuses the 3 prediction heads into a string) still needs winml work.",
+      "scope": {
+        "validated_on": ["optimum @ probe 2026-06-22"],
+        "falsified_on": [],
+        "refines": ["mgp_str-001"],
+        "not_yet_tested_on": ["alibaba-damo/mgp-str-base @ * @ *"]
+      },
+      "effort_tier_required": "L1-light: register @register_onnx_overwrite('mgp-str', 'image-to-text') by subclassing Optimum's vendor MgpstrOnnxConfig with a 3-head outputs override (char_logits / bpe_logits / wp_logits). The encoder graph is reused from Optimum; only outputs change.",
+      "goal_tier_reached": "L0 (not yet attempted)",
+      "recipe_template": "Single-output single-encoder recipe (facebook_dinov2-small/image-feature-extraction_fp16_config.json) for shape; the 3-output novelty is per-recipe via output_tensors[].",
+      "gotchas": [
+        "Token fusion logic in MGP-STR processor's decode() (Character + BPE + WordPiece → final string) must remain in inference postprocess, NOT in the ONNX graph, unless we want a fixed-vocab fusion. Putting it in postprocess is the cheaper L1-light path.",
+        "Confirm model_type key in HF config.json is 'mgp-str' (hyphen). Some users will type 'mgp_str' — if so, add a model_type alias in WRAPPED_LIBRARY_MODEL_TYPES or similar."
+      ],
+      "feature_gaps_filed": [
+        "FILE: add models/hf/mgp_str.py with @register_onnx_overwrite('mgp-str', 'image-to-text') subclassing Optimum's MgpstrOnnxConfig; declare 3-head outputs.",
+        "FILE: TASK_REGISTRY['image-to-text'] postprocess — confirm it accepts 3-logits fusion via a model-supplied processor.decode call."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Optimum coverage probe on 2026-06-22.",
+      "last_updated": "2026-06-22"
+    },
+    {
+      "id": "mgp_str-004",
+      "title": "VALIDATED — Effort-L1-light contribution closes the mgp-str image-to-text gap with a 22-line subclass; full Goal L0..L2 ladder PASS on CPU",
+      "observation": "Implemented `src/winml/modelkit/models/hf/mgp_str.py` (2026-06-24, 1.6 KB). The work turned out to be Effort-L1-light, NOT L1 as mgp_str-001 predicted: the vendor `MgpstrOnnxConfig` already exposes the 3-head outputs (char_logits / bpe_logits / wp_logits) correctly under `feature-extraction`, so the contribution is a one-liner subclass `MgpstrImage2TextOnnxConfig(MgpstrOnnxConfig)` + `MODEL_CLASS_MAPPING[('mgp-str','image-to-text')] = MgpstrForSceneTextRecognition`. No new OnnxConfig logic, no DummyInputGenerator subclass, no inference-side TASK_REGISTRY change. Effort axis confirmed mgp_str-002's L0★/L1-light prediction; mgp_str-001's L1 estimate is FALSIFIED (effort over-estimated). Goal-ladder verdict on alibaba-damo/mgp-str-base @ image-to-text @ cpu: **L0 PASS** (build 83.7s, optimized 564.5 MB, 374 nodes after gelu+matmul_add fusion, autoconf converged in 2 iters); **L1 PASS** (CPU avg=100.76ms, P90=123.26ms, throughput=9.92 samples/sec, std=12.35ms over 20 iters); **L2 PASS** (cosine vs PyTorch reference on identical pixel_values: char_logits=0.99999999999992, bpe_logits=0.99999999999974, wp_logits=0.99999999999860; max-abs 5.7e-05 / 2.4e-04 / 2.1e-04 — all heads well within fp32 threshold ≥0.99 cos and ≤1e-3 max-abs); **L3 CLI-BLOCKED** (image-to-text task IS registered in `winml eval`'s TASK_REGISTRY now per 2026-06-24 probe, but no default dataset — same blocker as iter-6 vit-gpt2 per `_meta-015`; user must supply `--dataset` and `--column` to evaluate; STR datasets like IIIT5K / SVT / ICDAR not in default registry). External-data layout per `_meta-023` verified: model.onnx (124 KB graph) + model.onnx.data (564 MB) co-located in temp/mgp_build/.",
+      "scope": {
+        "validated_on": ["alibaba-damo/mgp-str-base @ image-to-text @ fp32 @ cpu (2026-06-24)"],
+        "falsified_on": ["mgp_str-001 effort estimate (L1 → actually L1-light)"],
+        "refines": ["mgp_str-001", "mgp_str-002"],
+        "not_yet_tested_on": ["DML / QNN / OpenVINO EPs (host availability per `_meta-016` — CPU is universal floor)", "L2 with `MgpstrProcessor.batch_decode` end-to-end string match on real text-line images (numerical L2 cosine≈1.0 already implies decode equivalence; full string match would be a stronger but redundant test)"]
+      },
+      "effort_tier_required": "L1-light",
+      "goal_tier_reached": "L2 PASS on encoder (no decoder — single-stream 3-head ViT); L3 CLI-BLOCKED on default-dataset gap",
+      "recipe_template": "examples/recipes/alibaba-damo_mgp-str-base/image-to-text_config.json — copy-able for any future MGP-STR checkpoint (architecture is fixed: 32×128 pixel_values input, 3 heads). Recipe matches `winml config -m <id> --task image-to-text` output exactly (no overrides needed) AFTER the L1-light registration in models/hf/mgp_str.py runs — so per `_meta-038` Step 1b, the recipe IS catalog-only relative to autoconf, but the autoconf only works because the registration exists. Gate-1 IDENTICAL + Gate-2 FAIL-without-registration = real engineering, NOT catalog-only.",
+      "gotchas": [
+        "**HF `architectures` field rename — CLI bug**: `alibaba-damo/mgp-str-base/config.json` still declares `architectures: ['MGPSTRModel']` (legacy all-caps), but current `transformers` only exports `MgpstrModel` (CamelCase rename). `winml.modelkit.loader.task._resolve_model_class_from_arch` does `getattr(transformers, arch_name)` and raises `Cannot import MGPSTRModel from transformers. Please specify task explicitly.` — surfaces as a hard error in `winml inspect -m <id>` (no `--task`) and `winml build -m <id>` (no `--task` field in `-c <recipe>`). Workaround for users: ALWAYS pass `--task image-to-text` (or `--task feature-extraction`) on the CLI. Real fix is a case-insensitive / known-rename-table lookup in `_resolve_model_class_from_arch`. Filed under feature_gaps_filed[0] below.",
+        "**HF `MgpstrForSceneTextRecognition.forward` returns `MgpstrModelOutput(logits=(char, bpe, wp))`** — the L2 compare script needs to unpack `pt_out.logits` as a 3-tuple, not `.logits` as a single tensor.",
+        "**Optimum vendor `MgpstrOnnxConfig` _MODEL_PATCHER**: the vendor class uses `MgpstrModelPatcher` to convert the HF output into the 3-head tuple. The subclass MUST inherit, NOT override, to preserve this patching. `MgpstrImage2TextOnnxConfig` does this correctly by leaving everything inherited (the only purpose of the subclass is the task alias).",
+        "**Input is non-square 32×128**: the `value_range: [0, 1]` field in the auto-generated recipe is honest because pixel_values are normalized RGB. `winml perf` uses random uniform inputs in this range — no special-token issue like `_meta-017` (mgp-str has no special tokens; the encoder accepts any pixel input shape-correctly).",
+        "**3 Einsum ops in graph** (`/wp_a3_module/Einsum`, `/bpe_a3_module/Einsum`, `/char_a3_module/Einsum`) — analyzer emits OpUnsupportedError when probing non-CPU EPs without runtime check data. CPU runs them fine. For NPU/GPU contributions, check `--allow-unsupported-nodes` behavior or file an EP-specific coverage gap (a3_module is the attention-aggregation module specific to MGP-STR's character-vs-subword adaptive fusion).",
+        "**Build artifact `runtime_support: false`** on this host is the `_meta-013` parquet-rules-absent caveat (external host, no Microsoft-internal rules). All 14 unique op types classified as `unknown` not `unsupported`. Not a recipe smell."
+      ],
+      "feature_gaps_filed": [
+        "FILE issue against `winml.modelkit.loader.task._resolve_model_class_from_arch`: case-insensitive `getattr(transformers, arch_name)` (or known-rename table `{'MGPSTRModel': 'MgpstrModel'}`) so legacy HF `architectures: ['MGPSTRModel']` resolves to `transformers.MgpstrModel`. Surfaced by `alibaba-damo/mgp-str-base` 2026-06-24. Affects all `winml inspect`/`config`/`build` calls without explicit `--task`.",
+        "FILE issue against `winml eval` task-coverage: add a default dataset for `image-to-text` (currently TASK_REGISTRY has the task entry but no default dataset, blocking L3 for any image-to-text model on the universal-floor flow). Even a small synthetic captioning dataset like 5 samples from `nlphuji/flickr30k` would unblock the L3 ceiling. Same blocker as iter-6 vit-gpt2 per `_meta-015`.",
+        "FILE issue against `winml eval` task-coverage: add `scene-text-recognition` task (input=image, output=string via processor.batch_decode on 3-head logits). MGP-STR's output format is semantically distinct from captioning even though both are `image-to-text` — the current eval harness would compute caption-style BLEU/METEOR on character-level predictions, which is wrong. Datasets: IIIT5K, SVT, ICDAR-15."
+      ],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "All four Goal tiers re-runnable: `uv run winml build -c examples/recipes/alibaba-damo_mgp-str-base/image-to-text_config.json -m alibaba-damo/mgp-str-base -o temp/mgp_build --ep cpu --device cpu --rebuild` (L0); `uv run winml perf -m temp/mgp_build/model.onnx --ep cpu --device cpu --iterations 20 -o temp/mgp_perf.json` (L1); `uv run python temp/mgp_l2_compare.py` (L2); `uv run winml eval --schema --task image-to-text` to confirm L3 dataset gap.",
+      "resolution": "Effort-L1-light implementation in src/winml/modelkit/models/hf/mgp_str.py (1.6 KB) + wired into models/hf/__init__.py (3-line patch); L0★ recipe in examples/recipes/alibaba-damo_mgp-str-base/image-to-text_config.json with `_note` explaining the registration dependency. Goal-ladder verdict matrix in PR description. Step 1b gate-2 (baseline build) FAILS without registration with the architectures-rename error — proves real engineering delta. The earlier research-only reconfirmation was consolidated into this validated result.",
+      "last_updated": "2026-06-24"
+    },
+    {
+      "id": "mgp_str-005",
+      "title": "MGP-STR runtime decoding must accept Mapping-backed logits output",
+      "observation": "PR #952 revision-2 repair on 2026-07-30 confirmed that Transformers MgpstrModelOutput is Mapping-backed with the ordered (char, BPE, WordPiece) tuple under the `logits` key. Treating every Mapping as raw named heads caused task-evaluation failure. The repaired pipeline first accepts raw char_logits/bpe_logits/wp_logits mappings, then falls back to outputs['logits']; the non-mocked evaluator-to-wrapper regression passed and CPU fp32/fp16 CLI eval each exited 0 on 8 pinned IIIT5K samples. Evidence: producer repair_focused_test_attempt2.stdout.log; tester revision_2/verdict_table.json; transformers 4.57.6; ORT artifact build at winml-cli base 45ca658cf0f537a0b2c7e8c1ff92a2f3cbd1ef56.",
+      "scope": {
+        "validated_on": ["alibaba-damo/mgp-str-base @ image-to-text @ fp32 @ CPUExecutionProvider (2026-07-30)", "alibaba-damo/mgp-str-base @ image-to-text @ fp16 @ CPUExecutionProvider (2026-07-30)"],
+        "falsified_on": [],
+        "refines": ["mgp_str-004"],
+        "not_yet_tested_on": ["other MGP-STR checkpoints", "DML / QNN / OpenVINO EPs"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3 PASS",
+      "recipe_template": "examples/recipes/alibaba-damo_mgp-str-base/cpu/cpu/image-to-text_<precision>_config.json",
+      "gotchas": ["Do not assume isinstance(outputs, Mapping) means char_logits, bpe_logits, and wp_logits are top-level keys; MgpstrModelOutput exposes the ordered tuple under outputs['logits'].", "Preserve head order as character, BPE, WordPiece when calling MgpstrProcessor.batch_decode."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The initial focused repair failed on the Mapping-backed shape; the revised branch passed the non-mocked evaluator regression, 65 affected evaluator/pipeline tests, and both exact CPU L3 CLI evaluations.",
+      "last_updated": "2026-07-30"
+    },
+    {
+      "id": "mgp_str-006",
+      "title": "MGP-STR image-to-text preprocessing must normalize grayscale inputs to RGB",
+      "observation": "PR #952 revision-2 repair on 2026-07-30 confirmed that grayscale PIL images, 2-D NumPy arrays, and single-channel Torch tensors must be converted to RGB before MgpstrProcessor tensorization so the fixed pixel_values contract remains [1,3,32,128]. A non-mocked evaluator regression exercised all three input forms, produced CER 0.0 for 3/3 synthetic labels with no skipped samples, and the repaired CPU fp32/fp16 CLI evaluations each processed all 8 requested pinned IIIT5K samples. Evidence: tests/unit/eval/test_image_to_text_evaluator.py::test_mgpstr_evaluation_normalizes_grayscale_and_decodes_wrapper_output; producer repair_focused_test_attempt2.stdout.log; tester revision_2/verdict_table.json.",
+      "scope": {
+        "validated_on": ["alibaba-damo/mgp-str-base @ image-to-text @ fp32 @ CPUExecutionProvider (2026-07-30)", "alibaba-damo/mgp-str-base @ image-to-text @ fp16 @ CPUExecutionProvider (2026-07-30)"],
+        "falsified_on": [],
+        "refines": ["mgp_str-004"],
+        "not_yet_tested_on": ["other MGP-STR checkpoints", "multi-channel non-RGB image modes", "DML / QNN / OpenVINO EPs"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3 PASS",
+      "recipe_template": "examples/recipes/alibaba-damo_mgp-str-base/cpu/cpu/image-to-text_<precision>_config.json",
+      "gotchas": ["Normalize PIL, NumPy, and Torch inputs to RGB before processor conversion; otherwise grayscale inputs can violate the model's three-channel contract.", "Keep the model input shape fixed at pixel_values [1,3,32,128]."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The first repair exposed a 2-D NumPy channel defect. The second repair passed the integrated three-input regression and the tester's fresh affected suite (65 passed).",
+      "last_updated": "2026-07-30"
+    },
+    {
+      "id": "mgp_str-007",
+      "title": "MGP-STR CPU fp16 is structurally and numerically valid but slower than fp32 on the tested host",
+      "observation": "PR #952 revision-2 tester evidence on 2026-07-30 completed the charter's full CPU precision denominator. The fp16 artifact retained float32 I/O with 176 FLOAT16 initializers and a 295,904,534-byte external-data file; export_htp_metadata.json reports 147,952,305 parameters, 199 modules, and 55 traced modules. All three outputs matched PyTorch closely (cosine char=0.9999999613, BPE=0.9999999202, WordPiece=0.9999992880; max-abs 0.05981/0.10382/0.15944). CPU perf was p50=163.379 ms and 6.10 samples/s versus fp32 p50=127.183 ms and 7.55 samples/s, so fp16 was about 28.5% slower at p50 on this host. Both exact tuples reached CLI L3 PASS on the pinned IIIT5K subset with CER=1.0 and CIDEr=0.0 over 8 samples; these low metrics are quality observations, not command failures, per _meta-018. Artifacts used ORT through winml 0.2.0 at base 45ca658cf0f537a0b2c7e8c1ff92a2f3cbd1ef56.",
+      "scope": {
+        "validated_on": ["alibaba-damo/mgp-str-base @ image-to-text @ fp16 @ CPUExecutionProvider (2026-07-30)"],
+        "falsified_on": [],
+        "refines": ["mgp_str-004"],
+        "not_yet_tested_on": ["other CPU models or hosts", "DML / QNN / OpenVINO EPs"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3 PASS",
+      "recipe_template": "examples/recipes/alibaba-damo_mgp-str-base/cpu/cpu/image-to-text_fp16_config.json",
+      "gotchas": ["Do not infer a CPU speedup from fp16 conversion; this host measured slower fp16 p50 and throughput than fp32.", "Judge successful low CER/CIDEr command output as PASS under the march rule, while reporting the poor task quality explicitly.", "The resolved fp16 build config enables gelu_fusion and matmul_add_fusion and uses fp16_keep_io_types=true."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Tester-owned L0 structure, L1 perf, all-head L2 comparison, and L3 task evaluation all passed for cpu/cpu/fp16; coverage is full with no deferred tuples. Analyze remained partial only because non-target GPU EP rule data was unavailable, not because the CPU tuple failed.",
+      "last_updated": "2026-07-30"
+    },
+    {
+      "id": "mgp_str-008",
+      "title": "PR #952 MGP-STR CPU evidence is byte-reproducible after moving to main 2e28ac9e",
+      "observation": "PR #952 moved-main tester revision 3 on 2026-07-30 revalidated the established mgp_str-005 through mgp_str-007 mechanisms at exact winml-cli base 2e28ac9e7d0b64b7c7a3e080cd1b18361dee8206. Fresh CPU fp32/fp16 builds, perf, all-head numerical comparison, and pinned IIIT5K evaluation all passed through L3. The rebuilt artifacts were byte-identical to revision 2: fp32 graph/data SHA-256 5d345e5018a41fe35103a752a81c5e1af24ebf5bdc1fcbb9922adc4928b8e9fd / 37c18aee395ce0bf342e38fb56524fd0ee7911a4839058eab28aa5bbffec8370 with 126,482-byte graph and 591,809,068-byte external data; fp16 graph/data SHA-256 af62673ea198209c94c8f3ee9ae84713da69c68f1d4f19c454e330c2703aa1ca / 9db29d323fe0af873dc86bf0966a0d99123cc6020fa032bc81c8e0bc5b84ac82 with 126,784-byte graph and 295,904,534-byte external data. Fresh perf was fp32 p50=140.711 ms at 7.39 samples/s and fp16 p50=158.031 ms at 6.32 samples/s, leaving fp16 12.3% slower at p50 on this host. L2 remained close for char/BPE/WordPiece: fp32 cosine 0.999999999999907/0.999999999999796/0.9999999999991167 with max-abs 5.340576171875e-05/0.000213623046875/0.0002346038818359375; fp16 cosine 0.9999999612591736/0.999999920173975/0.9999992879937836 with max-abs 0.05980682373046875/0.10382080078125/0.15944290161132812. Both L3 rows again processed all 8 samples with CER=1.0 and CIDEr=0.0. Moved-main quality gates passed: focused 215 passed; models 1,486 passed, 6 skipped, 2 xfailed; commands 3,330 passed, 9 skipped, 1 warning; license, ruff, mypy across 433 source files, and diff-check all passed.",
+      "scope": {
+        "validated_on": ["alibaba-damo/mgp-str-base @ image-to-text @ fp32 @ CPUExecutionProvider @ winml-cli 2e28ac9e (2026-07-30)", "alibaba-damo/mgp-str-base @ image-to-text @ fp16 @ CPUExecutionProvider @ winml-cli 2e28ac9e (2026-07-30)"],
+        "falsified_on": [],
+        "refines": ["mgp_str-005", "mgp_str-006", "mgp_str-007"],
+        "not_yet_tested_on": ["other MGP-STR checkpoints", "other CPU hosts", "DML / QNN / OpenVINO EPs"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3 PASS",
+      "recipe_template": "examples/recipes/alibaba-damo_mgp-str-base/cpu/cpu/image-to-text_<precision>_config.json",
+      "gotchas": ["Treat perf as host-specific: fresh moved-main numbers changed while artifact bytes and numerical/L3 results remained identical.", "Low CER/CIDEr values remain a reported quality observation rather than a command failure under the established march rule."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "No new MGP-STR mechanism or methodology gap was observed. This finding preserves moved-main freshness without duplicating the revision-2 Mapping-backed output and grayscale-normalization claims.",
+      "last_updated": "2026-07-30"
+    },
+    {
+      "id": "mgp_str-009",
+      "title": "Current-final-SHA MGP-STR fp32 CPU performance is 120.877 ms mean and 126.897 ms P50",
+      "observation": "Tester-owned final-SHA evidence for PR #1253 at b7fdd1d1fe1f65610f56c229e02db853dc2c7529 measured the optimized fp32 artifact on CPUExecutionProvider with 2 warmups and 5 iterations: mean 120.877 ms, P50 126.897 ms, throughput 8.27 samples/s, RAM delta 45.39 MB, and zero local/shared VRAM delta. The artifact was built from examples/recipes/alibaba-damo_mgp-str-base/cpu/cpu/image-to-text_fp32_config.json for pinned model revision 5d06493b6b2a8c4c023d2c030175c03be30f4202. Context: winml-cli 0.3.0 and onnxruntime-windowsml 1.24.5.202604171637.",
+      "scope": {
+        "validated_on": ["alibaba-damo/mgp-str-base @ image-to-text @ fp32 @ CPUExecutionProvider @ b7fdd1d1 (2026-08-16)"],
+        "falsified_on": [],
+        "refines": ["mgp_str-008"],
+        "not_yet_tested_on": ["other MGP-STR checkpoints", "other CPU hosts", "DML / QNN / OpenVINO EPs"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3 PASS",
+      "recipe_template": "examples/recipes/alibaba-damo_mgp-str-base/cpu/cpu/image-to-text_fp32_config.json",
+      "gotchas": ["Treat latency, throughput, and memory deltas as host-specific measurements; they are not artifact invariants."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The exact perf payload is preserved in tester execution evidence 12-perf-fp32.json and the sealed verdict table; this learner did not rerun it.",
+      "last_updated": "2026-08-16"
+    },
+    {
+      "id": "mgp_str-010",
+      "title": "Current-final-SHA MGP-STR fp16 CPU performance is 144.137 ms mean and 150.128 ms P50",
+      "observation": "Tester-owned final-SHA evidence for PR #1253 at b7fdd1d1fe1f65610f56c229e02db853dc2c7529 measured the optimized fp16 artifact on CPUExecutionProvider with 2 warmups and 5 iterations: mean 144.137 ms, P50 150.128 ms, throughput 6.94 samples/s, RAM delta 57.68 MB, and zero local/shared VRAM delta. On this run fp16 was 18.3% slower than fp32 at P50 and had lower throughput (6.94 versus 8.27 samples/s), refining the host-specific pattern in mgp_str-007 and mgp_str-008. The artifact used examples/recipes/alibaba-damo_mgp-str-base/cpu/cpu/image-to-text_fp16_config.json, winml-cli 0.3.0, and onnxruntime-windowsml 1.24.5.202604171637.",
+      "scope": {
+        "validated_on": ["alibaba-damo/mgp-str-base @ image-to-text @ fp16 @ CPUExecutionProvider @ b7fdd1d1 (2026-08-16)"],
+        "falsified_on": [],
+        "refines": ["mgp_str-007", "mgp_str-008"],
+        "not_yet_tested_on": ["other MGP-STR checkpoints", "other CPU hosts", "DML / QNN / OpenVINO EPs"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3 PASS",
+      "recipe_template": "examples/recipes/alibaba-damo_mgp-str-base/cpu/cpu/image-to-text_fp16_config.json",
+      "gotchas": ["Do not infer CPU speedup from fp16 conversion; current-final-SHA evidence again measured slower fp16 P50 and throughput.", "Treat performance and memory deltas as host-specific."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The exact perf payload is preserved in tester execution evidence 12-perf-fp16.json and the sealed verdict table; this learner did not rerun it.",
+      "last_updated": "2026-08-16"
+    },
+    {
+      "id": "mgp_str-011",
+      "title": "MGP-STR fp16 conversion halves the external parameter data exactly while retaining float32 I/O",
+      "observation": "At final SHA b7fdd1d1fe1f65610f56c229e02db853dc2c7529, the fp32 external-data file is 591,809,068 bytes and the fp16 external-data file is 295,904,534 bytes, an exact ratio of 0.5. Both artifacts retain FLOAT pixel_values and FLOAT char_logits/bpe_logits/wp_logits I/O; fp32 has 176 FLOAT initializers and fp16 has 176 FLOAT16 initializers, with 15 INT64 initializers in each. Both HTP exports report MgpstrForSceneTextRecognition with 147,952,305 parameters, 199 modules, 55 traced modules, and 134 execution steps. The fp16 resolved config proves mode=fp16 and fp16_keep_io_types=true; context is winml-cli 0.3.0 and onnxruntime-windowsml 1.24.5.202604171637.",
+      "scope": {
+        "validated_on": ["alibaba-damo/mgp-str-base @ image-to-text @ fp32/fp16 artifact structure @ CPU recipes @ b7fdd1d1 (2026-08-16)"],
+        "falsified_on": [],
+        "refines": ["mgp_str-007", "mgp_str-008"],
+        "not_yet_tested_on": ["other MGP-STR checkpoints", "other conversion modes"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3 PASS",
+      "recipe_template": "examples/recipes/alibaba-damo_mgp-str-base/cpu/cpu/image-to-text_<precision>_config.json",
+      "gotchas": ["Compute artifact-size claims from the referenced external-data files, not only the small model.onnx graph files.", "fp16_keep_io_types=true means fp16 weights do not imply fp16 public inputs or outputs."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Tester structural evidence records fp16_ratio=0.5, and both winml_build_config.json plus export_htp_metadata.json files independently preserve conversion and architecture context.",
+      "last_updated": "2026-08-16"
+    },
+    {
+      "id": "mgp_str-012",
+      "title": "Current-final-SHA fp32 preserves PyTorch parity independently for all three MGP-STR heads",
+      "observation": "A tester-owned named-input comparison at final SHA b7fdd1d1fe1f65610f56c229e02db853dc2c7529 used identical float32 pixel_values [1,3,32,128] for PyTorch and the fp32 ONNX artifact on CPUExecutionProvider. Character logits [1,27,38] reached cosine 0.9999999999999072, max_abs 5.340576171875e-05, mean_abs 1.4122931348417702e-05; BPE logits [1,27,50257] reached cosine 0.9999999999998808, max_abs 0.0002288818359375, mean_abs 5.44793679042825e-05; WordPiece logits [1,27,30522] reached cosine 0.9999999999996452, max_abs 0.00014495849609375, mean_abs 2.5079136153019223e-05. Output order was character, BPE, WordPiece. Context: pinned revision 5d06493b, winml-cli 0.3.0, onnxruntime-windowsml 1.24.5.202604171637.",
+      "scope": {
+        "validated_on": ["alibaba-damo/mgp-str-base @ image-to-text @ fp32 @ CPUExecutionProvider @ b7fdd1d1 (2026-08-16)"],
+        "falsified_on": [],
+        "refines": ["mgp_str-005", "mgp_str-008"],
+        "not_yet_tested_on": ["other MGP-STR checkpoints", "DML / QNN / OpenVINO EPs"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3 PASS",
+      "recipe_template": "examples/recipes/alibaba-damo_mgp-str-base/cpu/cpu/image-to-text_fp32_config.json",
+      "gotchas": ["Validate all three named heads separately; aggregate or single-head parity can hide head-specific regressions.", "Preserve character, BPE, WordPiece output order before processor-side fusion."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The tester comparison reported no failures and used CPUExecutionProvider only; it proves numerical parity for this exact input and artifact, not task accuracy.",
+      "last_updated": "2026-08-16"
+    },
+    {
+      "id": "mgp_str-013",
+      "title": "Current-final-SHA fp16 preserves high PyTorch cosine parity independently for all three MGP-STR heads",
+      "observation": "A tester-owned named-input comparison at final SHA b7fdd1d1fe1f65610f56c229e02db853dc2c7529 used identical float32 pixel_values [1,3,32,128] for PyTorch and the fp16-weight ONNX artifact on CPUExecutionProvider. Character logits reached cosine 0.9999999556679489, max_abs 0.054443359375, mean_abs 0.010301827919645849; BPE logits reached cosine 0.999999911178238, max_abs 0.16356658935546875, mean_abs 0.04750968691862811; WordPiece logits reached cosine 0.9999974815042161, max_abs 0.20363616943359375, mean_abs 0.07969268049442278. All outputs remained float32 and retained their fp32 shapes and character/BPE/WordPiece order. Context: pinned revision 5d06493b, winml-cli 0.3.0, onnxruntime-windowsml 1.24.5.202604171637.",
+      "scope": {
+        "validated_on": ["alibaba-damo/mgp-str-base @ image-to-text @ fp16 @ CPUExecutionProvider @ b7fdd1d1 (2026-08-16)"],
+        "falsified_on": [],
+        "refines": ["mgp_str-005", "mgp_str-007", "mgp_str-008"],
+        "not_yet_tested_on": ["other MGP-STR checkpoints", "DML / QNN / OpenVINO EPs"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3 PASS",
+      "recipe_template": "examples/recipes/alibaba-damo_mgp-str-base/cpu/cpu/image-to-text_fp16_config.json",
+      "gotchas": ["Check each fp16 head independently; WordPiece had the largest max_abs and mean_abs in this run even though cosine remained high.", "Preserve float32 public I/O and character/BPE/WordPiece order."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The tester comparison reported no failures and used CPUExecutionProvider only; it proves numerical parity for this exact input and artifact, not task accuracy.",
+      "last_updated": "2026-08-16"
+    },
+    {
+      "id": "mgp_str-014",
+      "title": "Exactly one final-SHA fp32 CPU Eval invocation provides a two-row bounded IIIT5K functional smoke",
+      "observation": "The sealed tester handoff records total_tester_owned_final_sha_functional_eval_count=1 for candidate b7fdd1d1fe1f65610f56c229e02db853dc2c7529. That single WinML Eval invocation used the fp32 CPU artifact and pinned MiXaiLL76/IIIT5K_OCR revision d0a25a5bd51d121ae00ac59bfbabdc15381bd9f5, selected the first two test rows without shuffle, processed 2/2 rows, and emitted CER=1.0, CIDEr=0.0, n_samples=2. Bounds were candidate labels/prompts=0, beams=1, frames/crops=1, sequence length=27, processor heads=3, and dataset rows=2. This is functional L3 evidence for RGB preprocessing and three-head decoding only; it is not representative accuracy or a benchmark. Context: fp32, CPUExecutionProvider, winml-cli 0.3.0, onnxruntime-windowsml 1.24.5.202604171637.",
+      "scope": {
+        "validated_on": ["alibaba-damo/mgp-str-base @ image-to-text @ fp32 @ CPUExecutionProvider @ one bounded IIIT5K Eval invocation @ b7fdd1d1 (2026-08-16)"],
+        "falsified_on": [],
+        "refines": ["mgp_str-005", "mgp_str-006", "mgp_str-008"],
+        "not_yet_tested_on": ["fp16 functional Eval at b7fdd1d1", "representative IIIT5K accuracy", "other datasets or EPs"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3 PASS",
+      "recipe_template": "examples/recipes/alibaba-damo_mgp-str-base/cpu/cpu/image-to-text_fp32_config.json",
+      "gotchas": ["Exactly one functional Eval invocation does not mean one row: this bounded invocation intentionally processed two rows.", "Do not promote CER=1.0 or CIDEr=0.0 from two rows into a representative quality claim.", "No fp16 L3 Eval was run at this final SHA; fp16 support is established through build, perf, and parity only."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The tester run record, result payload, and sealed verdict agree on one invocation, two processed rows, exact caps, and the functional-smoke-only disclaimer.",
+      "last_updated": "2026-08-16"
+    },
+    {
+      "id": "mgp_str-015",
+      "title": "Final fp32/fp16 graphs map completely to MGP-STR components while static Einsum and signature-specific Reshape support remains unknown",
+      "observation": "At final SHA b7fdd1d1fe1f65610f56c229e02db853dc2c7529, component analysis mapped all 374 fp32 nodes and all 378 fp16 nodes with zero partial or unmapped nodes across patch embedding, 12 encoder layers, character/BPE/WordPiece A^3 heads, and runtime-only batch_decode. FP32 has 374 operators across 14 types; fp16 adds four Cast nodes for 378 operators across 15 types. Both contain 109 Reshape and three Einsum nodes, one Einsum in each A^3 head. Six bounded rule-backed scans per artifact (NvTensorRTRTX GPU; OpenVINO CPU/GPU/NPU; QNN GPU/NPU) emitted complete JSON with runtime_support=false. Static rules list most operator signatures supported but retain unknown exact-signature groups for Reshape on every pair and Einsum in every A^3 head; QNN additionally reports rules_not_found for the three Einsum nodes. These are static uncertainty findings, not runtime failures, fallback claims, or proof of EP support. HTP evidence reports 147,952,305 parameters, 199 modules, 55 traced modules, and 134 execution steps; context is winml-cli 0.3.0 and onnxruntime-windowsml 1.24.5.202604171637.",
+      "scope": {
+        "validated_on": ["alibaba-damo/mgp-str-base @ image-to-text @ fp32/fp16 static Analyze @ six rule-backed provider/device pairs @ b7fdd1d1 (2026-08-16)"],
+        "falsified_on": [],
+        "refines": ["mgp_str-004", "mgp_str-008"],
+        "not_yet_tested_on": ["runtime execution on NvTensorRTRTX / OpenVINO / QNN", "DML and VitisAI static rules (no local rule directories)", "other MGP-STR checkpoints"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3 PASS on CPU; accelerator evidence is static-only",
+      "recipe_template": "examples/recipes/alibaba-damo_mgp-str-base/cpu/cpu/image-to-text_<precision>_config.json",
+      "gotchas": ["Operator-type summaries can contain Reshape in both supported and unknown groups because classification is signature-specific; retain the exact unknown signatures internally.", "Each character/BPE/WordPiece A^3 head owns one Einsum with unknown static support in all six scans.", "runtime_support=false means these scans cannot establish accelerator execution, partitioning, or fallback behavior.", "batch_decode is processor-side runtime behavior and correctly maps to zero ONNX nodes."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "Complete component mapping is confirmed, but accelerator mechanisms are deliberately unconfirmed because the evidence is static-only. The ANALYZE-PARTIAL-SUCCESS state and bounded explicit scans reuse existing methodology findings _meta-071 and _meta-109.",
+      "last_updated": "2026-08-16"
+    }
+  ]
+}

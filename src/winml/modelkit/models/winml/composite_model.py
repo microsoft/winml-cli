@@ -55,6 +55,7 @@ if TYPE_CHECKING:
     from transformers import PretrainedConfig
 
     from ...session import WinMLEPDevice
+    from ...utils.constants import RuntimeName
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +136,7 @@ class WinMLCompositeModel(PreTrainedModel):
         force_rebuild: bool = False,
         sub_model_kwargs: dict[str, dict[str, Any]] | None = None,
         trust_remote_code: bool = False,
+        runtime: RuntimeName = "winml-ort",
         **kwargs: Any,
     ) -> WinMLCompositeModel:
         """Build all sub-components and return ready-to-use model.
@@ -202,6 +204,7 @@ class WinMLCompositeModel(PreTrainedModel):
                 force_rebuild=force_rebuild,
                 sub_model_kwargs=sub_model_kwargs,
                 trust_remote_code=trust_remote_code,
+                runtime=runtime,
                 **kwargs,
             )
         from ..auto import WinMLAutoModel
@@ -228,6 +231,7 @@ class WinMLCompositeModel(PreTrainedModel):
                 use_cache=use_cache,
                 force_rebuild=force_rebuild,
                 trust_remote_code=trust_remote_code,
+                runtime=runtime,
                 **merged,
             )
 
@@ -243,6 +247,7 @@ class WinMLCompositeModel(PreTrainedModel):
         task: str | None = None,
         hf_config: PretrainedConfig | None = None,
         sub_model_kwargs: dict[str, dict[str, Any]] | None = None,
+        runtime: RuntimeName = "winml-ort",
         **kwargs: Any,
     ) -> WinMLCompositeModel:
         """Load composite model from pre-built ONNX files.
@@ -296,7 +301,11 @@ class WinMLCompositeModel(PreTrainedModel):
                     f"Unknown component {name!r}. Valid names for {resolved_cls.__name__}: {valid}"
                 )
             merged = {**kwargs, "task": component_task, **per_component.get(name, {})}
-            sub_models[name] = WinMLAutoModel.from_onnx(Path(path), **merged)
+            sub_models[name] = WinMLAutoModel.from_onnx(
+                Path(path),
+                runtime=runtime,
+                **merged,
+            )
 
         if hf_config is None:
             raise ValueError("Composite model construction requires an HF config (hf_config).")

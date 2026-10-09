@@ -112,6 +112,8 @@ def test_quantize_onnx_publishes_relative_output_and_replaces_only_exact_sidecar
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Publishing should replace only the exact output model and sidecar."""
+    from onnx import load_model
+
     monkeypatch.chdir(tmp_path)
     model_path = tmp_path / "model.onnx"
     _write_minimal_onnx_model(model_path)
@@ -123,10 +125,10 @@ def test_quantize_onnx_publishes_relative_output_and_replaces_only_exact_sidecar
 
     # The quantizer hands the in-memory input model (not the path) to ORT so it
     # can tag it as pre-processed without mutating the user's input file.
-    input_model = SimpleNamespace()
+    input_model = load_model(model_path)
 
     def fake_quantize(*, model_input, model_output: str, quant_config) -> None:
-        assert model_input is input_model
+        assert model_input == input_model
         staged_output = Path(model_output)
         assert staged_output.is_absolute()
         assert staged_output.name == output_path.name
@@ -143,7 +145,7 @@ def test_quantize_onnx_publishes_relative_output_and_replaces_only_exact_sidecar
     quantized_model = SimpleNamespace(
         graph=SimpleNamespace(node=[SimpleNamespace(op_type="QuantizeLinear")])
     )
-    load_results = [input_model, quantized_model]
+    load_results = [quantized_model]
     fake_onnx_module.capture_metadata = lambda _model: SimpleNamespace(
         model_prop_count=0,
         node_count=0,
@@ -174,6 +176,7 @@ def test_quantize_onnx_publishes_relative_output_and_replaces_only_exact_sidecar
 
     assert result.success is True
     assert output_path.exists()
+    assert load_model(model_path) == input_model
     assert not exact_sidecar.exists()
     assert extra_suffix_sidecar.exists()
 

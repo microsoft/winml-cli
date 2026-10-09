@@ -182,6 +182,7 @@ class WinMLCompileConfig:
             "NvTensorRTRTXExecutionProvider": lambda: cls.for_nv_tensorrt_rtx(device=device),
             "OpenVINOExecutionProvider": lambda: cls.for_openvino(device=device),
             "VitisAIExecutionProvider": lambda: cls.for_vitisai(device=device),
+            "WinMLCGExecutionProvider": lambda: cls.for_winmlcg(device=device),
             "MIGraphXExecutionProvider": cls.for_migraphx,
             "CPUExecutionProvider": cls.for_cpu,
         }
@@ -262,6 +263,17 @@ class WinMLCompileConfig:
             device=device or "auto",
         )
         return cls(ep_config=ep_cfg)
+
+    @classmethod
+    def for_winmlcg(cls, device: str | None = None) -> WinMLCompileConfig:
+        """Factory for Windows ML Compute Graph EP compilation."""
+        return cls(
+            ep_config=EPConfig(
+                provider="winmlcg",
+                enable_ep_context=True,
+                device=device or "gpu",
+            )
+        )
 
     @classmethod
     def for_vitisai(cls, device: str | None = None) -> WinMLCompileConfig:

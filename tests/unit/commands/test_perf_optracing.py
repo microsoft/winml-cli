@@ -357,7 +357,7 @@ class TestResolveEpMonitor:
 
 
 class TestOpTracingIterationsSmartDefault:
-    """--op-tracing collapses default iterations to 1 unless user overrides."""
+    """--op-tracing defaults to 10 measured iterations unless user overrides."""
 
     @staticmethod
     def _capture_config(args: list[str]) -> dict:
@@ -377,17 +377,34 @@ class TestOpTracingIterationsSmartDefault:
             runner.invoke(perf, args, obj={})
         return captured
 
-    def test_op_tracing_without_iterations_collapses_to_1(self):
-        """--op-tracing basic without --iterations -> iterations=1."""
-        captured = self._capture_config(["--op-tracing", "basic", "-m", "fake/model"])
-        assert captured.get("iterations") == 1
+    @pytest.mark.parametrize("level", ["basic", "detail"])
+    def test_op_tracing_without_iterations_defaults_to_10(self, level):
+        """Both tracing levels retain 10 measured runs plus the unchanged warmup."""
+        captured = self._capture_config(["--op-tracing", level, "-m", "fake/model"])
+        assert captured.get("iterations") == 10
+        assert captured.get("warmup") == 10
 
-    def test_op_tracing_with_explicit_iterations_honored(self):
-        """--op-tracing basic --iterations 50 -> iterations=50 (user override wins)."""
+    @pytest.mark.parametrize("iterations", [1, 50])
+    def test_op_tracing_with_explicit_iterations_honored(self, iterations):
+        """Explicit counts, including a single sample, override the trace default."""
         captured = self._capture_config(
-            ["--op-tracing", "basic", "--iterations", "50", "-m", "fake/model"]
+            ["--op-tracing", "basic", "--iterations", str(iterations), "-m", "fake/model"]
         )
-        assert captured.get("iterations") == 50
+        assert captured.get("iterations") == iterations
+
+    def test_op_tracing_with_explicit_warmup_honored(self):
+        captured = self._capture_config(
+            ["--op-tracing", "basic", "--warmup", "3", "-m", "fake/model"]
+        )
+        assert captured.get("iterations") == 10
+        assert captured.get("warmup") == 3
+
+    def test_help_describes_tracing_default(self):
+        result = CliRunner().invoke(perf, ["--help"])
+        assert result.exit_code == 0
+        help_text = " ".join(result.output.split())
+        assert "--iterations, defaults to 10" in help_text
+        assert "timing variability" in help_text
 
     def test_op_tracing_with_explicit_default_value_honored(self):
         """--op-tracing basic --iterations 100 -> iterations=100.

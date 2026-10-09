@@ -28,5 +28,8 @@ uv run mkdocs serve
 
 ## See also
 
+- [Add model support with an AI agent](getting-started/agent-skill/adding-model-support.md) — use
+  the contribution skill to diagnose, implement, validate, and review support
+  for one model
 - [Installation](getting-started/installation.md) — user-facing setup
 - [Commands](commands/overview.md) — CLI reference

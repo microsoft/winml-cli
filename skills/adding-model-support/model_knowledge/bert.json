@@ -1,0 +1,646 @@
+{
+  "_meta": {
+    "family": "bert",
+    "hf_model_type": "bert",
+    "models_tested": [
+      "google-bert/bert-base-cased",
+      "intfloat/multilingual-e5-small @ feature-extraction/sentence-similarity @ fp32/fp16 @ CPUExecutionProvider",
+      "dell-research-harvard/lt-un-data-fine-fine-es @ feature-extraction/sentence-similarity @ fp32/fp16 @ CPUExecutionProvider"
+    ],
+    "last_updated": "2026-08-14",
+    "epistemics_warning": "Observational findings, not ground truth. Re-validate on new checkpoints / ORT versions / EPs before relying on a finding to skip work."
+  },
+  "findings": [
+    {
+      "id": "bert-001",
+      "title": "The bert-base-cased alias resolves equivalently to the canonical google-bert checkpoint ID",
+      "observation": "On 2026-07-19 with winml 0.2.0, ONNX Runtime 1.24.5, and main commit e7509b1e908c74beff0a5655b8f8d7de69c5afae, `winml inspect` for google-bert/bert-base-cased and bert-base-cased was semantically equal after ignoring identity-only paths, and explicit fill-mask CPU fp32 `winml config` output was semantically equal. The canonical recipes are examples/recipes/google-bert_bert-base-cased/cpu/cpu/fill-mask_fp32_config.json and fill-mask_fp16_config.json.",
+      "scope": {
+        "validated_on": [
+          "google-bert/bert-base-cased and bert-base-cased alias @ fp32 config @ CPUExecutionProvider/cpu"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "other BERT aliases or checkpoints"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/google-bert_bert-base-cased/cpu/cpu/fill-mask_<precision>_config.json",
+      "gotchas": [
+        "Use the canonical google-bert/bert-base-cased identity in checked-in recipe metadata even though the short alias resolves equivalently."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "Resolution equivalence was measured at inspect/config surfaces; the alias registration path was not independently traced to source in this learner pass.",
+      "last_updated": "2026-07-19"
+    },
+    {
+      "id": "bert-002",
+      "title": "bert-base-cased is recipe-only coverage because current main already supports recipe-free fill-mask export",
+      "observation": "On 2026-07-19 with winml 0.2.0, ONNX Runtime 1.24.5, and main commit e7509b1e908c74beff0a5655b8f8d7de69c5afae, google-bert/bert-base-cased built recipe-free as BertForMaskedLM. The fp32 recipe examples/recipes/google-bert_bert-base-cased/cpu/cpu/fill-mask_fp32_config.json is semantically identical to default `winml config`; the fp16 recipe differs only by the generated `/quant` precision block. Both built on CPU without source changes. Materialized build config retained loader task fill-mask, model class AutoModelForMaskedLM, model type bert, opset 17, 1x512 int32 inputs, logits output, and `optim.clamp_constant_values=true`.",
+      "scope": {
+        "validated_on": [
+          "google-bert/bert-base-cased @ fp32 @ CPUExecutionProvider/cpu",
+          "google-bert/bert-base-cased @ fp16 @ CPUExecutionProvider/cpu"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "google-bert/bert-base-cased runtime builds on non-CPU EP/device targets",
+          "other BERT checkpoints"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/google-bert_bert-base-cased/cpu/cpu/fill-mask_<precision>_config.json",
+      "gotchas": [
+        "Do not add BERT source support for this checkpoint: current main already resolves and exports it; these recipes record exact CPU precision coverage.",
+        "The fp16 recipe's generated quant block is a precision declaration, not a checkpoint-specific source repair."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Recipe-free build, generated-config comparison, materialized build config, and both recipe builds directly confirmed the existing loader/export path and recipe-only delta.",
+      "last_updated": "2026-07-19"
+    },
+    {
+      "id": "bert-003",
+      "title": "The generated CPU fp16 recipe produces a true half-precision BERT artifact while preserving float I/O",
+      "observation": "For google-bert/bert-base-cased on 2026-07-19 with winml 0.2.0, ONNX Runtime 1.24.5, and examples/recipes/google-bert_bert-base-cased/cpu/cpu/fill-mask_fp16_config.json, all 208 floating initializers were FLOAT16, the 5 non-floating initializers remained INT64, and external data was 261,219,464 bytes versus 522,438,928 bytes for fp32 (ratio 0.5). The quant block used mode fp16 with `fp16_keep_io_types=true`, so logits remained FLOAT.",
+      "scope": {
+        "validated_on": [
+          "google-bert/bert-base-cased @ fp16 @ CPUExecutionProvider/cpu"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "google-bert/bert-base-cased @ fp16 @ non-CPU EP/device targets"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/google-bert_bert-base-cased/cpu/cpu/fill-mask_fp16_config.json",
+      "gotchas": [
+        "Do not infer fp16 from the requested precision flag alone; verify initializer dtypes and external-data size.",
+        "Float logits are expected because the generated recipe keeps I/O types."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The materialized fp16 build config and ONNX initializer census directly confirm conversion and preserved float I/O.",
+      "last_updated": "2026-07-19"
+    },
+    {
+      "id": "bert-004",
+      "title": "CPU fp16 was slower and used more RSS than fp32 for fixed 1x512 semantic BERT inputs",
+      "observation": "On the tested host on 2026-07-19 with winml 0.2.0 and ONNX Runtime 1.24.5, 100 measured iterations after 10 warmups on CPUExecutionProvider used fixed semantic 1x512 inputs. fp32 measured mean 249.537 ms, p50 245.162 ms, 4.01 samples/s, and 599.87 MB total RSS delta; fp16 measured mean 295.078 ms, p50 290.010 ms, 3.39 samples/s, and 648.20 MB total RSS delta. Recipes were examples/recipes/google-bert_bert-base-cased/cpu/cpu/fill-mask_fp32_config.json and fill-mask_fp16_config.json.",
+      "scope": {
+        "validated_on": [
+          "google-bert/bert-base-cased @ fp32 @ CPUExecutionProvider/cpu",
+          "google-bert/bert-base-cased @ fp16 @ CPUExecutionProvider/cpu"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "other CPU models, thread settings, sequence lengths, and hosts",
+          "non-CPU EP/device targets"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/google-bert_bert-base-cased/cpu/cpu/fill-mask_<precision>_config.json",
+      "gotchas": [
+        "Do not assume a true fp16 artifact improves CPU latency or memory; measure both precision tuples with the same semantic inputs."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "The performance difference is measured on one host; no kernel-level cause was established.",
+      "last_updated": "2026-07-19"
+    },
+    {
+      "id": "bert-005",
+      "title": "Both CPU precisions preserve masked-token rankings against PyTorch on the tested prompts",
+      "observation": "A self-contained named-output L2 harness on 2026-07-19 compared PyTorch logits with CPUExecutionProvider ONNX logits for three masked-token prompts. Using the fp32 and fp16 recipes under examples/recipes/google-bert_bert-base-cased/cpu/cpu, both precisions matched top-1 and all five top-5 tokens for every masked position (minimum top-5 overlap 5). fp32 full-logit cosine was 0.9999999999953111 with max absolute error 0.0000970364; fp16 cosine was 0.9999996630878892 with max absolute error 0.0882721. Environment: winml 0.2.0, ONNX Runtime 1.24.5.",
+      "scope": {
+        "validated_on": [
+          "google-bert/bert-base-cased @ fp32 @ CPUExecutionProvider/cpu @ 3 masked-token prompts",
+          "google-bert/bert-base-cased @ fp16 @ CPUExecutionProvider/cpu @ 3 masked-token prompts"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "broader masked-token prompt sets",
+          "non-CPU EP/device targets"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/google-bert_bert-base-cased/cpu/cpu/fill-mask_<precision>_config.json",
+      "gotchas": [
+        "Compare the named `logits` output and masked-position rankings; full-tensor cosine alone can hide task-visible rank changes."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "Parity is directly measured for three prompts, but it is not a proof over all inputs.",
+      "last_updated": "2026-07-19"
+    },
+    {
+      "id": "bert-006",
+      "title": "CPU fp32 and fp16 have nearly identical bounded WikiText-2 pseudo-perplexity",
+      "observation": "On 2026-07-19 with winml 0.2.0 and ONNX Runtime 1.24.5, fill-mask L3 evaluation used Salesforce/wikitext configuration wikitext-2-raw-v1 at exact revision b08601e04326c79dfdd32d625aee71d232d685c3, test split, 3 shuffled streaming samples, seed 42. The CPU fp32 recipe produced pseudo-perplexity 5.2357 and NLL 1.6555 in 131.536 s; fp16 produced pseudo-perplexity 5.2356 and NLL 1.6555 in 151.398 s.",
+      "scope": {
+        "validated_on": [
+          "google-bert/bert-base-cased @ fp32 @ CPUExecutionProvider/cpu @ Salesforce/wikitext:b08601e04326c79dfdd32d625aee71d232d685c3 test 3-sample subset",
+          "google-bert/bert-base-cased @ fp16 @ CPUExecutionProvider/cpu @ Salesforce/wikitext:b08601e04326c79dfdd32d625aee71d232d685c3 test 3-sample subset"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "a broad or full WikiText-2 corpus estimate",
+          "non-CPU EP/device targets"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/google-bert_bert-base-cased/cpu/cpu/fill-mask_<precision>_config.json",
+      "gotchas": [
+        "The 3-sample result is deliberately bounded because fill-mask pseudo-perplexity runs inference per token; never present it as a broad corpus estimate.",
+        "Pin the dataset revision and configuration because PPPL/NLL are subset-sensitive."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "The near-equality is observed only on the pinned three-sample subset.",
+      "last_updated": "2026-07-19"
+    },
+    {
+      "id": "bert-007",
+      "title": "BERT static analysis records are complete across 11 EP/device targets but are not runtime support proof",
+      "observation": "Static analysis of google-bert/bert-base-cased fp32 and fp16 on 2026-07-19 used public rules v0.2.0 (SHA-256 6dcabbe7f5493fbc2bd23de195ab6e35b3578d510f18c2e220bc5538a1f232cc) with winml 0.2.0 and ONNX Runtime 1.24.5. Both artifacts emitted all 11 records: NvTensorRTRTXExecutionProvider/GPU, CUDAExecutionProvider/GPU, MIGraphXExecutionProvider/GPU, QNNExecutionProvider/NPU, QNNExecutionProvider/GPU, OpenVINOExecutionProvider/NPU, OpenVINOExecutionProvider/GPU, OpenVINOExecutionProvider/CPU, DmlExecutionProvider/GPU, CPUExecutionProvider/CPU, and VitisAIExecutionProvider/NPU. fp32 had 442 operators and fp16 had 443, each with 15 unique types; the preserved top three counts for both were Add=125, MatMul=98, Mul=50. All nodes mapped (442/442 fp32; 443/443 fp16). Exit 1 means partial/unsupported static coverage, not a failed scan: QNN NPU/GPU marked Div, Erf, Add, and Mul partial. OpenVINO plugin registration also logged missing onnxruntime_providers_shared.dll Error 126, while static records remained complete. The host actually exposed only DmlExecutionProvider and CPUExecutionProvider, so rule classifications and `runtime_support` fields for other targets must not be reported as executed runtime support.",
+      "scope": {
+        "validated_on": [
+          "google-bert/bert-base-cased @ fp32 static analyze @ 11 named EP/device records",
+          "google-bert/bert-base-cased @ fp16 static analyze @ 11 named EP/device records"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "runtime execution on NvTensorRTRTXExecutionProvider/GPU",
+          "runtime execution on CUDAExecutionProvider/GPU",
+          "runtime execution on MIGraphXExecutionProvider/GPU",
+          "runtime execution on QNNExecutionProvider/NPU",
+          "runtime execution on QNNExecutionProvider/GPU",
+          "runtime execution on OpenVINOExecutionProvider/NPU",
+          "runtime execution on OpenVINOExecutionProvider/GPU",
+          "runtime execution on OpenVINOExecutionProvider/CPU",
+          "runtime execution on DmlExecutionProvider/GPU",
+          "runtime execution on VitisAIExecutionProvider/NPU"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/google-bert_bert-base-cased/cpu/cpu/fill-mask_<precision>_config.json",
+      "gotchas": [
+        "Preserve all 11 EP/device records and the top-three counts when summarizing; do not collapse the scan to only actionable QNN rows.",
+        "Treat all-unknown or rule-derived classifications as static evidence, not as proof that a provider ran on this host.",
+        "An analyze exit code of 1 can coexist with complete JSON when the static rules classify partial or unsupported coverage."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "The scan completeness and classifications are confirmed, but non-CPU runtime support was not exercised and the OpenVINO DLL registration failure was not repaired in this CPU-scoped contribution.",
+      "last_updated": "2026-07-19"
+    },
+    {
+      "id": "bert-008",
+      "title": "bert-base-cased HTP metadata records the exact traced module scale and hierarchy",
+      "observation": "Frozen tester fp32 and fp16 export_htp_metadata.json artifacts for google-bert/bert-base-cased on 2026-07-19, produced with winml 0.2.0 and ONNX Runtime 1.24.5 from examples/recipes/google-bert_bert-base-cased/cpu/cpu/fill-mask_<precision>_config.json, both record exactly 108,340,804 parameters and 92 traced modules out of 233. Their verified hierarchy is rooted at BertForMaskedLM with exactly two direct children: BertModel and BertOnlyMLMHead. BertModel has exactly two direct children, BertEmbeddings and BertEncoder; BertEncoder has exactly 12 direct children named BertLayer.0 through BertLayer.11, and each BertLayer has exactly three direct children named BertAttention, BertIntermediate, and BertOutput. BertOnlyMLMHead has exactly one direct child, BertLMPredictionHead, which has exactly one direct child, BertPredictionHeadTransform. This HTP hierarchy agrees with the frozen model-breakdown profile's collapsed 12-layer encoder and masked-LM-head tree. The frozen tester HTP artifact SHA-256 values are 2699d1f42f19fb5dba7953d43ccf055f86b06f343d3d0c07f1e1d5377026a2ec for fp32 and 3f79bab3a87628ad4ba0920b795b9c8ba097e9e3b1de297bd2f5af01edb075ec for fp16.",
+      "scope": {
+        "validated_on": [
+          "google-bert/bert-base-cased @ fp32 @ CPUExecutionProvider/cpu @ frozen tester export_htp_metadata.json",
+          "google-bert/bert-base-cased @ fp16 @ CPUExecutionProvider/cpu @ frozen tester export_htp_metadata.json"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "other BERT checkpoints, task heads, model classes, or HTP exporter versions",
+          "whether the 92 traced modules out of 233 generalize to shapes or tasks other than fill-mask with 1x512 inputs"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/google-bert_bert-base-cased/cpu/cpu/fill-mask_<precision>_config.json",
+      "gotchas": [
+        "Do not substitute the source-derived collapsed architecture tree for HTP evidence; preserve the exact HTP class names and direct-child counts.",
+        "The HTP parameter/module counts and hierarchy describe the frozen fp32/fp16 export traces; they are not evidence of non-CPU runtime support or a family-wide invariant."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The independently frozen fp32 and fp16 HTP metadata agree exactly on model.total_parameters, model.total_modules, tracing.modules_traced, and modules.children; the frozen model-breakdown tree independently agrees with the collapsed encoder/head structure.",
+      "last_updated": "2026-07-19"
+    },
+    {
+      "id": "bert-009",
+      "title": "BertModel feature-extraction is Optimum VENDOR-ONLY, but baseline quantization can fail when the tokenizer omits token_type_ids",
+      "observation": "intfloat/multilingual-e5-small: config model_type=bert, architectures=[BertModel] (encoder-only, hidden_size=384, 12 layers, 12 heads, vocab_size=250037, max_position_embeddings=512, type_vocab_size=2 so it HAS token_type_ids). The Optimum-coverage probe shows bert feature-extraction / sentence-similarity fully VENDOR-ONLY (added_by_winml=[]), so no src/winml/modelkit/models/hf/bert.py change is needed -> Effort L0*. HOWEVER the baseline auto-config build `winml build -m intfloat/multilingual-e5-small` (no -c) on origin/main d9feefff FAILS: Export (61.2s, 448.3MB) and Optimize (31.1s) succeed, then Quantize crashes with `ValueError: Required inputs (['token_type_ids']) are missing from input feed (['input_ids', 'attention_mask'])` — the static-quant calibration data reader only supplies input_ids+attention_mask. The curated CPU convention recipe (quant:null, fp32+fp16 under cpu/cpu/) skips the broken quantize pass and builds a working float model in 109.4s (Export 50.5 + Optimize 58.0). So this is a genuine baseline-FAILS -> recipe-FIXES delta, not a catalog clone. Recipe shape: 3 int32 inputs input_ids[1,512] (range 0..250037) + attention_mask[1,512] + token_type_ids[1,512] (both range 0..2), output last_hidden_state[1,512,384], optim.clamp_constant_values=true, model_class=AutoModel, model_type=bert. L1 CPU perf avg 256.26ms / 3.90 samples-s / RAM +186.9MB. L2 PyTorch-vs-ONNX: raw last_hidden_state max-abs 1.729e-06, E5 mean-pooled+L2-normalized sentence-embedding cosine 1.000000, and query->passage retrieval ranking identical between PyTorch and ONNX. analyze: 384 ops, 15 unique, all supported on the analyzed EP.",
+      "scope": {
+        "validated_on": [
+          "intfloat/multilingual-e5-small @ feature-extraction_fp32 @ CPUExecutionProvider",
+          "intfloat/multilingual-e5-small @ sentence-similarity_fp32 @ CPUExecutionProvider"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "a rebuilt CPU fp16 tuple with explicit `--precision fp16` and FLOAT16/size/perf proof",
+          "GPU/DML/QNN runtime execution for this checkpoint",
+          "whether a w8a16 recipe can be made to quantize by supplying token_type_ids to the calibration reader"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/intfloat_multilingual-e5-small/cpu/cpu/feature-extraction_fp32_config.json",
+      "gotchas": [
+        "DEFAULT `winml build` (no recipe) FAILS at quantize for bert models WHOSE TOKENIZER DOES NOT EMIT token_type_ids (e.g. E5's XLMRobertaTokenizer): the calibration reader tokenizes text and feeds only what the tokenizer returns (input_ids+attention_mask), so the required token_type_ids input is missing. REFINED by bert-010: models with a classic WordPiece BertTokenizer (which DOES emit token_type_ids) quantize fine at baseline (emit w8a16) — the crash is tokenizer-dependent, not implied by type_vocab_size=2. A float recipe may bypass this quantization failure, but each requested precision still needs current recipe metadata and exact artifact proof.",
+        "E5 uses XLMRobertaTokenizer (vocab 250037) which does NOT emit token_type_ids, yet config model_type=bert (type_vocab_size=2) so the exported ONNX REQUIRES a token_type_ids input. Feed zeros (the single-segment BERT default) at inference.",
+        "E5 embeddings require 'query: ' / 'passage: ' text prefixes and mean-pooling + L2 normalization for meaningful similarity — a downstream usage detail, does NOT change the exported graph (raw last_hidden_state) or affect PyTorch-vs-ONNX parity.",
+        "The historical CPU run did not materialize the fp16 tuple. Under current `_meta-065/_meta-077`, build it with `--precision fp16` without `--no-quant` and require FLOAT16/size/perf proof; byte-identical recipe bodies do not make an fp32 artifact an fp16 PASS."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Confirmed by VENDOR-ONLY Optimum probe, the reproduced baseline quantize ValueError, and the historical fp32 float-recipe build. Falsify with a bert checkpoint whose baseline build fails at EXPORT (would need per-arch code), or whose default quant calibration already supplies token_type_ids.",
+      "last_updated": "2026-07-31"
+    },
+    {
+      "id": "bert-010",
+      "title": "BertModel embedder with a classic WordPiece tokenizer quantizes at baseline; float recipes document coverage rather than fix a crash",
+      "observation": "dell-research-harvard/lt-un-data-fine-fine-es: config model_type=bert, architectures=[BertModel], based on the Spanish BETO embedder hiiamsid/sentence_similarity_spanish_es (hidden_size=768, 12 layers, 12 heads, vocab_size=31002, max_position_embeddings=512, type_vocab_size=2 so it HAS token_type_ids, pad_token_id=1). Unlike bert-009 (E5), its tokenizer is a classic WordPiece BertTokenizer ([CLS]/[SEP]/[PAD]/[MASK]) which DOES emit token_type_ids, so the DEFAULT auto-config build `winml build -m dell-research-harvard/lt-un-data-fine-fine-es` (no -c) on origin/main d9feefff SUCCEEDS end-to-end: Export 35.3s + Optimize 23.3s + Quantize 45.6s -> model.onnx (127.8MB w8a16 uint8/uint16), Build complete 121.5s. So this is NOT a baseline-fails case — it FALSIFIES the generalization in bert-009 that 'the default build fails at quantize on token_type_ids models'; the failure there was driven by the XLMRobertaTokenizer not emitting token_type_ids, not by type_vocab_size=2. The recipe is still the right deliverable because the CPU convention (_meta-065) ships fp32+fp16 FLOAT, not the default w8a16. Curated recipe (quant:null, fp32+fp16 under cpu/cpu/) builds cleanly: FE 100.0s (Export 52.4 + Optimize 46.7), SS 92.3s (Export 47.1 + Optimize 44.4). Recipe shape: 3 int32 inputs input_ids[1,512] (range 0..31002) + attention_mask[1,512] + token_type_ids[1,512] (both range 0..2), output last_hidden_state[1,512,768], optim.clamp_constant_values=true, model_class=AutoModel, model_type=bert. L1 CPU perf avg 623.22ms / p50 609.55ms / min 444.80ms (bs=1, 512 tok; ~2.4x E5's 256ms because hidden 768 vs 384). L2 PyTorch-vs-ONNX: raw last_hidden_state max-abs 5.860e-04, mean-pooled+L2-normalized sentence-embedding cosine 1.000000 (min=mean), and retrieval ranking identical between PyTorch and ONNX AND semantically correct (paraphrase pair and QA pair rank at top). analyze: 384 ops, 15 unique, all supported on the analyzed EP.",
+      "scope": {
+        "validated_on": [
+          "dell-research-harvard/lt-un-data-fine-fine-es @ feature-extraction_fp32 @ CPUExecutionProvider",
+          "dell-research-harvard/lt-un-data-fine-fine-es @ sentence-similarity_fp32 @ CPUExecutionProvider"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "GPU/DML/QNN runtime execution for this checkpoint",
+          "the default w8a16 baseline model's numeric quality vs PyTorch (not measured — we ship float instead)"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/dell-research-harvard_lt-un-data-fine-fine-es/cpu/cpu/feature-extraction_fp32_config.json",
+      "gotchas": [
+        "Do NOT assume a bert model with token_type_ids will fail the baseline quantize (bert-009) — that only happens when the TOKENIZER omits token_type_ids (XLMRoberta). A WordPiece BertTokenizer emits them and the baseline builds a w8a16 model fine. Verify by actually running the baseline build.",
+        "The recipe's job here is coverage, not crash-avoidance: baseline emits w8a16. State this honestly in the PR rather than presenting the float recipes as a baseline fix.",
+        "lt-un-data-fine-fine-es is a Spanish (BETO) embedder; pad_token_id=1 (vs E5's 0). Historical feature-extraction and sentence-similarity float recipe bodies differed only in loader.task. Current fp16 artifact proof is recorded in bert-011.",
+        "L2 max-abs diff (5.86e-04) is ~340x larger than E5's (1.73e-06) yet still << 1e-3 and cosine is 1.000000 — larger hidden (768) + clamp_constant_values accumulates more float rounding; judge parity by cosine/ranking, not raw max-abs alone."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Confirmed by the successful baseline w8a16 build, historical float builds, and L2 parity. The tokenizer-dependence of the bert-009 crash is a two-point contrast: E5/XLMRoberta (no token_type_ids -> baseline quantize crash) vs lt-un-data/WordPiece-Bert (emits token_type_ids -> baseline quantize OK). The historical fp16 gap is resolved by the independent current artifact evidence in bert-011.",
+      "last_updated": "2026-07-31"
+    },
+    {
+      "id": "bert-011",
+      "title": "Explicit fp16 selection produces a true half-size BERT artifact for both embedding tasks",
+      "observation": "On 2026-08-13 at winml-cli candidate 86821d476bcfcc487dc993783557e49b0a930dfb with ONNX Runtime 1.24.5, all four CPU recipe builds passed from examples/recipes/dell-research-harvard_lt-un-data-fine-fine-es/cpu/cpu/<task>_<precision>_config.json using explicit `-p fp32` or `-p fp16`. Both fp32 task artifacts were byte-identical (model SHA-256 9d132ba4ce07c483077116fce62c20cea14545a2f4151459a765e669d652e930), with 200 FLOAT initializers and 437,045,248 external-data bytes. Both fp16 task artifacts were byte-identical (model SHA-256 ffb1462d4316cf17cfe6d18b2afa85e8f0da276709795a3b19f34cf236b27d5b), with 200 FLOAT16 initializers and 218,524,672 external-data bytes, exactly half the floating-data size. All four retained three INT32 1x512 inputs and FLOAT last_hidden_state[1,512,768] output and passed real named-input inference.",
+      "scope": {
+        "validated_on": [
+          "dell-research-harvard/lt-un-data-fine-fine-es @ feature-extraction @ fp32 @ CPUExecutionProvider/cpu @ ORT 1.24.5",
+          "dell-research-harvard/lt-un-data-fine-fine-es @ feature-extraction @ fp16 @ CPUExecutionProvider/cpu @ ORT 1.24.5",
+          "dell-research-harvard/lt-un-data-fine-fine-es @ sentence-similarity @ fp32 @ CPUExecutionProvider/cpu @ ORT 1.24.5",
+          "dell-research-harvard/lt-un-data-fine-fine-es @ sentence-similarity @ fp16 @ CPUExecutionProvider/cpu @ ORT 1.24.5"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "other BERT checkpoints and non-CPU EP/device targets"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/dell-research-harvard_lt-un-data-fine-fine-es/cpu/cpu/<feature-extraction|sentence-similarity>_<fp32|fp16>_config.json",
+      "gotchas": [
+        "The fp32/fp16 recipe bodies intentionally keep quant:null; explicit `-p fp16` materializes the fp16 quant block, so filenames and recipe bodies alone are not precision proof.",
+        "FLOAT output is expected for fp16 because the resolved configuration sets fp16_keep_io_types=true."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Initializer dtypes, external-data bytes, model hashes, and runtime output dtypes independently confirm precision realization and task-level graph identity.",
+      "last_updated": "2026-08-13"
+    },
+    {
+      "id": "bert-012",
+      "title": "CPU fp16 is slower and uses more RSS than fp32 for both tested BERT embedding tasks",
+      "observation": "On the tested Windows host on 2026-08-13 with winml-cli candidate 86821d476bcfcc487dc993783557e49b0a930dfb and ONNX Runtime 1.24.5, each CPUExecutionProvider measurement used 10 iterations after 3 warmups with 1x512 inputs. Feature-extraction fp32 measured mean 261.979 ms, p50 259.645 ms, 3.82 samples/s, and 105.45 MB RSS delta; fp16 measured mean 308.895 ms, p50 308.050 ms, 3.24 samples/s, and 121.89 MB. Sentence-similarity fp32 measured mean 257.770 ms, p50 257.505 ms, 3.88 samples/s, and 105.41 MB; fp16 measured mean 309.720 ms, p50 311.073 ms, 3.23 samples/s, and 121.70 MB. The recipes were examples/recipes/dell-research-harvard_lt-un-data-fine-fine-es/cpu/cpu/<task>_<precision>_config.json.",
+      "scope": {
+        "validated_on": [
+          "dell-research-harvard/lt-un-data-fine-fine-es @ feature-extraction @ fp32/fp16 @ CPUExecutionProvider/cpu @ 1x512",
+          "dell-research-harvard/lt-un-data-fine-fine-es @ sentence-similarity @ fp32/fp16 @ CPUExecutionProvider/cpu @ 1x512"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "other hosts, sequence lengths, thread settings, and non-CPU EP/device targets"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/dell-research-harvard_lt-un-data-fine-fine-es/cpu/cpu/<feature-extraction|sentence-similarity>_<precision>_config.json",
+      "gotchas": [
+        "Do not infer a CPU latency or memory benefit from the half-size fp16 artifact; benchmark each task and precision on the target host."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "The inversion is measured consistently across both task labels on one host, but no kernel-level cause was established.",
+      "last_updated": "2026-08-13"
+    },
+    {
+      "id": "bert-013",
+      "title": "Both CPU precisions preserve Spanish embedding similarity ranking against PyTorch",
+      "observation": "The independent L2 harness on 2026-08-13 used three fixed Spanish sentences, real tokenizer-produced input_ids/attention_mask/token_type_ids, winml-cli candidate 86821d476bcfcc487dc993783557e49b0a930dfb, and ONNX Runtime 1.24.5. For feature-extraction and sentence-similarity, fp32 last_hidden_state cosine minimum was 1.0 with maximum absolute error 0.0004780293; fp16 cosine minimum was 0.9999408126 with maximum absolute error 2.4794619. Attention-mask-aware mean pooling on sentence-similarity preserved the exact descending pair rank for both precisions (Spearman 1.0); pair-cosine maximum absolute error was 1.5994e-07 for fp32 and 5.8022e-05 for fp16. Recipes were examples/recipes/dell-research-harvard_lt-un-data-fine-fine-es/cpu/cpu/<task>_<precision>_config.json.",
+      "scope": {
+        "validated_on": [
+          "dell-research-harvard/lt-un-data-fine-fine-es @ feature-extraction @ fp32/fp16 @ CPUExecutionProvider/cpu @ 3 fixed Spanish sentences",
+          "dell-research-harvard/lt-un-data-fine-fine-es @ sentence-similarity @ fp32/fp16 @ CPUExecutionProvider/cpu @ 3 fixed Spanish sentences"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "broader Spanish corpora, other sequence lengths, and non-CPU EP/device targets"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/dell-research-harvard_lt-un-data-fine-fine-es/cpu/cpu/<feature-extraction|sentence-similarity>_<fp32|fp16>_config.json",
+      "gotchas": [
+        "Judge the fp16 sentence-similarity surface with pooled cosine and ranking as well as raw-token max absolute error; the latter reached 2.4795 while ranking remained identical."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "Parity is directly measured on three deterministic inputs, not proved for arbitrary text.",
+      "last_updated": "2026-08-13"
+    },
+    {
+      "id": "bert-014",
+      "title": "The final-SHA L3 sentence-similarity result is a three-row functional smoke, not benchmark accuracy",
+      "observation": "At candidate SHA 86821d476bcfcc487dc993783557e49b0a930dfb with ONNX Runtime 1.24.5, the fp32 sentence-similarity artifact from examples/recipes/dell-research-harvard_lt-un-data-fine-fine-es/cpu/cpu/sentence-similarity_fp32_config.json completed `winml eval` on CPUExecutionProvider over exactly three deterministic pair rows expanded from one frozen Spanish sentence triple. With no shuffle, sample limit 3, processed rows 3, sequence cap 512, one beam, and no candidate-label/prompt fan-out, it reported cosine_spearman=50.0. This proves the final artifact and evaluator function together only; the tiny local set is not representative accuracy.",
+      "scope": {
+        "validated_on": [
+          "dell-research-harvard/lt-un-data-fine-fine-es @ sentence-similarity @ fp32 @ CPUExecutionProvider/cpu @ candidate 86821d47 @ 3 deterministic Spanish pair rows"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "fp16 L3 evaluation",
+          "a representative or benchmark-scale Spanish sentence-similarity dataset",
+          "non-CPU EP/device targets"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/dell-research-harvard_lt-un-data-fine-fine-es/cpu/cpu/sentence-similarity_fp32_config.json",
+      "gotchas": [
+        "Preserve the exact row count and fan-out bounds and label cosine_spearman=50.0 as functional smoke only."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The command completed against the exact final candidate artifact and all three frozen rows were preserved in the tester evidence.",
+      "last_updated": "2026-08-13"
+    },
+    {
+      "id": "bert-015",
+      "title": "Current CPU static analysis maps the 372-node BERT graph but provides no CPU support classification",
+      "observation": "For all four builds from examples/recipes/dell-research-harvard_lt-un-data-fine-fine-es/cpu/cpu/<task>_<precision>_config.json at candidate 86821d476bcfcc487dc993783557e49b0a930dfb with ONNX Runtime 1.24.5, analyze_result.json recorded 372 operators and 15 unique types. The largest counts were Reshape=121, Gemm=72, Transpose=48, Add=38, LayerNormalization=25, and MatMul=24. Derived hierarchy mapping assigned 5 nodes to embeddings and 367 to the 12-layer encoder aggregate, including 271 attention nodes. The CPUExecutionProvider row had runtime_support=false and empty supported/partial/unsupported/unknown lists because the shared rule tree had no CPU parquet classifications, so this artifact is graph inventory and component mapping, not CPU runtime-support proof.",
+      "scope": {
+        "validated_on": [
+          "dell-research-harvard/lt-un-data-fine-fine-es @ feature-extraction @ fp32/fp16 @ CPU static analyze @ ORT 1.24.5",
+          "dell-research-harvard/lt-un-data-fine-fine-es @ sentence-similarity @ fp32/fp16 @ CPU static analyze @ ORT 1.24.5"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "CPU rule data that produces non-empty classifications",
+          "runtime execution on non-CPU EP/device targets"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/dell-research-harvard_lt-un-data-fine-fine-es/cpu/cpu/<feature-extraction|sentence-similarity>_<fp32|fp16>_config.json",
+      "gotchas": [
+        "Do not translate runtime_support=false plus empty classification lists into either supported or unsupported CPU operators; cite runtime inference evidence separately."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The raw analyzer metadata and independently derived hierarchy mapping agree on the 372-node graph; CPU execution itself is established by L0/L1/L2/L3, not by the static rule row.",
+      "last_updated": "2026-08-13"
+    },
+    {
+      "id": "bert-016",
+      "title": "The refreshed BERT export traces three root children and a stable 12-layer hierarchy",
+      "observation": "All four export_htp_metadata.json artifacts produced by HTPExporter from examples/recipes/dell-research-harvard_lt-un-data-fine-fine-es/cpu/cpu/<task>_<precision>_config.json on 2026-08-13 at candidate 86821d476bcfcc487dc993783557e49b0a930dfb record BertModel with 109,850,880 parameters, 228 total modules, 88 traced modules, and 176 execution steps. The root has exactly three direct children: BertEmbeddings at execution_order 1, BertEncoder at execution_order 2, and BertPooler at execution_order 87. BertEncoder contains BertLayer.0 through BertLayer.11, and each traced layer contains BertAttention, BertIntermediate, and BertOutput. Attention further records BertSelfAttention and BertSelfOutput, while each intermediate records GELUActivation. The task-level masked mean pool remains outside the exported graph.",
+      "scope": {
+        "validated_on": [
+          "dell-research-harvard/lt-un-data-fine-fine-es @ feature-extraction @ fp32/fp16 @ HTP export trace",
+          "dell-research-harvard/lt-un-data-fine-fine-es @ sentence-similarity @ fp32/fp16 @ HTP export trace"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "other BERT checkpoints, model classes, task heads, or HTP exporter versions"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/dell-research-harvard_lt-un-data-fine-fine-es/cpu/cpu/<feature-extraction|sentence-similarity>_<fp32|fp16>_config.json",
+      "gotchas": [
+        "Do not claim task.masked_mean_pool as an ONNX or HTP module; sentence pooling is evaluator post-processing for this BertModel export."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Parameter, module, trace, execution-step, and hierarchy values agree across both tasks and both precisions.",
+      "last_updated": "2026-08-13"
+    },
+    {
+      "id": "bert-017",
+      "title": "Build materialization adds BERT fusion defaults and derives fp16 conversion from the precision flag",
+      "observation": "The four materialized winml_build_config.json files for examples/recipes/dell-research-harvard_lt-un-data-fine-fine-es/cpu/cpu/<task>_<precision>_config.json at candidate 86821d476bcfcc487dc993783557e49b0a930dfb preserve AutoModel, model_type=bert, the task-specific loader task, eager Transformers attention, opset 17, three INT32 1x512 inputs, and last_hidden_state output. Materialization expands optim to clamp_constant_values=true, gelu_fusion=true, and matmul_add_fusion=true. fp32 retains quant=null; explicit `-p fp16` derives quant.mode=fp16, fp16_keep_io_types=true, task/model metadata, and no nodes_to_exclude. Compile remains null.",
+      "scope": {
+        "validated_on": [
+          "dell-research-harvard/lt-un-data-fine-fine-es @ feature-extraction @ fp32/fp16 materialized build config @ candidate 86821d47",
+          "dell-research-harvard/lt-un-data-fine-fine-es @ sentence-similarity @ fp32/fp16 materialized build config @ candidate 86821d47"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "other BERT checkpoints, precisions, and non-CPU targets"
+        ]
+      },
+      "effort_tier_required": "L0",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/dell-research-harvard_lt-un-data-fine-fine-es/cpu/cpu/<feature-extraction|sentence-similarity>_<fp32|fp16>_config.json",
+      "gotchas": [
+        "Compare the materialized build config, not only the checked-in recipe: fusion defaults and the fp16 quant block are resolved at build time.",
+        "No nodes_to_exclude were needed for this fp16 CPU conversion."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The resolved configs and final artifact dtypes jointly confirm which defaults and precision settings were applied.",
+      "last_updated": "2026-08-13"
+    },
+    {
+      "id": "bert-018",
+      "title": "Single-segment BERT inference can synthesize a missing declared token_type_ids input without weakening strict input validation",
+      "observation": "On microsoft/winml-cli candidate 8e7c621a2312a3ef45b08c43e7347301e992f842 with winml 0.2.0 and ONNX Runtime 1.24.5, intfloat/multilingual-e5-small's tokenizer emitted only input_ids and attention_mask while each final CPU graph declared token_type_ids int32 [1,512]. The shared WinMLModelForFeatureExtraction.forward repair synthesized all-zero int32 [1,512] token_type_ids for feature-extraction and sentence-similarity at fp32 and fp16. Independent compatibility tests also preserved tokenizer-provided nonzero segment IDs, refused incompatible static token_type_ids shapes, and left unrelated missing required inputs to strict session validation. Evidence: sealed tester verdict temp/pr1182-tester-retry2-8e7c621a/verdict_table.json SHA-256 7c1a29bb010f3002dfd238c62c2b531125f9beb1f074208736100736af4d717b and producer deliverable temp/pr1182-producer-evidence/deliverable.json SHA-256 738a9e35ec1a7b19a9abdf4e937194c9a9e7cbb7e6085dc533a3424c365f7e41.",
+      "scope": {
+        "validated_on": [
+          "intfloat/multilingual-e5-small @ feature-extraction @ fp32 @ CPUExecutionProvider/cpu",
+          "intfloat/multilingual-e5-small @ feature-extraction @ fp16 @ CPUExecutionProvider/cpu",
+          "intfloat/multilingual-e5-small @ sentence-similarity @ fp32 @ CPUExecutionProvider/cpu",
+          "intfloat/multilingual-e5-small @ sentence-similarity @ fp16 @ CPUExecutionProvider/cpu"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "other BERT checkpoints whose tokenizer omits token_type_ids",
+          "dynamic-shape token_type_ids graphs",
+          "non-CPU runtime execution"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/intfloat_multilingual-e5-small/cpu/cpu/<task>_<precision>_config.json",
+      "gotchas": [
+        "Derive the default only from a declared token_type_ids input plus realized input_ids shape and declared dtype; never overwrite tokenizer-provided values or generalize the default to arbitrary missing inputs.",
+        "This refines bert-009: current main builds this checkpoint with quant=null; PR #1182 closes the separate runtime/eval feed gap that remained when the tokenizer omitted a graph-required input."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The final-SHA real tokenizer/model path and negative compatibility cases discriminate metadata-driven synthesis from model-ID branching or relaxed validation.",
+      "last_updated": "2026-08-14"
+    },
+    {
+      "id": "bert-019",
+      "title": "multilingual-e5-small materializes distinct fp32 and fp16 CPU artifacts with the same traced BERT hierarchy",
+      "observation": "At candidate 8e7c621a2312a3ef45b08c43e7347301e992f842 with winml 0.2.0 and ONNX Runtime 1.24.5, both feature-extraction and sentence-similarity fp32 builds had 372 nodes, 200 FLOAT initializers, and 470,027,776 external-data bytes; both fp16 builds had 373 nodes, 200 FLOAT16 initializers, and 234,931,456 bytes (ratio 0.499825). All four retained float32 last_hidden_state [1,512,384]. Resolved winml_build_config.json added eager transformers attention plus optim clamp_constant_values, gelu_fusion, and matmul_add_fusion; fp16 additionally resolved quant.mode=fp16 and fp16_keep_io_types=true. Every export_htp_metadata.json recorded BertModel with 117,653,760 parameters, 228 total modules, 88 traced modules, 176 execution steps, and root children BertEmbeddings, BertEncoder (12 BertLayer children), and BertPooler. Recipe SHA-256 values: feature-extraction fp32 5eedaf7ff07d6221c8f1c0b803a218467d1a5ab850e31aaa58460e68f272df0c, fp16 31564241c66bab0f6f00d431a08a9cddf8128cb960cd9efc1b7398cc59ddd9b8; sentence-similarity fp32 a8218feb735c3f22166bf8a908322115f0944728c1561d04fb2c73039d900235, fp16 891a322ad50535318e111dacaaa6e4dd2f7516381b21b286bf2af91a91f42e3e. HTP SHA-256 values in the same order: a3807066f52a1508ecb3e1d1ea08eb4aff5e3f3120bff4849b91c4c8d3bed5de, efe1e17c990703a607aa070f190dd9376e21cceb15e836fd53dc720354fe19cf, 00db75ffb3c8e679959cefe5700efb610cd77250b2926bcc1e729107ca01a33d, 4ecfc6bf4ddf0e9feefd9da17481b073071c558eab8558b19934871a046614d7.",
+      "scope": {
+        "validated_on": [
+          "intfloat/multilingual-e5-small @ feature-extraction @ fp32 @ CPUExecutionProvider/cpu",
+          "intfloat/multilingual-e5-small @ feature-extraction @ fp16 @ CPUExecutionProvider/cpu",
+          "intfloat/multilingual-e5-small @ sentence-similarity @ fp32 @ CPUExecutionProvider/cpu",
+          "intfloat/multilingual-e5-small @ sentence-similarity @ fp16 @ CPUExecutionProvider/cpu"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "other BERT checkpoint sizes or task heads",
+          "quantized integer precisions",
+          "non-CPU runtime execution"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/intfloat_multilingual-e5-small/cpu/cpu/<task>_<precision>_config.json",
+      "gotchas": [
+        "Do not infer fp16 from the recipe name or quant block; require FLOAT16 initializers and approximately half-size external data.",
+        "Autoconf's eager attention and three optimization fusions are resolved defaults for these exact task/precision builds, not proven BERT-family invariants."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Four independently sealed build configs and HTP files agree on scale and hierarchy, while initializer census and external-data size discriminate realized precision.",
+      "last_updated": "2026-08-14"
+    },
+    {
+      "id": "bert-020",
+      "title": "multilingual-e5-small CPU fp16 is slower and uses more inference RSS than fp32 for both supported tasks",
+      "observation": "On the PR #1182 tester host at candidate 8e7c621a2312a3ef45b08c43e7347301e992f842, provider cpu@bundled, feature-extraction fp32 measured mean 116.40 ms, p50 115.92 ms, 8.59 samples/s, and 81.4 MB total RSS versus fp16 mean 170.74 ms, p50 169.28 ms, 5.86 samples/s, and 89.0 MB. Sentence-similarity fp32 measured mean 118.74 ms, p50 118.04 ms, 8.42 samples/s, and 81.3 MB versus fp16 mean 165.73 ms, p50 164.04 ms, 6.03 samples/s, and 88.8 MB. Evidence is sealed in temp/pr1182-tester-evidence-8e7c621a/verdict_table.json SHA-256 f27fea8d678ee262ab8e78d9fa498e84b6304877f5b67935f69200aba82fa2c5 under the first-run manifest SHA-256 0b353e7f17abef9bfc4383a728c0ba1b1fe36af31ca3840192dfe18339c33b49.",
+      "scope": {
+        "validated_on": [
+          "intfloat/multilingual-e5-small @ feature-extraction @ fp32 @ CPUExecutionProvider/cpu",
+          "intfloat/multilingual-e5-small @ feature-extraction @ fp16 @ CPUExecutionProvider/cpu",
+          "intfloat/multilingual-e5-small @ sentence-similarity @ fp32 @ CPUExecutionProvider/cpu",
+          "intfloat/multilingual-e5-small @ sentence-similarity @ fp16 @ CPUExecutionProvider/cpu"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "other CPU hosts, thread settings, batch sizes, or sequence lengths",
+          "non-CPU execution providers"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/intfloat_multilingual-e5-small/cpu/cpu/<task>_<precision>_config.json",
+      "gotchas": [
+        "A materially half-precision artifact does not imply better CPU latency or memory; compare exact task/precision tuples on the same host."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "The direction is consistent across two task labels sharing the same graph contract on one host; no kernel-level cause or cross-host generalization was established.",
+      "last_updated": "2026-08-14"
+    },
+    {
+      "id": "bert-021",
+      "title": "Both multilingual-e5-small tasks and CPU precisions preserve bilingual embedding retrieval ranking against PyTorch",
+      "observation": "At pinned checkpoint revision 614241f622f53c4eeff9890bdc4f31cfecc418b3 and candidate 8e7c621a2312a3ef45b08c43e7347301e992f842, a four-text English/Chinese E5 query/passage comparison synthesized token_type_ids for all four artifacts. Feature-extraction and sentence-similarity produced identical precision-level results: fp32 max_abs 1.7583370208740234e-06, mean_abs 2.223688824187775e-07, minimum pooled-normalized embedding cosine 0.9999999403953552; fp16 max_abs 0.003210783004760742, mean_abs 0.0002058723330264911, minimum cosine 0.9999998211860657. PyTorch and ONNX retrieval rankings were identical for both queries in every task/precision row. Evidence: temp/pr1182-tester-evidence-8e7c621a/l2-parity.json as sealed by manifest SHA-256 0b353e7f17abef9bfc4383a728c0ba1b1fe36af31ca3840192dfe18339c33b49.",
+      "scope": {
+        "validated_on": [
+          "intfloat/multilingual-e5-small @ feature-extraction @ fp32 @ CPUExecutionProvider/cpu @ 4 bilingual E5-prefixed texts",
+          "intfloat/multilingual-e5-small @ feature-extraction @ fp16 @ CPUExecutionProvider/cpu @ 4 bilingual E5-prefixed texts",
+          "intfloat/multilingual-e5-small @ sentence-similarity @ fp32 @ CPUExecutionProvider/cpu @ 4 bilingual E5-prefixed texts",
+          "intfloat/multilingual-e5-small @ sentence-similarity @ fp16 @ CPUExecutionProvider/cpu @ 4 bilingual E5-prefixed texts"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "broader retrieval corpora or languages",
+          "non-CPU execution providers"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/intfloat_multilingual-e5-small/cpu/cpu/<task>_<precision>_config.json",
+      "gotchas": [
+        "Preserve E5 query:/passage: prefixes and attention-mask-aware mean pooling plus L2 normalization; raw last_hidden_state parity alone does not prove retrieval semantics.",
+        "The fp16 max-absolute delta exceeds fp32 while pooled embedding cosine and ranking remain stable; report both raw and task-visible checks."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "Parity and rankings are directly observed on the pinned bilingual examples, not a proof over a benchmark corpus.",
+      "last_updated": "2026-08-14"
+    },
+    {
+      "id": "bert-022",
+      "title": "The final-SHA fp32 CPU sentence-similarity path passes one bounded functional smoke Eval",
+      "observation": "Candidate 8e7c621a2312a3ef45b08c43e7347301e992f842 ran one tester-owned sentence-similarity fp32 CPU functional smoke on a deterministic local dataset derived from pinned model-card examples at revision 614241f622f53c4eeff9890bdc4f31cfecc418b3. Two bilingual source rows expanded to four query/passage pairs (two matches and two cross-negatives), all 4/4 were processed with 8 inference calls, 512-token cap, and one passage fan-out of two per query. The graph-required token_type_ids feed was synthesized as all-zero int32 [1,512]. cosine_spearman was 89.4427 on the MTEB [-100,100] scale. This is functional-smoke evidence only, not representative accuracy or benchmark quality. Evidence: temp/pr1182-tester-retry2-8e7c621a/l3-functional-smoke.json under manifest SHA-256 6badeb9464d66d0ad12a3211fc911534aab40b26481f46e99763c03f194a0bb8.",
+      "scope": {
+        "validated_on": [
+          "intfloat/multilingual-e5-small @ sentence-similarity @ fp32 @ CPUExecutionProvider/cpu @ 2 source rows / 4 expanded pairs functional smoke"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "feature-extraction task-metric Eval",
+          "sentence-similarity fp16 or accelerator Eval",
+          "representative or benchmark-scale accuracy"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/intfloat_multilingual-e5-small/cpu/cpu/sentence-similarity_fp32_config.json",
+      "gotchas": [
+        "Record this L3 smoke separately from the four L0/L1/L2 tuples; it does not create an Eval matrix for fp16 or feature-extraction.",
+        "Preserve requested/processed counts, pair expansion, sequence cap, prefixes, references, and the no-benchmark disclaimer."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The bounded run exercised tokenizer, synthesized input reconciliation, ONNX inference, E5 pooling, cosine predictions, and metric emission end to end.",
+      "last_updated": "2026-08-14"
+    },
+    {
+      "id": "bert-023",
+      "title": "multilingual-e5-small has complete static rule-backed classifications with QNN Gather partial and Where unknown",
+      "observation": "For all four candidate artifacts at 8e7c621a2312a3ef45b08c43e7347301e992f842, static Analyze used 24 explicit commands (4 artifacts x 6 targets) and mapped every node to a model component. Both fp32 artifacts had 372 operators and both fp16 artifacts had 373; each had 15 unique types with dominant counts Reshape=121, Gemm=72, Transpose=48, Add=38, and LayerNormalization=25. Complete rule-backed targets were NvTensorRTRTX/GPU, OpenVINO/CPU, OpenVINO/GPU, OpenVINO/NPU, QNN/GPU, and QNN/NPU. QNN GPU and NPU classified Gather partial; Where remained unknown across all six rule-backed targets. CPU, CUDA, MIGraphX, and DML rule-less groups remained all-unknown and are not runtime incompatibility proof. Evidence: temp/pr1182-tester-retry2-8e7c621a/analysis-summary.json plus 24 referenced analysis JSON files under manifest SHA-256 6badeb9464d66d0ad12a3211fc911534aab40b26481f46e99763c03f194a0bb8.",
+      "scope": {
+        "validated_on": [
+          "intfloat/multilingual-e5-small @ feature-extraction @ fp32 @ six explicit static rule-backed EP/device targets",
+          "intfloat/multilingual-e5-small @ feature-extraction @ fp16 @ six explicit static rule-backed EP/device targets",
+          "intfloat/multilingual-e5-small @ sentence-similarity @ fp32 @ six explicit static rule-backed EP/device targets",
+          "intfloat/multilingual-e5-small @ sentence-similarity @ fp16 @ six explicit static rule-backed EP/device targets"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "runtime execution on NvTensorRTRTX, OpenVINO, QNN, CUDA, MIGraphX, or DML",
+          "future rule-pack or ORT versions"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/intfloat_multilingual-e5-small/cpu/cpu/<task>_<precision>_config.json",
+      "gotchas": [
+        "Consume the full results array or explicit per-target files; retaining result[0] silently drops valid provider classifications.",
+        "Static partial/unknown classifications and all-unknown rule-less groups are compatibility-rule evidence, not proof that those providers executed."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "The retry corrected a tester-owned first-summary indexing bug by issuing explicit static target commands. The classifications are complete for the current rule packs, but accelerator runtime behavior was not exercised.",
+      "last_updated": "2026-08-14"
+    }
+  ]
+}

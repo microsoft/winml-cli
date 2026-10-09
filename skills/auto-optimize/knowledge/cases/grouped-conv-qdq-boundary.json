@@ -1,0 +1,75 @@
+{
+  "id": "grouped-conv-qdq-boundary",
+  "status": "confirmed-performance-provisional-quality",
+  "scope": {
+    "ep": "QNNExecutionProvider",
+    "device": "NPU",
+    "graph_requirements": [
+      "a static short-sequence grouped Conv is followed by a prefix-retaining tail Slice",
+      "all relevant sequence dimensions, padding, stride, dilation, and Slice bounds are static and unambiguous",
+      "reachability proves some kernel taps multiply only immutable zero padding",
+      "the group count permits an exact group-aligned decomposition",
+      "the graph is quantized or will be quantized with explicit QDQ boundaries"
+    ]
+  },
+  "observation": "A grouped convolution region can dominate accelerator time even when the graph forms a provider partition.",
+  "mechanism": "Reachable-kernel trimming and group-aligned decomposition change the provider lowering, while QDQ placement determines whether branch-local quantized Conv units preserve or destroy that gain.",
+  "transformation": {
+    "scheduling_policy": "priority only; do not prune other candidates or weaken correctness and performance gates",
+    "bundle": [
+      "trim only statically unreachable kernel taps and adjust padding",
+      "replace the grouped Conv with group-aligned Split, sibling Conv branches, and Concat",
+      "compare complete-region and branch-local QDQ boundaries"
+    ]
+  },
+  "expected_evidence": {
+    "graph": "Equivalent public outputs with an exact trimmed and group-aligned branch topology",
+    "trace": "Matched per-operator provider-time traces and paired wall-clock measurements for the same fixed input show that the dominant grouped-Conv region loses accelerator time without new fallback, partition fragmentation, or layout work",
+    "falsifier": "With all other settings fixed, run matched warmup, measured wall, and detail-trace checks for the original region, the equivalent representation, and the branch-local QDQ variant; reject the priority if neither variant reduces both region provider time and wall latency"
+  },
+  "outcome": {
+    "finding": "The graph rewrite and QDQ boundary policy must be evaluated as a combined interaction.",
+    "negative_case": "Complete branch-local DQ-to-Conv-to-Q units can preserve the original latency pathology.",
+    "decision": "Raise priority only for a representation probe and a QDQ-boundary probe when the region dominates a trustworthy trace; do not prune other candidates or weaken correctness and performance gates."
+  },
+  "safety": [
+    "static shapes and immutable parameters",
+    "exact reachability proof for trimmed taps",
+    "exclusive and order-preserving topology",
+    "public I/O equivalence and task or tensor correctness",
+    "paired current-device performance with matched trace"
+  ],
+  "counterexamples": [
+    "Do not generalize from node count or whole-graph partition coverage.",
+    "Do not split dynamic or ambiguously padded convolutions.",
+    "Do not assume identical QDQ scale values imply equivalent provider lowering."
+  ],
+  "provenance": {
+    "evidence_class": "paired-performance-confirmed-provisional-quality",
+    "scope_note": "exact model, graph occurrence, toolchain, artifacts, and measurements remain run-local"
+  },
+  "generic_review": {
+    "verdict": "GENERIC_CASE_APPROVED",
+    "reviewer": "independent-graph-scout",
+    "content_sha256": "3c47af2cf947503bcf3527b06be95b9ce61aa1eb8413b3c3cc05707e90d25ac2"
+  },
+  "discovery": {
+    "ep": "QNNExecutionProvider",
+    "device": "NPU",
+    "anchor_ops": [
+      "Conv",
+      "Slice",
+      "Split",
+      "Concat",
+      "QuantizeLinear",
+      "DequantizeLinear"
+    ],
+    "keywords": [
+      "grouped-conv",
+      "kernel-reachability",
+      "qdq-boundary",
+      "dominant-hotspot"
+    ],
+    "lesson": "Treat grouped-Conv representation and QDQ boundary placement as a scoped interaction when a region dominates provider time."
+  }
+}

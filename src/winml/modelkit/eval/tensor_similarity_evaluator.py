@@ -45,7 +45,9 @@ def _make_reference_config(config: WinMLEvaluationConfig) -> WinMLEvaluationConf
             model_path=config.reference_path,
             reference_path=None,
             runtime="winml-ort",
+            backend=None,
             device=config.reference_device,
+            device_luid=config.reference_device_luid,
             ep=config.reference_ep,
             precision="auto",
             mode="onnx",
@@ -60,7 +62,9 @@ def _make_reference_config(config: WinMLEvaluationConfig) -> WinMLEvaluationConf
         model_path=None,
         reference_path=None,
         runtime="pytorch",
+        backend=None,
         device="cpu",
+        device_luid=None,
         ep=None,
         precision="auto",
         mode="onnx",
@@ -121,7 +125,8 @@ class TensorSimilarityEvaluator:
 
         ds = self.config.dataset
         return RandomDataset(
-            model_path=str(self.model.onnx_path),
+            model_path=None,
+            io_config=self.model.io_config,
             max_samples=int(ds.samples if ds.samples is not None else 100),
             seed=int(ds.seed if ds.seed is not None else 42),
         )

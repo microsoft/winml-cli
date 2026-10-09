@@ -18,7 +18,6 @@ from __future__ import annotations
 import json
 import logging
 import math
-import re
 import sys
 import time
 from dataclasses import dataclass, field, replace
@@ -35,9 +34,13 @@ from ..utils import cli as cli_utils
 from ..utils.console import SafeConsole
 from ..utils.constants import (
     ACCELERATOR_DEVICE_TYPES,
+    RUNTIME_BACKENDS,
     RUNTIME_NAMES,
     EPName,
     EPNameOrAlias,
+    RuntimeBackend,
+    RuntimeName,
+    resolve_runtime_api_backend,
 )
 from ..utils.logging import (
     configure_logging,
@@ -59,10 +62,10 @@ if TYPE_CHECKING:
     from ..models.winml.base import WinMLPreTrainedModel
     from ..models.winml.composite_model import WinMLCompositeModel
     from ..session import EPDeviceTarget, WinMLDevice, WinMLEPDevice
+    from ..session.monitor import ProcessMemoryTracker
     from ..session.monitor.ep_monitor import WinMLEPMonitor
     from ..session.monitor.op_metrics import TraceFallbackReason
     from ..session.stats import PerfStats
-    from ..utils.constants import RuntimeName
 
 logger = logging.getLogger(__name__)
 
@@ -77,13 +80,15 @@ _RUNTIME_TYPE: RuntimeName = "winml-ort"
 
 
 def _resolve_runtime(runtime: RuntimeName, model: str) -> RuntimeName:
-    """Resolve ``auto`` from a local model folder, preserving explicit choices."""
+    """Resolve ``auto`` from the model artifact, preserving explicit choices."""
     if runtime != "auto":
         return runtime
 
     model_path = Path(model)
     if model_path.is_dir() and (model_path / "genai_config.json").is_file():
         return "ort-genai"
+    if model_path.suffix.lower() == ".mlir":
+        return "winml-runtime"
     return "winml-ort"
 
 
@@ -234,6 +239,21 @@ def _resolve_ep_monitor(
     device_norm = (device or "").lower()
 
     if op_tracing:
+        if ep_norm == "nvtensorrtrtx":
+            from ..session.monitor import NvTensorRTRTXMonitor
+
+            if op_tracing != "basic":
+                raise RuntimeError("TensorRT RTX op-tracing currently supports only level 'basic'.")
+            if device_norm not in ("gpu", "auto", ""):
+                raise RuntimeError("TensorRT RTX op-tracing requires --device gpu.")
+            if not NvTensorRTRTXMonitor.is_available():
+                raise RuntimeError(
+                    "Op-tracing --ep nv_tensorrt_rtx requested but TensorRT RTX is not "
+                    "available on this system. Install it through Windows ML EP Catalog "
+                    "or a compatible BYO plugin."
+                )
+            return NvTensorRTRTXMonitor(output_dir=output_dir)
+
         if ep_norm == "openvino":
             from ..session.monitor.openvino_monitor import OpenVinoMonitor
 
@@ -260,7 +280,8 @@ def _resolve_ep_monitor(
         ):
             raise RuntimeError(
                 f"Op-tracing not available for EP {ep!r} on device {device!r}. "
-                "Supported EPs: qnn, openvino (basic on cpu/npu)."
+                "Supported EPs: qnn, openvino (basic on cpu/npu), "
+                "nv_tensorrt_rtx (basic on gpu)."
             )
 
         from ..session.monitor.qnn_monitor import QNNMonitor
@@ -291,7 +312,8 @@ def _resolve_ep_monitor(
 
         raise RuntimeError(
             f"Op-tracing not available for EP {ep!r} on device {device!r}. "
-            "Supported EPs: qnn, openvino (basic on cpu/npu)."
+            "Supported EPs: qnn, openvino (basic on cpu/npu), "
+            "nv_tensorrt_rtx (basic on gpu)."
         )
 
     # Proof-of-execution monitors (no op-tracing)
@@ -449,18 +471,6 @@ def _get_monitor_binding(
     )
 
 
-def _validate_device_luid(
-    ctx: click.Context, param: click.Parameter, value: str | None
-) -> str | None:
-    if value is not None and not re.fullmatch(r"0x[0-9a-f]{8}_0x[0-9a-f]{8}", value, re.IGNORECASE):
-        raise click.BadParameter(
-            "expected 0xHHHHHHHH_0xLLLLLLLL; copy the adapter LUID from 'winml sys'.",
-            ctx=ctx,
-            param=param,
-        )
-    return value
-
-
 def _resolve_perf_ep_device(
     target: EPDeviceTarget,
     device_luid: str | None,
@@ -553,6 +563,8 @@ class BenchmarkConfig:
     """Configuration for benchmark execution."""
 
     model_id: str
+    runtime: RuntimeName = "winml-ort"
+    backend: RuntimeBackend | None = None
     task: str | None = None
     submodel: str | None = None
     device: str = "auto"
@@ -647,14 +659,20 @@ class BenchmarkResult:
     hw_monitor: dict[str, Any] | None = None
 
     # Memory profile dict (rss deltas from memory_tracker)
-    memory_profile: dict[str, float] | None = None
+    memory_profile: dict[str, float | None] | None = None
+    memory_measurement: dict[str, Any] | None = None
+    process_memory: dict[str, Any] | None = None
+    load_memory: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result: dict[str, Any] = {
             "schema_version": 2,
             "benchmark_info": {
-                "runtime": _RUNTIME_TYPE,
+                "runtime": self.config.runtime,
+                "backend": resolve_runtime_api_backend(
+                    self.config.runtime, self.config.model_id, self.config.backend
+                ),
                 "model_id": self.config.model_id,
                 "running_model_path": self.running_model_path,
                 "task": self.actual_task,
@@ -707,6 +725,12 @@ class BenchmarkResult:
             result["hw_monitor"] = self.hw_monitor
         if self.memory_profile:
             result["memory"] = self.memory_profile
+        if self.memory_measurement:
+            result["memory_measurement"] = self.memory_measurement
+        if self.process_memory:
+            result["process_memory"] = self.process_memory
+        if self.load_memory:
+            result["load_memory"] = self.load_memory
         return result
 
 
@@ -883,6 +907,70 @@ def load_input_data(
     return _load_input_data(path, io_config)
 
 
+def _runtime_input_shapes(
+    model_path: Path, input_data: Path | None, shape_config: dict | None, batch_size: int
+) -> tuple[dict[str, tuple[int, ...]], dict[str, int]]:
+    """Resolve source-ONNX shapes before compilation without allocating input tensors."""
+    import zipfile
+
+    from ..onnx import get_io_config
+    from ..session.runtime_session import _symbolic_dimensions_for_inputs
+
+    io_config = get_io_config(model_path)
+    if not any(dim is None for shape in io_config["input_shapes"] for dim in shape):
+        return {}, {}
+    shapes: dict[str, tuple[int, ...]] = {}
+    if input_data is not None:
+        if input_data.suffix.lower() != ".npz":
+            raise click.UsageError("--input-data must be a named .npz archive.")
+        try:
+            with zipfile.ZipFile(input_data) as archive:
+                members = archive.namelist()
+                expected = [name + ".npy" for name in io_config["input_names"]]
+                if len(members) != len(expected) or set(members) != set(expected):
+                    raise ValueError("archive keys must exactly match ONNX input names")
+                for name in io_config["input_names"]:
+                    with archive.open(name + ".npy") as stream:
+                        version = np.lib.format.read_magic(stream)
+                        # NumPy has no public v3 header reader. Use the same
+                        # version-aware, size-limited reader as np.load, without
+                        # reading or allocating the array payload.
+                        shape, _, dtype = np.lib.format._read_array_header(  # type: ignore[attr-defined]
+                            stream, version
+                        )
+                        if dtype.hasobject:
+                            raise ValueError("object input arrays are unsupported")
+                        shapes[name] = shape
+        except (OSError, ValueError, EOFError, zipfile.BadZipFile) as exc:
+            raise click.UsageError(f"Cannot read concrete --input-data shapes: {exc}") from exc
+    else:
+        for name, shape, symbolic in zip(
+            io_config["input_names"],
+            io_config["input_shapes"],
+            io_config["input_symbolic_shapes"],
+            strict=True,
+        ):
+            full_shape = (shape_config or {}).get(name)
+            if isinstance(full_shape, (list, tuple)):
+                # Preserve original values for strict integer/static-axis validation.
+                shapes[name] = tuple(full_shape)
+            else:
+                shapes[name] = _resolve_shape(
+                    shape, name, batch_size, symbolic_shape=symbolic, shape_config=shape_config
+                )
+    return shapes, _symbolic_dimensions_for_inputs(io_config, shapes)
+
+
+def _ort_options_for_dimensions(dimensions: dict[str, int]) -> Any:
+    """Create fresh ORT options with concrete dimensions before eager session creation."""
+    import onnxruntime as ort
+
+    options = ort.SessionOptions()
+    for name, extent in dimensions.items():
+        options.add_free_dimension_override_by_name(name, extent)
+    return options
+
+
 def effective_batch_size(
     inputs: dict[str, np.ndarray],
     input_names: list[str],
@@ -939,7 +1027,14 @@ class PerfBenchmark:
         self._inputs: dict[str, np.ndarray] | None = None
         self._ep_device: WinMLEPDevice | None = None
         self._effective_batch: int = config.batch_size
-        self._memory: dict[str, float] | None = None
+        self._memory: dict[str, float | None] | None = None
+        self._memory_measurement: dict[str, Any] | None = None
+        self._process_memory: dict[str, Any] | None = None
+        self._memory_tracker: ProcessMemoryTracker | None = None
+        self._load_memory: dict[str, Any] | None = None
+        self._runtime_backend = resolve_runtime_api_backend(
+            config.runtime, config.model_id, config.backend
+        )
         # Concrete device + EP resolved from the config's request, populated by
         # _resolve_device_ep() on the first call (before the build). The config
         # keeps the raw request (e.g. "auto"); these hold what actually drives
@@ -957,6 +1052,11 @@ class PerfBenchmark:
         build's static analyzer target one EP instead of aggregating across all
         of them (WinMLAutoModel itself stays permissive: ep=None is a valid
         library mode).
+
+        For ``winml-runtime``, the Runtime native payload is loaded before
+        ``auto_device()`` can register an EP DLL. This pins the Runtime's matched
+        native dependencies and makes the load-order requirement part of target
+        resolution instead of relying on every caller to remember it.
 
         Raises:
             ValueError: If the requested device/EP combination is unavailable
@@ -976,7 +1076,8 @@ class PerfBenchmark:
                     ep=self.config.ep or "auto",
                     device=self.config.device or "auto",
                     source=self.config.ep_source,
-                )
+                ),
+                backend=self._runtime_backend,
             )
             self._ep_device = _resolve_perf_ep_device(
                 target, self.config.device_luid, self.config.ep_options
@@ -1053,6 +1154,14 @@ class PerfBenchmark:
         return cast("WinMLPreTrainedModel", self._model)
 
     def run(self) -> BenchmarkResult | dict[str, BenchmarkResult]:
+        """Run with the model-free baseline device retained through final measurements."""
+        try:
+            return self._run_with_memory()
+        finally:
+            if self._memory_tracker is not None:
+                self._memory_tracker.close()
+
+    def _run_with_memory(self) -> BenchmarkResult | dict[str, BenchmarkResult]:
         """Execute full benchmark pipeline.
 
         Returns:
@@ -1062,26 +1171,45 @@ class PerfBenchmark:
             ORT session, so each sub-model is benchmarked individually rather
             than timing the aggregate ``forward()`` pass.
         """
-        # [1] Load model (build pipeline: optimize, cache, etc.)
-        logger.info("Loading model: %s", self.config.model_id)
-        self._load_model()
-        assert self._model is not None
+        self._memory = self._memory_measurement = self._process_memory = None
+        self._load_memory = None
+        if self.config.memory:
+            from ..session.monitor import ProcessMemoryTracker
 
-        if self._is_composite:
-            # Composite-ness is only known after _load_model, so this guard
-            # can't live with the up-front --module / --runtime checks. Without
-            # it, each sub-model's child benchmark calls load_input_data with a
-            # single .npz that can't match two different encoders' input names,
-            # surfacing as a re-wrapped "Sub-model '…' failed" RuntimeError
-            # instead of a clean up-front error.
-            if self.config.input_data is not None:
-                raise click.UsageError(
-                    "--input-data is not supported for composite (dual-encoder) "
-                    "models; each sub-model has its own inputs that a single "
-                    ".npz cannot address."
-                )
-            return self._run_sub_models()
-        return self._run_single()
+            self._memory_tracker = ProcessMemoryTracker()
+            self._memory_tracker.start()
+        try:
+            # [1] Load model (build pipeline: optimize, cache, etc.)
+            logger.info("Loading model: %s", self.config.model_id)
+            self._load_model()
+            if self._memory_tracker is not None:
+                self._memory_tracker.checkpoint("after_load")
+            assert self._model is not None
+
+            if self._is_composite:
+                # Composite-ness is only known after _load_model, so this guard
+                # can't live with the up-front --module / --runtime checks. Without
+                # it, each sub-model's child benchmark calls load_input_data with a
+                # single .npz that can't match two different encoders' input names,
+                # surfacing as a re-wrapped "Sub-model '…' failed" RuntimeError
+                # instead of a clean up-front error.
+                if self.config.input_data is not None:
+                    raise click.UsageError(
+                        "--input-data is not supported for composite (dual-encoder) "
+                        "models; each sub-model has its own inputs that a single "
+                        ".npz cannot address."
+                    )
+                # Components were constructed together; do not attribute the parent
+                # model-load baseline to each already-loaded child.
+                if self._memory_tracker is not None:
+                    self._memory_tracker.stop()
+                    self._memory_tracker = None
+                return self._run_sub_models()
+            return self._run_single()
+        finally:
+            if self._memory_tracker is not None:
+                self._memory_tracker.stop()
+                self._memory_tracker = None
 
     def _run_sub_models(self) -> dict[str, BenchmarkResult]:
         """Benchmark each sub-model of a composite individually.
@@ -1113,44 +1241,39 @@ class PerfBenchmark:
         return results
 
     def _run_single(self) -> BenchmarkResult:
-        """Benchmark the loaded single-session model.
+        """Benchmark a single session and clean up memory tracking on failure."""
+        if self.config.memory and self._memory_tracker is None:
+            from ..session.monitor import ProcessMemoryTracker
 
-        Returns:
-            BenchmarkResult with timing statistics
-        """
-        import gc
+            self._memory_tracker = ProcessMemoryTracker(
+                adapter_luid=self._resolve_adapter_luid(),
+                scope="already_loaded_component_through_inference",
+            )
+            self._memory_tracker.start()
+            self._memory_tracker.checkpoint("after_load")
+        try:
+            return self._run_single_impl()
+        finally:
+            if self._memory_tracker is not None:
+                self._memory_tracker.stop()
+                self._memory_tracker = None
 
+    def _run_single_impl(self) -> BenchmarkResult:
+        """Run with the lifecycle baseline captured before model construction."""
         assert self._model is not None
-
-        # Initialize memory tracking variables
-        adapter_luid: str | None = None
-        rss_baseline = rss_after_compile = 0.0
-        vram_local_baseline = vram_shared_baseline = 0.0
-        vram_local_compile = vram_shared_compile = 0.0
-
-        # Memory: baseline right before compile() — excludes all Python lib
-        # imports, EP DLLs, and build pipeline overhead. Measures only ORT
-        # session compilation (model weights loaded into memory).
-        if self.config.memory:
-            from ..session.monitor.memory_tracker import get_rss_mb, get_vram_mb
-
-            adapter_luid = self._resolve_adapter_luid()
-            gc.collect()
-            rss_baseline = get_rss_mb()
-            vram_local_baseline, vram_shared_baseline = get_vram_mb(adapter_luid)
-
-        # [2] Generate inputs
-        logger.info("Generating benchmark inputs")
-        self._generate_inputs()
 
         # Compile session early so model.device is resolved for display
         with suppress_native_warnings(enabled=True):
             self._single._session.compile()
 
-        if self.config.memory:
-            gc.collect()
-            rss_after_compile = get_rss_mb()
-            vram_local_compile, vram_shared_compile = get_vram_mb(adapter_luid)
+        if self._memory_tracker is not None:
+            self._memory_tracker.record_model_ready()
+            self._load_memory = self._memory_tracker.load_memory()
+            self._memory_tracker.checkpoint("after_compile")
+
+        # Inputs must not inflate the model load footprint.
+        logger.info("Generating benchmark inputs")
+        self._generate_inputs()
 
         # Pre-benchmark identity block (model + device sub-blocks).
         # opset is not currently extracted on this path; pass None.
@@ -1168,7 +1291,11 @@ class PerfBenchmark:
         }
         assert self._ep_device is not None
         pre_bench_kwargs = _pre_bench_kwargs_from_ep_device(self._ep_device, **pre_bench_common)
-        print_pre_bench_block(SafeConsole(stderr=True), **pre_bench_kwargs)
+        print_pre_bench_block(
+            SafeConsole(stderr=True),
+            runtime_api_backend=self._runtime_backend,
+            **pre_bench_kwargs,
+        )
 
         # [3] Run benchmark
         if self.config.duration is not None:
@@ -1185,42 +1312,12 @@ class PerfBenchmark:
             )
         stats = self._run_benchmark()
 
-        if self.config.memory:
-            rss_after_inference = get_rss_mb()
-            vram_local_infer, vram_shared_infer = get_vram_mb(adapter_luid)
-            self._memory = {
-                "rss_baseline_mb": round(rss_baseline, 2),
-                "rss_after_compile_mb": round(rss_after_compile, 2),
-                "rss_after_inference_mb": round(rss_after_inference, 2),
-                "rss_checkpoint_peak_mb": round(
-                    max(rss_baseline, rss_after_compile, rss_after_inference), 2
-                ),
-                "rss_model_load_delta_mb": round(rss_after_compile - rss_baseline, 2),
-                "rss_inference_delta_mb": round(rss_after_inference - rss_after_compile, 2),
-                "rss_total_delta_mb": round(rss_after_inference - rss_baseline, 2),
-                "vram_local_baseline_mb": round(vram_local_baseline, 2),
-                "vram_shared_baseline_mb": round(vram_shared_baseline, 2),
-                "vram_local_after_compile_mb": round(vram_local_compile, 2),
-                "vram_shared_after_compile_mb": round(vram_shared_compile, 2),
-                "vram_local_after_inference_mb": round(vram_local_infer, 2),
-                "vram_shared_after_inference_mb": round(vram_shared_infer, 2),
-                "vram_local_checkpoint_peak_mb": round(
-                    max(vram_local_baseline, vram_local_compile, vram_local_infer), 2
-                ),
-                "vram_shared_checkpoint_peak_mb": round(
-                    max(vram_shared_baseline, vram_shared_compile, vram_shared_infer), 2
-                ),
-                "vram_local_model_load_delta_mb": round(
-                    vram_local_compile - vram_local_baseline, 2
-                ),
-                "vram_local_inference_delta_mb": round(vram_local_infer - vram_local_compile, 2),
-                "vram_local_total_delta_mb": round(vram_local_infer - vram_local_baseline, 2),
-                "vram_shared_model_load_delta_mb": round(
-                    vram_shared_compile - vram_shared_baseline, 2
-                ),
-                "vram_shared_inference_delta_mb": round(vram_shared_infer - vram_shared_compile, 2),
-                "vram_shared_total_delta_mb": round(vram_shared_infer - vram_shared_baseline, 2),
-            }
+        if self._memory_tracker is not None:
+            self._memory_tracker.checkpoint("after_inference")
+            self._memory_tracker.stop()
+            self._memory = self._memory_tracker.to_dict()
+            self._memory_measurement = self._memory_tracker.metadata()
+            self._process_memory = self._memory_tracker.sampled()
 
         # [4] Collect results
         logger.info("Collecting results")
@@ -1240,19 +1337,25 @@ class PerfBenchmark:
 
         # Resolve the concrete device + EP first so a bad combo fails fast,
         # before from_pretrained/from_onnx kick off the build pipeline.
-        # This also binds ``self._ep_device`` via auto_device (loads the DLL).
         self._resolve_device_ep()
+        if self._memory_tracker is not None:
+            _, bound_device = _get_ep_device_binding(self._ep_device, self.config.ep_options)
+            self._memory_tracker.bind_before_load(
+                self._resolve_adapter_luid(),
+                device=bound_device or self._resolved_device or self.config.device or "auto",
+            )
         assert self._ep_device is not None
 
         model_id = self.config.model_id
         model_path = Path(model_id)
         is_onnx = model_path.suffix.lower() == ".onnx"
-        if is_onnx and not model_path.exists():
+        is_mlir = model_path.suffix.lower() == ".mlir"
+        if (is_onnx or is_mlir) and not model_path.exists():
             # Surface a clear error for programmatic callers. The CLI guards
             # this earlier, but without this check from_pretrained would fall
             # through to HF loading and produce a confusing "not a valid JSON
             # file" error from AutoConfig.
-            raise FileNotFoundError(f"ONNX file not found: {model_path}")
+            raise FileNotFoundError(f"Model file not found: {model_path}")
 
         # Composite auto-detection. A bare seq2seq model such as T5 auto-detects
         # to a granular single-model task (text2text-generation) and would
@@ -1269,7 +1372,7 @@ class PerfBenchmark:
         # bridges detection to that loadable pipeline task. Explicit --task and
         # ONNX inputs keep their resolved task untouched.
         resolved_task = self.config.task
-        if not is_onnx and resolved_task is None:
+        if not is_onnx and not is_mlir and resolved_task is None:
             from ..loader.resolution import resolve_composite_load_task
 
             try:
@@ -1310,6 +1413,8 @@ class PerfBenchmark:
             "shape_config": self.config.shape_config,
             "allow_unsupported_nodes": self.config.allow_unsupported_nodes,
             "no_compile": self.config.no_compile,
+            "runtime": self.config.runtime,
+            "backend": self._runtime_backend,
             # optimize/analyze/max-optim toggles, forwarded by WinMLAutoModel to
             # build_hf_model / build_onnx_model. Shared mapping with build/eval.
             **cli_utils.build_pipeline_extra_kwargs(
@@ -1320,12 +1425,44 @@ class PerfBenchmark:
         }
 
         if is_onnx:
+            runtime_shapes: dict[str, tuple[int, ...]] = {}
+            runtime_cgc = self.config.runtime == "winml-runtime" and self._runtime_backend == "cgc"
+            ort_cgc = (
+                self.config.runtime == "winml-ort"
+                and self._ep_device.device.ep_name == "WinMLCGExecutionProvider"
+            )
+            if runtime_cgc or ort_cgc:
+                runtime_shapes, dimensions = _runtime_input_shapes(
+                    model_path,
+                    self.config.input_data,
+                    self.config.shape_config,
+                    self.config.batch_size,
+                )
+                if ort_cgc and dimensions:
+                    common_kwargs["session_options"] = lambda: _ort_options_for_dimensions(
+                        dimensions
+                    )
             with suppress_native_warnings(enabled=True):
                 self._model = WinMLAutoModel.from_onnx(
                     onnx_path=model_path,
                     skip_build=self.config.skip_build,
                     compile_provider_options=self.config.compile_ep_options,
                     **common_kwargs,
+                )
+            if runtime_cgc and runtime_shapes:
+                from ..session.runtime_session import WinMLRuntimeSession
+
+                # Keep the lazy import visible to CodeQL as well as type checkers.
+                runtime_session = cast(WinMLRuntimeSession, self._single._session)  # noqa: TC006
+                runtime_session.set_input_shapes(runtime_shapes)
+        elif is_mlir:
+            with suppress_native_warnings(enabled=True):
+                self._model = WinMLAutoModel.from_mlir(
+                    mlir_path=model_path,
+                    ep_device=self._ep_device,
+                    task=resolved_task,
+                    runtime=self.config.runtime,
+                    backend="cgc",
                 )
         else:
             with suppress_native_warnings(enabled=True):
@@ -1570,6 +1707,9 @@ class PerfBenchmark:
             hw_monitor=getattr(self, "_hw_metrics", None),
             # Memory profile (only present when --memory is used)
             memory_profile=self._memory,
+            memory_measurement=self._memory_measurement,
+            process_memory=self._process_memory,
+            load_memory=self._load_memory,
         )
 
 
@@ -2043,6 +2183,7 @@ def display_console_report(result: BenchmarkResult, console: SafeConsole) -> Non
         console.print("[bold]Hardware (during benchmark)[/bold]")
         cpu = result.hw_monitor.get("cpu", {})
         ram = result.hw_monitor.get("ram", {})
+        ram_text = f"{ram['used_mb']:.0f}" if ram.get("used_mb") is not None else "unavailable"
         # ``hw_monitor["gpu"]`` is aggregate GPU telemetry. Selected-adapter
         # telemetry lives under the stable ``"adapter"`` key, with a fallback
         # to the legacy dynamic device-kind block for compatibility.
@@ -2055,36 +2196,56 @@ def display_console_report(result: BenchmarkResult, console: SafeConsole) -> Non
                 f"  {device_kind.upper()}: {adapter.get('mean_pct', 0):.1f}% avg, "
                 f"{adapter.get('peak_pct', 0):.1f}% peak  |  "
                 f"CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  "
-                f"RAM: {ram.get('used_mb', 0):.0f} MB"
+                f"RAM: {ram_text} MiB"
             )
         else:
-            console.print(
-                f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  RAM: {ram.get('used_mb', 0):.0f} MB"
-            )
+            console.print(f"  CPU: {cpu.get('mean_pct', 0):.1f}% avg  |  RAM: {ram_text} MiB")
 
     # Memory section (only when --memory is enabled)
+    if result.load_memory and result.load_memory.get("status") == "measured":
+        console.print()
+        console.print("[bold]Model loading memory (observed):[/bold]")
+        for family, label in (
+            ("rss", "RAM (RSS)"),
+            ("vram_local", "GPU local"),
+            ("vram_shared", "GPU shared"),
+        ):
+            observation = result.load_memory[family]
+            peak, ready = observation["peak_extra_mb"], observation["ready_extra_mb"]
+            peak_text = "N/A" if peak is None else f"{peak:.1f}"
+            ready_text = "N/A" if ready is None else f"{ready:+.1f}"
+            console.print(
+                f"  {label}: peak extra {peak_text} MiB | ready net change {ready_text} MiB"
+            )
+        console.print(
+            "  Includes this path's required load/compile work; excludes inputs/inference."
+        )
     if result.memory_profile:
         mem = result.memory_profile
         console.print()
         console.print("[bold]Memory:[/bold]")
+
+        def memory_value(key: str, *, signed: bool = False) -> str:
+            value = mem.get(key)
+            return "N/A" if value is None else format(value, "+.1f" if signed else ".1f")
+
         console.print(
-            f"  RAM:  {mem['rss_after_inference_mb']:.1f} MB -> "
-            f"model load: {mem['rss_model_load_delta_mb']:+.1f} MB  |  "
-            f"inference: {mem['rss_inference_delta_mb']:+.1f} MB  |  "
-            f"total: {mem['rss_total_delta_mb']:+.1f} MB"
+            f"  RAM (RSS): {memory_value('rss_after_inference_mb')} MiB | "
+            f"load/build net change: {memory_value('rss_model_load_delta_mb', signed=True)} MiB | "
+            f"inference net change: {memory_value('rss_inference_delta_mb', signed=True)} MiB | "
+            f"total net change: {memory_value('rss_total_delta_mb', signed=True)} MiB"
         )
-        vram_local = mem.get("vram_local_after_inference_mb", 0)
-        vram_shared = mem.get("vram_shared_after_inference_mb", 0)
-        if vram_local > 0 or vram_shared > 0:
-            console.print(
-                f"  VRAM: {vram_local:.1f}/{vram_shared:.1f} MB (local/shared) -> "
-                f"model load: {mem['vram_local_model_load_delta_mb']:+.1f}/"
-                f"{mem['vram_shared_model_load_delta_mb']:+.1f} MB  |  "
-                f"inference: {mem['vram_local_inference_delta_mb']:+.1f}/"
-                f"{mem['vram_shared_inference_delta_mb']:+.1f} MB  |  "
-                f"total: {mem['vram_local_total_delta_mb']:+.1f}/"
-                f"{mem['vram_shared_total_delta_mb']:+.1f} MB"
-            )
+        console.print(
+            f"  GPU memory L/S: {memory_value('vram_local_after_inference_mb')}/"
+            f"{memory_value('vram_shared_after_inference_mb')} MiB | "
+            f"net change: {memory_value('vram_local_total_delta_mb', signed=True)}/"
+            f"{memory_value('vram_shared_total_delta_mb', signed=True)} MiB"
+        )
+        if result.memory_measurement:
+            console.print(f"  Memory scope: {result.memory_measurement['scope']}")
+            missing = result.memory_measurement.get("missing_reasons", {})
+            if any(missing.values()):
+                console.print("  N/A memory counters: see memory_measurement.missing_reasons")
 
     console.print()
 
@@ -2183,7 +2344,11 @@ def generate_output_path(
     under its own directory so per-sub-model reports don't collide.
     """
     p = Path(model_id)
-    slug = p.stem if p.suffix.lower() == ".onnx" else model_id.replace("/", "_").replace("\\", "_")
+    slug = (
+        p.stem
+        if p.suffix.lower() in {".onnx", ".mlir"}
+        else model_id.replace("/", "_").replace("\\", "_")
+    )
 
     out_dir = Path.home() / ".cache" / "winml" / "perf" / slug
     if module_class:
@@ -2480,8 +2645,6 @@ def _autobuild_genai_bundle(
     existing bundle (in which case task/precision were not applied to it).
     """
     from ..cache import get_cache_dir, get_model_dir
-    from ..loader import resolve_loader_config
-    from ..models.winml import build_genai_bundle, resolve_genai_bundle
     from ..session import EPDeviceTarget, ep_to_device, resolve_device, short_ep_name
     from ..utils.constants import normalize_ep_name
 
@@ -2510,6 +2673,9 @@ def _autobuild_genai_bundle(
     if (bundle_dir / "genai_config.json").exists() and not force_rebuild:
         console.print(f"[dim]Reusing cached genai bundle:[/dim] {bundle_dir}")
         return bundle_dir, False
+
+    from ..loader import resolve_loader_config
+    from ..models.winml import build_genai_bundle, resolve_genai_bundle
 
     # Cache miss (or forced rebuild): resolve the model family so its
     # genai-bundle recipe can drive the build.
@@ -2748,9 +2914,18 @@ def _validate_duration(
     default="auto",
     show_default=True,
     help="'auto' selects ort-genai for folders containing genai_config.json, "
-    "otherwise winml-ort. 'winml-ort' benchmarks single-shot ONNX inference; "
+    "winml-runtime for .mlir files, otherwise winml-ort. "
+    "'winml-ort' benchmarks single-shot ONNX inference; "
     "'ort-genai' benchmarks an onnxruntime-genai bundle folder "
-    "(LLM generation: TTFT + decode tokens/sec).",
+    "(LLM generation: TTFT + decode tokens/sec); 'winml-runtime' performs "
+    "online conversion for ONNX/PyTorch inputs or loads CGC MLIR directly.",
+)
+@click.option(
+    "--backend",
+    type=click.Choice(list(RUNTIME_BACKENDS)),
+    default=None,
+    help="[winml-runtime] Execution backend for ONNX inputs (default: cgc). "
+    "MLIR inputs always use cgc.",
 )
 @click.option(
     "--prompt",
@@ -2812,8 +2987,7 @@ def _validate_duration(
     help=(
         "Number of benchmark iterations. "
         "When --op-tracing is set without an explicit --iterations, "
-        "defaults to 1 (a single inference produces a usable per-op trace; "
-        "more iterations just inflate the CSV)."
+        "defaults to 10 to reduce per-operator timing variability."
     ),
 )
 @click.option(
@@ -2842,14 +3016,11 @@ def _validate_duration(
     optional_message="'config' (ort-genai only) respects the bundle's genai_config.json routing.",
 )
 @cli_utils.precision_option()
-@click.option(
-    "--device-luid",
-    type=str,
-    default=None,
-    callback=_validate_device_luid,
-    help="Select a specific adapter within the resolved EP/device pair using its LUID "
-    "from 'winml sys' (0xHHHHHHHH_0xLLLLLLLL). Cannot be combined with "
-    "--ep-options device_id=VALUE. Not supported with --runtime ort-genai.",
+@cli_utils.device_luid_option(
+    optional_message=(
+        "Cannot be combined with --ep-options device_id=VALUE. "
+        "Not supported with --runtime ort-genai."
+    )
 )
 @click.option(
     "--ep",
@@ -2964,6 +3135,7 @@ def perf(
     ctx: click.Context,
     model: str | None,
     runtime: RuntimeName,
+    backend: RuntimeBackend | None,
     prompt: str,
     prompt_file: Path | None,
     apply_template: bool,
@@ -3075,6 +3247,10 @@ def perf(
         raise click.ClickException(f"Failed to resolve Hub-hosted ONNX path {model!r}: {e}") from e
     model = hf_model
     runtime = _resolve_runtime(runtime, model)
+    try:
+        effective_backend = resolve_runtime_api_backend(runtime, model, backend)
+    except ValueError as error:
+        raise click.UsageError(str(error)) from error
     # AC 11 (mockup spec): --top-k requires --op-tracing. Outside the
     # op-tracing section the flag is meaningless, so reject it explicitly
     # rather than silently ignoring a user's intent.
@@ -3083,13 +3259,10 @@ def perf(
     if top_k is not None and top_k < 1:
         raise click.UsageError("--top-k must be >= 1.")
 
-    # Smart default: --op-tracing produces a usable per-op trace from a single
-    # inference; the default 100 iterations just inflates the profiling CSV
-    # without adding profiling value (operators are averaged across iterations).
-    # When the user did not explicitly pass --iterations alongside --op-tracing,
-    # collapse to 1.
+    # Retain multiple trace samples for timing stability without the full
+    # benchmark's trace volume. Explicit iteration counts always take precedence.
     if op_tracing and ctx.get_parameter_source("iterations") == click.core.ParameterSource.DEFAULT:
-        iterations = 1
+        iterations = 10
 
     # Apply build config defaults (CLI explicit options take precedence).
     # Read raw JSON so missing keys are distinguishable from dataclass defaults.
@@ -3117,6 +3290,10 @@ def perf(
                 ep = (configured_target.ep, configured_target.source)
             elif "execution_provider" in cc:
                 ep = (cc["execution_provider"], None)
+
+    if runtime == "winml-runtime" and ep_provider_options:
+        logger.warning("--ep-options are ignored with --runtime winml-runtime.")
+        ep_provider_options = None
 
     json_mode = output_format == "json"
     console = SafeConsole(stderr=True) if json_mode else SafeConsole()
@@ -3160,10 +3337,22 @@ def perf(
     # one source of truth. Rejects an invalid id up front; a path-shaped .onnx
     # that doesn't exist is caught below with a friendly "not found" message
     # (the pure classifier stays existence-agnostic).
-    model_input = classify_model_input(hf_model)
-    if model_input.kind is ModelInputKind.INVALID:
-        raise click.UsageError(model_input.error or f"Invalid model input: {hf_model}")
-    is_onnx = model_input.kind is ModelInputKind.ONNX_FILE
+    mlir_path = Path(hf_model)
+    is_mlir = mlir_path.suffix.lower() == ".mlir"
+    if is_mlir:
+        if runtime != "winml-runtime":
+            raise click.UsageError("MLIR inputs require --runtime winml-runtime.")
+        if not mlir_path.is_file():
+            raise click.UsageError(f"MLIR file not found: {hf_model}")
+        if ep is not None:
+            logger.warning("--ep is ignored for MLIR inputs.")
+            ep = None
+        is_onnx = False
+    else:
+        model_input = classify_model_input(hf_model)
+        if model_input.kind is ModelInputKind.INVALID:
+            raise click.UsageError(model_input.error or f"Invalid model input: {hf_model}")
+        is_onnx = model_input.kind is ModelInputKind.ONNX_FILE
     if is_onnx and model_input.local_path and not Path(model_input.local_path).exists():
         raise click.UsageError(f"ONNX file not found: {hf_model}")
 
@@ -3420,6 +3609,8 @@ def perf(
     # ``ep_source_part`` were unpacked once from the --ep tuple above.
     config = BenchmarkConfig(
         model_id=hf_model,
+        runtime=runtime,
+        backend=effective_backend,
         task=task,
         submodel=submodel,
         device=device.lower(),

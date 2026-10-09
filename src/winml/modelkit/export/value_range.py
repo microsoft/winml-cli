@@ -141,7 +141,8 @@ def intercept_value_ranges() -> Iterator[dict[str, dict[str, Any]]]:
     patched_classes: list[type[Any]] = []
 
     def _patch_subclasses(base: type[Any]) -> None:
-        for cls in base.__subclasses__():
+        subclasses: list[type[Any]] = base.__subclasses__()
+        for cls in subclasses:
             if "generate" in cls.__dict__:
                 originals[(cls, "generate")] = cls.__dict__["generate"]
                 cls.generate = _make_generate_wrapper(cls.__dict__["generate"])

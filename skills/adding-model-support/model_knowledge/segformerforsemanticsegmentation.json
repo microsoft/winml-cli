@@ -1,0 +1,229 @@
+{
+  "_meta": {
+    "family": "segformerforsemanticsegmentation",
+    "hf_model_type": "SegformerForSemanticSegmentation",
+    "models_tested": [
+      "ZhengPeng7/BiRefNet@e2bf8e4460fc8fa32bba5ea4d94b3233d367b0e4"
+    ],
+    "last_updated": "2026-08-19",
+    "epistemics_warning": "Observational findings, not ground truth. Re-validate on new checkpoints / ORT versions / EPs before relying on a finding to skip work."
+  },
+  "findings": [
+    {
+      "id": "segformerforsemanticsegmentation-001",
+      "title": "The class-like remote model_type is not covered by canonical SegFormer registration",
+      "observation": "On current main 2b9ec0e9e57bba8003d25eaff85f8c7c9e30d75a, ZhengPeng7/BiRefNet@e2bf8e4460fc8fa32bba5ea4d94b3233d367b0e4 reports model_type SegformerForSemanticSegmentation. Optimum 2.1.0 and WinML 0.3.0 registered image-segmentation only for canonical segformer; explicit task/class config still failed before export. The accepted CPU recipes therefore select image-segmentation, AutoModelForImageSegmentation, the literal model_type, and trust_remote_code.",
+      "scope": {
+        "validated_on": ["ZhengPeng7/BiRefNet @ fp32/fp16 @ CPUExecutionProvider"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["other remote-code checkpoints that reuse SegformerForSemanticSegmentation as a literal model_type"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/ZhengPeng7_BiRefNet/cpu/cpu/image-segmentation_<precision>_config.json",
+      "gotchas": ["Do not apply the BiRefNet path to ordinary canonical SegFormer checkpoints from the model_type string alone; discriminate with trusted auto_map and architectures metadata."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The planner's registry probe and no-recipe current-main config/build failures isolate the literal model_type registration gap.",
+      "last_updated": "2026-08-19"
+    },
+    {
+      "id": "segformerforsemanticsegmentation-002",
+      "title": "FP32 and FP16 require distinct export paths and opsets for this checkpoint",
+      "observation": "Resolved build configs for ZhengPeng7/BiRefNet use static x [1,3,1024,1024] and logits [1,1,1024,1024] with ImageNet-normalized value range [-2.1179039301310043, 2.64]. FP32 uses legacy export (dynamo=false), opset 17, and gelu/highdimRTR_lowdimRTR/matmul_add optimization. FP16 uses torch-dynamo (dynamo=true), opset 18, highdimRTR_lowdimRTR only, and quant.mode=fp16 with fp16_keep_io_types=true.",
+      "scope": {
+        "validated_on": ["ZhengPeng7/BiRefNet @ fp32 @ CPUExecutionProvider", "ZhengPeng7/BiRefNet @ fp16 @ CPUExecutionProvider"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["dynamic spatial shapes", "batch sizes other than 1", "other BiRefNet checkpoints"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/ZhengPeng7_BiRefNet/cpu/cpu/image-segmentation_<precision>_config.json",
+      "gotchas": ["Do not infer that the FP32 legacy/opset-17 recipe can be converted to FP16 by changing only quant.mode; the accepted FP16 tuple changes exporter and opset."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The final tester-owned winml_build_config.json files and structural manifests agree on requested and actual exporter/opset/dtype contracts.",
+      "last_updated": "2026-08-19"
+    },
+    {
+      "id": "segformerforsemanticsegmentation-003",
+      "title": "Dynamo metadata traces substantially more BiRefNet modules than legacy tracing",
+      "observation": "Final HTP metadata for ZhengPeng7/BiRefNet records 220,176,498 parameters and 665 modules for both tuples. FP32 legacy TracingHierarchyBuilder traced 164/665 modules (24.7%) in 95.324s; FP16 DynamoMetadataTagger traced 501/665 modules (75.3%) in 451.695s. Both expose the SwinTransformer backbone and Decoder hierarchy, but the Dynamo path retains finer module scopes.",
+      "scope": {
+        "validated_on": ["ZhengPeng7/BiRefNet @ fp32 @ legacy exporter", "ZhengPeng7/BiRefNet @ fp16 @ torch-dynamo exporter"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["legacy export at opset 18", "dynamo export at fp32", "other BiRefNet checkpoints"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L0",
+      "recipe_template": "examples/recipes/ZhengPeng7_BiRefNet/cpu/cpu/image-segmentation_<precision>_config.json",
+      "gotchas": ["Trace coverage ratios are exporter-path observations, not architecture coverage guarantees; preserve unmapped graph nodes explicitly."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Counts come directly from final export_htp_metadata.json artifacts.",
+      "last_updated": "2026-08-19"
+    },
+    {
+      "id": "segformerforsemanticsegmentation-004",
+      "title": "The final FP32 CPU artifact is a static opset-17 FLOAT model with co-located external data",
+      "observation": "WinML 0.3.0 / ORT 1.24.5 built ZhengPeng7/BiRefNet FP32 in 402.250s. The final artifact has x FLOAT [1,3,1024,1024], logits FLOAT [1,1,1024,1024], 736 FLOAT and 218 INT64 initializers, 7,787 nodes, no duplicate producers, no raw DeformConv, 6,957 hierarchy-tagged nodes, and a co-located 1,002,702,592-byte model.onnx.data file.",
+      "scope": {
+        "validated_on": ["ZhengPeng7/BiRefNet @ fp32 @ CPUExecutionProvider @ ORT 1.24.5"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["non-CPU runtime EPs", "dynamic shapes", "batch sizes other than 1"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L1",
+      "recipe_template": "examples/recipes/ZhengPeng7_BiRefNet/cpu/cpu/image-segmentation_fp32_config.json",
+      "gotchas": ["The 48 com.microsoft Gelu nodes are expected on the accepted FP32 path; unexpected custom domains remain zero."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Final structural manifest passed ONNX/ORT loading and recursive producer checks.",
+      "last_updated": "2026-08-19"
+    },
+    {
+      "id": "segformerforsemanticsegmentation-005",
+      "title": "The final FP16 CPU artifact is a true static opset-18 FLOAT16 model",
+      "observation": "WinML 0.3.0 / ORT 1.24.5 built ZhengPeng7/BiRefNet FP16 in 844.469s with --precision fp16. The final artifact has x/logits FLOAT16 at [1,3,1024,1024]/[1,1,1024,1024], 806 FLOAT16 and 207 INT64 initializers, 12,477 nodes, no duplicate producers, no custom domains or raw DeformConv, 7,506 hierarchy-tagged nodes, and a co-located 503,503,744-byte model.onnx.data file.",
+      "scope": {
+        "validated_on": ["ZhengPeng7/BiRefNet @ fp16 @ CPUExecutionProvider @ ORT 1.24.5"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["non-CPU runtime EPs", "dynamic shapes", "batch sizes other than 1"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L1",
+      "recipe_template": "examples/recipes/ZhengPeng7_BiRefNet/cpu/cpu/image-segmentation_fp16_config.json",
+      "gotchas": ["The FP16 file is about half the FP32 external-data size, but the graph has 4,391 Cast nodes and more total nodes; size reduction does not imply a simpler graph."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Final structural manifest and ORT CPU session load confirm realized dtype and opset rather than relying on the recipe filename.",
+      "last_updated": "2026-08-19"
+    },
+    {
+      "id": "segformerforsemanticsegmentation-006",
+      "title": "CPU FP16 runtime was slower and used more inference RSS than FP32",
+      "observation": "On the same static 1024 CPU workload, ORT 1.24.5 FP32 mean/p50 latency was 17,388.171/17,497.655ms with 5,921.71MB inference RSS delta; FP16 was 19,865.985/19,925.766ms with 6,357.54MB inference RSS delta. Throughput was 0.06 versus 0.05 samples/s. These are tuple-specific measurements, not a general CPU precision ranking.",
+      "scope": {
+        "validated_on": ["ZhengPeng7/BiRefNet @ fp32 @ CPUExecutionProvider", "ZhengPeng7/BiRefNet @ fp16 @ CPUExecutionProvider"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["other CPUs", "accelerator EPs", "other input sizes", "longer iteration counts"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L1",
+      "recipe_template": "examples/recipes/ZhengPeng7_BiRefNet/cpu/cpu/image-segmentation_<precision>_config.json",
+      "gotchas": ["Do not advertise FP16 as a CPU speed or memory optimization for this checkpoint from artifact size alone."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "The measurements are confirmed; the exact cause of slower FP16 CPU execution was not isolated. Cast-heavy graph structure is a plausible contributor, not a proven cause.",
+      "last_updated": "2026-08-19"
+    },
+    {
+      "id": "segformerforsemanticsegmentation-007",
+      "title": "FP32 PyTorch-to-ONNX parity passed on the exact static input",
+      "observation": "For ZhengPeng7/BiRefNet FP32 on the pinned DIS5K image and static [1,3,1024,1024] tensor, PyTorch versus ORT logits cosine was 0.9999999999991248 with max-abs 0.001285552978515625; sigmoid-mask cosine was 0.9999999999995249 with max-abs 0.00005751848220825195 and binary agreement 1.0. PyTorch inference took 20.283s and ORT inference 17.275s.",
+      "scope": {
+        "validated_on": ["ZhengPeng7/BiRefNet @ fp32 @ CPUExecutionProvider @ pinned DIS5K row 1"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["additional images", "other spatial shapes", "other BiRefNet checkpoints"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2",
+      "recipe_template": "examples/recipes/ZhengPeng7_BiRefNet/cpu/cpu/image-segmentation_fp32_config.json",
+      "gotchas": ["This single-input parity result is separate from the FP16 tuple and does not transfer to it."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The harness used the same named input tensor for the public PyTorch forward and ORT inference.",
+      "last_updated": "2026-08-19"
+    },
+    {
+      "id": "segformerforsemanticsegmentation-008",
+      "title": "Exact CPU FP16 PyTorch parity is compute-bound before logits at 1024x1024",
+      "observation": "For ZhengPeng7/BiRefNet FP16, the offline pinned model/artifact hashes and exact float16 [1,3,1024,1024] input hash were verified; local-only load completed in 1.865s and all parameters/buffers were torch.float16. One inference_mode public forward remained live at last durable phase pt_forward:before. Equivalent-path observations lasted 902.688s, 301.094s, and 1,144.430s (2,348.212s cumulative); the final attempt reached 1,787.672 child CPU-seconds and 1,928,876,032 bytes RSS. No PT logits, parity JSON, cosine, max-abs, or accuracy value was emitted.",
+      "scope": {
+        "validated_on": ["ZhengPeng7/BiRefNet @ fp16 @ CPU PyTorch 2.13.0 @ exact static 1024 input"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["smaller spatial inputs", "internal-submodule or shortcut forwards", "other BiRefNet checkpoints", "accelerator PyTorch reference execution", "completion of the exact public forward to logits"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2-PARITY-TIMEOUT-at-scale",
+      "recipe_template": "examples/recipes/ZhengPeng7_BiRefNet/cpu/cpu/image-segmentation_fp16_config.json",
+      "gotchas": ["This is neither parity PASS nor artifact FAIL: L0 and L1 independently passed for the exact FP16 artifact.", "No smaller-input, shortcut, internal-submodule, or prior-logit evidence exists; do not use one to impute numeric parity."],
+      "feature_gaps_filed": ["FILE: provide a phase-checkpointable or otherwise bounded CPU FP16 PyTorch reference path for large static image models so L2 can reach logits without replacing the public forward or changing the parity input."],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Flushed phase events, growing CPU time, bounded RSS, and three equivalent-path observations locate the timeout inside the single public PyTorch forward and distinguish live compute from crash or model-load failure.",
+      "last_updated": "2026-08-19"
+    },
+    {
+      "id": "segformerforsemanticsegmentation-009",
+      "title": "Static Analyze found partial accelerator rules but no unsupported operator types",
+      "observation": "Standalone rule aggregation classified all 7,787 FP32 nodes across 23 op types and all 12,477 FP16 nodes across 26 op types. FP32 mapped 5,840 nodes; FP16 mapped 7,493. QNN NPU and OpenVINO NPU marked Gather, Pad, and Reshape partial; FP16 additionally marked Erf partial on QNN NPU. No operator type was classified unsupported. FP32 dominant counts include Gather 1,384, Unsqueeze 1,200, Mul 971; FP16 includes Cast 4,391, Gather 1,384, Unsqueeze 1,200.",
+      "scope": {
+        "validated_on": ["ZhengPeng7/BiRefNet @ fp32/fp16 @ static Analyze rule set 121981b72977d956594953334aa85e3a99592cf4ea3fdb3d3e0898b972bac78e"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["runtime execution on accelerator EPs", "newer rule sets", "other BiRefNet checkpoints"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L1",
+      "recipe_template": "examples/recipes/ZhengPeng7_BiRefNet/cpu/cpu/image-segmentation_<precision>_config.json",
+      "gotchas": ["These are static rule classifications, not runtime EP support claims.", "Half-resolution and fusion functional regions lacked unique serialized tags; their nodes remain in the explicit unmapped totals rather than being guessed."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Aggregate artifacts reconcile mapped plus unmapped nodes to each final graph and retain all 12 EP/device rows.",
+      "last_updated": "2026-08-19"
+    },
+    {
+      "id": "segformerforsemanticsegmentation-010",
+      "title": "L3 evidence is an FP32-only one-row functional smoke",
+      "observation": "The final FP32 CPU path processed one hash-pinned nobg/DIS5K DIS_VD row at revision e007e9a3af50dec16d0fca3c0856793d20b9a448, with no crops, tiles, or augmentation. Sigmoid/0.5-threshold output produced binary mIoU 0.9659138986825014 and Dice 0.982661447512863 after resizing to 2592x3872. This proves one end-to-end FP32 functional path only; it is not benchmark accuracy and supplies no FP16 accuracy evidence.",
+      "scope": {
+        "validated_on": ["ZhengPeng7/BiRefNet @ fp32 @ CPUExecutionProvider @ one pinned DIS5K DIS_VD row"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["FP16 functional smoke", "more than one DIS5K row", "representative or full-split accuracy", "other datasets and checkpoints"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/ZhengPeng7_BiRefNet/cpu/cpu/image-segmentation_fp32_config.json",
+      "gotchas": ["Never use the one-row FP32 mIoU/Dice values as an FP16 or benchmark-quality claim."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Dataset revision, row selection, preprocessing, threshold, pixel counts, and no-benchmark disclaimer are preserved in the tester verdict.",
+      "last_updated": "2026-08-19"
+    },
+    {
+      "id": "segformerforsemanticsegmentation-011",
+      "title": "FP16 finalization needed deterministic recursive node naming and explicit precision boundaries",
+      "observation": "Historical FP16 repair evidence for ZhengPeng7/BiRefNet showed 18 unnamed Max nodes caused repeated ORT-generated _input_cast_0/_output_cast_0 producers, while existing Cast(to=FLOAT) boundaries became type-invalid and a FLOAT zero initializer was intentionally retained for blocked Max consumers. The accepted repair assigns globally unique names across graphs/functions, preserves blocked FLOAT casts, and inserts explicit shared casts for blocked-op consumers; the final graph has zero duplicate producers and all floating initializers stored as FLOAT16.",
+      "scope": {
+        "validated_on": ["ZhengPeng7/BiRefNet @ fp16 conversion/finalization @ candidate 5516721bcc85642291febd5e7b2eb0274d129c63"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["other large Dynamo graphs with repeated unnamed blocked nodes", "nested local-function consumers on model-scale artifacts"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L0",
+      "recipe_template": "examples/recipes/ZhengPeng7_BiRefNet/cpu/cpu/image-segmentation_fp16_config.json",
+      "gotchas": ["Blindly converting every FLOAT initializer breaks blocked-op FLOAT contracts; storage conversion and consumer precision boundaries must be handled together."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Repair-r3 unit coverage and the final exact FP16 structure/ORT load confirm the generalized conversion path.",
+      "last_updated": "2026-08-19"
+    },
+    {
+      "id": "segformerforsemanticsegmentation-012",
+      "title": "Hierarchy metadata must survive exporter, optimizer, and FP16 finalization as one pipeline contract",
+      "observation": "Historical BiRefNet repair evidence found HTP tags keyed by transient Python protobuf wrapper identity did not serialize, and destructive optimizer stages had no pipeline-level metadata snapshot. The accepted repair assigns stable names before tagging and recursively captures/restores model and node metadata across graphs/functions and generated casts. Final artifacts retain 6,957 FP32 and 7,506 FP16 hierarchy-tagged nodes.",
+      "scope": {
+        "validated_on": ["ZhengPeng7/BiRefNet @ fp32/fp16 hierarchy persistence @ candidate 5516721bcc85642291febd5e7b2eb0274d129c63"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["other model-scale Dynamo exports", "artifacts with nested graph owners or local functions"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L0",
+      "recipe_template": "examples/recipes/ZhengPeng7_BiRefNet/cpu/cpu/image-segmentation_<precision>_config.json",
+      "gotchas": ["In-memory trace coverage is not persistence evidence; save/reload the final artifact and count serialized winml.hierarchy.* properties."],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Focused save/reload and destructive-pipeline tests plus final tester structure manifests confirm persistence.",
+      "last_updated": "2026-08-19"
+    }
+  ]
+}

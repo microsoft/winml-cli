@@ -118,6 +118,102 @@ def mock_generate_config():
 # =============================================================================
 
 
+@pytest.mark.parametrize("backend", [None, "ort", "cgc"])
+@pytest.mark.parametrize("no_quant", [False, True])
+@pytest.mark.parametrize("kind", ["hf", "onnx", "module"])
+def test_backend_stage_settings(
+    runner, tmp_path, onnx_model_path, mock_generate_config, backend, no_quant, kind
+):
+    from winml.modelkit.commands.config import config
+    from winml.modelkit.config import WinMLBuildConfig, resolve_quant_compile_config
+    from winml.modelkit.config.build import _apply_cgc_config
+
+    cfg = WinMLBuildConfig.from_dict(mock_generate_config.return_value.to_dict())
+    if kind == "onnx":
+        cfg.export = None
+    original = cfg.to_dict()
+    cfg.quant, cfg.compile = resolve_quant_compile_config(device="gpu", backend=backend)
+    _apply_cgc_config(cfg, backend=backend, ep=None)
+    mock_generate_config.return_value = [cfg] if kind == "module" else cfg
+    output = tmp_path / "config.json"
+    args = [
+        "-m",
+        str(onnx_model_path) if kind == "onnx" else "test-model",
+        "-o",
+        str(output),
+    ]
+    if kind == "module":
+        args += ["--module", "test-module"]
+    if backend is not None:
+        args += ["--backend", backend]
+    if no_quant:
+        args += ["--no-quant"]
+    with patch("winml.modelkit.config.generate_onnx_build_config", return_value=cfg) as generate:
+        result = runner.invoke(config, args)
+    assert result.exit_code == 0, result.output
+    generator = generate if kind == "onnx" else mock_generate_config
+    assert generator.call_args.kwargs["backend"] == backend
+    data = json.loads(output.read_text(encoding="utf-8"))
+    if kind == "module":
+        data = data[0]
+    assert data.get("loader") == original.get("loader")
+    assert data["export"] == original["export"]
+    if backend == "cgc":
+        assert data["auto"] is False
+        _assert_cgc_optim(data["optim"])
+        assert data["compile"] is None
+        assert data["convert"]["target"] == "cgir"
+        if no_quant:
+            assert data["quant"] is None
+        else:
+            assert data["quant"]["mode"] == "fp16"
+    else:
+        assert data == original
+
+
+@pytest.mark.parametrize(
+    ("backend", "ep"),
+    [
+        (None, None),
+        ("ort", None),
+        ("cgc", None),
+        (None, "winmlcg"),
+        (None, "WinMLCGExecutionProvider"),
+    ],
+)
+def test_generator_cgc_settings(onnx_model_path, backend, ep):
+    from winml.modelkit.config import generate_build_config
+
+    cfg = generate_build_config(onnx_path=onnx_model_path, device="gpu", backend=backend, ep=ep)
+    assert cfg.export is None
+    if backend == "cgc" or ep is not None:
+        assert cfg.auto is False
+        _assert_cgc_optim(cfg.optim)
+        assert cfg.quant.mode == "fp16"
+        assert cfg.compile is None
+    else:
+        assert cfg.auto is True
+        assert cfg.quant is None
+    if backend == "cgc":
+        assert cfg.convert.target == "cgir"
+    else:
+        assert cfg.convert is None
+
+
+def _assert_cgc_optim(optim):
+    from winml.modelkit.optim.pipes import CGIRRewritePipe, ORTGraphPipe
+
+    assert optim["ort_graph_optimization"] is False
+    assert "backend" not in optim
+    rules = CGIRRewritePipe.build_config(**optim).rules
+    all_options = {
+        capability.python_name: True for capability in CGIRRewritePipe.capabilities.values()
+    }
+    assert rules == CGIRRewritePipe.build_config(**all_options).rules
+    assert len(optim) - 1 == len(rules)
+    assert not ORTGraphPipe.should_process(ORTGraphPipe.build_config(**optim))
+
+
 class TestConfigCliInterface:
     """Test CLI flag parsing and help text."""
 
@@ -506,6 +602,83 @@ class TestConfigOnnxLocalPath:
         assert outfile.exists()
 
         _assert_onnx_config_structure(json.loads(outfile.read_text()))
+
+
+class TestConfigQuantSummary:
+    """The summary must describe the effective quantization configuration."""
+
+    @pytest.mark.parametrize(
+        "target_args",
+        [
+            pytest.param(["--precision", "fp16"], id="precision"),
+            pytest.param([], id="config-file"),
+            pytest.param(["--backend", "cgc"], id="cgc-backend"),
+            pytest.param(["--ep", "winmlcg"], id="winmlcg-ep"),
+        ],
+    )
+    def test_fp16_summary_matches_saved_mode(
+        self,
+        runner: CliRunner,
+        onnx_model_path: Path,
+        tmp_path: Path,
+        target_args: list[str],
+    ) -> None:
+        """FP16 must not be reported as the unused integer quantization types."""
+        from winml.modelkit.commands.config import config
+        from winml.modelkit.quant import WinMLQuantizationConfig
+
+        output_file = tmp_path / "config.json"
+        args = ["-m", str(onnx_model_path), "--device", "gpu", "-o", str(output_file)]
+        if not target_args:
+            override_file = tmp_path / "override.json"
+            quant = WinMLQuantizationConfig(mode="fp16")
+            override_file.write_text(json.dumps({"quant": quant.to_dict()}))
+            args.extend(["--config", str(override_file)])
+        else:
+            args.extend(target_args)
+
+        result = runner.invoke(config, args)
+
+        assert result.exit_code == 0, result.output
+        saved_quant = json.loads(output_file.read_text())["quant"]
+        assert saved_quant["mode"] == "fp16"
+        summary = next(line for line in result.output.splitlines() if "Quant:" in line)
+        assert saved_quant["mode"].upper() in summary
+        assert saved_quant["weight_type"] not in summary
+        assert saved_quant["activation_type"] not in summary
+        assert "(weight/activation)" not in summary
+
+    @pytest.mark.parametrize("precision", ["int8", "int16", "w8a16"])
+    def test_integer_summary_matches_saved_types(
+        self,
+        runner: CliRunner,
+        onnx_model_path: Path,
+        tmp_path: Path,
+        precision: str,
+    ) -> None:
+        """Integer quantization retains its weight/activation type summary."""
+        from winml.modelkit.commands.config import config
+
+        output_file = tmp_path / "config.json"
+        result = runner.invoke(
+            config,
+            [
+                "-m",
+                str(onnx_model_path),
+                "--device",
+                "cpu",
+                "--precision",
+                precision,
+                "-o",
+                str(output_file),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        saved_quant = json.loads(output_file.read_text())["quant"]
+        summary = next(line for line in result.output.splitlines() if "Quant:" in line)
+        assert f"{saved_quant['weight_type']}/{saved_quant['activation_type']}" in summary
+        assert "(weight/activation)" in summary
 
 
 # =============================================================================

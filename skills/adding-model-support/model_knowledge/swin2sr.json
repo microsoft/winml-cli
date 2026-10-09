@@ -1,0 +1,311 @@
+{
+  "_meta": {
+    "family": "swin2sr",
+    "hf_model_type": "swin2sr",
+    "models_tested": [
+      "caidas/swin2SR-classical-sr-x2-64@cee1c923c6a37361c6e5650b65dcf4be821e5d52 @ image-to-image @ fp32/fp16 @ CPUExecutionProvider/cpu @ winml-cli 69847a89be6f7085d003ba08b003eb182cc5f88a"
+    ],
+    "diagnostic_only": [],
+    "last_updated": "2026-08-16",
+    "epistemics_warning": "Observational findings, not ground truth. Re-validate on new checkpoints, shapes, ORT versions, and EPs. Accelerator Analyze rows below are static rule classifications only and are not runtime support evidence."
+  },
+  "findings": [
+    {
+      "id": "swin2sr-001",
+      "title": "The verified classical-x2 Swin2SR export contract is fixed 64x64 float32 RGB input to 128x128 float32 reconstruction at opset 17",
+      "observation": "At winml-cli 69847a89be6f7085d003ba08b003eb182cc5f88a with WinML 0.3.0, Python 3.11.9, onnxruntime-windowsml 1.24.5.202604171637, Transformers 5.14.1, Optimum 2.1.0, and optimum-onnx 0.1.0, both CPU recipes for caidas/swin2SR-classical-sr-x2-64@cee1c923c6a37361c6e5650b65dcf4be821e5d52 produced self-contained opset-17 graphs with pixel_values FLOAT [1,3,64,64] and reconstruction FLOAT [1,3,128,128]. The fp32 graph had 2,096 nodes and 672 FLOAT plus 23 INT64 initializers; fp16 had 2,098 nodes and 672 FLOAT16 plus 23 INT64 initializers while retaining float32 I/O.",
+      "scope": {
+        "validated_on": [
+          "caidas/swin2SR-classical-sr-x2-64@cee1c923c6a37361c6e5650b65dcf4be821e5d52 @ image-to-image @ fp32/fp16 @ CPUExecutionProvider/cpu build @ ORT WindowsML 1.24.5.202604171637 @ 69847a89"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "input sizes other than [1,3,64,64]",
+          "batch sizes other than 1",
+          "Swin2SR checkpoints with a scale factor other than 2"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2 PASS",
+      "recipe_template": "examples/recipes/caidas_swin2SR-classical-sr-x2-64/cpu/cpu/image-to-image_<precision>_config.json",
+      "gotchas": [
+        "Do not advertise dynamic shapes or other scale factors from these fixed-shape x2 artifacts.",
+        "FP16 keeps float32 model I/O; initializer dtype and graph size establish converted precision."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The structural validator inspected graph I/O, opset, node counts, initializer dtypes, and layout for both final-SHA artifacts.",
+      "last_updated": "2026-08-16"
+    },
+    {
+      "id": "swin2sr-002",
+      "title": "HTP export traces 278 of 884 Swin2SR modules while preserving the six-stage hierarchy needed for component analysis",
+      "observation": "For both fp32 and fp16 CPU builds of caidas/swin2SR-classical-sr-x2-64 at winml-cli 69847a89 with ORT WindowsML 1.24.5.202604171637, export_htp_metadata.json records Swin2SRForImageSuperResolution with 12,091,571 parameters, 884 total modules, 278 traced modules (31.45%), and 556 execution steps. The hierarchy includes Swin2SREmbeddings, Swin2SREncoder stages.0 through stages.5 with six Swin2SRLayer children per stage, and the reconstruction modules; hierarchy tagging completed for 12,237/12,237 trace nodes with 547 unique scopes and no empty tags.",
+      "scope": {
+        "validated_on": [
+          "caidas/swin2SR-classical-sr-x2-64@cee1c923c6a37361c6e5650b65dcf4be821e5d52 @ fp32/fp16 HTP export @ ORT WindowsML 1.24.5.202604171637 @ 69847a89"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "other Swin2SR checkpoint variants",
+          "future exporter versions with different trace/module accounting"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2 PASS",
+      "recipe_template": "examples/recipes/caidas_swin2SR-classical-sr-x2-64/cpu/cpu/image-to-image_<precision>_config.json",
+      "gotchas": [
+        "The 31.45% module trace ratio is not ONNX node-mapping coverage; use the optimized-graph component join separately.",
+        "Root fallback tags count as tagged trace nodes but do not by themselves establish semantic component ownership after optimization."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Both precision builds emitted matching HTP model, trace, and hierarchy counts.",
+      "last_updated": "2026-08-16"
+    },
+    {
+      "id": "swin2sr-003",
+      "title": "Compare mode can preserve the Swin2SR image-to-image task while dispatching tensor similarity, whereas ordinary ONNX Eval remains unsupported",
+      "observation": "The parent baseline at 24cccfb rejected image-to-image before inference because _resolve_task validated against the metric evaluator registry before compare dispatch. The final shared mode-driven fix at winml-cli 69847a89, tested with WinML 0.3.0 and ORT WindowsML 1.24.5.202604171637, preserves image-to-image for HF reference loading and dispatches mode=compare to TensorSimilarityEvaluator. Mode=onnx still rejects image-to-image because no labeled-dataset metric evaluator exists, and two-ONNX compare remains task/model-id optional.",
+      "scope": {
+        "validated_on": [
+          "caidas/swin2SR-classical-sr-x2-64@cee1c923c6a37361c6e5650b65dcf4be821e5d52 @ image-to-image compare @ fp32 @ CPUExecutionProvider/cpu @ ORT WindowsML 1.24.5.202604171637 @ 69847a89"
+        ],
+        "falsified_on": [
+          "24cccfb parent: mode=compare with image-to-image is rejected before TensorSimilarityEvaluator dispatch"
+        ],
+        "not_yet_tested_on": [
+          "image-to-image benchmark Eval in ordinary mode",
+          "other model tasks without metric evaluators beyond the focused regression partitions"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2 PASS",
+      "recipe_template": "examples/recipes/caidas_swin2SR-classical-sr-x2-64/cpu/cpu/image-to-image_fp32_config.json",
+      "gotchas": [
+        "Compare-tensor operability does not add an image-to-image benchmark evaluator or representative task accuracy.",
+        "Keep the resolved model task separate from evaluator selection so the HF reference class still loads correctly."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The parent failure, focused dispatch tests, ordinary-mode rejection test, and final one-sample compare Eval isolate the validator/dispatch ordering.",
+      "last_updated": "2026-08-16"
+    },
+    {
+      "id": "swin2sr-004",
+      "title": "FP32 Swin2SR CPU inference runs at about 775 ms P50 for the verified 64x64 input contract",
+      "observation": "On the tester host at winml-cli 69847a89 with WinML 0.3.0 and ORT WindowsML 1.24.5.202604171637, the fp32 CPUExecutionProvider artifact built from examples/recipes/caidas_swin2SR-classical-sr-x2-64/cpu/cpu/image-to-image_fp32_config.json completed 10 warmups and 100 measured iterations at mean 776.928 ms, P50 774.658 ms, 1.29 samples/s, and +196.0 MB RSS for batch 1 [1,3,64,64].",
+      "scope": {
+        "validated_on": [
+          "caidas/swin2SR-classical-sr-x2-64@cee1c923c6a37361c6e5650b65dcf4be821e5d52 @ fp32 @ CPUExecutionProvider/cpu @ 10 warmup + 100 measured @ ORT WindowsML 1.24.5.202604171637 @ 69847a89"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "other CPU architectures or power modes",
+          "accelerator runtimes",
+          "other image shapes or batch sizes"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2 PASS",
+      "recipe_template": "examples/recipes/caidas_swin2SR-classical-sr-x2-64/cpu/cpu/image-to-image_fp32_config.json",
+      "gotchas": [
+        "Treat these measurements as host- and shape-specific, not a family-wide latency expectation."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "The timing is measured and reproducible from the sealed artifact, but no source-level latency mechanism was isolated.",
+      "last_updated": "2026-08-16"
+    },
+    {
+      "id": "swin2sr-005",
+      "title": "FP16 converts all 672 floating Swin2SR initializers and reduces the artifact to 50.56% of fp32 size",
+      "observation": "At winml-cli 69847a89 with WinML 0.3.0 and ORT WindowsML 1.24.5.202604171637, the CPU artifact built from image-to-image_fp16_config.json was 35,854,351 bytes versus 70,912,129 bytes for fp32 (ratio 0.5056) and converted all 672 floating initializers from FLOAT to FLOAT16 while keeping float32 model I/O.",
+      "scope": {
+        "validated_on": [
+          "caidas/swin2SR-classical-sr-x2-64@cee1c923c6a37361c6e5650b65dcf4be821e5d52 @ fp32/fp16 @ CPUExecutionProvider/cpu @ ORT WindowsML 1.24.5.202604171637 @ 69847a89"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "other CPU architectures or ORT distributions",
+          "DML, OpenVINO, QNN, TensorRT RTX, or VitisAI runtime",
+          "other Swin2SR checkpoints"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2 PASS",
+      "recipe_template": "examples/recipes/caidas_swin2SR-classical-sr-x2-64/cpu/cpu/image-to-image_<precision>_config.json",
+      "gotchas": [
+        "Verify initializer dtypes and retained I/O types rather than trusting a precision label alone."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The structural validator confirms all 672 floating initializers changed dtype, float32 I/O was retained, and the self-contained model size fell to ratio 0.5056.",
+      "last_updated": "2026-08-16"
+    },
+    {
+      "id": "swin2sr-006",
+      "title": "FP16 Swin2SR regresses CPU latency, throughput, and RSS on the tested host",
+      "observation": "At winml-cli 69847a89 with WinML 0.3.0 and ORT WindowsML 1.24.5.202604171637, 10 warmups and 100 measurements on CPUExecutionProvider gave fp16 mean/P50 942.144/936.591 ms, throughput 1.06 samples/s, and +243.1 MB RSS versus fp32 776.928/774.658 ms, 1.29 samples/s, and +196.0 MB RSS for the same batch-1 [1,3,64,64] contract.",
+      "scope": {
+        "validated_on": [
+          "caidas/swin2SR-classical-sr-x2-64@cee1c923c6a37361c6e5650b65dcf4be821e5d52 @ fp32/fp16 @ CPUExecutionProvider/cpu @ 10 warmup + 100 measured @ ORT WindowsML 1.24.5.202604171637 @ 69847a89"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "other CPU architectures or ORT distributions",
+          "DML, OpenVINO, QNN, TensorRT RTX, or VitisAI runtime",
+          "other Swin2SR checkpoints"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2 PASS; FP16 CPU performance is slower",
+      "recipe_template": "examples/recipes/caidas_swin2SR-classical-sr-x2-64/cpu/cpu/image-to-image_<precision>_config.json",
+      "gotchas": [
+        "FP16 is not a CPU speedup for this measured host and shape.",
+        "Do not generalize this CPU result to accelerators or other ORT distributions."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "The performance regression is measured, but no CPU kernel-level cause was isolated.",
+      "last_updated": "2026-08-16"
+    },
+    {
+      "id": "swin2sr-007",
+      "title": "The sole final-SHA functional Eval proves one-row FP32 Swin2SR tensor operability with near-exact PyTorch parity",
+      "observation": "Exactly one tester-owned functional Eval invocation ran on winml-cli 69847a89 with WinML 0.3.0, ORT WindowsML 1.24.5.202604171637, and CPUExecutionProvider: fp32 mode=compare over eugenesiow/Set5@d8b579a20afde95b4d8ed6bf6383447d33027295, member Set5_LR_x2/baby.png, one deterministic 56x56 center crop processed to [1,3,64,64]. It processed 1/1 row with one crop and one candidate/reference output, emitted finite [1,3,128,128] reconstruction, cosine 0.9999999999999974, max_abs 2.980232238769531e-07, MSE 3.895976604118463e-15, PSNR 144.1037 dB, and SQNR 141.8807 dB.",
+      "scope": {
+        "validated_on": [
+          "caidas/swin2SR-classical-sr-x2-64@cee1c923c6a37361c6e5650b65dcf4be821e5d52 @ fp32 @ CPUExecutionProvider/cpu @ Set5 baby.png one-row functional smoke @ ORT WindowsML 1.24.5.202604171637 @ 69847a89"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "representative Set5 or other super-resolution benchmark accuracy",
+          "additional dataset rows, crops, precisions, or EPs",
+          "perceptual image-quality metrics"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2 PASS as exactly one final-SHA fp32 CPU functional smoke",
+      "recipe_template": "examples/recipes/caidas_swin2SR-classical-sr-x2-64/cpu/cpu/image-to-image_fp32_config.json",
+      "gotchas": [
+        "This is operability-only functional smoke evidence, not representative accuracy or benchmark quality.",
+        "Do not infer Eval coverage for fp16 or any accelerator tuple."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The sealed command and result bind one real decoded dataset sample, identical named input/output semantics, exact fan-out caps, and tensor metrics to the final candidate SHA.",
+      "last_updated": "2026-08-16"
+    },
+    {
+      "id": "swin2sr-008",
+      "title": "FP16 Swin2SR preserves close PyTorch tensor parity without constituting a second functional Eval",
+      "observation": "A tester compare-tensor Python harness, not a winml Eval invocation, compared the final fp16 CPU artifact at winml-cli 69847a89 against the pinned PyTorch checkpoint using the same named Set5 baby input. With ORT WindowsML 1.24.5.202604171637, both reconstruction tensors were finite float32 [1,3,128,128]; cosine was 0.9999999818059054, max_abs 0.00046575069427490234, MSE 2.1871883008097977e-08, PSNR 76.6110 dB, and SQNR 74.3880 dB.",
+      "scope": {
+        "validated_on": [
+          "caidas/swin2SR-classical-sr-x2-64@cee1c923c6a37361c6e5650b65dcf4be821e5d52 @ fp16 compare-tensor harness @ CPUExecutionProvider/cpu @ ORT WindowsML 1.24.5.202604171637 @ 69847a89"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "fp16 task Eval or benchmark accuracy",
+          "fp16 accelerator parity",
+          "other Swin2SR checkpoints or inputs"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2 PASS via tester parity harness; no fp16 functional Eval",
+      "recipe_template": "examples/recipes/caidas_swin2SR-classical-sr-x2-64/cpu/cpu/image-to-image_fp16_config.json",
+      "gotchas": [
+        "Keep this parity result separate from the exactly-one fp32 functional Eval scope.",
+        "The observed tolerance is specific to one checkpoint, input, graph conversion, and ORT version."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Initializer conversion, retained float32 I/O, named tensor semantics, finite checks, and all five similarity metrics were independently verified.",
+      "last_updated": "2026-08-16"
+    },
+    {
+      "id": "swin2sr-009",
+      "title": "Optimized Swin2SR component mapping covers 1,517 nodes but leaves 579 fp32 and 581 fp16 scaffolding nodes unmapped",
+      "observation": "For the final fp32/fp16 optimized graphs at winml-cli 69847a89 with ORT WindowsML 1.24.5.202604171637, the HTP-backed lexical scope join mapped 1,517 nodes in each artifact to shallow/global features, patch embeddings, six encoder stages, residual body, and 2x pixel-shuffle reconstruction. It retained 579 fp32 and 581 fp16 nodes as unmapped graph scaffolding, dominated by 396 Reshape and 144 Transpose nodes plus 36 Gelu; fp16 adds two Cast nodes. The explicit mapping gap is that final optimization can remove or rewrite export-scope names.",
+      "scope": {
+        "validated_on": [
+          "caidas/swin2SR-classical-sr-x2-64@cee1c923c6a37361c6e5650b65dcf4be821e5d52 @ fp32/fp16 optimized component join @ ORT WindowsML 1.24.5.202604171637 @ 69847a89"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "mapping after different optimization settings or ORT versions",
+          "semantic ownership of the retained unmapped scaffolding nodes"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2 PASS; Analyze captured separately as static evidence",
+      "recipe_template": "examples/recipes/caidas_swin2SR-classical-sr-x2-64/cpu/cpu/image-to-image_<precision>_config.json",
+      "gotchas": [
+        "Do not force optimized scaffolding into architecture components when source scopes no longer support that ownership.",
+        "HTP trace-tag coverage and optimized component-mapping coverage have different denominators."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Mapped and unmapped counts partition each optimized graph exactly; the two added fp16 Cast nodes explain its count delta.",
+      "last_updated": "2026-08-16"
+    },
+    {
+      "id": "swin2sr-010",
+      "title": "FP32 Swin2SR static Analyze has no partial or unsupported classifications on the six rule-backed accelerator pairs scanned",
+      "observation": "Bounded static Analyze at winml-cli 69847a89 used --no-run-unknown-op --no-check-optim with ORT WindowsML 1.24.5.202604171637. The fp32 optimized graph has 2,096 operators across 20 types, dominated by Reshape 572, Transpose 338, Gemm 180, Add 152, Slice 146, MatMul 108, LayerNormalization 74, and ReduceL2/Clip/Expand/Div 72 each. NvTensorRTRTX/GPU, OpenVINO/{CPU,GPU,NPU}, and QNN/{GPU,NPU} rows contained no partial or unsupported classifications. Each retained unknown Pad/Slice/Add/DepthToSpace rule cases; CPU and VitisAI had no rule coverage. Every row recorded runtime_support=false.",
+      "scope": {
+        "validated_on": [
+          "caidas/swin2SR-classical-sr-x2-64@cee1c923c6a37361c6e5650b65dcf4be821e5d52 @ fp32 opset-17 static rules @ NvTensorRTRTX/GPU + OpenVINO/{CPU,GPU,NPU} + QNN/{GPU,NPU} @ 69847a89"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": [
+          "actual accelerator runtime placement, fallback, compilation, or inference",
+          "CPU and VitisAI static classifications until matching rules exist",
+          "resolution of unknown Pad/Slice/Add/DepthToSpace cases"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2 PASS on CPU; static Analyze is not runtime evidence",
+      "recipe_template": "examples/recipes/caidas_swin2SR-classical-sr-x2-64/cpu/cpu/image-to-image_fp32_config.json",
+      "gotchas": [
+        "Do not promote static rule classifications to accelerator support or runtime PASS.",
+        "Preserve unknown rule cases even when no partial or unsupported classification is present.",
+        "Reuse _meta-109 for the explicit no-check-optim Analyze method; this run did not discover a new Analyze methodology."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Sixteen explicit provider/device scans across both precisions emitted complete JSON; this finding is limited to the eight fp32 static rows and asserts no runtime support.",
+      "last_updated": "2026-08-16"
+    },
+    {
+      "id": "swin2sr-011",
+      "title": "FP16 Swin2SR static QNN rules classify all 72 attention Expand nodes as partial",
+      "observation": "In bounded fp16 static Analyze at winml-cli 69847a89 with ORT WindowsML 1.24.5.202604171637, the graph has 2,098 operators across 21 types; its only type delta from fp32 is two Cast nodes. QNN/GPU and QNN/NPU each classify OP/ai.onnx/Expand as partial for all 72 instances, covering two attention-self Expand nodes in each of six layers across six encoder stages; the rule explanation says compilation may fail and fall back to CPU because SDK support data is unavailable. No unsupported types were reported. NvTensorRTRTX/GPU and OpenVINO/{CPU,GPU,NPU} had no partial or unsupported classifications, while CPU and VitisAI lacked rule coverage. All rows recorded runtime_support=false.",
+      "scope": {
+        "validated_on": [
+          "caidas/swin2SR-classical-sr-x2-64@cee1c923c6a37361c6e5650b65dcf4be821e5d52 @ fp16 opset-17 static rules @ QNNExecutionProvider/{GPU,NPU} @ Expand 72 partial @ 69847a89"
+        ],
+        "falsified_on": [
+          "The corresponding fp32 static QNN rows classify Expand as partial"
+        ],
+        "not_yet_tested_on": [
+          "actual QNN GPU or NPU compilation, fallback, placement, or inference",
+          "whether a later QNN SDK/rule set supports these Expand nodes",
+          "whether a graph rewrite can remove the Expand pattern without changing parity"
+        ]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L2 PASS on CPU; static QNN finding only",
+      "recipe_template": "examples/recipes/caidas_swin2SR-classical-sr-x2-64/cpu/cpu/image-to-image_fp16_config.json",
+      "gotchas": [
+        "Do not infer QNN runtime fallback or support from the static SDK message.",
+        "Keep the finding precision-specific: fp32 and fp16 receive different QNN Expand classifications in this rule snapshot."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "The rule engine identifies the 72 scoped nodes consistently for QNN GPU and NPU, but no QNN runtime was exercised and the SDK message itself reports missing support data.",
+      "last_updated": "2026-08-16"
+    }
+  ]
+}

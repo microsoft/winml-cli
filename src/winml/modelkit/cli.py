@@ -41,31 +41,31 @@ from .utils.logging import configure_logging, flush_ort_startup_logs
 logger = logging.getLogger(__name__)
 
 _COMMANDS_DIR = Path(__file__).parent / "commands"
-
-# 5-row block-letter art for "WinML CLI".  '#' = filled pixel, ' ' = empty.
-# All letters use the same █ character so identical shapes (i vs I) look
-# consistent regardless of horizontal position.
-_LETTER_ART: dict[str, list[str]] = {
-    "W": ["#   #", "#   #", "# # #", "## ##", "#   #"],
-    "i": ["###", " # ", " # ", " # ", "###"],
-    "n": ["#   #", "##  #", "# # #", "#  ##", "#   #"],
-    "M": ["#   #", "## ##", "# # #", "#   #", "#   #"],
-    "L": ["#    ", "#    ", "#    ", "#    ", "#####"],
-    "C": ["####", "#   ", "#   ", "#   ", "####"],
-    "I": ["###", " # ", " # ", " # ", "###"],
+_COMPACT_LETTER_ART = {
+    "W": ("#   #", "#   #", "# # #", "## ##", "#   #"),
+    "I": ("###", " # ", " # ", " # ", "###"),
+    "N": ("#   #", "##  #", "# # #", "#  ##", "#   #"),
+    "M": ("#   #", "## ##", "# # #", "#   #", "#   #"),
+    "L": ("#    ", "#    ", "#    ", "#    ", "#####"),
 }
-# Two word segments; rendered with a wider gap between them.
-_SEGMENTS: list[list[str]] = [list("WinML"), list("CLI")]
-_LETTER_GAP = "  "  # between letters within a word
-_WORD_GAP = "    "  # between words
+_WORDMARK = "WINML"
+_LETTER_GAP = " "
+# Four 4-column gradient tiles arranged as a Microsoft-style 2x2 mark.
+_MARK_ART = (
+    "#### ####",
+    "#### ####",
+    "#### ####",
+    "         ",
+    "#### ####",
+    "#### ####",
+    "#### ####",
+)
 
 # Gradient stops (left → right across the full banner width).
 _GRADIENT: list[tuple[float, tuple[int, int, int]]] = [
-    (0.00, (0, 230, 255)),  # cyan
-    (0.25, (0, 100, 255)),  # blue
-    (0.50, (130, 0, 255)),  # purple
-    (0.75, (255, 0, 180)),  # pink
-    (1.00, (255, 80, 80)),  # red
+    (0.00, (45, 145, 255)),
+    (0.55, (0, 205, 255)),
+    (1.00, (130, 70, 255)),
 ]
 
 
@@ -83,53 +83,123 @@ def _gradient_color(t: float) -> tuple[int, int, int]:
     return _GRADIENT[-1][1]
 
 
-def _print_banner(version: str, *, _console: Console | None = None) -> None:
-    """Print the WinML CLI gradient banner to stderr using Rich."""
-    from rich.console import Console  # lazy import - keeps startup fast
+def _print_banner(
+    version: str,
+    *,
+    _console: Console | None = None,
+) -> None:
+    """Print the capsule WinML CLI banner to stderr using Rich."""
+    from rich.console import Console, Group  # lazy import - keeps startup fast
     from rich.text import Text
 
-    # Compute total art width across both word segments.
-    art_w = len(_WORD_GAP) * (len(_SEGMENTS) - 1)
-    for seg in _SEGMENTS:
-        art_w += len(_LETTER_GAP) * (len(seg) - 1)
-        art_w += sum(len(_LETTER_ART[ch][0]) for ch in seg)
-    bar_w = art_w + 4
     margin = "  "
-
     con = _console or Console(stderr=True, highlight=False)
-    con.print()
+    compact_rows = tuple(
+        _LETTER_GAP.join(_COMPACT_LETTER_ART[letter][row] for letter in _WORDMARK)
+        for row in range(5)
+    )
+    compact_width = len(compact_rows[0]) * 2
+    mark_width = len(_MARK_ART[0]) * 2
+    show_mark = con.width >= compact_width + mark_width + 11
 
-    for row_idx in range(5):
-        line = Text(margin)
-        col = 0
-        for seg_idx, seg in enumerate(_SEGMENTS):
-            if seg_idx > 0:
-                line.append(_WORD_GAP)
-                col += len(_WORD_GAP)
-            for letter_idx, letter in enumerate(seg):
-                if letter_idx > 0:
-                    line.append(_LETTER_GAP)
-                    col += len(_LETTER_GAP)
-                for ch in _LETTER_ART[letter][row_idx]:
-                    if ch == "#":
-                        r, g, b = _gradient_color(col / max(art_w - 1, 1))
-                        line.append("█", style=f"bold rgb({r},{g},{b})")
-                    else:
-                        line.append(" ")
-                    col += 1
-        con.print(line)
+    def gradient_line(value: str) -> Text:
+        line = Text()
+        for col, char in enumerate(value):
+            r, g, b = _gradient_color(col / max(len(value) - 1, 1))
+            line.append(char, style=f"bold rgb({r},{g},{b})")
+        return line
 
-    con.print()
-    bar = Text(margin)
-    for i in range(bar_w):
-        r, g, b = _gradient_color(i / max(bar_w - 1, 1))
-        bar.append("─", style=f"rgb({r},{g},{b})")
-    con.print(bar)
+    def footer(tagline: str, *, include_version: bool = True) -> list[Text]:
+        lines = [
+            Text(),
+            Text.from_markup(f"{margin}[bold rgb(160,100,255)]Windows ML[/]  ·  {tagline}"),
+        ]
+        if include_version:
+            lines.append(Text.from_markup(f"{margin}v{version}  ·  CPU · GPU · NPU"))
+        lines.append(Text())
+        return lines
 
-    con.print()
-    con.print(f"{margin}[bold rgb(160,100,255)]Windows ML  ·  Model Conversion & Optimization[/]")
-    con.print(f"{margin}[dim]v{version}  ·  CPU · GPU · NPU[/]")
-    con.print()
+    def wordmark() -> list[Text]:
+        lines = []
+        patterns = compact_rows
+        width = compact_width
+        shadow_rows = (*patterns, " " * len(patterns[0]))
+        for row, pattern in enumerate(shadow_rows):
+            line = Text()
+            previous = shadow_rows[row - 1] if row else ""
+            for pixel_col, char in enumerate(pattern):
+                col = pixel_col * 2
+                if char == "#":
+                    r, g, b = _gradient_color(col / max(width - 1, 1))
+                    line.append("██", style=f"bold rgb({r},{g},{b})")
+                elif row and pixel_col and previous[pixel_col - 1] == "#":
+                    line.append("▓▓", style="bold rgb(130,80,210)")
+                else:
+                    line.append("  ")
+            lines.append(line)
+        return lines
+
+    def mark() -> list[Text]:
+        pane_cols = len(_MARK_ART[0])
+        lines = []
+        for pattern in _MARK_ART:
+            line = Text()
+            for col, char in enumerate(pattern):
+                if char == "#":
+                    r, g, b = _gradient_color(col / max(pane_cols - 1, 1))
+                    line.append("██", style=f"bold rgb({r},{g},{b})")
+                else:
+                    line.append("  ")
+            lines.append(line)
+        return lines
+
+    def capsule() -> Group:
+        logo_lines = wordmark()
+        version_text = Text.from_markup(f"v{version}  ·  CPU · GPU · NPU")
+        version_line = Text(" " * ((compact_width - len(version_text)) // 2))
+        version_line.append_text(version_text)
+        version_line.append(" " * (compact_width - len(version_line)))
+        logo_lines.extend([Text(" " * compact_width), version_line])
+        mark_lines = mark() if show_mark else []
+        content_width = compact_width + (mark_width + 3 if show_mark else 0)
+        frame_margin = margin if show_mark else ""
+
+        def framed_line(content: Text | None = None) -> Text:
+            line = gradient_line(f"{frame_margin}┃  ")
+            if content is None:
+                line.append(" " * content_width)
+            else:
+                line.append_text(content)
+                line.append(" " * (content_width - len(content)))
+            line.append("  ┃", style="bold rgb(130,70,255)")
+            return line
+
+        lines = [
+            Text(),
+            Text.from_markup(f"{margin}Windows ML CLI"),
+            gradient_line(f"{frame_margin}┏{'━' * (content_width + 4)}┓"),
+            framed_line(),
+        ]
+        for row in range(max(len(logo_lines), len(mark_lines))):
+            content = Text()
+            if show_mark:
+                mark_line = mark_lines[row] if row < len(mark_lines) else Text(" " * mark_width)
+                content.append_text(mark_line)
+                content.append("   ")
+            logo_line = logo_lines[row] if row < len(logo_lines) else Text(" " * compact_width)
+            content.append_text(logo_line)
+            lines.append(framed_line(content))
+
+        lines.extend(
+            [
+                framed_line(),
+                gradient_line(f"{frame_margin}┗{'━' * (content_width + 4)}┛"),
+                *footer("Model conversion & optimization", include_version=False),
+            ]
+        )
+        return Group(*lines)
+
+    con.print(capsule())
 
 
 # Commands that are temporarily disabled from the CLI surface.
@@ -321,7 +391,12 @@ class LazyGroup(ActionGroup):
     hidden=True,
 )
 @click.pass_context
-def main(ctx: click.Context, verbose: int, quiet: bool, debug: bool) -> None:
+def main(
+    ctx: click.Context,
+    verbose: int,
+    quiet: bool,
+    debug: bool,
+) -> None:
     """WinML CLI - Accelerate Model Deployment on WinML.
 
     Universal ONNX export with various WinML execution providers support.

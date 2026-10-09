@@ -246,7 +246,9 @@ class TestEpOverride:
 
         for ep_name in VALID_EPS:
             policy = resolve_precision(ep=ep_name)
-            assert policy.compile_provider == (None if ep_name == "cpu" else ep_name)
+            assert policy.compile_provider == (
+                None if ep_name in ("cpu", "winmlcg") else ep_name
+            )
 
     def test_ep_accepts_aliases(self) -> None:
         """resolve_precision should accept shorthand aliases."""

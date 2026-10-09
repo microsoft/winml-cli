@@ -1,0 +1,47 @@
+{
+  "id": "split-unlocks-affine",
+  "status": "confirmed",
+  "scope": {
+    "ep": "QNNExecutionProvider",
+    "device": "NPU",
+    "graph_requirements": [
+      "a Conv output reaches constant affine leaves through static channel routes",
+      "parallel Slice or nested Split intervals can be mapped to unique non-overlapping global output channels",
+      "Conv parameters and affine operands are immutable floating tensors"
+    ]
+  },
+  "observation": "Parallel and nested channel Slice routes obscured constant affine leaves after a producing Conv.",
+  "mechanism": "Restoring outer and inner Split routers made local intervals composable into unique global Conv-output channel intervals, enabling all affine leaves to fold into Conv weights and bias.",
+  "transformation": {
+    "before": "Conv -> parallel Slice -> nested Slice -> constant Mul/Add",
+    "after": "Conv with updated parameters -> outer Split -> inner Split",
+    "formula": ["W'[o,...]=scale[o]*W[o,...]", "b'[o]=scale[o]*b[o]+offset[o]"]
+  },
+  "expected_evidence": {
+    "graph": "Sibling Slice routes consolidate into nested Split routers and eligible affine leaves disappear",
+    "trace": "Routed affine operators disappear; Transpose and partition count do not increase"
+  },
+  "outcome": {
+    "representation_only": "The route normalization may be weak by itself.",
+    "interaction": "The normalization can unlock a substantially larger affine-folding gain.",
+    "decision": "Test the structurally justified bundle even when its enabling component is not a standalone leader."
+  },
+  "safety": ["static channel bounds", "non-overlap", "immutable floating constants", "safe fan-out", "no graph outputs or captures", "finite parameter updates"],
+  "counterexamples": ["A weak representation-only result did not predict the unlocked bundle gain.", "Do not require each bundle component to be a standalone leader."],
+  "provenance": {
+    "evidence_class": "paired-performance-confirmed",
+    "scope_note": "exact model, graph occurrence, toolchain, artifacts, and measurements remain run-local"
+  },
+  "generic_review": {
+    "verdict": "GENERIC_CASE_APPROVED",
+    "reviewer": "independent-graph-scout",
+    "content_sha256": "ced5325cbd341fc82b76eb69efdd01b69e65359355ffac56c1eaf74f2bd1a4d6"
+  },
+  "discovery": {
+    "ep": "QNNExecutionProvider",
+    "device": "NPU",
+    "anchor_ops": ["Conv", "Slice", "Split", "Mul", "Add"],
+    "keywords": ["nested-route", "channel-affine", "interaction"],
+    "lesson": "Route normalization can expose global channel intervals and unlock a much larger affine fold."
+  }
+}

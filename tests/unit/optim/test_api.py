@@ -102,6 +102,39 @@ def mock_capability() -> MagicMock:
 # =============================================================================
 
 
+def test_cgc_build_config_skips_ort_graph(simple_model):
+    from winml.modelkit.optim import WinMLOptimizationConfig
+    from winml.modelkit.optim.pipes import ORTGraphPipe
+
+    config = WinMLOptimizationConfig.from_dict(
+        WinMLOptimizationConfig.for_cgc().to_dict()
+    )
+    with patch.object(ORTGraphPipe, "process", side_effect=AssertionError("ORT graph ran")):
+        result = optimize_onnx(simple_model, **config)
+    onnx.checker.check_model(result)
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+@pytest.mark.parametrize("source", ["kwargs", "config"])
+def test_graph_optimization_forwarded_to_optimizer(simple_model, enabled, source):
+    with patch("winml.modelkit.optim.api.Optimizer") as optimizer:
+        optimizer.return_value.optimize.return_value = simple_model
+        if source == "config":
+            optimize_onnx(simple_model, config={"ort-graph-optimization": enabled})
+        else:
+            optimize_onnx(simple_model, ort_graph_optimization=enabled)
+    for call in optimizer.return_value.optimize.call_args_list:
+        assert call.kwargs["ort_graph_optimization"] is enabled
+        assert "backend" not in call.kwargs
+
+
+def test_graph_optimization_enabled_by_default(simple_model):
+    with patch("winml.modelkit.optim.api.Optimizer") as optimizer:
+        optimizer.return_value.optimize.return_value = simple_model
+        optimize_onnx(simple_model)
+    assert optimizer.return_value.optimize.call_args.kwargs["ort_graph_optimization"] is True
+
+
 class TestLoadModel:
     """Tests for _load_model helper function."""
 

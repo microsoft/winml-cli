@@ -29,6 +29,7 @@ $ winml config [options]
 | `--device` | `-d` | `auto\|npu\|gpu\|cpu` | `auto` | Target device. Affects the generated quantization and compilation sub-configs. `auto` leaves those sections unchanged from the kit defaults. |
 | `--ep` | | `TEXT` | *(none)* | Force a specific execution provider (`qnn`, `dml`, `migraphx`, `tensorrt`, `vitisai`, `openvino`, `cpu`). Overrides the device-to-provider mapping. When used without `--device`, the device is inferred from the EP. |
 | `--precision` | `-p` | `TEXT` | `auto` | Target precision: `auto`, `fp32`, `fp16`, `int8`, `int16`, or a mixed format such as `w8a16`. `auto` selects the precision based on the chosen device. |
+| `--backend` | | `ort\|cgc` | *(none)* | `cgc` enables CGC compatibility rules, default FP16 conversion, no compilation, and a CGIR convert stage. Cannot combine `cgc` with `--ep`. Omission or `ort` preserves existing behavior. |
 | `--output` | `-o` | `PATH` | *(stdout)* | Write the generated JSON to this file instead of printing to stdout. |
 | `--library` | | `TEXT` | `transformers` | Source library for `TasksManager` task lookup. Defaults to `transformers`; set to `diffusers` or another Optimum-supported library when needed. |
 | `--quant/--no-quant` | | flag | `true` | Include quantization in the generated config (use `--no-quant` to omit it and set `quant` to `null`). |
@@ -38,6 +39,37 @@ $ winml config [options]
 ## How it works
 
 `winml config` queries the HuggingFace `TasksManager` to auto-detect the model's task, class, and ONNX export specification. For known model types it looks up a per-model kit in `MODEL_BUILD_CONFIGS` and uses that as a starting point, layering in your device, precision, and override file on top. When `-m` points to an existing `.onnx` file, the export stage is skipped by setting `export` to `null` in the output. The result is a complete `WinMLBuildConfig` JSON printed to stdout or written to a file, ready to be passed to `winml build`.
+
+## CGC configuration
+
+The config generators use CGC stage settings for `--backend cgc` or
+`--ep winmlcg`: `auto: false`, all registered CGC compatibility rules in
+`optim`, `optim.ort_graph_optimization: false` to skip ORT graph optimization,
+default `quant.mode: "fp16"`, and `compile: null`.
+Only `--backend cgc` automatically adds `convert.target: "cgir"`.
+Choose either `--backend cgc` or `--ep winmlcg`; combining `--backend cgc`
+with any `--ep` is a usage error.
+Explicit `--precision` values are preserved instead of forcing FP16.
+Existing QDQ ONNX inputs and `--no-quant` use `quant: null`.
+Loader and PyTorch-to-ONNX export settings are unchanged; ONNX input retains
+`export: null`.
+
+The compatibility preset includes opset deduplication, scalar initializer Cast
+folding, empty Resize input omission, Tile repeats materialization, supported
+Resize coordinate conversion, cubic-to-linear Resize approximation, identity
+GatherND reshaping, PRelu decomposition, and static DFT decomposition.
+**Cubic-to-linear Resize is lossy and may reduce accuracy.** The optimizer logs
+a warning when it applies this rule. Review accuracy after building; disable
+`optim.approximate_cubic_resize_with_linear` in the generated JSON when needed.
+No `--runtime` option is needed for config generation: Runtime CGC and the
+WinMLCG EP share this offline compatibility and FP16 preparation.
+
+```bash
+winml config -m microsoft/resnet-50 --backend cgc -o config.json
+```
+
+Module and composite configurations receive the same settings. Module-mode build
+currently accepts but does not execute the convert stage.
 
 ## Examples
 

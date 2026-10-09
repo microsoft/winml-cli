@@ -1,0 +1,128 @@
+{
+  "_meta": {
+    "family": "whisper",
+    "hf_model_type": "whisper",
+    "models_tested": ["openai/whisper-medium"],
+    "last_updated": "2026-09-13",
+    "epistemics_warning": "Observational findings, not ground truth. Re-validate on new checkpoints / ORT versions / EPs before relying on a finding to skip work."
+  },
+  "findings": [
+    {
+      "id": "whisper-001",
+      "title": "Whisper medium exports as separate fixed-shape encoder and cached decoder graphs",
+      "observation": "At winml-cli candidate c07a51ac with winml-cli 0.3.1 and onnxruntime-windowsml 1.27.1.202607110137, openai/whisper-medium built on CPU from the four automatic-speech-recognition component recipes. HTP metadata reported WhisperEncoderWrapper with 307,216,384 parameters, 271 modules, 74 traced modules, and 148 execution steps; WhisperDecoderWrapper reported 763,857,920 parameters, 687 modules, 101 traced modules, and 202 execution steps. The encoder maps input_features float32 [1,80,3000] to encoder_hidden_states [1,1500,1024]. The decoder consumes one int32 token, encoder states, float32 mask [1,448], int64 cache_position, and 48 float32 KV inputs [1,16,448,64], then emits logits [1,1,51865] and 48 one-position KV outputs.",
+      "scope": {
+        "validated_on": [
+          "openai/whisper-medium @ fp32 @ CPUExecutionProvider",
+          "openai/whisper-medium @ fp16 @ CPUExecutionProvider"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": ["another Whisper checkpoint or scale", "accelerator execution providers"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/openai_whisper-medium/cpu/cpu/automatic-speech-recognition_<precision>_<encoder|decoder>_config.json",
+      "gotchas": [
+        "The decoder is a first-step/cached-step graph with a fixed 448-position self-attention cache, not a monolithic full-transcription graph.",
+        "Resolved configs enable gelu_fusion and matmul_add_fusion for both components even when the input recipe uses an empty optim object."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The component split, fixed shapes, hierarchy, and autoconfig defaults are present in retained winml_build_config.json and export_htp_metadata.json for all four builds.",
+      "last_updated": "2026-09-13"
+    },
+    {
+      "id": "whisper-002",
+      "title": "CPU FP16 halves Whisper component weights but is slower and uses more RAM than FP32 on the tested host",
+      "observation": "At candidate c07a51ac with winml-cli 0.3.1 and onnxruntime-windowsml 1.27.1.202607110137, exact CPU/cpu tuples passed for fp32 and fp16. FP32 encoder/decoder external data measured 1,228,865,536 and 2,039,012,352 bytes with FLOAT initializers; FP16 measured 614,432,768 and 1,019,509,760 bytes with FLOAT16 initializers and retained FP32 public I/O. FP32 encoder/decoder mean latency was 2411.536/388.536 ms with 364.76/409.94 MB RAM delta; FP16 was 3124.321/416.135 ms with 833.70/732.39 MB RAM delta. Thus FP16 reduced storage but did not provide CPU latency or memory parity on this host.",
+      "scope": {
+        "validated_on": [
+          "openai/whisper-medium @ fp32 @ CPUExecutionProvider",
+          "openai/whisper-medium @ fp16 @ CPUExecutionProvider"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": ["another CPU architecture", "GPU or NPU execution"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/openai_whisper-medium/cpu/cpu/automatic-speech-recognition_<precision>_<encoder|decoder>_config.json",
+      "gotchas": [
+        "Do not infer CPU speed or RAM improvement from the approximately half-size FP16 external-data files.",
+        "FP16 evidence requires FLOAT16 initializers plus size and perf proof; the resolved FP16 config used mode=fp16 and fp16_keep_io_types=true."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "The size, initializer, latency, and RAM differences are measured; the host-specific cause of the FP16 CPU regression was not isolated.",
+      "last_updated": "2026-09-13"
+    },
+    {
+      "id": "whisper-003",
+      "title": "Whisper medium split graphs preserve 32-step CPU generation parity at FP32 and FP16",
+      "observation": "Tester L2 on candidate c07a51ac used named inputs and a real LibriSpeech row. FP32 encoder cosine was 0.9999999999755294; minimum generation-logit cosine was 0.9999999999969814. FP16 encoder cosine was 0.9999933185733331; minimum generation-logit cosine was 0.9999994068226346. Both precisions exactly matched all PyTorch tokens and the transcript across 32 bounded generation steps. The first harness correctly failed because the exported decoder_attention_mask is FLOAT although the recipe declared bool; the second exposed that a one-position PyTorch reference cache cannot model the graph's fixed 448-position cache; the corrected harness used artifact dtypes and matching static-cache semantics.",
+      "scope": {
+        "validated_on": [
+          "openai/whisper-medium @ fp32 @ CPUExecutionProvider",
+          "openai/whisper-medium @ fp16 @ CPUExecutionProvider"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": ["generation beyond 32 new tokens", "beam search greater than one", "speech translation prompts"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/openai_whisper-medium/cpu/cpu/automatic-speech-recognition_<precision>_<encoder|decoder>_config.json",
+      "gotchas": [
+        "Construct runtime inputs from exported ONNX dtypes; decoder_attention_mask is FLOAT in the tested artifact despite a bool recipe declaration.",
+        "Parity must compare equivalent fixed-cache updates; a one-position reference cache fails at cache_position=1 even when the exported graph is correct."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "Two preserved failed harnesses isolate dtype and cache-shape mismatches; the corrected named-input harness then matched tokens and transcripts at both precisions.",
+      "last_updated": "2026-09-13"
+    },
+    {
+      "id": "whisper-004",
+      "title": "One bounded FP32 CPU LibriSpeech smoke proves Whisper seq2seq Eval operability, not benchmark accuracy",
+      "observation": "At final candidate c07a51ac, WinML Eval ran openai/whisper-medium FP32 encoder and decoder on openslr/librispeech_asr revision 71cacbfb7e2354c4226d01e70d77d5fca3d04ba1, clean/validation, deterministic first usable row. The run capped audio at 30 seconds, generation at 32 new tokens, beams at 1, and return sequences at 1; requested/processed/skipped counts were 1/1/0 and WER was 0.09090909090909091 in seq2seq mode. This is functional smoke evidence only and does not establish representative accuracy or FP16 Eval quality.",
+      "scope": {
+        "validated_on": ["openai/whisper-medium @ fp32 @ CPUExecutionProvider @ LibriSpeech clean validation one-row smoke"],
+        "falsified_on": [],
+        "not_yet_tested_on": ["representative LibriSpeech accuracy", "FP16 task-metric Eval", "multilingual transcription or translation"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/openai_whisper-medium/cpu/cpu/automatic-speech-recognition_fp32_<encoder|decoder>_config.json",
+      "gotchas": [
+        "Keep raw-audio decoding, 16 kHz mono conversion, log-Mel preprocessing, prompt policy, generation caps, transcript decoding, and WER accounting explicit.",
+        "Do not generalize the one-row FP32 CPU smoke to other precisions, providers, or benchmark-quality accuracy."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": true,
+      "mechanism_notes": "The final-SHA evaluator emitted seq2seq mode, WER, and exact requested/processed/skipped accounting for a pinned real audio row.",
+      "last_updated": "2026-09-13"
+    },
+    {
+      "id": "whisper-005",
+      "title": "Whisper medium decoder static compatibility is narrower than encoder compatibility on rule-backed GPU EPs",
+      "observation": "Formal tester Analyze at candidate c07a51ac covered all four artifacts with seven requested EP rows each. FP32/FP16 encoders contained 727/729 operators and 10/11 unique types; all types were statically supported for NvTensorRTRTX/GPU, QNN/GPU, and OpenVINO/GPU. FP32/FP16 decoders contained 1,418/1,517 operators and 21 unique types. NvTensorRTRTX and OpenVINO left Tile, ScatterND, and Where unknown; QNN additionally classified Concat and Gather partial and LessOrEqual unsupported. CUDA, MIGraphX, TensorRT, and DML rows were all unknown because no rules were available. These are static rule classifications, not runtime execution claims.",
+      "scope": {
+        "validated_on": [
+          "openai/whisper-medium @ fp32 encoder and decoder @ static Analyze",
+          "openai/whisper-medium @ fp16 encoder and decoder @ static Analyze"
+        ],
+        "falsified_on": [],
+        "not_yet_tested_on": ["runtime execution on NvTensorRTRTX, QNN, or OpenVINO GPU", "NPU static or runtime support"]
+      },
+      "effort_tier_required": "L2",
+      "goal_tier_reached": "L3",
+      "recipe_template": "examples/recipes/openai_whisper-medium/cpu/cpu/automatic-speech-recognition_<precision>_<encoder|decoder>_config.json",
+      "gotchas": [
+        "Do not infer accelerator runtime support from Analyze classifications.",
+        "Decoder cache-update operators, especially ScatterND and Where, are the static compatibility boundary to re-check on accelerator targets."
+      ],
+      "feature_gaps_filed": [],
+      "mechanism_confirmed": false,
+      "mechanism_notes": "Operator counts and classifications are complete, but accelerator runtimes were not executed and rule coverage is absent for four EP rows.",
+      "last_updated": "2026-09-13"
+    }
+  ]
+}

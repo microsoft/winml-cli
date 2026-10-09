@@ -1,0 +1,183 @@
+{
+  "skill_name": "adding-model-support",
+  "description": "Response evals. The golden engineering cases are anchored to HUMAN-AUTHORED, pre-skill PRs; policy cases are anchored to explicit team review feedback. Assertions check structural decisions and workflow behavior, never byte-exact reproduction. Run with the skill-creator harness: with_skill vs baseline subagents, grader against assertions, aggregate_benchmark, eval-viewer.",
+  "evals": [
+    {
+      "id": 0,
+      "name": "golden-790-library-routing-code",
+      "golden_truth": { "pr": 790, "commit": "eab2c48e", "author": "vortex-captain (human, pre-skill)", "effort": "L1+/L2 shared-layer", "axis": "library routing (wrapped-library model_type)", "footprint": "loader/task.py + export/io.py + inspect/resolver.py + commands/inspect.py + 3 unit test files; NO models/hf/ entry" },
+      "prompt": "timm image-classification checkpoints load through transformers' generic TimmWrapper (model_type 'timm_wrapper') and currently fail in every winml command with 'Cannot detect task: config has no architectures field'. The OnnxConfig (TimmDefaultOnnxConfig) is registered by Optimum only under library_name='timm', but winml lookups default to 'transformers'. Add support so winml config/export/inspect work for timm models.",
+      "files": [],
+      "baseline_expectation": "Without the skill, the agent is expected to hardcode the task (e.g. `if model_type == 'timm_wrapper': task = 'image-classification'`) — which violates the architecture-agnostic cardinal rule — and/or add a per-model models/hf/ file, and/or ship without unit tests. The skill earns its keep if it routes via library resolution, derives the task from Optimum, and adds tests.",
+      "assertions": [
+        { "text": "Classifies the work as Effort L1+ / L2 (shared resolution layer), NOT a recipe-only L0", "passed": null, "evidence": "" },
+        { "text": "Solves it via library routing (a model_type -> optimum_library map + a resolve_optimum_library-style helper), NOT a per-model models/hf/<x>.py config", "passed": null, "evidence": "" },
+        { "text": "Derives the task from Optimum (get_supported_tasks / TasksManager), NOT a hardcoded task string — no `if model_type == 'timm_wrapper'` task assignment anywhere (CLAUDE.md Cardinal Rule 1)", "passed": null, "evidence": "" },
+        { "text": "Routes the OnnxConfig library at ALL call sites (config/build/export/inspect), e.g. via export/io.py _get_onnx_config + inspect path, so no --library flag is needed", "passed": null, "evidence": "" },
+        { "text": "Scopes the optimum.exporters registry import so normal model loading does not pay the cost", "passed": null, "evidence": "" },
+        { "text": "Adds pytest coverage for the new routing (loader task derivation + export routing + inspect path), per CLAUDE.md no-skip rule", "passed": null, "evidence": "" },
+        { "text": "Runs the Optimum-coverage probe in planning and correctly identifies this as VENDOR-ONLY-under-different-library (not UNREGISTERED)", "passed": null, "evidence": "" },
+        { "text": "Generalizes across timm architectures (CNN + ViT) rather than special-casing one checkpoint", "passed": null, "evidence": "" }
+      ]
+    },
+    {
+      "id": 1,
+      "name": "golden-807-modality-task-detection",
+      "golden_truth": { "pr": 807, "commit": "cf25bfd4", "author": "Zhipeng Wang (human, pre-skill)", "effort": "L1/L2 shared-layer", "axis": "modality-aware task detection unified across commands", "footprint": "loader/task.py (single detect_task) + inspect/resolver.py + eval/evaluate.py + datasets/__init__.py + unit test_detect_task.py + integration test_task_consistency.py; NO models/hf/ entry" },
+      "prompt": "Image-embedding models like facebook/dinov2-base should resolve to task 'image-feature-extraction' (so calibration/eval pick the image asset), but today inspect, config, eval, export and build each run their own task dispatch and disagree — DINOv2 gets the modality-blind 'feature-extraction' in some commands. Make every command resolve the same model to the same task, and have vision backbones auto-detect the image modality, without breaking CLIP, SAM2, timm, or text models.",
+      "files": [],
+      "baseline_expectation": "Without the skill, the agent is expected to patch the one command in front of it (e.g. special-case DINOv2 in eval) with something like `if model_type == 'dinov2': task = 'image-feature-extraction'` — leaving the other commands inconsistent and hardcoding a model name. The skill earns its keep if it introduces a single detector every consumer routes through, disambiguates modality from config fields (not model names), and adds a cross-resolver consistency test.",
+      "assertions": [
+        { "text": "Classifies the work as Effort L1/L2 shared-layer (one detector routed through every command), NOT a per-command or per-model L0 patch", "passed": null, "evidence": "" },
+        { "text": "Introduces ONE detection entry point (a detect_task-style function in loader/task.py) and routes inspect/eval/config/build/perf through it, deleting the duplicate per-command dispatch", "passed": null, "evidence": "" },
+        { "text": "Disambiguates modality from config fields via a DATA-DRIVEN table (extend-the-table-not-the-code), NOT `if model_type == 'dinov2'` or any model-name branch (CLAUDE.md Cardinal Rule 1)", "passed": null, "evidence": "" },
+        { "text": "Uses a generic top-level vision signal (e.g. image_size/patch_size at config root) and correctly does NOT fire for CLIP, whose image_size is nested under vision_config", "passed": null, "evidence": "" },
+        { "text": "Applies the modality upgrade ONLY to the surfaced/returned WinMLTask, never to a task passed into an Optimum API (which does not recognise image-feature-extraction)", "passed": null, "evidence": "" },
+        { "text": "Adds a cross-resolver integration test (task-consistency on real configs) proving the same model resolves to the same task in every command, plus unit coverage, per CLAUDE.md no-skip rule", "passed": null, "evidence": "" },
+        { "text": "Surfaces an explicit user --task verbatim (does not silently auto-upgrade an explicit feature-extraction) and documents that as an accepted behavior change rather than hiding it", "passed": null, "evidence": "" },
+        { "text": "Generalizes across vision backbones (ViT / DINOv2 / ConvNeXt) through the signal fields, not one checkpoint", "passed": null, "evidence": "" }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "golden-850-seq2seq-composite",
+      "golden_truth": { "pr": 850, "commit": "507c2696", "author": "Zhipeng Wang (human, pre-skill)", "effort": "L1+/L2 config-resolution", "axis": "encoder-decoder composite build for no-task seq2seq", "footprint": "commands/config.py (composite resolution) + unit test_config_composite_resolution.py + test_config_cli.py + test_build*.py; NO models/hf/ entry", "difficulty_note": "Goal-axis-hard: a wrong build still produces an ONNX file, so the failure is a non-runnable half, not a crash" },
+      "prompt": "Running `winml config -m <seq2seq>` WITHOUT --task on an encoder-decoder model (t5/bart/marian) builds only the decoder, because the model auto-detects to the component task 'text2text-generation' and exports the decoder alone — a non-runnable half whose encoder_hidden_states input has no producer. Make the no-task path build the full encoder-decoder composite, matching what `winml config --task translation` already does for the same model, without turning a sequence-classification BART or a bare T5 encoder into a composite.",
+      "files": [],
+      "baseline_expectation": "Without the skill, the agent is expected to either accept the decoder-only export (it produces a valid ONNX file, so nothing crashes — the Goal ladder never catches it without a runtime check) or hardcode `if model_type in {'t5','bart','marian'}: build_composite()`. The skill earns its keep if it diagnoses the non-runnable half, routes no-task detection through the same detect_task inspect uses, and expands via the composite registry without model-name branching.",
+      "assertions": [
+        { "text": "Classifies the work as Effort L1+/L2 (config-resolution layer + tests), NOT a recipe-only L0", "passed": null, "evidence": "" },
+        { "text": "Diagnoses the real defect: no-task seq2seq auto-detects to a COMPONENT task and exports the decoder alone — a non-runnable half whose encoder_hidden_states input has no producer (not just 'it errors')", "passed": null, "evidence": "" },
+        { "text": "Makes the no-task path detect the task with the SAME detect_task that inspect uses, then expand — so no-task routing matches explicit --task routing for the same model", "passed": null, "evidence": "" },
+        { "text": "Expands via the composite registry keyed on (model_type, task), NOT a hardcoded `if model_type in {t5,bart,marian}` branch (CLAUDE.md Cardinal Rule 1)", "passed": null, "evidence": "" },
+        { "text": "Bridges the seq2seq generation task using the universal HF/Optimum taxonomy token (text2text-generation), not a model name", "passed": null, "evidence": "" },
+        { "text": "Leaves a non-composite-task checkpoint as a SINGLE model (sequence-classification BART -> text-classification, bare T5 encoder/CLIP -> feature-extraction), consistent with inspect", "passed": null, "evidence": "" },
+        { "text": "Dedups composite candidates by export shape and, when genuinely ambiguous, raises and requires explicit --task rather than guessing", "passed": null, "evidence": "" },
+        { "text": "Adds pytest coverage for composite resolution (composite-resolution + CLI + build tests), per CLAUDE.md no-skip rule", "passed": null, "evidence": "" }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "pr-description-public-evidence-and-summary",
+      "golden_truth": { "pr": 1100, "author": "team review feedback", "axis": "public PR-description readability", "footprint": "description only; internal frozen artifacts remain unchanged" },
+      "prompt": "Render a model-support PR description from frozen planner/producer/tester/learner handoffs for a RoBERTa-large question-answering recipe. The handoffs contain local temp report/log/model paths and hashes, a source-derived architecture tree, exhaustive per-component ONNX mappings, and complete per-EP operator classifications. Keep the PR useful and auditable without claiming those local files are in the PR.",
+      "files": [],
+      "baseline_expectation": "A regressed renderer copies local temp paths/hashes into the body, flattens architecture into a paragraph, and dumps exhaustive component/operator/EP tables. The corrected skill keeps those details internal and publishes durable sources, a tree, measured perf/eval, and concise component/op summaries.",
+      "assertions": [
+        { "text": "Does not print uncommitted temp/report/log/model paths, absolute workspace paths, or hashes of those local files", "passed": null, "evidence": "" },
+        { "text": "Keeps measured build, perf, parity, and eval values even when their local artifact paths are omitted", "passed": null, "evidence": "" },
+        { "text": "Renders Model architecture as a concise source-derived tree with repeated layers collapsed and key dimensions inline", "passed": null, "evidence": "" },
+        { "text": "Cites only durable public evidence such as pinned checkpoint revision, model card, source class/version, checked-in recipe, or portable command", "passed": null, "evidence": "" },
+        { "text": "Contains both component-level and op-level analyze summaries without representative node lists or full per-component histograms", "passed": null, "evidence": "" },
+        { "text": "Groups identical EP outcomes, surfaces all actionable partial/unsupported operators, and summarizes rule-less all-unknown EPs once", "passed": null, "evidence": "" },
+        { "text": "Uses portable reproduce commands with checked-in recipe paths and a reusable output variable rather than run-specific scratch paths", "passed": null, "evidence": "" }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "recipe-authority-and-close-unsupported-eval-gap",
+      "golden_truth": { "author": "team review feedback", "axis": "recipe invocation integrity and unsupported-to-supported eval", "footprint": "planner/producer/tester/reviewer contracts" },
+      "prompt": "A candidate fp16 audio-classification recipe declares task, model class, trust_remote_code, and precision. Baseline build/perf pass, but winml eval rejects audio-classification because the task has no evaluator. The old reproduction command repeats semantic CLI flags and records CLI-BLOCKED. Decide the implementation and evidence needed to turn this task from unsupported to supported.",
+      "files": [],
+      "baseline_expectation": "A regressed agent stops at a polished CLI-BLOCKED report or hides recipe defects behind semantic overrides. The corrected skill treats the recipe as authority, identifies the missing shared evaluator capability, implements it with compatibility tests, and proves meaningful task metrics on compatible data; revision and detailed accounting are optional reproducibility metadata.",
+      "assertions": [
+        { "text": "Preserves the exact unsupported baseline error but does not treat CLI-BLOCKED as the desired final outcome", "passed": null, "evidence": "" },
+        { "text": "Uses only necessary identity/location arguments for the clean recipe run and records a flag audit", "passed": null, "evidence": "" },
+        { "text": "Treats --precision/--trust-remote-code success as diagnostic-only until recipe-owned semantics pass without overrides", "passed": null, "evidence": "" },
+        { "text": "Identifies and implements the missing shared task registry, dataset adapter, preprocessing, prediction, and metric path as applicable", "passed": null, "evidence": "" },
+        { "text": "Adds regression tests proving the task was unsupported before the generalized fix and supported afterward without breaking sibling tasks", "passed": null, "evidence": "" },
+        { "text": "Verifies representative raw-to-processed schema, checkpoint/dataset labels, prediction interpretation, and task metric before L3 PASS", "passed": null, "evidence": "" },
+        { "text": "Does not reject otherwise meaningful support solely because dataset revision, seed, or detailed row accounting is unavailable", "passed": null, "evidence": "" }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "compatibility-review-boundary-and-bug-explanation",
+      "golden_truth": { "author": "team review feedback", "axis": "low-risk fixes, reviewer authority, and PR clarity", "footprint": "planner/producer/tester/explainer/reviewer/orchestrator contracts" },
+      "prompt": "A shared task resolver fix makes a new model work but changes an existing public default and only tests the target checkpoint. A draft PR already exists. Review the contribution and prepare the PR communication without opening another PR, submitting a formal review before every final-head gate passes, requesting changes through GitHub review state, or flooding the conversation.",
+      "files": [],
+      "baseline_expectation": "A regressed agent accepts target-only green tests, submits premature approval or GitHub REQUEST_CHANGES, posts many checklist comments, and describes the fix as 'adds model support'. The corrected workflow requires narrow compatibility evidence, emits a sparse engineering opinion, explains the bug mechanism and risk, and permits only an independent reviewer's normal PR comment after every exact-head gate passes.",
+      "assertions": [
+        { "text": "Flags the unplanned public-default change and missing sibling/blast-radius regressions instead of accepting target-only tests", "passed": null, "evidence": "" },
+        { "text": "Requires the narrowest data-driven low-risk fix or re-scopes an unavoidable breaking change", "passed": null, "evidence": "" },
+        { "text": "Reviewer never creates a PR or submits GitHub Review state; it preserves Draft state and uses only one normal PR comment from an agent independent of the producer", "passed": null, "evidence": "" },
+        { "text": "Reviewer uses APPROVE/REQUEST_CHANGES/REJECT as skill-level opinion labels and posts APPROVE only after every exact-head gate passes", "passed": null, "evidence": "" },
+        { "text": "Uses one consolidated high-impact comment, suppresses duplicate/heartbeat/checklist-dump comments, and keeps routine evidence internal", "passed": null, "evidence": "" },
+        { "text": "Routes fixes, PR creation/body updates, replies, and thread resolution to their owning non-reviewer roles", "passed": null, "evidence": "" },
+        { "text": "Bug explanation states symptom/trigger, root cause, fix mechanism, generalization, compatibility risk, and exact regression evidence", "passed": null, "evidence": "" }
+      ]
+    },
+    {
+      "id": 6,
+      "name": "functional-smoke-eval-bounds-multimodal-fanout",
+      "golden_truth": { "author": "user correction after OWLv2 audit", "axis": "mandatory Eval scope", "footprint": "planner/tester/explainer/reviewer contracts" },
+      "prompt": "Validate zero-shot object detection support for an OWLv2-like model. A 24-image COCO subset combined with all 80 labels would create 1,920 passes and millions of predictions per precision. Determine the mandatory Eval evidence for the model-support PR while retaining full performance and Analyze evidence.",
+      "files": [],
+      "baseline_expectation": "A regressed workflow runs the broad dataset-label cross product for fp32, fp16, and each accelerator tuple. The corrected workflow runs one final-SHA FP32 CPU functional smoke on 1–2 real images with a few meaningful candidate queries, verifies metric semantics, and makes no benchmark-accuracy claim.",
+      "assertions": [
+        { "text": "Keeps concrete performance evidence for every required EP/device/precision tuple", "passed": null, "evidence": "" },
+        { "text": "Requires exactly one representative final-SHA FP32 CPU functional smoke Eval rather than per-tuple Eval", "passed": null, "evidence": "" },
+        { "text": "Defaults to 1–2 real samples and explicitly caps candidate labels/prompts to a small meaningful set such as 2–5", "passed": null, "evidence": "" },
+        { "text": "Caps all other expansion dimensions such as beams, frames/crops, and sequence or generation length", "passed": null, "evidence": "" },
+        { "text": "Verifies input, target/label, prediction, and task-metric semantics and requires successful metric generation", "passed": null, "evidence": "" },
+        { "text": "Applies no accuracy threshold and labels the result as operability evidence, not representative accuracy or benchmark quality", "passed": null, "evidence": "" },
+        { "text": "Treats broad benchmark, extra-precision, and accelerator Eval as optional unless separately requested", "passed": null, "evidence": "" },
+        { "text": "Preserves mandatory component-level and op-level Analyze evidence", "passed": null, "evidence": "" }
+      ]
+    },
+    {
+      "id": 7,
+      "name": "moved-main-baseline-impact-reuse",
+      "golden_truth": { "author": "user correction after repeated baseline reruns", "axis": "incremental baseline invalidation", "footprint": "planner/orchestrator/tester/reviewer contracts" },
+      "prompt": "A model-support PR has a complete baseline and final evidence on main SHA A. origin/main advances to SHA B with 40 commits containing report HTML/JSON updates, documentation, and an unrelated model recipe; no WinML runtime, config, dependency, workflow, target-model, or candidate-owned file changed. Rebase the PR and decide what baseline evidence must run again. Also explain what changes would force a partial or full rerun.",
+      "files": [],
+      "baseline_expectation": "A regressed workflow sees A != B and reruns config, build, perf, parity, Eval, and Analyze from scratch. The corrected workflow performs a complete dependency-aware diff assessment, reuses evidence only with auditable no-impact proof, and selectively reruns the invalidated stage closure when relevant files changed.",
+      "assertions": [
+        { "text": "Fetches current main, proves SHA A is an ancestor of SHA B, and records the complete A..B changed-file diff", "passed": null, "evidence": "" },
+        { "text": "Freezes the baseline commands and runtime/config/dependency/model surfaces as a dependency manifest", "passed": null, "evidence": "" },
+        { "text": "Classifies every changed file with a content-based NO-IMPACT/IMPACT/UNKNOWN rationale rather than trusting path names or commit messages", "passed": null, "evidence": "" },
+        { "text": "Verifies the contribution-owned patch remains equivalent across the rebase", "passed": null, "evidence": "" },
+        { "text": "Reuses the old evidence for the described no-impact diff while preserving SHA A as evidence_commit and SHA B as current main_commit", "passed": null, "evidence": "" },
+        { "text": "Uses PARTIAL-RERUN for a narrow affected stage and reruns its downstream invalidation closure", "passed": null, "evidence": "" },
+        { "text": "Uses FULL-RERUN for non-ancestor history, changed identity/environment/candidate patch, broad dependency/runtime changes, or any UNKNOWN impact", "passed": null, "evidence": "" },
+        { "text": "Reviewer independently checks the impact attestation and rejects omitted files, dishonest provenance, or under-invalidation", "passed": null, "evidence": "" }
+      ]
+    },
+    {
+      "id": 8,
+      "name": "automatic-low-space-cleanup-safety",
+      "golden_truth": { "author": "terminal cleanup audit after model-support PR reruns", "axis": "bounded resource retirement", "footprint": "orchestrator contract + deterministic cleanup helper" },
+      "prompt": "A serial model-support batch is about to start another disk-heavy build with only 18 GB free. Completed runs retain ONNX payloads, private environments, worktrees, compact evidence, and shared Hugging Face/uv/pip caches. Recover enough space automatically without making the run unauditable or deleting another run's assets.",
+      "files": [],
+      "baseline_expectation": "A regressed workflow recursively deletes broad cache directories or trusts filename patterns, may remove dirty worktrees/evidence, and keeps deleting after enough space is available. The corrected workflow is orchestrator-owned, terminal-run manifest-driven, dry-run-first, fail-closed, and stops at a target.",
+      "assertions": [
+        { "text": "Assigns automatic cleanup to the orchestrator, which owns terminal lifecycle and cross-role dependency knowledge", "passed": null, "evidence": "" },
+        { "text": "Checks free space before disk-heavy stages and triggers only below a declared threshold, with a separate target at which deletion stops", "passed": null, "evidence": "" },
+        { "text": "Requires a structured dry-run and a terminal, quiescent, dependency-complete ownership manifest before execute mode", "passed": null, "evidence": "" },
+        { "text": "Deletes only explicitly declared run-owned regenerable candidates; disposable directories require a run-id/kind ownership marker, and paths outside roots, evidence files, reparse points, and Git metadata are rejected", "passed": null, "evidence": "" },
+        { "text": "Scopes one manifest to one volume and removes a Git worktree only when clean and when its HEAD is recoverable from a declared remote-tracking ref", "passed": null, "evidence": "" },
+        { "text": "Preserves compact evidence, manifests, scripts, branches/commits/PR state, dirty or unrecoverable worktrees, source, rules, and resumable BLOCKED evidence", "passed": null, "evidence": "" },
+        { "text": "Protects shared Hugging Face hub/dataset, uv, pip, WinML, dataset, and external-user caches by default", "passed": null, "evidence": "" },
+        { "text": "Stops BLOCKED rather than broadening deletion when safe candidates cannot reach the target, and emits a sealed structured cleanup record on success", "passed": null, "evidence": "" }
+      ]
+    },
+    {
+      "id": 9,
+      "name": "lane-b-pr-base-remains-main-with-dependencies",
+      "golden_truth": { "author": "user correction after stacked-PR audit", "axis": "GitHub PR merge target versus commit dependency ancestry", "footprint": "planner/explainer/orchestrator/reviewer contracts" },
+      "prompt": "A Lane B model recipe branch contains commits from an open shared-evaluator PR. Using that evaluator branch as the GitHub PR base makes the recipe PR display only its two JSON files, while targeting main temporarily displays the prerequisite commits too. Create or recover the draft recipe PR, explain the dependency, and decide what the live GitHub baseRefName must be and how each role verifies it.",
+      "files": [],
+      "baseline_expectation": "A regressed workflow confuses a clean stacked diff with the merge target and uses the prerequisite head as --base. The corrected workflow keeps baseRefName=main, documents merge order, repairs recovered/manual PR metadata, and rejects a non-main base before expensive review.",
+      "assertions": [
+        { "text": "Distinguishes dependency commit ancestry from the GitHub PR merge target", "passed": null, "evidence": "" },
+        { "text": "Requires planner charter target_base to be the literal main for every Lane B contribution", "passed": null, "evidence": "" },
+        { "text": "Creates the draft PR with --base main even when candidate HEAD contains prerequisite commits", "passed": null, "evidence": "" },
+        { "text": "Documents the prerequisite PR and merge order in the PR body rather than encoding it as baseRefName", "passed": null, "evidence": "" },
+        { "text": "After creating or recovering an existing/manual PR, reads live baseRefName, repairs a non-main value, and re-verifies main", "passed": null, "evidence": "" },
+        { "text": "Orchestrator blocks reviewer hand-off unless the live metadata snapshot shows baseRefName main", "passed": null, "evidence": "" },
+        { "text": "Reviewer checks baseRefName before expensive validation and returns REQUEST_CHANGES for any non-main value", "passed": null, "evidence": "" },
+        { "text": "Does not claim that targeting main requires prerequisite commits to be removed from candidate HEAD", "passed": null, "evidence": "" }
+      ]
+    }
+  ]
+}

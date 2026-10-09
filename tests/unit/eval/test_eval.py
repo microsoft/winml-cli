@@ -67,6 +67,7 @@ class TestEvaluationConfig:
             model_path="model.onnx",
             task="image-classification",
             device="npu",
+            device_luid="0x00000000_0x00000001",
             dataset=DatasetConfig(
                 path="imagenet-1k",
                 split="test",
@@ -76,8 +77,64 @@ class TestEvaluationConfig:
         )
         restored = WinMLEvaluationConfig.from_dict(config.to_dict())
         assert restored.model_id == config.model_id
+        assert restored.device_luid == config.device_luid
         assert restored.dataset.path == config.dataset.path
         assert restored.dataset.columns_mapping == config.dataset.columns_mapping
+
+
+class TestPrintConfig:
+    def test_compare_shows_candidate_and_onnx_reference_environments(self) -> None:
+        import importlib
+
+        from rich.console import Console
+
+        eval_mod = importlib.import_module("winml.modelkit.eval.evaluate")
+
+        console = Console(record=True, width=120)
+        config = WinMLEvaluationConfig(
+            model_path="candidate.mlir",
+            reference_path="reference.onnx",
+            runtime="winml-runtime",
+            device="gpu",
+            ep="winmlcg",
+            reference_device="gpu",
+            reference_ep="dml",
+            mode="compare",
+        )
+
+        with patch.object(eval_mod, "Console", return_value=console):
+            eval_mod.print_config(config)
+
+        text = console.export_text()
+        assert "Candidate: candidate.mlir" in text
+        assert "Candidate runtime: winml-runtime" in text
+        assert "Candidate device: gpu" in text
+        assert "Candidate EP:" not in text
+        assert "Reference: reference.onnx" in text
+        assert "Reference runtime: winml-ort" in text
+        assert "Reference device: gpu" in text
+        assert "Reference EP: dml" in text
+
+    def test_compare_runtime_ort_shows_candidate_ep(self) -> None:
+        import importlib
+
+        from rich.console import Console
+
+        eval_mod = importlib.import_module("winml.modelkit.eval.evaluate")
+        console = Console(record=True, width=120)
+        config = WinMLEvaluationConfig(
+            model_path="candidate.onnx",
+            reference_path="reference.onnx",
+            runtime="winml-runtime",
+            backend="ort",
+            ep="dml",
+            mode="compare",
+        )
+
+        with patch.object(eval_mod, "Console", return_value=console):
+            eval_mod.print_config(config)
+
+        assert "Candidate EP: dml" in console.export_text()
 
     def test_config_roundtrip_preserves_revision(self):
         """DatasetConfig.revision survives to_dict/from_dict roundtrip."""
@@ -91,6 +148,17 @@ class TestEvaluationConfig:
         )
         restored = WinMLEvaluationConfig.from_dict(config.to_dict())
         assert restored.dataset.revision == "refs/convert/parquet"
+
+    def test_config_roundtrip_preserves_runtime_backend(self):
+        config = WinMLEvaluationConfig(
+            model_path="model.onnx",
+            runtime="winml-runtime",
+            backend="ort",
+        )
+
+        restored = WinMLEvaluationConfig.from_dict(config.to_dict())
+
+        assert restored.backend == "ort"
 
     def test_dataset_config_revision_default_is_none(self):
         """Revision defaults to None when not specified."""
@@ -117,6 +185,7 @@ class TestEvaluationConfig:
     def test_config_roundtrip_preserves_cache_controls(self):
         config = WinMLEvaluationConfig(
             model_id="test/model",
+            runtime="winml-runtime",
             use_cache=False,
             rebuild=True,
         )
@@ -146,6 +215,7 @@ class TestEvaluationConfig:
             model_path="cand.onnx",
             reference_path="ref.onnx",
             reference_device="gpu",
+            reference_device_luid="0x00000000_0x00000002",
             reference_ep="dml",
             mode="compare",
         )
@@ -153,8 +223,10 @@ class TestEvaluationConfig:
         restored = WinMLEvaluationConfig.from_dict(serialized)
         assert restored.reference_path == "ref.onnx"
         assert serialized["reference_device"] == "gpu"
+        assert serialized["reference_device_luid"] == "0x00000000_0x00000002"
         assert serialized["reference_ep"] == "dml"
         assert restored.reference_device == "gpu"
+        assert restored.reference_device_luid == "0x00000000_0x00000002"
         assert restored.reference_ep == "dml"
         assert restored.mode == "compare"
 
@@ -166,6 +238,7 @@ class TestEvaluationConfig:
         )
 
         assert config.reference_device == "cpu"
+        assert config.reference_device_luid is None
         assert config.reference_ep is None
         assert config.to_dict()["reference_device"] == "cpu"
         assert "reference_ep" not in config.to_dict()
@@ -341,6 +414,30 @@ class TestGetEvaluatorClass:
 class TestEvaluate:
     """Tests for evaluate() entry point."""
 
+    def test_pytorch_runtime_rejects_device_luid(self):
+        """evaluate() rejects adapter selection that PyTorch cannot honor."""
+        import importlib
+        import sys
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        config = WinMLEvaluationConfig(
+            runtime="pytorch",
+            model_id="test/model",
+            task="image-classification",
+            device="gpu",
+            device_luid="0x00000000_0x00000001",
+            dataset=DatasetConfig(path="imagenet-1k"),
+        )
+
+        with pytest.raises(
+            ValueError,
+            match=r"PyTorch runtime cannot use WinML-only configuration: device_luid",
+        ):
+            eval_mod.evaluate(config)
+
     def test_invalid_mode_raises(self):
         """evaluate() rejects unknown mode values with a clear error."""
         import importlib
@@ -381,7 +478,16 @@ class TestEvaluate:
             result = eval_mod.evaluate(config)
         assert result.config.mode == "onnx"
 
-    def test_onnx_compare_ignores_explicit_task_and_skips_resolution(self):
+    @pytest.mark.parametrize(
+        "model_path,runtime,task",
+        [
+            ("cand.onnx", "winml-ort", "image-classification"),
+            ("cand.mlir", "winml-runtime", "text-generation"),
+        ],
+    )
+    def test_onnx_compare_ignores_explicit_task_and_skips_resolution(
+        self, model_path, runtime, task,
+    ):
         """Two-ONNX compare preserves all raw outputs by clearing the task."""
         import importlib
         import sys
@@ -391,10 +497,11 @@ class TestEvaluate:
         ) or importlib.import_module("winml.modelkit.eval.evaluate")
 
         config = WinMLEvaluationConfig(
-            model_path="cand.onnx",
+            model_path=model_path,
+            runtime=runtime,
             reference_path="ref.onnx",
             mode="compare",
-            task="image-classification",
+            task=task,
         )
 
         evaluator = MagicMock()
@@ -421,6 +528,19 @@ class TestEvaluate:
         assert result.metrics == {"cosine_mean": {"logits": 1.0}}
         load_model.assert_called_once_with(result.config)
         evaluator_factory.assert_called_once_with(result.config, candidate)
+
+    @pytest.mark.parametrize("suffix", [".mlir", ".MLIR"])
+    def test_from_mlir_rejects_text_generation_before_wrapper_creation(self, suffix):
+        from winml.modelkit.models import WinMLAutoModel
+
+        with (
+            patch("winml.modelkit.models.auto.get_winml_class") as get_winml_class,
+            pytest.raises(ValueError, match="from_mlir does not support task='text-generation'"),
+        ):
+            WinMLAutoModel.from_mlir(
+                f"model{suffix}", ep_device=MagicMock(), task="text-generation",
+            )
+        get_winml_class.assert_not_called()
 
     def test_no_dataset_no_default_raises(self):
         """Tasks without a default dataset raise ValueError."""
@@ -1570,6 +1690,41 @@ class TestLoadModel:
         assert call_args.kwargs["force_rebuild"] is False
         assert result is mock_model
 
+    def test_load_model_selects_device_luid(self):
+        """The candidate device LUID is forwarded to registry selection."""
+        import importlib
+        import sys
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            device="gpu",
+            ep="dml",
+            device_luid="0x00000000_0x00000001",
+        )
+        mock_auto = MagicMock()
+        mock_auto.from_pretrained.return_value = MagicMock()
+
+        with (
+            patch.dict(
+                "sys.modules",
+                {"winml.modelkit.models": MagicMock(WinMLAutoModel=mock_auto)},
+            ),
+            patch("winml.modelkit.session.WinMLEPRegistry") as mock_registry,
+        ):
+            mock_registry.instance.return_value.auto_device.return_value = MagicMock()
+            eval_mod.load_model(config)
+
+        mock_registry.instance.return_value.auto_device.assert_called_once()
+        assert (
+            mock_registry.instance.return_value.auto_device.call_args.kwargs["device_luid"]
+            == config.device_luid
+        )
+
     def test_load_onnx_without_model_id_returns_generic_winml_model(self):
         import importlib
         import sys
@@ -1585,6 +1740,8 @@ class TestLoadModel:
             model_path="candidate.onnx",
             reference_path="reference.onnx",
             mode="compare",
+            runtime="winml-runtime",
+            backend="cgc",
             device="cpu",
         )
 
@@ -1598,7 +1755,41 @@ class TestLoadModel:
         mock_auto.from_onnx.assert_called_once()
         assert mock_auto.from_onnx.call_args.kwargs["hf_config"] is None
         assert mock_auto.from_onnx.call_args.kwargs["task"] is None
+        assert mock_auto.from_onnx.call_args.kwargs["runtime"] == "winml-runtime"
         assert mock_auto.from_onnx.call_args.kwargs["skip_build"] is True
+
+    def test_load_mlir_uses_runtime_model_loader(self):
+        import importlib
+        import sys
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        mock_model = MagicMock()
+        mock_auto = MagicMock()
+        mock_auto.from_mlir.return_value = mock_model
+        config = WinMLEvaluationConfig(
+            model_path="candidate.mlir",
+            runtime="winml-runtime",
+            task="text-generation",
+            device="gpu",
+        )
+
+        with (
+            patch.dict(
+                "sys.modules",
+                {"winml.modelkit.models": MagicMock(WinMLAutoModel=mock_auto)},
+            ),
+            patch("winml.modelkit.session.runtime_session.import_runtime"),
+        ):
+            result = eval_mod.load_model(config)
+
+        assert result is mock_model
+        mock_auto.from_mlir.assert_called_once()
+        assert mock_auto.from_mlir.call_args.kwargs["mlir_path"] == "candidate.mlir"
+        assert mock_auto.from_mlir.call_args.kwargs["task"] == "text-generation"
+        assert mock_auto.from_mlir.call_args.kwargs["runtime"] == "winml-runtime"
 
     def test_make_onnx_reference_config_uses_independent_environment(self):
         from winml.modelkit.eval.tensor_similarity_evaluator import (
@@ -1610,7 +1801,11 @@ class TestLoadModel:
             reference_path="reference.onnx",
             reference_device="gpu",
             reference_ep="dml",
+            device_luid="0x00000000_0x00000001",
+            reference_device_luid="0x00000000_0x00000002",
             mode="compare",
+            runtime="winml-runtime",
+            backend="cgc",
         )
 
         reference = _make_reference_config(config)
@@ -1619,7 +1814,9 @@ class TestLoadModel:
         assert reference.model_id is None
         assert reference.reference_path is None
         assert reference.runtime == "winml-ort"
+        assert reference.backend is None
         assert reference.device == "gpu"
+        assert reference.device_luid == "0x00000000_0x00000002"
         assert reference.ep == "dml"
         assert reference.mode == "onnx"
         assert reference.skip_build is True
@@ -1632,7 +1829,10 @@ class TestLoadModel:
         config = WinMLEvaluationConfig(
             model_id="test/model",
             task="image-classification",
+            device_luid="0x00000000_0x00000001",
             mode="compare",
+            runtime="winml-runtime",
+            backend="cgc",
         )
 
         reference = _make_reference_config(config)
@@ -1641,7 +1841,9 @@ class TestLoadModel:
         assert reference.model_path is None
         assert reference.reference_path is None
         assert reference.runtime == "pytorch"
+        assert reference.backend is None
         assert reference.device == "cpu"
+        assert reference.device_luid is None
         assert reference.ep is None
         assert reference.precision == "auto"
         assert reference.mode == "onnx"
@@ -1677,7 +1879,12 @@ class TestLoadModel:
         )
         config._auto_device_selected = True
 
-        def resolve_target(target: EPDeviceTarget) -> EPDeviceTarget:
+        def resolve_target(
+            target: EPDeviceTarget,
+            *,
+            backend: str | None = None,
+        ) -> EPDeviceTarget:
+            assert backend is None
             if target.device == "gpu":
                 return EPDeviceTarget(ep="DmlExecutionProvider", device=target.device)
             return EPDeviceTarget(ep="CPUExecutionProvider", device="cpu")
@@ -1706,6 +1913,50 @@ class TestLoadModel:
         assert config.ep == "cpu"
         assert config._auto_device_selected is False
         assert "Retrying with CPUExecutionProvider" in caplog.text
+
+    def test_device_luid_disables_automatic_cpu_retry(self):
+        """A pinned adapter failure must not silently run the candidate on CPU."""
+        import importlib
+        import sys
+
+        from onnxruntime.capi.onnxruntime_pybind11_state import RuntimeException
+
+        eval_mod = sys.modules.get(
+            "winml.modelkit.eval.evaluate",
+        ) or importlib.import_module("winml.modelkit.eval.evaluate")
+
+        mock_auto = MagicMock()
+        mock_auto.from_pretrained.side_effect = RuntimeException(
+            "accelerator session initialization failed"
+        )
+        config = WinMLEvaluationConfig(
+            model_id="test/model",
+            task="image-classification",
+            device="gpu",
+            ep="dml",
+            device_luid="0x00000000_0x00000001",
+        )
+        config._auto_device_selected = True
+
+        with (
+            patch.dict(
+                "sys.modules",
+                {"winml.modelkit.models": MagicMock(WinMLAutoModel=mock_auto)},
+            ),
+            patch(
+                "winml.modelkit.session.resolve_device",
+                return_value=EPDeviceTarget(ep="DmlExecutionProvider", device="gpu"),
+            ),
+            patch("winml.modelkit.session.WinMLEPRegistry") as mock_registry,
+        ):
+            mock_registry.instance.return_value.auto_device.return_value = MagicMock()
+            with pytest.raises(RuntimeException, match="accelerator session"):
+                eval_mod.load_model(config)
+
+        mock_registry.instance.return_value.auto_device.assert_called_once()
+        assert mock_auto.from_pretrained.call_count == 1
+        assert config.device == "gpu"
+        assert config.ep == "dml"
 
     def test_load_model_forwards_build_flags(self):
         """--no-quant/--no-optimize/--max-optim-iterations reach from_pretrained."""

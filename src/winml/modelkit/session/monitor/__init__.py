@@ -11,18 +11,24 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .ep_monitor import EPMonitor, NullEPMonitor, WinMLEPMonitor
+    from .memory_tracker import ProcessMemoryTracker, get_rss_mb, get_vram_mb
     from .op_metrics import OperatorMetrics, OpTraceResult
     from .openvino_monitor import OpenVinoMonitor
     from .report import display_op_trace_report, write_op_trace_json
+    from .trtrtx_monitor import NvTensorRTRTXMonitor
 
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+    "ProcessMemoryTracker": (".memory_tracker", "ProcessMemoryTracker"),
+    "get_rss_mb": (".memory_tracker", "get_rss_mb"),
+    "get_vram_mb": (".memory_tracker", "get_vram_mb"),
     "EPMonitor": (".ep_monitor", "EPMonitor"),
     "NullEPMonitor": (".ep_monitor", "NullEPMonitor"),
     "WinMLEPMonitor": (".ep_monitor", "WinMLEPMonitor"),
     "OperatorMetrics": (".op_metrics", "OperatorMetrics"),
     "OpTraceResult": (".op_metrics", "OpTraceResult"),
     "OpenVinoMonitor": (".openvino_monitor", "OpenVinoMonitor"),
+    "NvTensorRTRTXMonitor": (".trtrtx_monitor", "NvTensorRTRTXMonitor"),
     "display_op_trace_report": (".report", "display_op_trace_report"),
     "write_op_trace_json": (".report", "write_op_trace_json"),
 }
@@ -30,11 +36,15 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
 __all__ = [
     "EPMonitor",
     "NullEPMonitor",
+    "NvTensorRTRTXMonitor",
     "OpTraceResult",
     "OpenVinoMonitor",
     "OperatorMetrics",
+    "ProcessMemoryTracker",
     "WinMLEPMonitor",
     "display_op_trace_report",
+    "get_rss_mb",
+    "get_vram_mb",
     "write_op_trace_json",
 ]
 

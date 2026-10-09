@@ -99,6 +99,8 @@ class TestDeviceInfoEnrichment:
                 luid=format_pdh_luid(str(index)),
                 vendor_id=0x1234,
                 device_id=0x5678,
+                dedicated_memory_mib=index * 1024,
+                shared_memory_mib=16 * 1024,
             )
             for index in range(1, 4)
         ]
@@ -139,6 +141,12 @@ class TestDeviceInfoEnrichment:
 
         expected = [adapters[-1], *adapters[:-1]] if with_ep_info else adapters
         assert [row["details"]["luid"] for row in result] == [adapter.luid for adapter in expected]
+        assert [row["details"]["dedicated_memory_mib"] for row in result] == [
+            adapter.dedicated_memory_mib for adapter in expected
+        ]
+        assert [row["details"]["shared_memory_mib"] for row in result] == [
+            adapter.shared_memory_mib for adapter in expected
+        ]
         assert [row["priority"] for row in result] == list(range(1, len(adapters) + 1))
 
     def test_device_info_enriched_with_winml_device_facts(self) -> None:
@@ -244,24 +252,26 @@ class TestDeviceInfoEnrichment:
 
     def test_dxcore_accelerator_survives_wmi_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Native identity remains visible when descriptive enrichment fails."""
-        native_gpu = DXCoreAdapterInfo(
-            device_type="GPU",
-            name="Example GPU",
+        native_npu = DXCoreAdapterInfo(
+            device_type="NPU",
+            name="Example NPU",
             luid="0x00000000_0x00000001",
             vendor_id=0x1234,
             device_id=0x5678,
+            dedicated_memory_mib=0,
+            shared_memory_mib=16384,
         )
         monkeypatch.setattr(
             "winml.modelkit.sysinfo.enumerate_compute_adapters",
-            lambda: [native_gpu],
+            lambda: [native_npu],
         )
 
         with (
-            patch("winml.modelkit.sysinfo.NPU.get_all", return_value=[]),
             patch(
-                "winml.modelkit.sysinfo.GPU.get_all",
+                "winml.modelkit.sysinfo.NPU.get_all",
                 side_effect=RuntimeError("WMI unavailable"),
             ),
+            patch("winml.modelkit.sysinfo.GPU.get_all", return_value=[]),
             patch("winml.modelkit.sysinfo.CPU.get_all", return_value=[]),
         ):
             result = _gather_device_info()
@@ -269,12 +279,14 @@ class TestDeviceInfoEnrichment:
         assert result == [
             {
                 "priority": 1,
-                "type": "GPU",
-                "name": "Example GPU",
+                "type": "NPU",
+                "name": "Example NPU",
                 "details": {
                     "driver": None,
                     "manufacturer": None,
                     "luid": "0x00000000_0x00000001",
+                    "dedicated_memory_mib": 0,
+                    "shared_memory_mib": 16384,
                 },
             }
         ]
@@ -405,6 +417,35 @@ def test_compact_device_output_includes_luid(
     output = capsys.readouterr().out
     assert "GPU: Test GPU (LUID: 0x00000000_0x00018393)" in output
     assert "CPU: Test CPU (LUID: N/A)" in output
+
+
+@pytest.mark.parametrize("device_type", ["NPU", "GPU"])
+def test_accelerator_text_output_includes_dedicated_and_shared_memory(
+    device_type: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from winml.modelkit.commands.sys import _output_device_text
+
+    _output_device_text(
+        [
+            {
+                "priority": 1,
+                "type": device_type,
+                "name": f"Test {device_type}",
+                "details": {
+                    "luid": "0x00000000_0x00018393",
+                    "driver": "1.0",
+                    "manufacturer": "Example",
+                    "dedicated_memory_mib": 8192,
+                    "shared_memory_mib": 16384,
+                },
+            }
+        ]
+    )
+
+    output = capsys.readouterr().out
+    assert "Dedicated memory: 8192 MiB" in output
+    assert "Shared memory: 16384 MiB" in output
 
 
 class TestGatherDeviceSectionEnrichment:

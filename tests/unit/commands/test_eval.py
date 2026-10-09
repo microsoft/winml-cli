@@ -98,6 +98,18 @@ class TestSinglePlain:
         assert path == str(onnx_file)
         assert mid == "microsoft/resnet-50"
 
+    def test_plain_mlir_with_model_id(self, tmp_path):
+        mlir_file = tmp_path / "model.mlir"
+        mlir_file.write_text("module {}")
+
+        path, mid = _resolve_model_path(
+            model=(str(mlir_file),),
+            model_id="microsoft/resnet-50",
+        )
+
+        assert path == str(mlir_file)
+        assert mid == "microsoft/resnet-50"
+
     def test_plain_onnx_without_model_id_raises(self, onnx_file):
         with pytest.raises(click.UsageError, match="--model-id is required"):
             _resolve_model_path(model=(str(onnx_file),), model_id=None)
@@ -427,7 +439,8 @@ class TestEvalHelp:
         result = runner.invoke(eval_cmd, ["--help"])
 
         assert result.exit_code == 0, result.output
-        assert "requires --model-id" in result.output
+        assert "--model-id" in result.output
+        assert "MLIR" in result.output
         assert "role=path" in result.output
 
     def test_help_mentions_input_data(self, runner: CliRunner):
@@ -438,6 +451,29 @@ class TestEvalHelp:
         assert result.exit_code == 0, result.output
         assert "--input-data" in result.output
 
+    def test_help_mentions_device_luid(self, runner: CliRunner):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        result = runner.invoke(eval_cmd, ["--help"])
+
+        assert result.exit_code == 0, result.output
+        assert "--device-luid" in result.output
+
+    @pytest.mark.parametrize(
+        "value",
+        ["garbage", "0", "0x1_0x2", "0x00000000_0x0000000G"],
+    )
+    def test_invalid_device_luid_is_rejected(self, runner: CliRunner, value: str):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        result = runner.invoke(
+            eval_cmd,
+            ["-m", "microsoft/resnet-50", "--device-luid", value],
+        )
+
+        assert result.exit_code == 2
+        assert "expected 0xHHHHHHHH_0xLLLLLLLL" in result.output
+
     def test_help_mentions_reference(self, runner: CliRunner):
         from winml.modelkit.commands.eval import eval as eval_cmd
 
@@ -446,6 +482,7 @@ class TestEvalHelp:
         assert result.exit_code == 0, result.output
         assert "--reference" in result.output
         assert "--reference-device" in result.output
+        assert "--reference-device-luid" in result.output
         assert "--reference-ep" in result.output
 
     def test_help_mentions_cache_controls(self, runner: CliRunner):
@@ -456,6 +493,18 @@ class TestEvalHelp:
         assert result.exit_code == 0, result.output
         assert "--use-cache / --no-use-cache" in result.output
         assert "--rebuild / --no-rebuild" in result.output
+
+    def test_backend_rejected_for_other_runtime(self, runner: CliRunner):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        result = runner.invoke(
+            eval_cmd,
+            ["-m", "test/model", "--runtime", "winml-ort", "--backend", "cgc"],
+            obj={"debug": False},
+        )
+
+        assert result.exit_code == 2
+        assert "--backend is only supported with --runtime winml-runtime" in result.output
 
 
 class TestResolveReference:
@@ -473,13 +522,13 @@ class TestResolveReference:
         _resolve_reference(cfg)
         assert cfg.reference_path == str(onnx_vision)
 
-    def test_requires_onnx_candidate(self):
+    def test_requires_model_file_candidate(self):
         cfg = WinMLEvaluationConfig(
             model_path=None,
             reference_path="ref.onnx",
             mode="compare",
         )
-        with pytest.raises(click.UsageError, match="single ONNX file"):
+        with pytest.raises(click.UsageError, match="single model file"):
             _resolve_reference(cfg)
 
     def test_composite_candidate_rejected(self, onnx_vision):
@@ -488,7 +537,7 @@ class TestResolveReference:
             reference_path=str(onnx_vision),
             mode="compare",
         )
-        with pytest.raises(click.UsageError, match="single ONNX file"):
+        with pytest.raises(click.UsageError, match="single model file"):
             _resolve_reference(cfg)
 
     def test_non_onnx_suffix_raises(self, onnx_file, tmp_path):
@@ -527,7 +576,11 @@ class TestReferenceModeGuard:
 
     @pytest.mark.parametrize(
         ("option", "value"),
-        [("--reference-device", "gpu"), ("--reference-ep", "dml")],
+        [
+            ("--reference-device", "gpu"),
+            ("--reference-device-luid", "0x00000000_0x00000001"),
+            ("--reference-ep", "dml"),
+        ],
     )
     def test_reference_environment_requires_reference(
         self,
@@ -1694,9 +1747,25 @@ class TestDisplayEvalReportHeader:
         # Header joins the sub-model paths; detail lines list them per role ...
         assert "enc.onnx" in text
         assert "dec.onnx" in text
-        assert "ONNX (encoder):" in text
+        assert "Model (encoder):" in text
         # ... and never leak a raw Python dict repr.
         assert "{'encoder'" not in text
+
+    def test_compare_runtime_ort_shows_candidate_ep(self):
+        from winml.modelkit.eval import WinMLEvaluationConfig
+
+        text = self._render(
+            WinMLEvaluationConfig(
+                model_path="candidate.onnx",
+                reference_path="reference.onnx",
+                runtime="winml-runtime",
+                backend="ort",
+                ep="dml",
+                mode="compare",
+            )
+        )
+
+        assert "Candidate EP: dml" in text
 
     def test_two_onnx_compare_shows_candidate_path_without_model_id(self):
         from winml.modelkit.eval import WinMLEvaluationConfig
@@ -1709,7 +1778,14 @@ class TestDisplayEvalReportHeader:
             )
         )
         assert "Evaluation: cand.onnx" in text
-        assert "ref.onnx" in text
+        assert "Candidate:  cand.onnx" in text
+        assert "Candidate runtime: winml-ort" in text
+        assert "Candidate device: auto" in text
+        assert "Candidate EP: auto" in text
+        assert "Reference:  ref.onnx" in text
+        assert "Reference runtime: winml-ort" in text
+        assert "Reference device: cpu" in text
+        assert "Reference EP: auto" in text
 
 
 # ---------------------------------------------------------------------------
