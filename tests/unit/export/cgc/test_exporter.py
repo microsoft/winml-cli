@@ -14,7 +14,13 @@ import pytest
 from onnx import ModelProto, TensorProto, helper, numpy_helper, save_model
 
 from winml.modelkit.export import WinMLExportConfig
-from winml.modelkit.export.cgc import CGCExporter, CGCExportResult, CGCOptions
+from winml.modelkit.export.cgc import (
+    CGCExporter,
+    CGCExportResult,
+    CGCOptions,
+    FoundryToolboxUnavailableError,
+    create_foundry_compiler,
+)
 
 
 class _CompilerError(RuntimeError):
@@ -53,6 +59,34 @@ def foundry_api(monkeypatch: pytest.MonkeyPatch) -> Mock:
     )
     monkeypatch.setitem(sys.modules, "_foundry", api)
     return api
+
+
+@pytest.mark.parametrize("entry_point", ["exporter", "compiler"])
+def test_missing_foundry_binding(monkeypatch, entry_point):
+    monkeypatch.setitem(sys.modules, "_foundry", None)
+    with pytest.raises(FoundryToolboxUnavailableError, match="preview wheels") as captured:
+        if entry_point == "exporter":
+            CGCExporter(CGCOptions())._convert_to_cgir(Path("source.onnx"))
+        else:
+            create_foundry_compiler()
+    assert isinstance(captured.value.__cause__, ModuleNotFoundError)
+    assert captured.value.__cause__.name == "_foundry"
+
+
+@pytest.mark.parametrize("entry_point", ["exporter", "compiler"])
+def test_foundry_dependency_import_error_is_preserved(entry_point):
+    error = ModuleNotFoundError("Missing SDK dependency", name="sdk_dependency")
+    exporter = CGCExporter(CGCOptions())
+    source = Path("source.onnx")
+    with (
+        patch("builtins.__import__", side_effect=error),
+        pytest.raises(ModuleNotFoundError) as captured,
+    ):
+        if entry_point == "exporter":
+            exporter._convert_to_cgir(source)
+        else:
+            create_foundry_compiler()
+    assert captured.value is error
 
 
 def _make_model() -> ModelProto:

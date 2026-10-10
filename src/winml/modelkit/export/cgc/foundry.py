@@ -41,6 +41,14 @@ def find_foundry_toolbox() -> Path:
 
 def create_foundry_compiler() -> Compiler:
     """Create the upstream compiler with the installed wheel's DLL."""
-    from _foundry import Compiler
+    try:
+        from _foundry import Compiler
+    except ModuleNotFoundError as e:
+        if e.name != "_foundry":
+            raise
+        raise FoundryToolboxUnavailableError(
+            "CGC export requires the FoundryToolbox Python bindings. "
+            "Install the Windows ML preview wheels that provide _foundry and FoundryToolbox.dll."
+        ) from e
 
     return Compiler(library_path=find_foundry_toolbox())

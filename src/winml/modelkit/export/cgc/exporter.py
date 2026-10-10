@@ -17,7 +17,7 @@ import onnx
 from rich.console import Console
 
 from .artifacts import cgc_metadata_path
-from .foundry import create_foundry_compiler
+from .foundry import FoundryToolboxUnavailableError, create_foundry_compiler
 
 
 if TYPE_CHECKING:
@@ -280,7 +280,16 @@ class CGCExporter:
         output_data_file: Path | None = None,
     ) -> str:
         """Compile ONNX to textual CGC Input IR with FoundryToolbox."""
-        import _foundry
+        try:
+            import _foundry
+        except ModuleNotFoundError as e:
+            if e.name != "_foundry":
+                raise
+            raise FoundryToolboxUnavailableError(
+                "CGC export requires the FoundryToolbox Python bindings. "
+                "Install the Windows ML preview wheels that provide "
+                "_foundry and FoundryToolbox.dll."
+            ) from e
 
         try:
             options = _foundry.CompileOptions(
