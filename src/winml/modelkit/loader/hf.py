@@ -236,11 +236,7 @@ def load_hf_model(
     # freshly-loaded HF config. The torch model is instantiated from its own
     # native config below, so export/patcher consumers keep the native type;
     # only class/task resolution sees the variant.
-    model_type_override = (
-        model_type
-        if model_type is not None and getattr(hf_config, "model_type", None) != model_type
-        else None
-    )
+    model_type_override = model_type
     if model_type_override is not None:
         logger.info(
             "Applying model_type override '%s' -> '%s' (explicit request)",
@@ -295,7 +291,19 @@ def load_hf_model(
         load_kwargs["torch_dtype"] = torch_dtype
     if attn_implementation is not None:
         load_kwargs["attn_implementation"] = attn_implementation
-    model = loader_cls.from_pretrained(model_name_or_path, **load_kwargs)
+    if getattr(loader_cls, "_winml_require_complete_checkpoint", False) is True:
+        model, loading_info = loader_cls.from_pretrained(
+            model_name_or_path, output_loading_info=True, **load_kwargs
+        )
+        failures = {
+            key: loading_info[key]
+            for key in ("missing_keys", "unexpected_keys", "mismatched_keys", "error_msgs")
+            if loading_info.get(key)
+        }
+        if failures:
+            raise ValueError(f"Custom architecture has incompatible checkpoint weights: {failures}")
+    else:
+        model = loader_cls.from_pretrained(model_name_or_path, **load_kwargs)
 
     # [5] Export Preparation
     model.eval()
