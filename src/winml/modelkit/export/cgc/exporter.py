@@ -17,10 +17,11 @@ import onnx
 from rich.console import Console
 
 from .artifacts import cgc_metadata_path
-from .foundry import FoundryCompileError, FoundryCompiler
+from .foundry import FoundryToolboxUnavailableError, create_foundry_compiler
 
 
 if TYPE_CHECKING:
+    from _foundry import CompilerError
     from torch import nn
 
     from ..config import WinMLExportConfig
@@ -280,20 +281,35 @@ class CGCExporter:
     ) -> str:
         """Compile ONNX to textual CGC Input IR with FoundryToolbox."""
         try:
-            with FoundryCompiler() as compiler:
-                # model_directory lets Foundry resolve source ONNX external-data
-                # locations while lazy external mode avoids loading those weights.
-                serialized = compiler.compile_onnx(
-                    source_path.read_bytes(),
-                    model_directory=source_path.parent,
-                    update_opset=self.options.update_opset,
-                    topo_sort_nodes=self.options.topo_sort_nodes,
-                    include_initializers=not self.options.external_weights,
-                    enable_lazy_external_data=self.options.external_weights,
-                    output_data_file=output_data_file,
-                    freeze_dims=self._freeze_dims,
-                )
-        except FoundryCompileError as e:
+            import _foundry
+        except ModuleNotFoundError as e:
+            if e.name != "_foundry":
+                raise
+            raise FoundryToolboxUnavailableError(
+                "CGC export requires the FoundryToolbox Python bindings. "
+                "Install the Windows ML preview wheels that provide "
+                "_foundry and FoundryToolbox.dll."
+            ) from e
+
+        try:
+            options = _foundry.CompileOptions(
+                source_format=_foundry.SourceFormat.ONNX_PROTOBUF,
+                target=_foundry.Target.DXCGC,
+                update_opset=self.options.update_opset,
+                topo_sort_nodes=self.options.topo_sort_nodes,
+                include_initializers=not self.options.external_weights,
+                enable_lazy_external_data=self.options.external_weights,
+                output_data_file=output_data_file,
+                passes=(
+                    [_foundry.OverrideDynamicDimsByDimName(self._freeze_dims)]
+                    if self._freeze_dims
+                    else []
+                ),
+            )
+            with create_foundry_compiler() as compiler:
+                module = compiler.compile_file(source_path, options)
+                serialized: bytes = module.serialize(_foundry.SerializationFormat.TEXT)
+        except _foundry.CompilerError as e:
             raise RuntimeError(self._format_foundry_error(e)) from e
 
         try:
@@ -308,19 +324,29 @@ class CGCExporter:
             raise RuntimeError("FoundryToolbox output does not contain the CGC dialect")
         return ir
 
-    def _format_foundry_error(self, error: FoundryCompileError) -> str:
+    def _format_foundry_error(self, error: CompilerError) -> str:
         """Format native Foundry diagnostics for an export user."""
-        details = [f"Foundry failed to convert ONNX to CGC IR [{error.result_name}]."]
-        if error.unsupported_op:
-            details.append(f"ONNX operator '{error.unsupported_op}' is not supported.")
-        elif error.missing_external_data:
+        from _foundry import (
+            MissingExternalDataFileError,
+            Result,
+            ShapeInferenceError,
+            UnsupportedOperationError,
+        )
+
+        result_name = (
+            error.result.name if isinstance(error.result, Result) else str(error.result)
+        )
+        details = [f"Foundry failed to convert ONNX to CGC IR [{result_name}]."]
+        if isinstance(error, UnsupportedOperationError) and error.op_name:
+            details.append(f"ONNX operator '{error.op_name}' is not supported.")
+        elif isinstance(error, MissingExternalDataFileError) and error.file_path:
             details.append(
                 f"ONNX external weights file was not found: "
-                f"'{error.missing_external_data}'."
+                f"'{error.file_path}'."
             )
-        if error.native_message:
-            details.append(error.native_message)
-        if error.result_name == "SHAPE_INFERENCE" and not self._freeze_dims:
+        if error.message:
+            details.append(error.message)
+        if isinstance(error, ShapeInferenceError) and not self._freeze_dims:
             details.append(
                 "If symbolic dimensions caused this failure, retry with "
                 "--options freeze-dims=batch=1,seq=128 "
