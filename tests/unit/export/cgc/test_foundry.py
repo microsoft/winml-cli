@@ -39,9 +39,7 @@ def test_find_foundry_toolbox_in_windowsml_wheel(tmp_path: Path) -> None:
         return_value=distribution,
     ):
         assert find_foundry_toolbox() == dll_path.resolve()
-    distribution.locate_file.assert_called_once_with(
-        "windowsml/lib/FoundryToolbox.dll"
-    )
+    distribution.locate_file.assert_called_once_with("windowsml/lib/FoundryToolbox.dll")
 
 
 def test_find_foundry_toolbox_requires_windowsml_distribution() -> None:
@@ -60,9 +58,7 @@ def test_find_foundry_toolbox_requires_windowsml_distribution() -> None:
 
 def test_find_foundry_toolbox_requires_dll_in_wheel(tmp_path: Path) -> None:
     distribution = Mock(version="2.6.8.dev0")
-    distribution.locate_file.return_value = (
-        tmp_path / "windowsml" / "lib" / "FoundryToolbox.dll"
-    )
+    distribution.locate_file.return_value = tmp_path / "windowsml" / "lib" / "FoundryToolbox.dll"
 
     with (
         patch(
@@ -88,9 +84,7 @@ def _compiler_with_diagnostics(
     compiler._dll = Mock(
         FdyCompilerGetLastError=Mock(return_value=message),
         FdyCompilerGetLastUnsupportedOpName=Mock(return_value=unsupported_op),
-        FdyCompilerGetLastMissingExternalDataFile=Mock(
-            return_value=missing_external_data
-        ),
+        FdyCompilerGetLastMissingExternalDataFile=Mock(return_value=missing_external_data),
     )
     return compiler
 
@@ -107,8 +101,7 @@ def test_foundry_error_classifies_result_and_preserves_native_message() -> None:
     assert error.result_name == "SHAPE_INFERENCE"
     assert error.native_message == "Could not infer output shape."
     assert str(error) == (
-        "Foundry compiler failed [SHAPE_INFERENCE]: "
-        "Could not infer output shape."
+        "Foundry compiler failed [SHAPE_INFERENCE]: Could not infer output shape."
     )
 
 
@@ -159,8 +152,7 @@ def test_freeze_dims_populate_foundry_pass_descriptor(tmp_path: Path) -> None:
             observed["kind"] = descriptor.descriptor.kind
             assert descriptor.descriptor.stage == 0
             observed["names"] = tuple(
-                descriptor.names[index].decode("utf-8")
-                for index in range(descriptor.count)
+                descriptor.names[index].decode("utf-8") for index in range(descriptor.count)
             )
             observed["values"] = tuple(
                 descriptor.values[index] for index in range(descriptor.count)
@@ -201,3 +193,48 @@ def test_freeze_dims_populate_foundry_pass_descriptor(tmp_path: Path) -> None:
         "names": ("batch", "seq"),
         "values": (1, 128),
     }
+
+
+@pytest.mark.parametrize(("payload", "encoding"), [(b"module {}", 1), (b"ML\xefRbytecode", 0)])
+def test_read_cgir_parses_without_lowering_and_destroys_module(payload, encoding):
+    printed = b"module {\n cgc.entry_point @entry() {}\n}"
+    seen = {}
+
+    def parse(_compiler, span, form, dialect, module):
+        seen.update(data=ctypes.string_at(span.data, span.size), form=form, dialect=dialect)
+        module._obj.value = 2
+        return 0
+
+    def serialize(_module, _format, output, size):
+        size._obj.value = len(printed)
+        if output.data:
+            ctypes.memmove(output.data, printed, len(printed))
+        return 0
+
+    dll = Mock()
+    dll.FdyCreateModuleFromMlir.side_effect = parse
+    dll.FdyModuleSerialize.side_effect = serialize
+    compiler = object.__new__(FoundryCompiler)
+    compiler._dll = dll
+    compiler._compiler = ctypes.c_void_p(1)
+    assert compiler.read_cgir(payload) == printed
+    assert seen == {"data": payload, "form": encoding, "dialect": 4}
+    dll.FdyCompilerCompile.assert_not_called()
+    dll.FdyModuleDestroy.assert_called_once()
+
+
+def test_read_cgir_native_parse_error_is_not_swallowed():
+    compiler = _compiler_with_diagnostics(message=b"bad input")
+    compiler._dll.FdyCreateModuleFromMlir.return_value = 2
+    with pytest.raises(FoundryCompileError, match="bad input"):
+        compiler.read_cgir(b"not MLIR")
+    compiler._dll.FdyModuleDestroy.assert_not_called()
+
+
+def test_read_cgir_serialization_failure_releases_module():
+    compiler = _compiler_with_diagnostics(message=b"cannot print")
+    compiler._dll.FdyCreateModuleFromMlir.return_value = 0
+    compiler._dll.FdyModuleSerialize.return_value = 7
+    with pytest.raises(FoundryCompileError, match="cannot print"):
+        compiler.read_cgir(b"ML\xefRdata")
+    compiler._dll.FdyModuleDestroy.assert_called_once()
