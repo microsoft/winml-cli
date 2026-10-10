@@ -64,6 +64,7 @@ from ..utils.constants import (
 from .ep_device import (
     VALID_EPS,
     device_from_provider_option_hints,
+    lookup_device_spec,
     short_ep_name,
 )
 from .ep_registry import WinMLEPRegistry
@@ -89,6 +90,9 @@ _GENAI_REGISTERED_PATHS: set[Path] = set()
 _DEVICE_TYPE_EPS: frozenset[str] = frozenset(
     {"OpenVINOExecutionProvider", "VitisAIExecutionProvider"}
 )
+
+# Their shared EPContext blobs omit weights, which load from the source graphs' external data.
+_WEIGHTLESS_SHARED_CONTEXT_EPS: frozenset[str] = frozenset({"OpenVINOExecutionProvider"})
 
 
 # ---------------------------------------------------------------------------
@@ -407,6 +411,9 @@ class GenaiSession:
             *ep* should run on.  Used only to synthesize ``device_type`` for
             device-parameterized EPs (OpenVINO/VitisAI) when a re-routed stage
             has no reusable options; ignored when respecting the bundle config.
+        provider_options: Explicit options merged onto each hardware stage
+            selected by *ep*. Values override options already stored in the
+            bundle, matching the ``--ep-options`` CLI precedence.
         context_length: Override for the static KV cache length.  When
             ``None`` (default), read from ``genai_config.json``.
             Must match the ``--max-cache-len`` used during the winml-cli build.
@@ -451,6 +458,7 @@ class GenaiSession:
         ep: EPNameOrAlias | None = None,
         *,
         device: str | None = None,
+        provider_options: dict[str, str] | None = None,
         context_length: int | None = None,
         verbose: bool = False,
         compile: bool = False,
@@ -466,6 +474,7 @@ class GenaiSession:
         # VitisAI ``device_type``) when re-routing a stage that has no reusable
         # options for the target EP; QNN reuses the bundle's own ``backend_path``.
         self._device: str | None = device.lower() if device else None
+        self._provider_options = dict(provider_options or {})
         # Set at load(): did the override actually take effect (rewrite/strip at
         # least one stage)?  Drives :attr:`effective_ep` so the report never
         # claims an EP that never applied (flat/empty pipeline, all-CPU bundle).
@@ -1099,18 +1108,61 @@ class GenaiSession:
             return
 
         alias = short_ep_name(ep)
+        device = self._device or EP_SUPPORTED_DEVICES[ep][0]
+        spec = lookup_device_spec(ep, device)
+        defaults = (
+            dict(spec.default_provider_options)
+            if spec is not None and spec.use_defaults_for_genai
+            else {}
+        )
         if self._stage_targets_ep(current_po, ep):
-            # Re-selecting the stage's own EP: preserve its shipped options
-            # verbatim (even when empty) — this is a byte-for-byte no-op.
-            opts = self._existing_opts_for_ep(current_po, ep)
+            opts = self._merge_provider_options(
+                defaults,
+                self._existing_opts_for_ep(current_po, ep),
+            )
         elif borrow_opts:
-            opts = dict(borrow_opts)
+            opts = self._merge_provider_options(defaults, borrow_opts)
         else:
-            opts = self._default_opts_for_device(ep)
+            opts = self._merge_provider_options(defaults, self._default_opts_for_device(ep))
+        opts = self._merge_provider_options(opts, self._provider_options)
         if not isinstance(so, dict):
             so = {}
             stage_cfg["session_options"] = so
         so["provider_options"] = [{alias: opts}]
+
+    @staticmethod
+    def _merge_provider_options(
+        defaults: dict[str, Any],
+        overrides: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Merge provider options, preserving nested JSON configuration defaults."""
+        merged = {**defaults, **overrides}
+        for key in defaults.keys() & overrides.keys():
+            try:
+                default_value = json.loads(defaults[key])
+                override_value = json.loads(overrides[key])
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if isinstance(default_value, dict) and isinstance(override_value, dict):
+                merged[key] = json.dumps(
+                    GenaiSession._merge_nested_dicts(default_value, override_value),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+        return merged
+
+    @staticmethod
+    def _merge_nested_dicts(
+        defaults: dict[str, Any],
+        overrides: dict[str, Any],
+    ) -> dict[str, Any]:
+        merged = copy.deepcopy(defaults)
+        for key, value in overrides.items():
+            if isinstance(value, dict) and isinstance(merged.get(key), dict):
+                merged[key] = GenaiSession._merge_nested_dicts(merged[key], value)
+            else:
+                merged[key] = value
+        return merged
 
     def _default_opts_for_device(self, ep: EPName) -> dict[str, Any]:
         """Synthesize provider options for *ep* when the bundle defines none.
@@ -1488,9 +1540,10 @@ class GenaiSession:
         EPContext model (or missing) cannot participate in a fresh shared
         compile and forces the group back onto the per-stage path.
         """
-        from ..onnx import is_compiled_onnx
+        from ..onnx import get_external_data_files, is_compiled_onnx
 
         first_opts = stages[0][3]
+        external_sources: dict[Path, Path] = {}
         for _stage_key, onnx_filename, _ep_alias, ep_opts in stages:
             if ep_opts != first_opts:
                 return False
@@ -1502,7 +1555,43 @@ class GenaiSession:
                     return False
             except (ValueError, OSError):
                 return False
+            try:
+                locations = get_external_data_files(src)
+            except (ValueError, OSError):
+                return False
+            for location in locations:
+                source = (src.parent / location).resolve()
+                destination = (
+                    self._bundle_dir / self._COMPILED_SUBDIR / location
+                ).resolve()
+                previous = external_sources.get(destination)
+                if previous is not None and not self._files_identical(previous, source):
+                    logger.info(
+                        "Stages cannot share an EPContext: external-data destination %s "
+                        "would combine different files %s and %s",
+                        destination,
+                        previous,
+                        source,
+                    )
+                    return False
+                external_sources[destination] = source
         return True
+
+    @staticmethod
+    def _files_identical(left: Path, right: Path) -> bool:
+        """Compare two external-data files without loading them fully into memory."""
+        try:
+            if left.samefile(right):
+                return True
+            if left.stat().st_size != right.stat().st_size:
+                return False
+            with left.open("rb") as left_file, right.open("rb") as right_file:
+                while left_chunk := left_file.read(1024 * 1024):
+                    if left_chunk != right_file.read(len(left_chunk)):
+                        return False
+                return right_file.read(1) == b""
+        except OSError:
+            return False
 
     def _process_single_stage(
         self,
@@ -1615,6 +1704,7 @@ class GenaiSession:
             ):
                 self._patch_stage_filename(modified_cfg, stage_key, ctx.name)
                 compiled_stage_filenames.add(onnx_filename)
+            self._link_shared_weight_sources(group, compiled_dir, modified_cfg)
             return True
 
         logger.info(
@@ -1626,6 +1716,7 @@ class GenaiSession:
                 self._write_compile_marker(ctx, ea, eo)
                 self._patch_stage_filename(modified_cfg, stage_key, ctx.name)
                 compiled_stage_filenames.add(onnx_filename)
+            self._link_shared_weight_sources(group, compiled_dir, modified_cfg)
             return True
 
         logger.warning(
@@ -1635,6 +1726,42 @@ class GenaiSession:
         for stage_key, onnx_filename, _ea, _eo in group:
             self._patch_stage_filename(modified_cfg, stage_key, onnx_filename)
         return False
+
+    def _link_shared_weight_sources(
+        self,
+        group: list[tuple[str, str, str, dict]],
+        compiled_dir: Path,
+        modified_cfg: dict,
+    ) -> None:
+        """Expose source weights to weightless shared EPContexts and enable sharing at load."""
+        ep_name = normalize_ep_name(cast("EPNameOrAlias", group[0][2]))
+        if ep_name not in _WEIGHTLESS_SHARED_CONTEXT_EPS:
+            return
+        from ..onnx import get_external_data_files
+
+        for _stage_key, onnx_filename, _ea, _eo in group:
+            src_onnx = self._bundle_dir / onnx_filename
+            for location in get_external_data_files(src_onnx):
+                src, dst = src_onnx.parent / location, compiled_dir / location
+                if dst.is_symlink():
+                    continue
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                if dst.exists():
+                    shutil.copy2(src, dst)
+                else:
+                    try:
+                        dst.symlink_to(src.resolve())
+                    except (OSError, NotImplementedError):
+                        shutil.copy2(src, dst)
+
+        stage_keys = {stage[0] for stage in group}
+        pipeline = modified_cfg.get("model", {}).get("decoder", {}).get("pipeline", [])
+        for stage_entry in pipeline:
+            if not isinstance(stage_entry, dict):
+                continue
+            for stage_key, stage_cfg in stage_entry.items():
+                if stage_key in stage_keys and isinstance(stage_cfg, dict):
+                    stage_cfg.setdefault("session_options", {})["ep.share_ep_contexts"] = "1"
 
     def _compile_stages_shared(
         self,

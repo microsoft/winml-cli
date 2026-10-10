@@ -183,6 +183,7 @@ def test_assembler_receives_paths_ep_and_passes(harness):
     assert Path(ak["embeddings_src"]) == onnx_file
     assert Path(ak["lm_head_src"]) == onnx_file
     assert ak["ep"] == "qnn"  # short token forwarded verbatim to the assembler
+    assert ak["device"] == "npu"
     assert ak["soc_model"] == "60"
     assert ak["model_id"] == "m"
     assert ak["max_cache_len"] == 2048

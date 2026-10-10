@@ -298,6 +298,7 @@ class GenaiPerfConfig:
     model_id: str | None = None
     ep: EPNameOrAlias | None = None
     device: str = "auto"
+    provider_options: dict[str, str] | None = None
     prompt: str = _DEFAULT_PROMPT
     apply_template: bool = True
     max_new_tokens: int = 128
@@ -327,6 +328,7 @@ class _RequestSample:
     decode_token_durations_ms: list[float]
     sequence_fetch_duration_ms: float
     detokenization_duration_ms: float
+    response_text: str = ""
 
     @property
     def model_ttft_duration_ms(self) -> float:
@@ -427,6 +429,7 @@ class GenaiBenchmarkResult:
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     prompt_tokens: int = 0
     generated_tokens: int = 0
+    response_text: str = ""
     context_length: int | None = None
     effective_ep: str | None = None
     effective_device: str | None = None
@@ -467,6 +470,7 @@ class GenaiBenchmarkResult:
             },
             "requests": [sample.to_dict() for sample in self.requests],
             "aggregate": self._round_aggregate(),
+            "response_text": self.response_text,
         }
         if self.memory_profile:
             result["memory"] = self.memory_profile
@@ -527,6 +531,7 @@ class GenaiPerfBenchmark:
             self._config.bundle_dir,
             self._config.ep,
             device=self._session_device(),
+            provider_options=self._config.provider_options,
             context_length=self._config.context_length,
             compile=self._config.compile,
             compile_timeout=self._config.compile_timeout,
@@ -717,6 +722,7 @@ class GenaiPerfBenchmark:
             decode_token_durations_ms=[value * 1000.0 for value in timing.decode_s],
             sequence_fetch_duration_ms=timing.sequence_fetch_s * 1000.0,
             detokenization_duration_ms=timing.detokenization_s * 1000.0,
+            response_text=timing.response_text,
         )
 
     def _aggregate(
@@ -758,6 +764,7 @@ class GenaiPerfBenchmark:
             effective_device=getattr(self._session, "effective_device", None),
             prompt_tokens=timed[0].prompt_tokens if timed else 0,
             generated_tokens=timed[0].generated_tokens if timed else 0,
+            response_text=timed[0].response_text if timed else "",
             context_length=self._session.context_length if self._session else None,
             load=load,
             requests=samples,
@@ -819,6 +826,10 @@ def display_genai_report(result: GenaiBenchmarkResult, console: Console) -> None
         f"[dim]Generated:[/dim] {result.generated_tokens} tokens "
         f"(max_new_tokens={cfg.max_new_tokens})"
     )
+    if result.response_text:
+        console.print()
+        console.print("[bold]Response[/bold]")
+        console.print(result.response_text, markup=False)
 
     load = result.load
     aggregate = result.aggregate

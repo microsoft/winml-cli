@@ -59,6 +59,7 @@ def _timing(
     generator_create_s: float = 0.0,
     sequence_fetch_s: float = 0.0,
     detokenization_s: float = 0.0,
+    response_text: str = "",
 ) -> GenerationTiming:
     """Build a GenerationTiming with ``1 + len(decode_s)`` generated tokens."""
     return GenerationTiming(
@@ -70,6 +71,7 @@ def _timing(
         decode_s=list(decode_s),
         sequence_fetch_s=sequence_fetch_s,
         detokenization_s=detokenization_s,
+        response_text=response_text,
     )
 
 
@@ -588,7 +590,7 @@ class TestResultToDict:
             compile_timeout=120,
         )
         session = _FakeSession(
-            [_timing(0.4, 0.6, [0.4, 0.4, 0.4])],
+            [_timing(0.4, 0.6, [0.4, 0.4, 0.4], response_text="Measured answer")],
             prompt_ids=[1, 2, 3],
             effective_ep="qnn",
             effective_device="npu",
@@ -605,6 +607,7 @@ class TestResultToDict:
             "load",
             "requests",
             "aggregate",
+            "response_text",
         }
         assert d["schema_version"] == 2
         info = d["benchmark_info"]
@@ -623,6 +626,7 @@ class TestResultToDict:
         assert info["monitor"] is False
         assert info["apply_template"] is True
         assert info["prompt"] == "Benchmark this exact prompt"
+        assert d["response_text"] == "Measured answer"
         assert set(d["load"]) == {
             "session_load_duration_ms",
             "ep_registration_duration_ms",
@@ -797,15 +801,26 @@ class TestSessionDevice:
     def test_build_session_forwards_device(self, monkeypatch) -> None:
         captured: dict = {}
 
-        def fake_ctor(bundle_dir, ep, *, device=None, **_kwargs):
+        def fake_ctor(bundle_dir, ep, *, device=None, provider_options=None, **_kwargs):
             captured["ep"] = ep
             captured["device"] = device
+            captured["provider_options"] = provider_options
             return _FakeSession([])
 
         monkeypatch.setattr(perf_genai, "GenaiSession", fake_ctor)
-        cfg = GenaiPerfConfig(bundle_dir=Path("bundle"), ep="openvino", device="npu")
+        provider_options = {"load_config": '{"NPU":{"NPU_TURBO":"NO"}}'}
+        cfg = GenaiPerfConfig(
+            bundle_dir=Path("bundle"),
+            ep="openvino",
+            device="npu",
+            provider_options=provider_options,
+        )
         GenaiPerfBenchmark(cfg)._build_session()
-        assert captured == {"ep": "openvino", "device": "npu"}
+        assert captured == {
+            "ep": "openvino",
+            "device": "npu",
+            "provider_options": provider_options,
+        }
 
     def test_build_hw_monitor_uses_cpu_when_effective_adapter_is_unproven(
         self, monkeypatch
@@ -877,7 +892,9 @@ class TestReporting:
             iterations=1,
             warmup=0,
         )
-        session = _FakeSession([_timing(0.4, 0.6, [0.4, 0.4, 0.4])])
+        session = _FakeSession(
+            [_timing(0.4, 0.6, [0.4, 0.4, 0.4], response_text="Representative [/b] answer")]
+        )
         bench = GenaiPerfBenchmark(cfg, session=session)
         return bench.run()
 
@@ -888,9 +905,16 @@ class TestReporting:
         assert out.exists()
         data = json.loads(out.read_text(encoding="utf-8"))
         assert data["benchmark_info"]["runtime"] == "ort-genai"
+        assert data["response_text"] == "Representative [/b] answer"
 
-    def test_display_genai_report_does_not_crash(self) -> None:
-        display_genai_report(self._result(), Console())
+    def test_display_genai_report_shows_response_verbatim(self) -> None:
+        console = Console(file=StringIO(), width=200, force_terminal=False, record=True)
+
+        display_genai_report(self._result(), console)
+
+        output = console.export_text()
+        assert "Response" in output
+        assert "Representative [/b] answer" in output
 
     def test_display_genai_report_ep_none_does_not_crash(self) -> None:
         # ep=None renders as "<device> (config)" without error.
@@ -1458,6 +1482,65 @@ class TestCliDispatch:
         # Omitting --device keeps the "respect the bundle" default.
         assert cfg.device == "config"
         assert cfg.ep is None
+
+    def test_ep_options_are_forwarded_to_genai_session(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict, monkeypatch
+    ) -> None:
+        import winml.modelkit.loader as loader_mod
+        import winml.modelkit.models.winml as winml_models
+
+        monkeypatch.setenv("WINML_CACHE_DIR", str(tmp_path / "cache"))
+        monkeypatch.setattr(
+            loader_mod, "resolve_loader_config", _fake_resolve_loader_config("qwen3")
+        )
+        build_calls: dict = {}
+        monkeypatch.setattr(
+            winml_models, "build_genai_bundle", _fake_build_genai_bundle(build_calls)
+        )
+
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                "Qwen/Qwen3-0.6B",
+                "--runtime",
+                "ort-genai",
+                "--ep",
+                "openvino",
+                "--device",
+                "npu",
+                "--ep-options",
+                'load_config={"NPU":{"NPU_TURBO":"NO"}}',
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert capture_run["config"].provider_options == {
+            "load_config": '{"NPU":{"NPU_TURBO":"NO"}}'
+        }
+        assert capture_run["config"].bundle_dir == build_calls["build"]["output_dir"]
+
+    def test_ep_options_require_genai_target(
+        self, runner: CliRunner, capture_run: dict, tmp_path: Path
+    ) -> None:
+        bundle_dir = tmp_path / "bundle"
+        bundle_dir.mkdir()
+        (bundle_dir / "genai_config.json").write_text("{}", encoding="utf-8")
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                str(bundle_dir),
+                "--runtime",
+                "ort-genai",
+                "--ep-options",
+                "load_config={}",
+            ],
+        )
+
+        assert result.exit_code == 2, result.output
+        assert "--ep-options requires --ep or a concrete --device" in result.output
+        assert "config" not in capture_run
 
     @pytest.mark.parametrize(
         ("args", "resolved_ep", "build_ep", "build_device"),

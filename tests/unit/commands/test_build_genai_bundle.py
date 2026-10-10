@@ -534,6 +534,7 @@ def test_use_cache_rejected_for_bundle(tmp_path: Path):
     ("resolved_target", "expected_ep", "expected_device"),
     [
         (EPDeviceTarget(ep="QNNExecutionProvider", device="npu"), "qnn", "npu"),
+        (EPDeviceTarget(ep="OpenVINOExecutionProvider", device="gpu"), "openvino", "gpu"),
         (EPDeviceTarget(ep="CPUExecutionProvider", device="cpu"), "cpu", "cpu"),
     ],
 )
@@ -546,7 +547,7 @@ def test_export_type_optimized_resolves_target_and_builds(
     """``--export-type optimized`` resolves the host target, then builds its recipe.
 
     No ``--device``/``--ep`` is pinned, so the target is hardware-probed.
-    Both CPU and QNN/NPU are supported by the recipe.
+    CPU, QNN/NPU, and OpenVINO/GPU are supported by the recipe.
     """
     out = tmp_path / "bundle"
     recorded: dict = {}
@@ -741,6 +742,18 @@ def test_resolve_optimized_target_rejects_unsupported_ep():
     recipe = resolve_genai_bundle("qwen3")
     with pytest.raises(click.UsageError, match="not supported for ep=dml, device=gpu"):
         _resolve_optimized_target(recipe, device="gpu", ep="dml")
+
+
+def test_resolve_optimized_target_accepts_openvino_gpu():
+    from winml.modelkit.commands.build import _resolve_optimized_target
+    from winml.modelkit.models.winml import resolve_genai_bundle
+
+    recipe = resolve_genai_bundle("qwen3")
+    assert recipe is not None
+    assert _resolve_optimized_target(recipe, device="gpu", ep="openvino") == (
+        "openvino",
+        "gpu",
+    )
 
 
 def test_resolve_optimized_target_rejects_unsupported_device():

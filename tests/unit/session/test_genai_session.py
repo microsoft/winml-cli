@@ -851,9 +851,9 @@ class TestEPOverride:
         )
         effective, _ = session._apply_ep_override(cfg)
         stage = effective["model"]["decoder"]["pipeline"][0]["context"]
-        assert stage["session_options"]["provider_options"] == [
-            {"openvino": {"device_type": "NPU"}}
-        ]
+        provider = stage["session_options"]["provider_options"][0]["openvino"]
+        assert provider["device_type"] == "NPU"
+        assert json.loads(provider["load_config"])["NPU"]["NPU_TURBO"] == "YES"
 
     def test_reroute_openvino_defaults_device_type_without_device(self, bundle_dir: Path) -> None:
         # No --device: fall back to the EP's primary supported device (npu).
@@ -863,9 +863,20 @@ class TestEPOverride:
         )
         effective, _ = session._apply_ep_override(cfg)
         stage = effective["model"]["decoder"]["pipeline"][0]["context"]
-        assert stage["session_options"]["provider_options"] == [
-            {"openvino": {"device_type": "NPU"}}
-        ]
+        provider = stage["session_options"]["provider_options"][0]["openvino"]
+        assert provider["device_type"] == "NPU"
+        assert json.loads(provider["load_config"])["NPU"]["NPU_TURBO"] == "YES"
+
+    def test_openvino_non_npu_does_not_apply_npu_defaults(self, bundle_dir: Path) -> None:
+        session = GenaiSession(bundle_dir, ep="openvino", device="gpu")
+        cfg = self._pipeline_cfg(
+            {"context": {"session_options": {"provider_options": [{"dml": {}}]}}}
+        )
+        effective, _ = session._apply_ep_override(cfg)
+        provider = effective["model"]["decoder"]["pipeline"][0]["context"][
+            "session_options"
+        ]["provider_options"][0]["openvino"]
+        assert provider == {"device_type": "GPU"}
 
     def test_reroute_synthesizes_device_type_for_vitisai(self, bundle_dir: Path) -> None:
         session = GenaiSession(bundle_dir, ep="vitisai", device="npu")
@@ -901,6 +912,43 @@ class TestEPOverride:
         effective, _ = session._apply_ep_override(cfg)
         stage = effective["model"]["decoder"]["pipeline"][0]["context"]
         assert stage["session_options"]["provider_options"] == [{"qnn": opts}]
+
+    def test_explicit_provider_options_override_bundle_options(self, bundle_dir: Path) -> None:
+        session = GenaiSession(
+            bundle_dir,
+            ep="openvino",
+            provider_options={"load_config": '{"NPU":{"NPU_TURBO":"NO"}}'},
+        )
+        cfg = self._pipeline_cfg(
+            {
+                "context": {
+                    "session_options": {
+                        "provider_options": [
+                            {
+                                "openvino": {
+                                    "device_type": "NPU",
+                                    "load_config": '{"NPU":{"NPU_TURBO":"YES"}}',
+                                }
+                            }
+                        ]
+                    }
+                }
+            }
+        )
+        effective, changed = session._apply_ep_override(cfg)
+        assert changed is True
+        provider = effective["model"]["decoder"]["pipeline"][0]["context"]["session_options"][
+            "provider_options"
+        ][0]["openvino"]
+        assert provider["device_type"] == "NPU"
+        assert json.loads(provider["load_config"]) == {
+            "NPU": {
+                "CACHE_MODE": "OPTIMIZE_SPEED",
+                "NPU_COMPILER_TYPE": "PLUGIN",
+                "NPU_QDQ_OPTIMIZATION": "YES",
+                "NPU_TURBO": "NO",
+            }
+        }
 
     def test_force_different_hardware_ep_drops_foreign_options(self, bundle_dir: Path) -> None:
         # Switching QNN -> DML must not carry QNN's backend_path across.
@@ -1592,9 +1640,8 @@ class TestCompileStageSalvage:
     def _make_epcontext(path: Path, bin_name: str) -> None:
         """Code-generate a minimal, structurally valid EPContext ONNX model."""
         import onnx
-        from onnx import TensorProto, helper
 
-        node = helper.make_node(
+        node = onnx.helper.make_node(
             "EPContext",
             inputs=[],
             outputs=["output"],
@@ -1604,13 +1651,15 @@ class TestCompileStageSalvage:
             ep_cache_context=bin_name,
             main_context=1,
         )
-        output_info = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 4])
-        graph = helper.make_graph([node], "epcontext_model", [], [output_info])
-        model = helper.make_model(
+        output_info = onnx.helper.make_tensor_value_info(
+            "output", onnx.TensorProto.FLOAT, [1, 4]
+        )
+        graph = onnx.helper.make_graph([node], "epcontext_model", [], [output_info])
+        model = onnx.helper.make_model(
             graph,
             opset_imports=[
-                helper.make_opsetid("", 17),
-                helper.make_opsetid("com.microsoft", 1),
+                onnx.helper.make_opsetid("", 17),
+                onnx.helper.make_opsetid("com.microsoft", 1),
             ],
         )
         model.ir_version = 9
@@ -1629,9 +1678,8 @@ class TestCompileStageSalvage:
         accept this artifact, not reject it at the secondary node.
         """
         import onnx
-        from onnx import TensorProto, helper
 
-        main = helper.make_node(
+        main = onnx.helper.make_node(
             "EPContext",
             inputs=[],
             outputs=["main_out"],
@@ -1644,7 +1692,7 @@ class TestCompileStageSalvage:
         secondary_attrs: dict[str, int | str] = {"embed_mode": 0, "main_context": 0}
         if secondary_bin_name is not None:
             secondary_attrs["ep_cache_context"] = secondary_bin_name
-        secondary = helper.make_node(
+        secondary = onnx.helper.make_node(
             "EPContext",
             inputs=[],
             outputs=["secondary_out"],
@@ -1652,16 +1700,20 @@ class TestCompileStageSalvage:
             domain="com.microsoft",
             **secondary_attrs,
         )
-        main_info = helper.make_tensor_value_info("main_out", TensorProto.FLOAT, [1, 4])
-        secondary_info = helper.make_tensor_value_info("secondary_out", TensorProto.FLOAT, [1, 4])
-        graph = helper.make_graph(
+        main_info = onnx.helper.make_tensor_value_info(
+            "main_out", onnx.TensorProto.FLOAT, [1, 4]
+        )
+        secondary_info = onnx.helper.make_tensor_value_info(
+            "secondary_out", onnx.TensorProto.FLOAT, [1, 4]
+        )
+        graph = onnx.helper.make_graph(
             [main, secondary], "epcontext_multipartition", [], [main_info, secondary_info]
         )
-        model = helper.make_model(
+        model = onnx.helper.make_model(
             graph,
             opset_imports=[
-                helper.make_opsetid("", 17),
-                helper.make_opsetid("com.microsoft", 1),
+                onnx.helper.make_opsetid("", 17),
+                onnx.helper.make_opsetid("com.microsoft", 1),
             ],
         )
         model.ir_version = 9
@@ -1814,7 +1866,6 @@ class TestCompileStageSalvage:
     def test_non_epcontext_leftover_is_not_salvaged(self, bundle_dir_with_pipeline: Path) -> None:
         """A structurally valid ONNX that is *not* an EPContext model is rejected."""
         import onnx
-        from onnx import TensorProto, helper
 
         session = GenaiSession(bundle_dir_with_pipeline, ep="qnn", compile=True)
         compiled_dir = bundle_dir_with_pipeline / "_compiled"
@@ -1824,12 +1875,12 @@ class TestCompileStageSalvage:
 
         def _write() -> None:
             # A plain Identity graph (valid ONNX, no EPContext node) next to source.
-            node = helper.make_node("Identity", inputs=["x"], outputs=["y"], name="id0")
-            x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 4])
-            y = helper.make_tensor_value_info("y", TensorProto.FLOAT, [1, 4])
-            model = helper.make_model(
-                helper.make_graph([node], "plain", [x], [y]),
-                opset_imports=[helper.make_opsetid("", 17)],
+            node = onnx.helper.make_node("Identity", inputs=["x"], outputs=["y"], name="id0")
+            x = onnx.helper.make_tensor_value_info("x", onnx.TensorProto.FLOAT, [1, 4])
+            y = onnx.helper.make_tensor_value_info("y", onnx.TensorProto.FLOAT, [1, 4])
+            model = onnx.helper.make_model(
+                onnx.helper.make_graph([node], "plain", [x], [y]),
+                opset_imports=[onnx.helper.make_opsetid("", 17)],
             )
             model.ir_version = 9
             onnx.save(model, str(auto_onnx))
@@ -2783,6 +2834,148 @@ class TestMirrorNonOnnxFiles:
 
         # Should not be replaced
         assert existing.read_bytes() == b"already here"
+
+
+# ---------------------------------------------------------------------------
+# Tests: shared EPContext groups whose blobs omit weights
+# ---------------------------------------------------------------------------
+
+
+class TestSharedGroupExternalWeights:
+    @staticmethod
+    def _shared_group(tmp_path: Path, ep: str) -> tuple[GenaiSession, list, dict]:
+        import numpy as np
+        import onnx
+
+        pipeline = []
+        group = []
+        for stage_key, filename in (("context", "ctx.onnx"), ("iterator", "iter.onnx")):
+            weight = onnx.numpy_helper.from_array(np.ones((4, 4), dtype=np.float32), "w")
+            graph = onnx.helper.make_graph(
+                [onnx.helper.make_node("MatMul", ["x", "w"], ["y"])],
+                stage_key,
+                [onnx.helper.make_tensor_value_info("x", onnx.TensorProto.FLOAT, [1, 4])],
+                [onnx.helper.make_tensor_value_info("y", onnx.TensorProto.FLOAT, [1, 4])],
+                [weight],
+            )
+            onnx.save_model(
+                onnx.helper.make_model(graph),
+                str(tmp_path / filename),
+                save_as_external_data=True,
+                location=f"{filename}.data",
+                size_threshold=0,
+            )
+            options = {"provider_options": [{ep: {}}]}
+            pipeline.append({stage_key: {"filename": filename, "session_options": options}})
+            group.append((stage_key, filename, ep, {}))
+        cfg = {"model": {"type": "decoder-pipeline", "decoder": {"pipeline": pipeline}}}
+        (tmp_path / "genai_config.json").write_text(json.dumps(cfg), encoding="utf-8")
+        return GenaiSession(tmp_path, compile=True), group, cfg
+
+    @staticmethod
+    def _group_with_colliding_locations(
+        tmp_path: Path,
+        *,
+        identical: bool,
+    ) -> tuple[GenaiSession, list]:
+        import numpy as np
+        import onnx
+
+        group = []
+        for index, (stage_key, directory) in enumerate(
+            (("context", "context"), ("iterator", "iterator"))
+        ):
+            stage_dir = tmp_path / directory
+            stage_dir.mkdir()
+            values = np.ones((4, 4), dtype=np.float32)
+            if not identical:
+                values *= index + 1
+            weight = onnx.numpy_helper.from_array(values, "w")
+            graph = onnx.helper.make_graph(
+                [onnx.helper.make_node("MatMul", ["x", "w"], ["y"])],
+                stage_key,
+                [onnx.helper.make_tensor_value_info("x", onnx.TensorProto.FLOAT, [1, 4])],
+                [onnx.helper.make_tensor_value_info("y", onnx.TensorProto.FLOAT, [1, 4])],
+                [weight],
+            )
+            filename = f"{directory}/{stage_key}.onnx"
+            onnx.save_model(
+                onnx.helper.make_model(graph),
+                str(tmp_path / filename),
+                save_as_external_data=True,
+                location="weights.bin",
+                size_threshold=0,
+            )
+            group.append((stage_key, filename, "openvino", {}))
+        (tmp_path / "genai_config.json").write_text(
+            json.dumps({"model": {"type": "decoder-pipeline", "decoder": {"pipeline": []}}}),
+            encoding="utf-8",
+        )
+        return GenaiSession(tmp_path, compile=True), group
+
+    def test_different_sidecars_with_same_destination_are_not_shareable(
+        self, tmp_path: Path
+    ) -> None:
+        session, group = self._group_with_colliding_locations(tmp_path, identical=False)
+
+        assert session._stages_shareable(group) is False
+
+    def test_identical_sidecars_with_same_destination_remain_shareable(
+        self, tmp_path: Path
+    ) -> None:
+        session, group = self._group_with_colliding_locations(tmp_path, identical=True)
+
+        assert session._stages_shareable(group) is True
+
+    def test_recompile_refreshes_copied_weight_sidecars(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        session, group, cfg = self._shared_group(tmp_path, "openvino")
+        compiled_dir = tmp_path / "_compiled"
+        compiled_dir.mkdir()
+        monkeypatch.setattr(Path, "symlink_to", MagicMock(side_effect=OSError("denied")))
+
+        session._link_shared_weight_sources(group, compiled_dir, cfg)
+        source = tmp_path / "ctx.onnx.data"
+        copied = compiled_dir / source.name
+        assert copied.read_bytes() == source.read_bytes()
+
+        source.write_bytes(b"recompiled weights")
+        session._link_shared_weight_sources(group, compiled_dir, cfg)
+        assert copied.read_bytes() == b"recompiled weights"
+
+    @pytest.mark.parametrize("cached", [False, True])
+    @pytest.mark.parametrize(("ep", "needs_weights"), [("openvino", True), ("qnn", False)])
+    def test_weightless_blobs_get_weights_and_sharing_at_load(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ep, needs_weights, cached
+    ) -> None:
+        session, group, cfg = self._shared_group(tmp_path, ep)
+        compiled_dir = tmp_path / "_compiled"
+        compiled_dir.mkdir()
+
+        def fake_compile(srcs, ctx_outs, group):
+            for ctx in ctx_outs:
+                ctx.write_bytes(b"ep_ctx")
+            return True
+
+        compile_spy = MagicMock(side_effect=fake_compile)
+        monkeypatch.setattr(session, "_compile_stages_shared", compile_spy)
+        monkeypatch.setattr(session, "_epcontext_is_fresh", lambda *_args: cached)
+
+        assert session._process_shared_group(group, compiled_dir, cfg, set()) is True
+
+        assert compile_spy.called is not cached
+        stages = {k: v for entry in cfg["model"]["decoder"]["pipeline"] for k, v in entry.items()}
+        for stage_key, filename, _ep, _opts in group:
+            source_data = tmp_path / f"{filename}.data"
+            linked = compiled_dir / source_data.name
+            sharing = stages[stage_key]["session_options"].get("ep.share_ep_contexts")
+            if needs_weights:
+                assert linked.read_bytes() == source_data.read_bytes()
+                assert sharing == "1"
+            else:
+                assert not linked.exists()
+                assert sharing is None
 
 
 # ---------------------------------------------------------------------------

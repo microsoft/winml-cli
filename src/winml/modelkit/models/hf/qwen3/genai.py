@@ -11,11 +11,12 @@ reused by other model families.
 
 This module adds the **Qwen3-specific** layer on top: the Qwen3 transformer
 stages run on an NPU backend, so this is where the per-EP ``session_options``
-are constructed.  Two NPU execution providers are supported for the
+are constructed.  Three NPU execution providers are supported for the
 transformer (context/iterator) stages:
 
 * **QNN HTP** — Qualcomm Snapdragon NPU (``ep="qnn"``).
 * **VitisAI** — AMD Ryzen AI NPU (``ep="vitisai"``).
+* **OpenVINO** — Intel NPU via the plugin EP (``ep="openvino"``).
 
 Keeping the EP-specific logic here lets the generic utilities stay universal
 while the Qwen3 bundle emits the correct per-EP ``genai_config.json``.
@@ -23,9 +24,12 @@ while the Qwen3 bundle emits the correct per-EP ``genai_config.json``.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ....onnx import strip_node_attrs
+from ....session import lookup_device_spec, short_ep_name
 from ....utils.constants import normalize_ep_name
 from ....utils.genai import (
     DEFAULT_CONTEXT_FILENAME,
@@ -51,101 +55,133 @@ from ...winml.genai_bundle import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
-    from pathlib import Path
 
     import onnx
 
 
 # ---------------------------------------------------------------------------
-# Qwen3-specific NPU execution-provider routing (QNN / VitisAI)
+# Qwen3-specific NPU execution-provider routing (QNN / VitisAI / OpenVINO)
 # ---------------------------------------------------------------------------
 
-
-def qnn_stage_session_options(log_id: str, soc_model: str = "60") -> dict:
-    """Return the ``session_options`` block that routes a stage to QNN HTP.
+def _stage_session_options(
+    log_id: str,
+    ep: str,
+    device: str,
+    *,
+    provider_options: dict[str, str] | None = None,
+    intra_op_num_threads: int = 2,
+) -> dict:
+    """Return session options for any cataloged EP/device target.
 
     Args:
-        log_id: ORT log identifier (shown in ORT logs), e.g.
-            ``"onnxruntime-genai.context"``.
-        soc_model: Snapdragon SoC model number passed to the QNN HTP backend.
-            ``"60"`` targets Snapdragon 8 Gen 3 (X Elite).  Change for other
-            SoCs (e.g. ``"55"`` for 8 Gen 2, ``"73"`` for 8 Elite).
+        log_id: ORT log identifier.
+        ep: Execution provider alias or full name.
+        device: Concrete device category.
+        provider_options: Options overlaid on the catalog defaults.
+        intra_op_num_threads: Stage intra-op thread count.
 
     Returns:
         Dict suitable for the ``session_options`` key of a pipeline stage in
         ``genai_config.json``.
     """
+    canonical = normalize_ep_name(ep)
+    spec = lookup_device_spec(canonical, device)
+    if spec is None:
+        raise ValueError(f"Unsupported GenAI stage target: ep={ep!r}, device={device!r}")
+    options = {**spec.default_provider_options, **(provider_options or {})}
     return {
         "log_id": log_id,
-        "provider_options": [
-            {
-                "qnn": {
-                    "backend_path": "QnnHtp.dll",
-                    "htp_performance_mode": "burst",
-                    "htp_graph_finalization_optimization_mode": "3",
-                    "soc_model": soc_model,
-                }
-            }
-        ],
-        "intra_op_num_threads": 2,
+        "provider_options": [{short_ep_name(canonical): options}],
+        "intra_op_num_threads": intra_op_num_threads,
         "inter_op_num_threads": 1,
     }
 
 
-def vitisai_stage_session_options(log_id: str) -> dict:
-    """Return the ``session_options`` block that routes a stage to the AMD NPU.
-
-    Routes a Qwen3 transformer stage to the AMD Ryzen AI NPU via the VitisAI
-    execution provider.  The provider options match the AMD reference inference
-    configuration (``waic_target_vaiml_cpp_me`` VAIML C++ backend with the
-    XMC runner and linear-slice disabled).
-
-    Args:
-        log_id: ORT log identifier (shown in ORT logs), e.g.
-            ``"onnxruntime-genai.context"``.
-
-    Returns:
-        Dict suitable for the ``session_options`` key of a pipeline stage in
-        ``genai_config.json``.
-    """
-    return {
-        "log_id": log_id,
-        "provider_options": [
-            {
-                "vitisai": {
-                    "target": "waic_target_vaiml_cpp_me",
-                    "xmc_runner_config": "1",
-                    "no_linear_slice": "1",
-                }
-            }
-        ],
-        "intra_op_num_threads": 8,
-        "inter_op_num_threads": 1,
-    }
-
-
-def _stage_session_options(ep: str, soc_model: str) -> tuple[dict | None, dict | None]:
+def _transformer_stage_session_options(
+    ep: str,
+    soc_model: str,
+    *,
+    device: str = "npu",
+    openvino_weights_path: str | Path | None = None,
+) -> tuple[dict | None, dict | None]:
     """Return ``(context, iterator)`` session_options for the given EP.
 
     Routes the Qwen3 transformer (context/iterator) stages to an NPU backend:
 
     * ``ep="qnn"`` -> Qualcomm QNN HTP (``soc_model`` selects the Snapdragon SoC).
     * ``ep="vitisai"`` -> AMD Ryzen AI NPU.
+    * ``ep="openvino"`` -> Intel NPU or GPU selected by ``device``.
 
     Any other value (e.g. ``"cpu"``) leaves the stages on the default CPU
     provider.  Short aliases and full ``*ExecutionProvider`` names are both
     accepted (normalized via :func:`normalize_ep_name`).
     """
     canonical = normalize_ep_name(ep)
+    device = device.lower()
+    if canonical != "OpenVINOExecutionProvider" and openvino_weights_path is not None:
+        raise ValueError("OpenVINO configuration requires ep='openvino'")
     if canonical == "QNNExecutionProvider":
+        provider_options = {
+            "backend_path": "QnnHtp.dll",
+            "soc_model": soc_model,
+        }
         return (
-            qnn_stage_session_options("onnxruntime-genai.context", soc_model=soc_model),
-            qnn_stage_session_options("onnxruntime-genai.iterator", soc_model=soc_model),
+            _stage_session_options(
+                "onnxruntime-genai.context", ep, "npu", provider_options=provider_options
+            ),
+            _stage_session_options(
+                "onnxruntime-genai.iterator", ep, "npu", provider_options=provider_options
+            ),
         )
     if canonical == "VitisAIExecutionProvider":
+        provider_options = {
+            "target": "waic_target_vaiml_cpp_me",
+            "xmc_runner_config": "1",
+            "no_linear_slice": "1",
+        }
         return (
-            vitisai_stage_session_options("onnxruntime-genai.context"),
-            vitisai_stage_session_options("onnxruntime-genai.iterator"),
+            _stage_session_options(
+                "onnxruntime-genai.context",
+                ep,
+                "npu",
+                provider_options=provider_options,
+                intra_op_num_threads=8,
+            ),
+            _stage_session_options(
+                "onnxruntime-genai.iterator",
+                ep,
+                "npu",
+                provider_options=provider_options,
+                intra_op_num_threads=8,
+            ),
+        )
+    if canonical == "OpenVINOExecutionProvider":
+        spec = lookup_device_spec(canonical, device)
+        if spec is None:
+            raise ValueError(f"OpenVINO {device.upper()} is missing from the EP/device catalog")
+        openvino_options: dict[str, str] = {}
+        if device == "npu":
+            load_config = json.loads(spec.default_provider_options["load_config"])
+            if openvino_weights_path is not None:
+                load_config["NPU"]["WEIGHTS_PATH"] = str(
+                    Path(openvino_weights_path).expanduser().resolve()
+                )
+            openvino_options["load_config"] = json.dumps(load_config, sort_keys=True)
+        elif openvino_weights_path is not None:
+            raise ValueError("OpenVINO weights path is only supported for device='npu'")
+        return (
+            _stage_session_options(
+                "onnxruntime-genai.context",
+                ep,
+                device,
+                provider_options=openvino_options,
+            ),
+            _stage_session_options(
+                "onnxruntime-genai.iterator",
+                ep,
+                device,
+                provider_options=openvino_options,
+            ),
         )
     return None, None
 
@@ -189,13 +225,15 @@ def build_qwen3_transformer_only_stages(
     embeddings_filename: str = DEFAULT_EMBEDDINGS_FILENAME,
     lm_head_filename: str = DEFAULT_LM_HEAD_FILENAME,
     ep: str = "cpu",
+    device: str = "npu",
     soc_model: str = "60",
+    openvino_weights_path: str | Path | None = None,
 ) -> tuple[list[PipelineStage], DecoderIOMapping]:
-    """Build the Qwen3 4-stage pipeline, routing ctx/iter to the NPU per ``ep``.
+    """Build the Qwen3 4-stage pipeline, routing ctx/iter per ``ep``/``device``.
 
     Qwen3-specific wrapper over
     :func:`winml.modelkit.utils.genai.build_decoder_pipeline_stages` that injects
-    the NPU ``session_options`` for the transformer stages.  Tensor names are
+    the accelerator ``session_options`` for the transformer stages. Tensor names are
     still discovered by introspecting the ONNX graphs, so nothing is hardcoded.
 
     Args:
@@ -206,20 +244,28 @@ def build_qwen3_transformer_only_stages(
         iterator_filename: Bundle filename for the iterator model.
         embeddings_filename: Bundle filename for the embeddings model.
         lm_head_filename: Bundle filename for the lm_head model.
-        ep: NPU execution provider for the ``context``/``iterator`` stages —
-            ``"qnn"`` (Qualcomm) or ``"vitisai"`` (AMD) injects that EP's
-            ``session_options`` so those stages run on the NPU while
-            ``embeddings`` and ``lm_head`` stay on CPU.  ``"cpu"`` (default)
-            omits them.
+        ep: Execution provider for the ``context``/``iterator`` stages.
+            ``"qnn"`` (Qualcomm), ``"vitisai"`` (AMD), or ``"openvino"`` (Intel)
+            injects that EP's ``session_options`` while ``embeddings`` and
+            ``lm_head`` stay on CPU. ``"cpu"`` (default) omits them.
+        device: Device targeted by ``ep``. OpenVINO supports ``"npu"`` and
+            ``"gpu"``; the other accelerated recipe targets use ``"npu"``.
         soc_model: Snapdragon SoC model number forwarded to the QNN backend when
             ``ep="qnn"``.  Default ``"60"`` targets Snapdragon 8 Gen 3.  Ignored
             for non-QNN EPs.
+        openvino_weights_path: Optional default external-weights directory for
+            OpenVINO.
 
     Returns:
         ``(stages, decoder_io)`` — see
         :func:`~winml.modelkit.utils.genai.build_decoder_pipeline_stages`.
     """
-    ctx_opts, iter_opts = _stage_session_options(ep, soc_model)
+    ctx_opts, iter_opts = _transformer_stage_session_options(
+        ep,
+        soc_model,
+        device=device,
+        openvino_weights_path=openvino_weights_path,
+    )
     return build_decoder_pipeline_stages(
         context_onnx,
         iterator_onnx,
@@ -248,10 +294,12 @@ def write_genai_bundle(
     embeddings_filename: str = DEFAULT_EMBEDDINGS_FILENAME,
     lm_head_filename: str = DEFAULT_LM_HEAD_FILENAME,
     ep: str = "cpu",
+    device: str = "npu",
     soc_model: str = "60",
     transformer_onnx_passes: Sequence[Callable[[onnx.ModelProto], onnx.ModelProto]] | None = None,
+    openvino_weights_path: str | Path | None = None,
 ) -> Path:
-    """Assemble a Qwen3 genai bundle, routing ctx/iter to the NPU per ``ep``.
+    """Assemble a Qwen3 genai bundle, routing ctx/iter per ``ep``/``device``.
 
     Qwen3-specific wrapper over
     :func:`winml.modelkit.utils.genai.write_genai_bundle` that supplies the NPU
@@ -259,20 +307,37 @@ def write_genai_bundle(
     the description of every other argument.
 
     Args:
-        ep: NPU execution provider routing the transformer (context/iterator)
-            stages — ``"qnn"`` (Qualcomm HTP) or ``"vitisai"`` (AMD Ryzen AI);
+        ep: Execution provider routing the transformer (context/iterator)
+            stages — ``"qnn"`` (Qualcomm HTP), ``"vitisai"`` (AMD Ryzen AI),
+            or ``"openvino"`` (Intel NPU/GPU);
             ``"cpu"`` (default) keeps every stage on CPU.
+        device: Device targeted by ``ep``. OpenVINO supports ``"npu"`` and
+            ``"gpu"``; the other accelerated recipe targets use ``"npu"``.
         soc_model: Snapdragon SoC model passed to the QNN backend when
             ``ep="qnn"``.  Default ``"60"`` = Snapdragon 8 Gen 3 / X Elite.
             Ignored for non-QNN EPs.
         transformer_onnx_passes: Optional ONNX graph transforms applied to the
             copied context/iterator models before ``genai_config.json`` is
             written.  Forwarded verbatim to the generic assembler.
+        openvino_weights_path: Default external-weights directory for OpenVINO;
+            defaults to the output bundle directory. Other EPs reject this option.
 
     Returns:
         Path to the written ``genai_config.json``.
     """
-    ctx_opts, iter_opts = _stage_session_options(ep, soc_model)
+    device = device.lower()
+    if (
+        normalize_ep_name(ep) == "OpenVINOExecutionProvider"
+        and device == "npu"
+        and openvino_weights_path is None
+    ):
+        openvino_weights_path = output_dir
+    ctx_opts, iter_opts = _transformer_stage_session_options(
+        ep,
+        soc_model,
+        device=device,
+        openvino_weights_path=openvino_weights_path,
+    )
     return _write_genai_bundle(
         output_dir,
         context_onnx=context_onnx,
@@ -303,9 +368,7 @@ __all__ = [
     "build_decoder_pipeline_stages",
     "build_genai_config",
     "build_qwen3_transformer_only_stages",
-    "qnn_stage_session_options",
     "strip_gqa_default_attrs",
-    "vitisai_stage_session_options",
     "write_genai_bundle",
 ]
 
@@ -347,6 +410,8 @@ QWEN3_GENAI_BUNDLE_RECIPE = register_genai_bundle(
         supported_targets=(
             GenaiTarget(ep="qnn", device="npu"),  # Qualcomm Snapdragon NPU
             GenaiTarget(ep="vitisai", device="npu"),  # AMD Ryzen AI NPU
+            GenaiTarget(ep="openvino", device="npu"),  # Intel NPU
+            GenaiTarget(ep="openvino", device="gpu"),  # Intel GPU
             GenaiTarget(ep="cpu", device="cpu"),
         ),
         transformer_onnx_passes=(strip_gqa_default_attrs,),
