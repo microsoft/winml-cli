@@ -21,6 +21,8 @@ FDY_VERSION = 0x00000004
 FDY_SOURCE_FORMAT_ONNX_PROTOBUF = 0
 FDY_COMPILER_TARGET_DXCGC = 1
 FDY_SERIALIZATION_FORMAT_TEXT = 1
+FDY_SERIALIZATION_FORMAT_BYTECODE = 0
+FDY_MLIR_DIALECT_CGC = 4
 FDY_COMPILER_RESULT_SUCCESS = 0
 FDY_PASS_OVERRIDE_DYNAMIC_DIMS_BY_DIM_NAME = 15
 FDY_PASS_STAGE_BEFORE_LOWERING = 0
@@ -116,9 +118,7 @@ def find_foundry_toolbox() -> Path:
             "CGC export requires a windowsml wheel containing FoundryToolbox.dll."
         ) from e
 
-    candidate = Path(
-        str(distribution.locate_file("windowsml/lib/FoundryToolbox.dll"))
-    )
+    candidate = Path(str(distribution.locate_file("windowsml/lib/FoundryToolbox.dll")))
     if not candidate.is_file():
         raise FoundryToolboxUnavailableError(
             "The installed windowsml wheel "
@@ -230,6 +230,64 @@ class FoundryCompiler:
             missing_external_data=missing_external_data,
         )
 
+    def read_cgir(self, source: bytes) -> bytes:
+        """Parse CGC text or bytecode and print it without running lowering passes."""
+        try:
+            parse = self._dll.FdyCreateModuleFromMlir
+        except AttributeError as e:
+            raise FoundryToolboxUnavailableError(
+                "CGC IR validation requires a preview FoundryToolbox with FdyCreateModuleFromMlir."
+            ) from e
+        parse.argtypes = [
+            ctypes.c_void_p,
+            _FdySpan,
+            ctypes.c_uint32,
+            ctypes.c_uint32,
+            ctypes.POINTER(ctypes.c_void_p),
+        ]
+        parse.restype = ctypes.c_uint32
+        source_buffer = ctypes.create_string_buffer(source)
+        module = ctypes.c_void_p()
+        encoding = (
+            FDY_SERIALIZATION_FORMAT_BYTECODE
+            if source.startswith(b"ML\xefR")
+            else FDY_SERIALIZATION_FORMAT_TEXT
+        )
+        result = parse(
+            self._compiler,
+            _FdySpan(ctypes.cast(source_buffer, ctypes.c_void_p), len(source)),
+            encoding,
+            FDY_MLIR_DIALECT_CGC,
+            ctypes.byref(module),
+        )
+        if result != FDY_COMPILER_RESULT_SUCCESS:
+            raise self._last_error(result)
+        try:
+            return self._serialize_module(module)
+        finally:
+            self._dll.FdyModuleDestroy(module)
+
+    def _serialize_module(self, module: ctypes.c_void_p) -> bytes:
+        size = ctypes.c_size_t()
+        result = self._dll.FdyModuleSerialize(
+            module,
+            FDY_SERIALIZATION_FORMAT_TEXT,
+            _FdyMutableSpan(None, 0),
+            ctypes.byref(size),
+        )
+        if result != FDY_COMPILER_RESULT_SUCCESS:
+            raise self._last_error(result)
+        output = ctypes.create_string_buffer(size.value)
+        result = self._dll.FdyModuleSerialize(
+            module,
+            FDY_SERIALIZATION_FORMAT_TEXT,
+            _FdyMutableSpan(ctypes.cast(output, ctypes.c_void_p), len(output)),
+            ctypes.byref(size),
+        )
+        if result != FDY_COMPILER_RESULT_SUCCESS:
+            raise self._last_error(result)
+        return output.raw[: size.value]
+
     def compile_onnx(
         self,
         source: bytes,
@@ -246,21 +304,13 @@ class FoundryCompiler:
         source_buffer = ctypes.create_string_buffer(source)
         model_directory_bytes = str(model_directory.resolve()).encode("utf-8")
         output_data_file_bytes = (
-            str(output_data_file).encode("utf-8")
-            if output_data_file is not None
-            else b""
+            str(output_data_file).encode("utf-8") if output_data_file is not None else b""
         )
         dim_names = tuple((freeze_dims or {}).keys())
         dim_name_bytes = tuple(name.encode("utf-8") for name in dim_names)
-        dim_name_array = (
-            (ctypes.c_char_p * len(dim_names))(*dim_name_bytes)
-            if dim_names
-            else None
-        )
+        dim_name_array = (ctypes.c_char_p * len(dim_names))(*dim_name_bytes) if dim_names else None
         dim_value_array = (
-            (ctypes.c_int64 * len(dim_names))(
-                *((freeze_dims or {})[name] for name in dim_names)
-            )
+            (ctypes.c_int64 * len(dim_names))(*((freeze_dims or {})[name] for name in dim_names))
             if dim_names
             else None
         )
@@ -313,24 +363,6 @@ class FoundryCompiler:
             raise self._last_error(result)
 
         try:
-            size = ctypes.c_size_t()
-            result = self._dll.FdyModuleSerialize(
-                module,
-                FDY_SERIALIZATION_FORMAT_TEXT,
-                _FdyMutableSpan(None, 0),
-                ctypes.byref(size),
-            )
-            if result != FDY_COMPILER_RESULT_SUCCESS:
-                raise self._last_error(result)
-            output = ctypes.create_string_buffer(size.value)
-            result = self._dll.FdyModuleSerialize(
-                module,
-                FDY_SERIALIZATION_FORMAT_TEXT,
-                _FdyMutableSpan(ctypes.cast(output, ctypes.c_void_p), len(output)),
-                ctypes.byref(size),
-            )
-            if result != FDY_COMPILER_RESULT_SUCCESS:
-                raise self._last_error(result)
-            return output.raw[: size.value]
+            return self._serialize_module(module)
         finally:
             self._dll.FdyModuleDestroy(module)
