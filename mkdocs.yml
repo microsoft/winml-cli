@@ -88,6 +88,7 @@ nav:
       - Installation: getting-started/installation.md
       - Quickstart: getting-started/quickstart.md
       - UI Quickstart: getting-started/ui-quickstart.md
+      - CGC Onboarding: getting-started/cgc-onboarding.md
       - Use with AI Agent:
           - Overview: getting-started/agent-skill/index.md
           - Use WinML CLI: getting-started/agent-skill/use-winml-cli.md
