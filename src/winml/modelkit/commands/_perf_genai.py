@@ -491,6 +491,48 @@ class GenaiBenchmarkResult:
         return rounded
 
 
+def _aggregate_request_samples(
+    samples: list[_RequestSample], *, session_load_ms: float
+) -> tuple[list[_RequestSample], dict[str, Any]]:
+    """Summarize timed requests (warmups excluded) into the canonical ``aggregate`` block.
+
+    Shared by the generation runtimes (``ort-genai`` and GGUF) so their
+    ``aggregate`` JSON stays field-for-field identical.
+
+    Returns:
+        ``(timed, aggregate)``: the samples the statistics cover (every sample when
+        none is marked ``timed``) and the aggregate dictionary.
+    """
+    timed = [sample for sample in samples if sample.kind == "timed"] or samples
+    first = samples[0] if samples else None
+    aggregate: dict[str, Any] = {
+        "warmup_excluded": True,
+        "warmup_request_count": len([sample for sample in samples if sample.kind == "warmup"]),
+        "timed_request_count": len(timed),
+        "cold_start_ttft_duration_ms": (
+            session_load_ms + first.request_ttft_duration_ms if first else 0.0
+        ),
+        "cold_start_total_duration_ms": (
+            session_load_ms + first.request_duration_ms if first else 0.0
+        ),
+        "request_duration_ms": _stats([s.request_duration_ms for s in timed]),
+        "model_compute_duration_ms": _stats([s.model_compute_duration_ms for s in timed]),
+        "model_ttft_duration_ms": _stats([s.model_ttft_duration_ms for s in timed]),
+        "request_ttft_duration_ms": _stats([s.request_ttft_duration_ms for s in timed]),
+        "prefill_duration_ms": _stats([s.prefill_duration_ms for s in timed]),
+        "response_eval_duration_ms": _stats([s.response_eval_duration_ms for s in timed]),
+        "steady_state_tpot_ms": _stats([s.steady_state_tpot_ms for s in timed]),
+        "prefill_tokens_per_second": _stats([s.prefill_tokens_per_second for s in timed]),
+        "steady_state_decode_tokens_per_second": _stats(
+            [s.steady_state_decode_tokens_per_second for s in timed]
+        ),
+        "response_eval_tokens_per_second": _stats(
+            [s.response_eval_tokens_per_second for s in timed]
+        ),
+    }
+    return timed, aggregate
+
+
 # =============================================================================
 # Benchmark engine
 # =============================================================================
@@ -729,34 +771,8 @@ class GenaiPerfBenchmark:
         self, samples: list[_RequestSample], *, session_load_ms: float
     ) -> GenaiBenchmarkResult:
         """Aggregate canonical samples (warmup requests excluded from stats)."""
-        timed = [sample for sample in samples if sample.kind == "timed"] or samples
-        first = samples[0] if samples else None
+        timed, aggregate = _aggregate_request_samples(samples, session_load_ms=session_load_ms)
         load = self._load_metrics(session_load_ms)
-        aggregate: dict[str, Any] = {
-            "warmup_excluded": True,
-            "warmup_request_count": len([sample for sample in samples if sample.kind == "warmup"]),
-            "timed_request_count": len(timed),
-            "cold_start_ttft_duration_ms": (
-                session_load_ms + first.request_ttft_duration_ms if first else 0.0
-            ),
-            "cold_start_total_duration_ms": (
-                session_load_ms + first.request_duration_ms if first else 0.0
-            ),
-            "request_duration_ms": _stats([s.request_duration_ms for s in timed]),
-            "model_compute_duration_ms": _stats([s.model_compute_duration_ms for s in timed]),
-            "model_ttft_duration_ms": _stats([s.model_ttft_duration_ms for s in timed]),
-            "request_ttft_duration_ms": _stats([s.request_ttft_duration_ms for s in timed]),
-            "prefill_duration_ms": _stats([s.prefill_duration_ms for s in timed]),
-            "response_eval_duration_ms": _stats([s.response_eval_duration_ms for s in timed]),
-            "steady_state_tpot_ms": _stats([s.steady_state_tpot_ms for s in timed]),
-            "prefill_tokens_per_second": _stats([s.prefill_tokens_per_second for s in timed]),
-            "steady_state_decode_tokens_per_second": _stats(
-                [s.steady_state_decode_tokens_per_second for s in timed]
-            ),
-            "response_eval_tokens_per_second": _stats(
-                [s.response_eval_tokens_per_second for s in timed]
-            ),
-        }
 
         return GenaiBenchmarkResult(
             config=self._config,

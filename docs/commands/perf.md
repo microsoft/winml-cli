@@ -16,8 +16,8 @@ $ winml perf [options]
 
 | Flag | Short | Type | Default | Description |
 |---|---|---|---|---|
-| `--model` | `-m` | `TEXT` | — | HuggingFace model ID or path to a local `.onnx` file. With `--runtime winml-runtime`, also accepts a prebuilt CGC `.mlir` file. Required. With `--runtime ort-genai`, also accepts a prebuilt genai **bundle directory**, or a HuggingFace model ID that is auto-built into a bundle on demand. |
-| `--runtime` | | `auto\|winml-ort\|ort-genai\|winml-runtime` | `auto` | Inference runtime. `auto` selects `ort-genai` for local folders containing `genai_config.json`, `winml-runtime` for `.mlir` files, otherwise `winml-ort`; `winml-ort` benchmarks single-shot ONNX inference; `ort-genai` benchmarks an onnxruntime-genai bundle (LLM generation: time-to-first-token + decode tokens/sec); `winml-runtime` runs ONNX or prebuilt CGC MLIR through Windows ML Runtime. With `ort-genai`, a model ID that is not a bundle directory is auto-built into one before benchmarking. An explicit `--ep` or `--device` selects both the transformer build and runtime target; without an override, the auto-build defaults to QNN/NPU. Bundles are cached under `~/.cache/winml/`, separately for each explicit EP/device target. GenAI cache controls are tracked in issue #1275. |
+| `--model` | `-m` | `TEXT` | — | HuggingFace model ID or path to a local `.onnx` file. With `--runtime winml-runtime`, also accepts a prebuilt CGC `.mlir` file or, experimentally, a local `.gguf` language model ([GGUF models](../samples/gguf-llama-perf.md)). Required. With `--runtime ort-genai`, also accepts a prebuilt genai **bundle directory**, or a HuggingFace model ID that is auto-built into a bundle on demand. |
+| `--runtime` | | `auto\|winml-ort\|ort-genai\|winml-runtime` | `auto` | Inference runtime. `auto` selects `ort-genai` for local folders containing `genai_config.json`, `winml-runtime` for `.mlir` and `.gguf` files, otherwise `winml-ort`; `winml-ort` benchmarks single-shot ONNX inference; `ort-genai` benchmarks an onnxruntime-genai bundle (LLM generation: time-to-first-token + decode tokens/sec); `winml-runtime` runs ONNX or prebuilt CGC MLIR through Windows ML Runtime, and GGUF language models on its llama.cpp backend (experimental; see [GGUF models](../samples/gguf-llama-perf.md)). With `ort-genai`, a model ID that is not a bundle directory is auto-built into one before benchmarking. An explicit `--ep` or `--device` selects both the transformer build and runtime target; without an override, the auto-build defaults to QNN/NPU. Bundles are cached under `~/.cache/winml/`, separately for each explicit EP/device target. GenAI cache controls are tracked in issue #1275. |
 | `--task` | | `TEXT` | auto-detected | Explicit task override (e.g., `image-classification`). Inferred from the model if omitted. |
 | `--iterations` | | `INTEGER` | `100` (`10` with `--op-tracing`) | Number of timed inference iterations used to compute statistics. Explicit values override the op-tracing default. |
 | `--warmup` | | `INTEGER` | `10` | Number of warm-up iterations run before timing begins; excluded from statistics. |
@@ -41,15 +41,15 @@ $ winml perf [options]
 | `--op-tracing` | | `basic\|detail` | — | Enable operator-level profiling. QNN detail tracing requires an EPContext model; a raw ONNX input is detected and compiled automatically with the required profiling options. |
 | `--compile` / `--no-compile` | | flag | `false` | Compile the model to EPContext binaries during build. QNN detail op-tracing enables this automatically for a raw ONNX input unless `--no-compile` or `--skip-build` was explicitly specified. For `--runtime ort-genai` on the NPU, `--compile` pre-compiles each QNN stage (in an isolated subprocess) before generation. |
 | `--compile-timeout` | | `INTEGER` | `300` | *(ort-genai)* Max seconds to compile each EPContext stage before falling back to the original ONNX. Requires `--compile`. |
-| `--prompt` | | `TEXT` | `Explain the theory of relativity in simple terms.` | *(ort-genai)* Prompt text to generate from. Wrapped in the bundle's chat template unless `--no-apply-template`. |
-| `--apply-template/--no-apply-template` | | flag | `true` | *(ort-genai)* Wrap `--prompt` in the bundle's chat template before timing. |
-| `--max-new-tokens` | | `INTEGER` | `128` | *(ort-genai)* Number of new tokens to generate per iteration. |
+| `--prompt` | | `TEXT` | `Explain the theory of relativity in simple terms.` | *(ort-genai, GGUF)* Prompt text to generate from. Wrapped in the model's chat template unless `--no-apply-template`. |
+| `--apply-template/--no-apply-template` | | flag | `true` | *(ort-genai, GGUF)* Wrap `--prompt` in the model's chat template before timing. |
+| `--max-new-tokens` | | `INTEGER` | `128` | *(ort-genai, GGUF)* Number of new tokens to generate per iteration. |
 
 ## How it works
 
 `winml perf` loads the model through `WinMLAutoModel` — accepting both HuggingFace IDs and local ONNX files — then generates random input tensors from the model's I/O configuration. It runs the specified number of warm-up iterations (excluded from statistics) followed by the timed iterations, collecting per-sample latency. The final report includes mean, min, max, P50, P90, P95, P99, standard deviation, and throughput in samples per second. When `--monitor` is active, a hardware polling loop runs in parallel and records NPU / GPU utilization, CPU usage, and device memory alongside the timing data.
 
-Both runtime reports include `schema_version: 2` and a `benchmark_info.runtime` discriminator (`winml-ort` or `ort-genai`). Shared metadata such as `model_id`, `running_model_path`, `device`, `ep`, `iterations`, `warmup`, and `timestamp` uses the same field names where the concepts overlap; GenAI also keeps `bundle_dir` because the runnable artifact is a bundle directory.
+Both runtime reports include `schema_version: 2` and a `benchmark_info.runtime` discriminator (`winml-ort` or `ort-genai`). GGUF reports (experimental) reuse the GenAI phase-based schema with `benchmark_info.runtime: winml-runtime` and `benchmark_info.backend: llama.cpp`; see [GGUF models](../samples/gguf-llama-perf.md). Shared metadata such as `model_id`, `running_model_path`, `device`, `ep`, `iterations`, `warmup`, and `timestamp` uses the same field names where the concepts overlap; GenAI also keeps `bundle_dir` because the runnable artifact is a bundle directory.
 
 When `--memory` is enabled, both `winml-ort` and `ort-genai` reports use the same `memory` field names for shared concepts: RSS baseline, after-compile/load, after-inference, peak, model-load delta, inference/generation delta, and total delta; VRAM local/shared baseline, after-compile/load, after-inference, peak, model-load delta, inference/generation delta, and total delta.
 
@@ -149,6 +149,24 @@ target validation.
 | Decode TPS | `requests[].steady_state_decode_tokens_per_second`, `aggregate.steady_state_decode_tokens_per_second` | Tokens after the first divided by the sum of per-token decode durations after the first. |
 | RAM Usage | `memory.rss_*` | Classic-compatible RSS fields such as `rss_baseline_mb`, `rss_after_compile_mb`, `rss_after_inference_mb`, `rss_model_load_delta_mb`, `rss_inference_delta_mb`, and `rss_total_delta_mb`. `rss_checkpoint_peak_mb` is the maximum of the sampled checkpoints, not a continuously sampled peak. Requires `--memory`. |
 | VRAM Usage | `memory.vram_*` | Adapter memory fields are emitted only when the effective GenAI route proves a specific accelerator adapter. Fields include baseline, after-compile, after-inference, load/inference/total deltas, and `vram_*_checkpoint_peak_mb` checkpoint maxima. Requires `--memory`. |
+
+### GGUF language models (experimental)
+
+`winml perf -m model.gguf` benchmarks a GGUF decoder on the llama.cpp backend of
+the Windows ML Runtime API (`windowsml.runtime`); `--runtime auto` selects
+`winml-runtime` for `.gguf` files. It reports the same prefill, TTFT, and decode
+metrics as `--runtime ort-genai`. llama.cpp support ships only in preview Windows ML
+packages that winml-cli does not install, so install them first, as described in
+[GGUF models](../samples/gguf-llama-perf.md):
+
+```bash
+$ winml perf -m models/qwen2.5-0.5b-instruct-q4_k_m.gguf --device cpu --max-new-tokens 64
+```
+
+`--device auto` runs GGUF models on the CPU; `--device gpu` needs a llama.cpp GPU
+backend. Options that select another benchmark target (`--ep`, `--ep-options`,
+`--backend`, `--device-luid`, `--input-data`, `--module`, `--submodel`) are
+rejected for GGUF input, and build-only options are ignored with a warning.
 
 ## Examples
 
