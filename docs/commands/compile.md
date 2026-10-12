@@ -1,6 +1,6 @@
 # winml compile
 
-> Compile ONNX to an EP-specific format, or explicitly compile CGC Input IR to device-targeted Output IR.
+> Compile ONNX to an EP-specific format, or explicitly compile CGIR to device-targeted CG Output IR.
 
 ## When to use this
 
@@ -18,17 +18,17 @@ $ winml compile [options]
 
 | Flag | Short | Type | Default | Description |
 |---|---|---|---|---|
-| `--model` | `-m` | path | *(required unless `--list`)* | Input ONNX model, or complete CGC Input IR in explicit IR mode. |
-| `--input-format` | | choice | `onnx` | Input representation: `onnx` or `cgc-input-ir`. CGC input content is parsed and validated, not inferred from its extension. |
-| `--target` | | choice | `epcontext` | Output representation: `epcontext` or `cgc-output-ir`. |
+| `--model` | `-m` | path | *(required unless `--list`)* | Input ONNX model, or complete CGIR in explicit IR mode. |
+| `--input-format` | | choice | `onnx` | Input representation: `onnx` or `cgir`. CGIR content is parsed and validated, not inferred from its extension. |
+| `--target` | | choice | `epcontext` | Output representation: `epcontext` or `cg-output-ir`. |
 | `--output` | `-o` | path | — | Output file path (e.g., `model_compiled.onnx`). Takes precedence over `--output-dir`. |
 | `--output-dir` | | path | same dir as input | Directory to write compiled output artifacts. |
 | `--device` | `-d` | choice | `auto` | Target device: `auto`, `npu`, `gpu`, or `cpu`. |
 | `--device-luid` | | string | — | Explicit CGC IR mode only: GPU adapter LUID from `winml sys`, in `0xHHHHHHHH_0xLLLLLLLL` form. |
 | `--ep` | | `TEXT` | — | Force a specific execution provider, overriding device-to-provider mapping. Accepts full names (e.g., `QNNExecutionProvider`) or aliases (`qnn`, `dml`, `openvino`, `vitisai`, `migraphx`, `cpu`, `nvtensorrtrtx`). |
 | `--ep-options` | | `KEY=VALUE` | — | Execution-provider option for the compilation session. Repeat for multiple options; later duplicate keys win. Explicit CLI values override matching `compile.provider_options` keys from `--config`. |
-| `--validate` / `--no-validate` | | flag | `--validate` | EPContext: post-compilation inference validation. CGC Output IR: reload, pipeline build and I/O schema validation, without inference. |
-| `--compiler` | | choice | `ort` | EPContext backends: `ort`, `ort_session`, `qairt`. `winml-runtime` is only for the explicit CGC Input IR / Output IR mode. |
+| `--validate` / `--no-validate` | | flag | `--validate` | EPContext: post-compilation inference validation. CG Output IR: reload, pipeline build and I/O schema validation, without inference. |
+| `--compiler` | | choice | `ort` | EPContext backends: `ort`, `ort_session`, `qairt`. Not used for CGIR compilation. |
 | `--qnn-sdk-root` | | path | `None` | Path to the QNN SDK root directory. |
 | `--embed/--no-embed` | | flag | `false` | Embed the EP context blob inside the ONNX file instead of writing a separate `.bin` file. |
 | `--list` | | flag | `false` | List available compiler backends for the selected device and exit without compiling. |
@@ -51,25 +51,23 @@ If a provider option names a compiler input file, list its key in
 that option path and fingerprints its contents for EPContext cache identity;
 other provider-option strings are always passed through unchanged.
 
-## CGC Input IR to Output IR
+## CGIR to CG Output IR
 
 This explicit mode uses the Windows ML Runtime API directly, without an ONNX
-Runtime EP. All three selectors are required so the input representation,
-output representation and compiler implementation are unambiguous:
+Runtime EP. The input and output selectors make the representation unambiguous:
 
 ```powershell
 winml compile `
   -m input.mlir `
-  --input-format cgc-input-ir `
-  --target cgc-output-ir `
-  --compiler winml-runtime `
+  --input-format cgir `
+  --target cg-output-ir `
   --device gpu `
   -o output.mlir
 ```
 
 The command parses the input with the preview wheel's FoundryToolbox, rejecting
-ONNX, malformed IR and already compiled Output IR. Both textual and bytecode
-CGC Input IR are accepted. Supply a complete executable model with its weights,
+ONNX, malformed IR and already compiled CG Output IR. Both textual and bytecode
+CGIR are accepted. Supply a complete executable model with its weights,
 not a graph-only report projection.
 
 Compilation calls the selected GPU target's Runtime
@@ -96,7 +94,7 @@ and validation status. Metadata and resource collisions also require
 `--overwrite`; the input and its metadata are never replaced. Without `-o`, the
 default is `<input-stem>_output.mlir` in `--output-dir` or beside the input.
 
-`--ep`, `--ep-options`, `--embed`/`--no-embed`, `--qnn-sdk-root`, `--list`,
+`--ep`, `--ep-options`, `--compiler`, `--embed`/`--no-embed`, `--qnn-sdk-root`, `--list`,
 `--config` and multiple `-m` inputs are rejected in this mode. Use the existing
 ONNX-to-EPContext mode for EP compilation. Omitting the new selectors preserves
 the original command behavior.

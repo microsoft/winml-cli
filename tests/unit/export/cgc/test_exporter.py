@@ -3,6 +3,7 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -118,7 +119,7 @@ def test_external_mlir_overwrite_replaces_sidecar(tmp_path: Path) -> None:
 
     assert output.read_text(encoding="utf-8") == "module { cgc.test }"
     assert sidecar.read_bytes() == b"new weights"
-    assert metadata.is_file()
+    assert json.loads(metadata.read_text(encoding="utf-8"))["format"] == "cgir"
 
 
 def test_external_mlir_failure_preserves_existing_bundle(tmp_path: Path) -> None:

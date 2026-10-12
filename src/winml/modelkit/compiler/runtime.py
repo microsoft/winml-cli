@@ -48,13 +48,13 @@ def _validate_input_ir(path: Path) -> None:
         with FoundryCompiler() as compiler:
             text = compiler.read_cgir(path.read_bytes()).decode("utf-8")
     except (FoundryCompileError, FoundryToolboxUnavailableError, UnicodeDecodeError) as e:
-        raise click.ClickException(f"Cannot parse CGC Input IR '{path}': {e}") from e
+        raise click.ClickException(f"Cannot parse CGIR '{path}': {e}") from e
     if re.search(r"#cgc\.interface<cgc_output>", text) or not re.search(
         r'(?m)^\s*(?:"cgc\.entry_point"|cgc\.entry_point\b)', text
     ):
         raise click.ClickException(
-            "--input-format cgc-input-ir requires a CGC Input IR entry point, "
-            "not ONNX or already compiled Output IR."
+            "--input-format cgir requires a CGIR entry point, "
+            "not ONNX or already compiled CG Output IR."
         )
 
 
@@ -131,7 +131,7 @@ def compile_cgc_ir(
             "Input and output must be different files, even with --overwrite."
         )
     if output_path.suffix.lower() not in {".mlir", ".mlirbc"}:
-        raise click.UsageError("CGC Output IR output must use .mlir or .mlirbc.")
+        raise click.UsageError("CG Output IR output must use .mlir or .mlirbc.")
     metadata_path = cgc_metadata_path(model_path)
     metadata_identity = _file_identity(metadata_path) if metadata_path.is_file() else None
     metadata = None
@@ -214,7 +214,7 @@ def compile_cgc_ir(
                     raise click.ClickException("Runtime did not produce MLIR bytecode Output IR.")
             if metadata is not None:
                 cgc_metadata_path(artifact).write_text(
-                    json.dumps({**metadata, "format": "cgc-output-ir"}, indent=2),
+                    json.dumps({**metadata, "format": "cg-output-ir"}, indent=2),
                     encoding="utf-8",
                 )
             if validate:
@@ -243,9 +243,9 @@ def compile_cgc_ir(
         if current_metadata_identity != metadata_identity:
             raise click.ClickException("Input IR metadata changed; output not published.")
         receipt = {
-            "input_format": "cgc-input-ir",
-            "target": "cgc-output-ir",
-            "compiler": "winml-runtime",
+            "input_format": "cgir",
+            "target": "cg-output-ir",
+            "runtime": "winml-runtime",
             "compiled_form": "DEVICE_TARGETED",
             "output_encoding": "mlir-bytecode",
             "input": source_identity,

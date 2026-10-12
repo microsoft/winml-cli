@@ -24,11 +24,9 @@ def ir_cli(tmp_path, monkeypatch):
         "-m",
         str(source),
         "--input-format",
-        "cgc-input-ir",
+        "cgir",
         "--target",
-        "cgc-output-ir",
-        "--compiler",
-        "winml-runtime",
+        "cg-output-ir",
     ]
     return source, operation, args
 
@@ -88,11 +86,9 @@ def test_ir_output_file_precedes_output_directory(ir_cli):
 @pytest.mark.parametrize(
     "selectors",
     [
-        ["--compiler", "winml-runtime"],
-        ["--target", "cgc-output-ir"],
-        ["--input-format", "cgc-input-ir"],
-        ["--input-format", "cgc-input-ir", "--target", "cgc-output-ir"],
-        ["--input-format", "onnx", "--target", "cgc-output-ir", "--compiler", "winml-runtime"],
+        ["--target", "cg-output-ir"],
+        ["--input-format", "cgir"],
+        ["--input-format", "onnx", "--target", "cg-output-ir"],
     ],
 )
 def test_incomplete_or_inconsistent_ir_selectors_fail_before_ep_lookup(ir_cli, selectors):
@@ -108,6 +104,7 @@ def test_incomplete_or_inconsistent_ir_selectors_fail_before_ep_lookup(ir_cli, s
     [
         ["--ep", "winmlcg"],
         ["--ep-options", "device_id=0"],
+        ["--compiler", "ort"],
         ["--embed"],
         ["--no-embed"],
         ["--list"],
@@ -175,9 +172,8 @@ def test_ir_flags_and_encoding_visible_in_help():
     for value in (
         "--input-format",
         "--target",
-        "cgc-input-ir",
-        "cgc-output-ir",
-        "winml-runtime",
+        "cgir",
+        "cg-output-ir",
         "bytecode",
     ):
         assert value in result.output

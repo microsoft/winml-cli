@@ -99,7 +99,7 @@ def test_compile_publishes_complete_bundle_and_closes_objects(native):
     assert native.output.read_bytes() == b"ML\xefRcompiled"
     assert native.output.with_suffix(".data").read_bytes() == b"resources"
     metadata = json.loads(native.output.with_name("output_metadata.json").read_text())
-    assert metadata["format"] == "cgc-output-ir"
+    assert metadata["format"] == "cg-output-ir"
     assert metadata["inputs"] == [{"name": "x", "index": 0}]
     receipt = json.loads(native.output.with_name("output_compile.json").read_text())
     assert receipt["validation"]["status"] == "passed"
@@ -299,7 +299,7 @@ def test_input_ir_is_verified_after_native_parse(tmp_path, monkeypatch, text, va
     if valid:
         _validate_input_ir(source)
     else:
-        with pytest.raises(click.ClickException, match="requires a CGC Input IR"):
+        with pytest.raises(click.ClickException, match="requires a CGIR entry point"):
             _validate_input_ir(source)
     parser.read_cgir.assert_called_once_with(b"parse me")
 
@@ -315,7 +315,7 @@ def test_native_input_validation_errors_are_actionable(tmp_path, monkeypatch, er
     source = tmp_path / "input.mlir"
     source.write_bytes(b"not IR")
     monkeypatch.setattr("winml.modelkit.compiler.runtime.FoundryCompiler", Mock(side_effect=error))
-    with pytest.raises(click.ClickException, match="Cannot parse CGC Input IR") as result:
+    with pytest.raises(click.ClickException, match="Cannot parse CGIR") as result:
         _validate_input_ir(source)
     assert str(error) in str(result.value)
 

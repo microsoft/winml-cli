@@ -40,8 +40,6 @@ from ..utils.constants import COMPILER_NAMES, ORT_SESSION_COMPILER, normalize_ep
 
 
 if TYPE_CHECKING:
-    from typing import Literal
-
     from ..utils.constants import CompilerName, EPName, EPNameOrAlias
 from ..utils.logging import configure_logging
 from ._ep_arg import EpAtSourceParamType
@@ -76,17 +74,17 @@ console = Console()
 @cli_utils.overwrite_option()
 @click.option(
     "--input-format",
-    type=click.Choice(["onnx", "cgc-input-ir"], case_sensitive=False),
+    type=click.Choice(["onnx", "cgir"], case_sensitive=False),
     default="onnx",
     show_default=True,
     help="Declared input representation, verified against the file contents.",
 )
 @click.option(
     "--target",
-    type=click.Choice(["epcontext", "cgc-output-ir"], case_sensitive=False),
+    type=click.Choice(["epcontext", "cg-output-ir"], case_sensitive=False),
     default="epcontext",
     show_default=True,
-    help="Output representation. CGC Output IR requires --compiler winml-runtime.",
+    help="Output representation.",
 )
 @click.option(
     "--output-dir",
@@ -123,11 +121,10 @@ console = Console()
 )
 @click.option(
     "--compiler",
-    type=click.Choice([*COMPILER_NAMES, "winml-runtime"]),
+    type=click.Choice(COMPILER_NAMES),
     default="ort",
     help="Compiler backend (default: ort). 'ort_session' compiles via "
-    "ort.InferenceSession (ep.context_enable) — required for shared-context multi-model. "
-    "'winml-runtime' compiles CGC Input IR to device-targeted bytecode Output IR.",
+    "ort.InferenceSession (ep.context_enable) — required for shared-context multi-model.",
 )
 @click.option(
     "--qnn-sdk-root",
@@ -167,7 +164,7 @@ def compile(
     validate: bool,
     verbose: int,
     quiet: bool,
-    compiler: CompilerName | Literal["winml-runtime"],
+    compiler: CompilerName,
     qnn_sdk_root: Path | None,
     embed: bool,
     list_compilers_flag: bool,
@@ -192,25 +189,24 @@ def compile(
         # Compile using QAIRT SDK
         winml compile -m model.onnx --compiler qairt --qnn-sdk-root /path/to/sdk
 
-        # Compile CGC Input IR to device-targeted bytecode Output IR
-        winml compile -m input.mlir --input-format cgc-input-ir --target cgc-output-ir
-            --compiler winml-runtime --device gpu -o output.mlir
+        # Compile CGIR to device-targeted bytecode CG Output IR
+        winml compile -m input.mlir --input-format cgir --target cg-output-ir
+            --device gpu -o output.mlir
     """
     # Merge top-level -v/-q with subcommand-level flags so either position works.
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
 
-    ir_mode = (
-        input_format == "cgc-input-ir" or target == "cgc-output-ir" or compiler == "winml-runtime"
-    )
+    ir_mode = input_format == "cgir" or target == "cg-output-ir"
     if ir_mode:
-        if (input_format, target, compiler) != ("cgc-input-ir", "cgc-output-ir", "winml-runtime"):
+        if (input_format, target) != ("cgir", "cg-output-ir"):
             raise click.UsageError(
-                "CGC compilation requires --input-format cgc-input-ir "
-                "--target cgc-output-ir --compiler winml-runtime together."
+                "CGIR compilation requires --input-format cgir "
+                "and --target cg-output-ir together."
             )
         incompatible = {
             "--ep": ep is not None,
             "--ep-options": bool(ep_options),
+            "--compiler": cli_utils.is_cli_provided(ctx, "compiler"),
             "--qnn-sdk-root": qnn_sdk_root is not None,
             "--embed/--no-embed": cli_utils.is_cli_provided(ctx, "embed"),
             "--list": list_compilers_flag,
@@ -219,12 +215,12 @@ def compile(
         rejected = [name for name, present in incompatible.items() if present]
         if rejected:
             raise click.UsageError(
-                f"CGC Output IR compilation does not support: {', '.join(rejected)}."
+                f"CG Output IR compilation does not support: {', '.join(rejected)}."
             )
         if len(model) != 1:
-            raise click.UsageError("CGC Output IR compilation requires exactly one --model.")
+            raise click.UsageError("CG Output IR compilation requires exactly one --model.")
         if device not in {None, "gpu"}:
-            raise click.UsageError("CGC Output IR compilation currently requires --device gpu.")
+            raise click.UsageError("CG Output IR compilation currently requires --device gpu.")
         from ..compiler import compile_cgc_ir
 
         source = model[0]
@@ -241,7 +237,7 @@ def compile(
         except OSError as e:
             raise click.ClickException(f"CGC compilation failed: {e}") from e
         console.print(f"Output: {result_path}")
-        console.print("Format: MLIR bytecode; form: DEVICE_TARGETED (CGC Output IR).")
+        console.print("Format: MLIR bytecode; form: DEVICE_TARGETED (CG Output IR).")
         console.print(
             "Validation: reload, pipeline build and I/O schema passed (no inference)."
             if validate

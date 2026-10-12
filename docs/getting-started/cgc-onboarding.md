@@ -144,14 +144,14 @@ winml export -m .\model.onnx --target cgir -o .\model.mlir
 
 The model must already be compatible with the CGC converter.
 
-### Input IR to device-targeted Output IR
+### CGIR to device-targeted CG Output IR
 
-To retain a compiled artifact from an existing Input IR, use the explicit
-[CGC compile mode](../commands/compile.md#cgc-input-ir-to-output-ir):
+To retain a compiled artifact from existing CGIR, use the explicit
+[CGIR compile mode](../commands/compile.md#cgir-to-cg-output-ir):
 
 ```powershell
-winml compile -m .\model.mlir --input-format cgc-input-ir --target cgc-output-ir `
-  --compiler winml-runtime --device gpu -o .\model-output.mlir
+winml compile -m .\model.mlir --input-format cgir --target cg-output-ir `
+  --device gpu -o .\model-output.mlir
 ```
 
 The artifact is bytecode, not textual MLIR. This is a separate compilation stage,
