@@ -40,7 +40,7 @@ from ..utils.constants import COMPILER_NAMES, ORT_SESSION_COMPILER, normalize_ep
 
 
 if TYPE_CHECKING:
-    from typing import Literal
+    from typing import Literal, TypeGuard
 
     from ..utils.constants import CompilerName, EPName, EPNameOrAlias
 from ..utils.logging import configure_logging
@@ -62,6 +62,10 @@ def _resolve_compile_provider(resolved_device: str, ep: EPNameOrAlias | None) ->
 
 logger = logging.getLogger(__name__)
 console = Console()
+
+
+def _is_epcontext_compiler(value: str) -> TypeGuard[CompilerName]:
+    return value in COMPILER_NAMES
 
 
 @click.command()
@@ -289,6 +293,12 @@ def compile(
         # https://github.com/microsoft/winml-cli/issues/799
         if verbose == 0 and not quiet and "verbose" in cc:
             verbose = int(cc["verbose"])
+
+    if not _is_epcontext_compiler(compiler):
+        raise click.UsageError(
+            "CGC compilation requires a single .mlir/.mlirbc model or explicit "
+            "--compiler cgc; it cannot be selected through EPContext configuration."
+        )
 
     configure_logging(verbosity=verbose, quiet=quiet)
 

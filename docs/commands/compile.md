@@ -65,10 +65,10 @@ winml compile `
 `--compiler cgc` is optional for `.mlir` and `.mlirbc` input. Specify it when
 the CGIR file uses another suffix or when you want to make the backend explicit.
 
-The command parses the input with the preview wheel's FoundryToolbox, rejecting
-ONNX, malformed IR and already compiled CG Output IR. Both textual and bytecode
-CGIR are accepted. Supply a complete executable model with its weights,
-not a graph-only report projection.
+The command loads CGIR through Windows ML Runtime. Both textual and bytecode
+CGIR are accepted; invalid or unsupported input is reported by the Runtime.
+Supply a complete executable model with its weights, not a graph-only report
+projection.
 
 Compilation calls the selected GPU target's Runtime
 `ModelCompiler.compile_to_file()` with `CompiledModelForm.DEVICE_TARGETED`.
@@ -99,10 +99,10 @@ default is `<input-stem>_output.mlir` in `--output-dir` or beside the input.
 ONNX-to-EPContext mode for EP compilation. Omitting the new selectors preserves
 the original command behavior.
 
-The preview `windowsml` payload must include both Runtime and FoundryToolbox
-APIs compatible with the active CLI. If preview wheels override stable project
-pins, invoke the environment directly or use `uv run --no-sync` to avoid restoring
-stable packages.
+The preview `windowsml` payload must include Runtime APIs compatible with the
+active CLI. If preview wheels override stable project pins, invoke the
+environment directly or use `uv run --no-sync` to avoid restoring stable
+packages.
 
 ## Examples
 

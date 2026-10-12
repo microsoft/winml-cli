@@ -185,7 +185,7 @@ class CGCExporter:
         cgc_metadata_path(output_path).write_text(
             json.dumps(
                 {
-                    "format": "cgir",
+                    "format": "cgc-input-ir",
                     "inputs": [
                         {"name": name, "index": index}
                         for index, name in enumerate(result.input_names)

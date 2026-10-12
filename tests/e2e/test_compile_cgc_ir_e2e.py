@@ -13,7 +13,6 @@ from pathlib import Path
 
 import onnx
 import pytest
-from onnx import TensorProto, helper
 
 from winml.modelkit.export.cgc import CGCExporter, CGCOptions
 from winml.modelkit.sysinfo.dxcore_adapters import enumerate_compute_adapters
@@ -43,14 +42,14 @@ def test_real_cli_input_ir_to_persistent_output_ir(tmp_path, gpu_luid, encoding)
         assert source.is_file()
     else:
         source_onnx = tmp_path / "source.onnx"
-        model = helper.make_model(
-            helper.make_graph(
-                [helper.make_node("Relu", ["x"], ["y"])],
+        model = onnx.helper.make_model(
+            onnx.helper.make_graph(
+                [onnx.helper.make_node("Relu", ["x"], ["y"])],
                 "runtime_compile_test",
-                [helper.make_tensor_value_info("x", TensorProto.FLOAT, [2, 4])],
-                [helper.make_tensor_value_info("y", TensorProto.FLOAT, [2, 4])],
+                [onnx.helper.make_tensor_value_info("x", onnx.TensorProto.FLOAT, [2, 4])],
+                [onnx.helper.make_tensor_value_info("y", onnx.TensorProto.FLOAT, [2, 4])],
             ),
-            opset_imports=[helper.make_opsetid("", 18)],
+            opset_imports=[onnx.helper.make_opsetid("", 18)],
             ir_version=8,
         )
         onnx.save(model, source_onnx)
