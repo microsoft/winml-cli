@@ -591,7 +591,7 @@ class TestPayload:
 
     def test_gpu_requires_a_non_cpu_backend(self, tmp_path: Path) -> None:
         package = _windowsml_dir(tmp_path, adapter=True, backends=("cpu",))
-        with pytest.raises(LlamaNotInstalledError, match="windowsml-llama-cuda"):
+        with pytest.raises(LlamaNotInstalledError, match="GPU backend"):
             _require_llama_backend("gpu", package_dir=package, versions=_CORE_ONLY)
 
     def test_gpu_accepts_any_gpu_backend_family(self, tmp_path: Path) -> None:

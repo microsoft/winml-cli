@@ -16,7 +16,8 @@ ML packages that winml-cli does not depend on:
 
 * a preview ``windowsml`` build that exposes ``windowsml.runtime``; and
 * the ``windowsml-llama-core`` payload (llama.cpp adapter and CPU backend),
-  plus a GPU backend such as ``windowsml-llama-cuda`` for ``device="gpu"``.
+  plus a matching GPU backend built with ``Build-LlamaBackend.ps1`` for
+  ``device="gpu"``.
 
 Nothing in this module imports ``windowsml`` at import time. The Runtime is
 imported on first use, and each missing piece is reported as an actionable
@@ -243,9 +244,9 @@ def _require_llama_backend(
     if device == "gpu" and payload.backends and set(payload.backends) <= {_CPU_BACKEND}:
         raise LlamaNotInstalledError(
             "--device gpu needs a llama.cpp GPU backend, but only the CPU backend is "
-            f"installed in '{payload.lib_dir}'. Install 'windowsml-llama-cuda' for NVIDIA "
-            "GPUs, or build another backend family (for example Vulkan) with "
-            "Build-LlamaBackend.ps1 from the microsoft/WindowsML repository. Use "
+            f"installed in '{payload.lib_dir}'. Build a matching GPU backend with "
+            "Build-LlamaBackend.ps1 from the microsoft/WindowsML repository and provide "
+            "its vendor runtime libraries. Use "
             f"--device cpu otherwise. {_DOCS_HINT}"
         )
     return payload
@@ -301,8 +302,8 @@ def _translate_native_errors(phase: str, *, device: str) -> Iterator[None]:
         if hr == _HRESULT_NOT_SUPPORTED and device == "gpu" and phase != "run":
             raise LlamaLoadError(
                 f"The Windows ML Runtime has no usable llama.cpp GPU backend ({hex_hr}). "
-                "Install 'windowsml-llama-cuda' for NVIDIA GPUs or build a backend with "
-                f"Build-LlamaBackend.ps1, or use --device cpu. {_DOCS_HINT}"
+                "Build a matching backend with Build-LlamaBackend.ps1 and provide its "
+                f"vendor runtime libraries, or use --device cpu. {_DOCS_HINT}"
             ) from exc
         if phase == "run":
             raise LlamaSessionError(f"GGUF inference failed ({hex_hr}): {exc}") from exc
