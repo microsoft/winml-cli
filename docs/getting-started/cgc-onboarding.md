@@ -150,9 +150,10 @@ To retain a compiled artifact from existing CGIR, use the explicit
 [CGIR compile mode](../commands/compile.md#cgir-to-cg-output-ir):
 
 ```powershell
-winml compile -m .\model.mlir --input-format cgir --target cg-output-ir `
-  --device gpu -o .\model-output.mlir
+winml compile -m .\model.mlir --compiler cgc --device gpu -o .\model-output.mlir
 ```
+
+For `.mlir` and `.mlirbc` input, `--compiler cgc` is optional.
 
 The artifact is bytecode, not textual MLIR. This is a separate compilation stage,
 without an EP, optimization or quantization. Default validation reloads/builds

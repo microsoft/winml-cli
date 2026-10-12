@@ -23,10 +23,6 @@ def ir_cli(tmp_path, monkeypatch):
     args = [
         "-m",
         str(source),
-        "--input-format",
-        "cgir",
-        "--target",
-        "cg-output-ir",
     ]
     return source, operation, args
 
@@ -38,6 +34,8 @@ def test_explicit_ir_compilation_routes_without_ep_resolution(ir_cli):
         compile,
         [
             *args,
+            "--compiler",
+            "cgc",
             "--device",
             "gpu",
             "--device-luid",
@@ -83,20 +81,16 @@ def test_ir_output_file_precedes_output_directory(ir_cli):
     assert operation.call_args.args[1] == destination
 
 
-@pytest.mark.parametrize(
-    "selectors",
-    [
-        ["--target", "cg-output-ir"],
-        ["--input-format", "cgir"],
-        ["--input-format", "onnx", "--target", "cg-output-ir"],
-    ],
-)
-def test_incomplete_or_inconsistent_ir_selectors_fail_before_ep_lookup(ir_cli, selectors):
+def test_explicit_cgc_compiler_routes_nonstandard_suffix(ir_cli):
     source, operation, _ = ir_cli
-    result = CliRunner().invoke(compile, ["-m", str(source), *selectors])
-    assert result.exit_code == 2, result.output
-    assert "together" in result.output
-    operation.assert_not_called()
+    source = source.with_suffix(".cgir")
+    source.write_bytes(b"input")
+    result = CliRunner().invoke(
+        compile,
+        ["-m", str(source), "--compiler", "cgc"],
+    )
+    assert result.exit_code == 0, result.output
+    operation.assert_called_once()
 
 
 @pytest.mark.parametrize(
@@ -104,7 +98,6 @@ def test_incomplete_or_inconsistent_ir_selectors_fail_before_ep_lookup(ir_cli, s
     [
         ["--ep", "winmlcg"],
         ["--ep-options", "device_id=0"],
-        ["--compiler", "ort"],
         ["--embed"],
         ["--no-embed"],
         ["--list"],
@@ -133,15 +126,15 @@ def test_ir_rejects_config_and_sdk(ir_cli, option):
 
 def test_ir_rejects_multiple_models(ir_cli):
     source, operation, args = ir_cli
-    result = CliRunner().invoke(compile, [*args, "-m", str(source)])
+    result = CliRunner().invoke(compile, [*args, "-m", str(source), "--compiler", "cgc"])
     assert result.exit_code == 2
     assert "exactly one" in result.output
     operation.assert_not_called()
 
 
 def test_ir_requires_model(ir_cli):
-    _, operation, args = ir_cli
-    result = CliRunner().invoke(compile, args[2:])
+    _, operation, _ = ir_cli
+    result = CliRunner().invoke(compile, ["--compiler", "cgc"])
     assert result.exit_code == 2
     assert "exactly one" in result.output
     operation.assert_not_called()
@@ -149,12 +142,14 @@ def test_ir_requires_model(ir_cli):
 
 def test_epcontext_rejects_ir_only_device_luid(ir_cli):
     source, operation, _ = ir_cli
+    source = source.with_suffix(".onnx")
+    source.write_bytes(b"input")
     result = CliRunner().invoke(
         compile,
         ["-m", str(source), "--device-luid", "0x00000000_0x00000001"],
     )
     assert result.exit_code == 2
-    assert "only supported for CGC" in result.output
+    assert "only supported for CG Output IR" in result.output
     operation.assert_not_called()
 
 
@@ -170,10 +165,9 @@ def test_ir_flags_and_encoding_visible_in_help():
     result = CliRunner().invoke(compile, ["--help"])
     assert result.exit_code == 0
     for value in (
-        "--input-format",
-        "--target",
-        "cgir",
-        "cg-output-ir",
+        "--compiler",
+        "cgc",
+        ".mlir",
         "bytecode",
     ):
         assert value in result.output

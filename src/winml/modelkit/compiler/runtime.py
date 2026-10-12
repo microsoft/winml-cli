@@ -53,7 +53,7 @@ def _validate_input_ir(path: Path) -> None:
         r'(?m)^\s*(?:"cgc\.entry_point"|cgc\.entry_point\b)', text
     ):
         raise click.ClickException(
-            "--input-format cgir requires a CGIR entry point, "
+            "The CGC compiler requires a CGIR entry point, "
             "not ONNX or already compiled CG Output IR."
         )
 

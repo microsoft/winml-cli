@@ -40,6 +40,8 @@ from ..utils.constants import COMPILER_NAMES, ORT_SESSION_COMPILER, normalize_ep
 
 
 if TYPE_CHECKING:
+    from typing import Literal
+
     from ..utils.constants import CompilerName, EPName, EPNameOrAlias
 from ..utils.logging import configure_logging
 from ._ep_arg import EpAtSourceParamType
@@ -66,26 +68,12 @@ console = Console()
 @cli_utils.model_path_option(
     required=False,
     multiple=True,
-    help_text="Input model file (ONNX by default; explicit CGC Input IR mode supported). "
+    help_text="Input model file (ONNX by default; CGIR input is also supported). "
     "Repeat -m to compile multiple ONNX models with a shared "
     "EP context (weight sharing). Required unless --list.",
 )
 @cli_utils.output_option("Output file path (e.g., model_compiled.onnx)")
 @cli_utils.overwrite_option()
-@click.option(
-    "--input-format",
-    type=click.Choice(["onnx", "cgir"], case_sensitive=False),
-    default="onnx",
-    show_default=True,
-    help="Declared input representation, verified against the file contents.",
-)
-@click.option(
-    "--target",
-    type=click.Choice(["epcontext", "cg-output-ir"], case_sensitive=False),
-    default="epcontext",
-    show_default=True,
-    help="Output representation.",
-)
 @click.option(
     "--output-dir",
     type=click.Path(path_type=Path),
@@ -100,7 +88,7 @@ console = Console()
     help="Target device (default: deduced from --ep, or 'npu' if neither given)",
 )
 @cli_utils.device_luid_option(
-    optional_message="Only supported for explicit CGC Input IR to Output IR compilation."
+    optional_message="Only supported for CGIR to CG Output IR compilation."
 )
 @click.option(
     "--ep",
@@ -116,15 +104,16 @@ console = Console()
 @click.option(
     "--validate/--no-validate",
     default=True,
-    help="Validate compiled model. EPContext: inference; CGC Output IR: reload, pipeline "
+    help="Validate compiled model. EPContext: inference; CG Output IR: reload, pipeline "
     "build and I/O schema (no inference).",
 )
 @click.option(
     "--compiler",
-    type=click.Choice(COMPILER_NAMES),
+    type=click.Choice([*COMPILER_NAMES, "cgc"]),
     default="ort",
     help="Compiler backend (default: ort). 'ort_session' compiles via "
-    "ort.InferenceSession (ep.context_enable) — required for shared-context multi-model.",
+    "ort.InferenceSession (ep.context_enable) — required for shared-context multi-model. "
+    "'cgc' compiles CGIR through Windows ML Runtime and is inferred for .mlir/.mlirbc input.",
 )
 @click.option(
     "--qnn-sdk-root",
@@ -155,8 +144,6 @@ def compile(
     output: Path | None,
     output_dir: Path | None,
     overwrite: bool,
-    input_format: str,
-    target: str,
     device: str | None,
     device_luid: str | None,
     ep: tuple[str, str | None] | None,
@@ -164,13 +151,13 @@ def compile(
     validate: bool,
     verbose: int,
     quiet: bool,
-    compiler: CompilerName,
+    compiler: CompilerName | Literal["cgc"],
     qnn_sdk_root: Path | None,
     embed: bool,
     list_compilers_flag: bool,
     config_file: Path | None,
 ) -> None:
-    r"""Compile ONNX to EPContext, or explicit CGC Input IR to Output IR.
+    r"""Compile ONNX to EPContext, or CGIR to CG Output IR.
 
     This command compiles an ONNX model to an EP-specific format (e.g., QNN
     EPContext).
@@ -190,23 +177,22 @@ def compile(
         winml compile -m model.onnx --compiler qairt --qnn-sdk-root /path/to/sdk
 
         # Compile CGIR to device-targeted bytecode CG Output IR
-        winml compile -m input.mlir --input-format cgir --target cg-output-ir
-            --device gpu -o output.mlir
+        winml compile -m input.mlir --compiler cgc --device gpu -o output.mlir
     """
     # Merge top-level -v/-q with subcommand-level flags so either position works.
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
 
-    ir_mode = input_format == "cgir" or target == "cg-output-ir"
+    compiler_was_provided = cli_utils.is_cli_provided(ctx, "compiler")
+    inferred_cgc = (
+        not compiler_was_provided
+        and len(model) == 1
+        and model[0].suffix.casefold() in {".mlir", ".mlirbc"}
+    )
+    ir_mode = compiler == "cgc" or inferred_cgc
     if ir_mode:
-        if (input_format, target) != ("cgir", "cg-output-ir"):
-            raise click.UsageError(
-                "CGIR compilation requires --input-format cgir "
-                "and --target cg-output-ir together."
-            )
         incompatible = {
             "--ep": ep is not None,
             "--ep-options": bool(ep_options),
-            "--compiler": cli_utils.is_cli_provided(ctx, "compiler"),
             "--qnn-sdk-root": qnn_sdk_root is not None,
             "--embed/--no-embed": cli_utils.is_cli_provided(ctx, "embed"),
             "--list": list_compilers_flag,
@@ -245,7 +231,7 @@ def compile(
         )
         return
     if device_luid is not None:
-        raise click.UsageError("--device-luid is only supported for CGC Output IR compilation.")
+        raise click.UsageError("--device-luid is only supported for CG Output IR compilation.")
 
     # --ep is parsed by EpAtSourceParamType at click parse time and
     # arrives as (ep, source) or None — feeds the EPDeviceTarget's
@@ -304,11 +290,6 @@ def compile(
         if verbose == 0 and not quiet and "verbose" in cc:
             verbose = int(cc["verbose"])
 
-    if compiler not in COMPILER_NAMES:
-        raise click.UsageError(
-            "ONNX-to-EPContext compile requires ort, ort_session or qairt. "
-            "Select CGC Input IR/Output IR explicitly to use winml-runtime."
-        )
     configure_logging(verbosity=verbose, quiet=quiet)
 
     # Resolve EP+device at the CLI boundary (plan §C / Decision B).

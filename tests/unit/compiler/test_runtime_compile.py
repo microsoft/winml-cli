@@ -299,7 +299,7 @@ def test_input_ir_is_verified_after_native_parse(tmp_path, monkeypatch, text, va
     if valid:
         _validate_input_ir(source)
     else:
-        with pytest.raises(click.ClickException, match="requires a CGIR entry point"):
+        with pytest.raises(click.ClickException, match="CGC compiler requires a CGIR entry point"):
             _validate_input_ir(source)
     parser.read_cgir.assert_called_once_with(b"parse me")
 

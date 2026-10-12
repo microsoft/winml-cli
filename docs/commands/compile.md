@@ -19,8 +19,6 @@ $ winml compile [options]
 | Flag | Short | Type | Default | Description |
 |---|---|---|---|---|
 | `--model` | `-m` | path | *(required unless `--list`)* | Input ONNX model, or complete CGIR in explicit IR mode. |
-| `--input-format` | | choice | `onnx` | Input representation: `onnx` or `cgir`. CGIR content is parsed and validated, not inferred from its extension. |
-| `--target` | | choice | `epcontext` | Output representation: `epcontext` or `cg-output-ir`. |
 | `--output` | `-o` | path | — | Output file path (e.g., `model_compiled.onnx`). Takes precedence over `--output-dir`. |
 | `--output-dir` | | path | same dir as input | Directory to write compiled output artifacts. |
 | `--device` | `-d` | choice | `auto` | Target device: `auto`, `npu`, `gpu`, or `cpu`. |
@@ -28,7 +26,7 @@ $ winml compile [options]
 | `--ep` | | `TEXT` | — | Force a specific execution provider, overriding device-to-provider mapping. Accepts full names (e.g., `QNNExecutionProvider`) or aliases (`qnn`, `dml`, `openvino`, `vitisai`, `migraphx`, `cpu`, `nvtensorrtrtx`). |
 | `--ep-options` | | `KEY=VALUE` | — | Execution-provider option for the compilation session. Repeat for multiple options; later duplicate keys win. Explicit CLI values override matching `compile.provider_options` keys from `--config`. |
 | `--validate` / `--no-validate` | | flag | `--validate` | EPContext: post-compilation inference validation. CG Output IR: reload, pipeline build and I/O schema validation, without inference. |
-| `--compiler` | | choice | `ort` | EPContext backends: `ort`, `ort_session`, `qairt`. Not used for CGIR compilation. |
+| `--compiler` | | choice | `ort` | Backends: `ort`, `ort_session`, `qairt`, `cgc`. `cgc` is inferred for a single `.mlir` or `.mlirbc` input. |
 | `--qnn-sdk-root` | | path | `None` | Path to the QNN SDK root directory. |
 | `--embed/--no-embed` | | flag | `false` | Embed the EP context blob inside the ONNX file instead of writing a separate `.bin` file. |
 | `--list` | | flag | `false` | List available compiler backends for the selected device and exit without compiling. |
@@ -59,11 +57,13 @@ Runtime EP. The input and output selectors make the representation unambiguous:
 ```powershell
 winml compile `
   -m input.mlir `
-  --input-format cgir `
-  --target cg-output-ir `
+  --compiler cgc `
   --device gpu `
   -o output.mlir
 ```
+
+`--compiler cgc` is optional for `.mlir` and `.mlirbc` input. Specify it when
+the CGIR file uses another suffix or when you want to make the backend explicit.
 
 The command parses the input with the preview wheel's FoundryToolbox, rejecting
 ONNX, malformed IR and already compiled CG Output IR. Both textual and bytecode
@@ -94,7 +94,7 @@ and validation status. Metadata and resource collisions also require
 `--overwrite`; the input and its metadata are never replaced. Without `-o`, the
 default is `<input-stem>_output.mlir` in `--output-dir` or beside the input.
 
-`--ep`, `--ep-options`, `--compiler`, `--embed`/`--no-embed`, `--qnn-sdk-root`, `--list`,
+`--ep`, `--ep-options`, `--embed`/`--no-embed`, `--qnn-sdk-root`, `--list`,
 `--config` and multiple `-m` inputs are rejected in this mode. Use the existing
 ONNX-to-EPContext mode for EP compilation. Omitting the new selectors preserves
 the original command behavior.
