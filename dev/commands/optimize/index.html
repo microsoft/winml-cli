@@ -3034,7 +3034,7 @@ the shared pattern package does not re-export these backend-specific patterns.</
 <tbody>
 <tr>
 <td><code>normalize-int32-dq</code></td>
-<td>Normalize initializer-backed INT32 <code>DequantizeLinear</code> in the standard domain (opset &gt;= 10) and <code>com.microsoft</code> (opset 1): omit immutable all-zero scalar/singleton zero points and clone singleton scales as scalars. Preserve shared initializers and domains; skip overridable parameters, per-axis vectors, unsupported attributes and nonlocal inputs. Handles nested graphs, not local functions. Enabled by CGC build configuration, disabled by default elsewhere.</td>
+<td>Normalize initializer-backed INT32 <code>DequantizeLinear</code> in the standard domain (opset &gt;= 10) and <code>com.microsoft</code> (opset 1): omit immutable all-zero scalar/singleton zero points. Preserve scale inputs, shared initializers and domains; skip overridable parameters, per-axis vectors, unsupported attributes and nonlocal inputs. Handles nested graphs, not local functions. Enabled by CGC build configuration, disabled by default elsewhere.</td>
 </tr>
 <tr>
 <td><code>deduplicate-opset-imports</code></td>
