@@ -49,7 +49,16 @@ $ winml perf [options]
 
 `winml perf` loads the model through `WinMLAutoModel` — accepting both HuggingFace IDs and local ONNX files — then generates random input tensors from the model's I/O configuration. It runs the specified number of warm-up iterations (excluded from statistics) followed by the timed iterations, collecting per-sample latency. The final report includes mean, min, max, P50, P90, P95, P99, standard deviation, and throughput in samples per second. When `--monitor` is active, a hardware polling loop runs in parallel and records NPU / GPU utilization, CPU usage, and device memory alongside the timing data.
 
-Both runtime reports include `schema_version: 2` and a `benchmark_info.runtime` discriminator (`winml-ort` or `ort-genai`). GGUF reports (experimental) reuse the GenAI phase-based schema with `benchmark_info.runtime: winml-runtime` and `benchmark_info.backend: llama.cpp`; see [GGUF models](../samples/gguf-llama-perf.md). Shared metadata such as `model_id`, `running_model_path`, `device`, `ep`, `iterations`, `warmup`, and `timestamp` uses the same field names where the concepts overlap; GenAI also keeps `bundle_dir` because the runnable artifact is a bundle directory.
+The `winml-ort` and `ort-genai` reports include `schema_version: 2` and a
+`benchmark_info.runtime` discriminator. GGUF reports (experimental) use
+`schema_version: 3`, with `benchmark_info.runtime: winml-runtime`,
+`benchmark_info.backend: llama.cpp`, `benchmark_info.api: windowsml.tasks`, and
+`benchmark_info.timing_source: task-stream`. Their `load`, `requests`, and
+`aggregate` sections describe Task stream timing; see
+[GGUF models](../samples/gguf-llama-perf.md#report-fields). Shared metadata such as
+`model_id`, `running_model_path`, `device`, `ep`, `iterations`, `warmup`, and
+`timestamp` uses the same field names where the concepts overlap; GenAI also keeps
+`bundle_dir` because the runnable artifact is a bundle directory.
 
 When `--memory` is enabled, both `winml-ort` and `ort-genai` reports use the same `memory` field names for shared concepts: RSS baseline, after-compile/load, after-inference, peak, model-load delta, inference/generation delta, and total delta; VRAM local/shared baseline, after-compile/load, after-inference, peak, model-load delta, inference/generation delta, and total delta.
 
@@ -152,11 +161,11 @@ target validation.
 
 ### GGUF language models (experimental)
 
-`winml perf -m model.gguf` benchmarks a GGUF decoder on the llama.cpp backend of
-the Windows ML Runtime API (`windowsml.runtime`); `--runtime auto` selects
-`winml-runtime` for `.gguf` files. It reports the same prefill, TTFT, and decode
-metrics as `--runtime ort-genai`. llama.cpp support ships only in preview Windows ML
-packages that winml-cli does not install, so install them first, as described in
+`winml perf -m model.gguf` benchmarks a GGUF decoder through the Windows ML Task
+API (`windowsml.tasks`) on the Runtime's llama.cpp backend; `--runtime auto`
+continues to select `winml-runtime` for `.gguf` files. The Task manages greedy
+generation and sequence state. llama.cpp support ships only in preview Windows
+ML packages that winml-cli does not install, so install them first, as described in
 [GGUF models](../samples/gguf-llama-perf.md):
 
 ```bash
@@ -167,6 +176,18 @@ $ winml perf -m models/qwen2.5-0.5b-instruct-q4_k_m.gguf --device cpu --max-new-
 backend. Options that select another benchmark target (`--ep`, `--ep-options`,
 `--backend`, `--device-luid`, `--input-data`, `--module`, `--submodel`) are
 rejected for GGUF input, and build-only options are ignored with a warning.
+
+GGUF schema version 3 measures Task stream TTFT, token-update intervals, and total
+generation time. `task_ttft_duration_ms` starts before stream creation and ends
+with the first token update; `request_ttft_duration_ms` also includes tokenization
+and session reset. Decode throughput uses intervals between subsequent updates,
+including native sampling and detokenization. Total generation time includes the
+terminal read and result fetch. Separate prefill, model-compute, and
+detokenization timings are unavailable and reported as `null`. No-token TTFT and
+throughput without a decode interval are also `null`. See the
+[GGUF report fields](../samples/gguf-llama-perf.md#report-fields) for exact boundaries.
+These timings differ from earlier GGUF schema version 2 Runtime measurements and
+the `ort-genai` metric definitions above; `ort-genai` remains unchanged.
 
 ## Examples
 

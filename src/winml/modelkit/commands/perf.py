@@ -2910,8 +2910,8 @@ def _run_gguf_runtime(
 ) -> None:
     """Validate a ``.gguf`` input and dispatch to the experimental llama.cpp benchmark.
 
-    GGUF files run on the Windows ML Runtime llama.cpp backend, which ships only
-    in preview packages that winml-cli does not depend on. The GGUF imports are
+    GGUF files use Windows ML Tasks over the Runtime llama.cpp backend, which
+    ships only in optional preview packages. The GGUF imports are
     function-local so ``winml perf --help`` and the other runtimes never load
     them.
     """
@@ -3023,7 +3023,7 @@ def _validate_duration(
 @cli_utils.model_option(
     required=False,
     optional_message=(
-        "A .gguf file runs on llama.cpp through Windows ML Runtime "
+        "A .gguf file runs on llama.cpp through Windows ML Tasks "
         "(experimental; requires preview Windows ML packages)"
     ),
 )
@@ -3038,7 +3038,8 @@ def _validate_duration(
     "'ort-genai' benchmarks an onnxruntime-genai bundle folder "
     "(LLM generation: TTFT + decode tokens/sec); 'winml-runtime' performs "
     "online conversion for ONNX/PyTorch inputs, loads CGC MLIR directly, or "
-    "benchmarks GGUF language models on llama.cpp (experimental; requires preview "
+    "benchmarks GGUF language models through Windows ML Tasks on llama.cpp "
+    "(experimental; requires preview "
     "Windows ML packages).",
 )
 @click.option(
@@ -3424,7 +3425,7 @@ def perf(
     console = SafeConsole(stderr=True) if json_mode else SafeConsole()
 
     # =========================================================================
-    # GGUF (experimental): a llama.cpp language model through Windows ML Runtime
+    # GGUF (experimental): Windows ML Tasks over a Runtime llama.cpp pipeline
     # =========================================================================
     if is_gguf:
         _run_gguf_runtime(ctx, model=model, runtime=runtime, console=console, json_mode=json_mode)

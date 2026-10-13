@@ -2,19 +2,18 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Windows ML Runtime session for GGUF language models (experimental).
+"""Windows ML Task session for GGUF language models (experimental).
 
-:class:`WinMLLlamaSession` runs a ``.gguf`` decoder through the Windows ML
-Runtime pipeline API (``windowsml.runtime``). ``Runtime.load_model`` selects the
-llama.cpp backend from the ``.gguf`` artifact, so the same pipeline primitives
-that run ONNX models drive one ``decoder`` stage whose sequence state (the KV
-cache) is owned by the backend. The tokenizer and chat template come from the
+:class:`WinMLLlamaSession` composes a Runtime decoder pipeline into a native
+``windowsml.tasks.TextGenerationTask``. ``Runtime.load_model`` selects llama.cpp
+from the GGUF artifact. The Task drives generation and sampling; the CLI reads
+its token stream and terminal result. The tokenizer and chat template come from
 GGUF metadata through ``windowsml.runtime.Tokenizer``.
 
 llama.cpp support is experimental and optional. It ships only in preview Windows
 ML packages that winml-cli does not depend on:
 
-* a preview ``windowsml`` build that exposes ``windowsml.runtime``; and
+* a preview ``windowsml`` build exposing ``windowsml.runtime`` and ``windowsml.tasks``;
 * the ``windowsml-llama-core`` payload (llama.cpp adapter and CPU backend),
   plus a matching GPU backend built with ``Build-LlamaBackend.ps1`` for
   ``device="gpu"``.
@@ -23,11 +22,11 @@ Nothing in this module imports ``windowsml`` at import time. The Runtime is
 imported on first use, and each missing piece is reported as an actionable
 :class:`LlamaNotInstalledError`.
 
-Timing is captured at the Runtime call boundaries: one ``Pipeline.run`` over the
-whole prompt is the *prefill*, reading the final logits row and selecting the
-first token is the *first token*, and each later step (run one token, read
-logits, select the next token) is one *decode* step. Detokenization is timed
-separately so prefill and decode spans reflect model compute.
+Timing is captured at Task stream boundaries, including native generation,
+sampling and text decoding. First-token latency includes stream creation; later
+tokens use update arrival intervals. Terminal reads and result retrieval are
+included in total generation time. The Task exposes no separate prefill or
+detokenization timing, so those model phases are not estimated.
 """
 
 from __future__ import annotations
@@ -36,14 +35,11 @@ import importlib
 import importlib.metadata
 import importlib.util
 import logging
-import struct
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-
-import numpy as np
 
 
 if TYPE_CHECKING:
@@ -104,29 +100,34 @@ class LlamaLoadError(LlamaSessionError):
 
 @dataclass(frozen=True)
 class LlamaGenerationTiming:
-    """Wall-clock spans (seconds) captured for one greedy generation.
+    """Task stream wall-clock spans (seconds) for one greedy generation.
 
     Attributes:
-        input_tokens: Prompt token count submitted in the prefill run.
-        generated_tokens: Tokens emitted, excluding a terminating EOS token.
-        reset_s: Resetting the pipeline sequence state and the token decoder.
-        prefill_s: The single ``Pipeline.run`` over the whole prompt.
-        first_token_s: Reading the final logits row and selecting the first token.
-        decode_s: One entry per emitted token after the first: run the previous
-            token, read logits, select the next token. A step that selects EOS
-            emits nothing and is not recorded.
-        detokenization_s: Total time spent turning emitted tokens into text.
-        response_text: Concatenated decoded text.
-        stop_reason: ``"MAX_TOKENS"``, ``"EOS"``, or ``"CAPACITY"``.
+        input_tokens: Prompt token count reported by the Task result.
+        generated_tokens: Tokens reported by the Task, excluding terminating EOS.
+        reset_s: Resetting the native generation session between requests.
+        stream_create_s: Creating the Task stream from encoded prompt tokens.
+        first_token_s: From stream creation start through the first token update.
+            ``None`` when no token is emitted. Includes sampling and text decoding.
+        decode_s: Arrival intervals between successive token updates, including
+            native generation, sampling, text decoding, and stream overhead.
+        completion_s: From the final update (or stream creation completion) to
+            the terminal stream read. Includes EOS detection and finalization.
+        result_fetch_s: Reading and checking the terminal result.
+        generation_s: Total from stream creation start through result retrieval.
+        response_text: Canonical text returned by the Task result.
+        stop_reason: Normalized Task finish reason.
     """
 
     input_tokens: int
     generated_tokens: int
     reset_s: float
-    prefill_s: float
-    first_token_s: float
+    stream_create_s: float
+    first_token_s: float | None
     decode_s: list[float]
-    detokenization_s: float
+    completion_s: float
+    result_fetch_s: float
+    generation_s: float
     response_text: str
     stop_reason: str
 
@@ -270,6 +271,17 @@ def _import_runtime_api() -> Any:
         ) from exc
 
 
+def _import_tasks_api() -> Any:
+    """Load the optional Task projection only when a GGUF session is built."""
+    try:
+        return importlib.import_module("windowsml.tasks")
+    except (ImportError, FileNotFoundError) as exc:
+        raise LlamaNotInstalledError(
+            "GGUF generation needs the preview Windows ML Task API (windowsml.tasks) "
+            f"and WinMLTasks.dll. Install a matching preview 'windowsml' package. {_DOCS_HINT}"
+        ) from exc
+
+
 # =============================================================================
 # Native error translation
 # =============================================================================
@@ -333,7 +345,7 @@ def _fixed_size(dimension: int) -> int | None:
 
 
 class WinMLLlamaSession:
-    """Greedy text generation over a GGUF model through the Windows ML Runtime.
+    """Greedy GGUF generation through Windows ML Tasks over a Runtime pipeline.
 
     Lifecycle: :meth:`open_tokenizer` imports the Runtime and loads the GGUF
     tokenizer, :meth:`load` loads the model and builds the pipeline, and
@@ -347,6 +359,7 @@ class WinMLLlamaSession:
             the Runtime.
         runtime_api: Pre-imported ``windowsml.runtime`` module. When given, the
             payload check is skipped (used by tests to inject a fake Runtime).
+        tasks_api: Pre-imported ``windowsml.tasks`` module (optional injection).
     """
 
     def __init__(
@@ -355,6 +368,7 @@ class WinMLLlamaSession:
         *,
         device: str = "cpu",
         runtime_api: Any = None,
+        tasks_api: Any = None,
     ) -> None:
         path = Path(model_path)
         if path.suffix.lower() != ".gguf":
@@ -364,6 +378,7 @@ class WinMLLlamaSession:
         self._model_path = path
         self._device = device
         self._wr: Any = runtime_api
+        self._wt: Any = tasks_api
         self._check_payload = runtime_api is None
         self.payload: LlamaPayload | None = None
         self.load_timings_ms: dict[str, float] = {}
@@ -371,16 +386,15 @@ class WinMLLlamaSession:
 
         self._runtime: Any = None
         self._tokenizer: Any = None
-        self._decoder: Any = None
+        self._tasks: Any = None
+        self._task_config: Any = None
+        self._task: Any = None
+        self._task_session: Any = None
         self._stage_target: Any = None
-        self._token_target: Any = None
         self._model: Any = None
         self._stage: Any = None
         self._pipeline: Any = None
-        self._token_data_type: Any = None
-        self._token_rank = 0
         self._vocabulary_size: int | None = None
-        self._end_tokens: frozenset[int] = frozenset()
         self._sequence_capacity = 0
         self._effective_device: str | None = None
 
@@ -438,7 +452,7 @@ class WinMLLlamaSession:
         ) * 1000.0
 
     def load(self, *, context_length: int | None = None) -> None:
-        """Load the GGUF model and build a one-stage decoder pipeline.
+        """Load GGUF, build the decoder pipeline, and create its native Task session.
 
         Args:
             context_length: Sequence capacity hint (prompt plus generated tokens).
@@ -448,11 +462,15 @@ class WinMLLlamaSession:
         Raises:
             LlamaLoadError: Loading the model or building the pipeline failed.
         """
-        if self._pipeline is not None:
+        if self._task_session is not None:
             return
         self.open_tokenizer()
+        if self._wt is None:
+            self._wt = _import_tasks_api()
         wr, runtime = self._wr, self._runtime
-        stage_target = model = builder = stage = pipeline = decoder = token_target = None
+        wt = self._wt
+        stage_target = model = builder = stage = pipeline = None
+        tasks = configuration = task = task_session = None
         try:
             with _translate_native_errors("target creation", device=self._device):
                 stage_target = self._create_target(wr, runtime)
@@ -472,13 +490,47 @@ class WinMLLlamaSession:
             _close_quietly(builder)
             builder = None
 
-            self._token_data_type, self._token_rank = self._token_input_contract(wr, stage)
+            self._token_input_contract(wr, stage)
             self._sequence_capacity = self._probe_sequence_capacity(wr, stage)
-            self._vocabulary_size, self._end_tokens = self._discover_vocabulary(stage)
-            decoder = self._tokenizer.create_decoder()
-            token_target = runtime.create_cpu_target()
+            self._vocabulary_size = self._discover_vocabulary(stage)
+            effective_device = self._resolved_device(stage) or self._device
+            task_start = time.perf_counter()
+            with _translate_native_errors("Task creation", device=self._device):
+                try:
+                    tasks = wt.Tasks(runtime)
+                except FileNotFoundError as exc:
+                    raise LlamaNotInstalledError(
+                        "The installed preview 'windowsml' package is missing WinMLTasks.dll. "
+                        f"Reinstall the matching preview package. {_DOCS_HINT}"
+                    ) from exc
+                configuration = tasks.create_text_generation_configuration()
+                configuration.configure_unified(
+                    pipeline=pipeline,
+                    token_input_stage=stage,
+                    token_input_index=0,
+                    output_stage=stage,
+                    output_index=0,
+                    output_kind=wt.TextGenerationOutputKind.LOGITS,
+                    state_owner_stage=stage,
+                    token_target=stage_target,
+                    tokenizer=self._tokenizer,
+                )
+                configuration.validate()
+                task = tasks.create_text_generation_task(self._tokenizer)
+                task_session = task.create_session(configuration)
+            task_end = time.perf_counter()
         except Exception:
-            for resource in (decoder, pipeline, stage, builder, model, token_target, stage_target):
+            for resource in (
+                task_session,
+                task,
+                configuration,
+                tasks,
+                pipeline,
+                stage,
+                builder,
+                model,
+                stage_target,
+            ):
                 _close_quietly(resource)
             raise
 
@@ -486,21 +538,26 @@ class WinMLLlamaSession:
         self._model = model
         self._stage = stage
         self._pipeline = pipeline
-        self._decoder = decoder
-        self._token_target = token_target
-        self._effective_device = self._resolved_device(stage) or self._device
+        self._tasks = tasks
+        self._task_config = configuration
+        self._task = task
+        self._task_session = task_session
+        self._effective_device = effective_device
         self.load_timings_ms["model_create_duration_ms"] = (build_start - model_start) * 1000.0
         self.load_timings_ms["pipeline_build_duration_ms"] = (build_end - build_start) * 1000.0
+        self.load_timings_ms["task_create_duration_ms"] = (task_end - task_start) * 1000.0
 
     def close(self) -> None:
         """Release native handles (best-effort; safe to call more than once)."""
         for name in (
-            "_decoder",
+            "_task_session",
+            "_task",
+            "_task_config",
+            "_tasks",
             "_tokenizer",
             "_pipeline",
             "_stage",
             "_model",
-            "_token_target",
             "_stage_target",
             "_runtime",
         ):
@@ -565,7 +622,7 @@ class WinMLLlamaSession:
         max_new_tokens: int,
         clock: Callable[[], float] = time.perf_counter,
     ) -> LlamaGenerationTiming:
-        """Run one greedy generation and capture its phase timings.
+        """Read one native greedy generation and measure Task stream latency.
 
         Args:
             prompt_token_ids: Prompt token IDs, e.g. from :meth:`encode_prompt`.
@@ -582,7 +639,7 @@ class WinMLLlamaSession:
         """
         if max_new_tokens <= 0:
             raise ValueError("max_new_tokens must be positive")
-        if self._pipeline is None:
+        if self._task_session is None:
             raise LlamaSessionError("WinMLLlamaSession.load() must be called before generation.")
         token_ids = [int(token) for token in prompt_token_ids]
         if not token_ids:
@@ -595,53 +652,79 @@ class WinMLLlamaSession:
                 f"capacity ({capacity} tokens)"
             )
 
-        reset_start = clock()
-        self._pipeline.reset()
-        self._decoder.reset()
-        prefill_start = clock()
-        self._run_tokens(token_ids)
-        first_token_start = clock()
-        token_id = self._next_token()
-        first_token_end = clock()
-
-        decode_s: list[float] = []
-        fragments: list[str] = []
-        detokenization_s = 0.0
-        stop_reason = "MAX_TOKENS"
-        if token_id in self._end_tokens:
-            stop_reason = "EOS"
-        else:
-            while True:
-                detokenize_start = clock()
-                fragments.append(self._decoder.decode_token(token_id))
-                detokenization_s += clock() - detokenize_start
-                if len(fragments) >= max_new_tokens:
-                    break
-                if capacity and self._stage.sequence_position + 1 >= capacity:
-                    stop_reason = "CAPACITY"
-                    break
-                step_start = clock()
-                self._run_tokens((token_id,))
-                token_id = self._next_token()
-                step_end = clock()
-                if token_id in self._end_tokens:
-                    stop_reason = "EOS"
-                    break
-                decode_s.append(step_end - step_start)
+        options = self._wt.TextGenerationOptions(max_new_tokens=max_new_tokens, temperature=0.0)
+        with _translate_native_errors("run", device=self._device):
+            reset_start = clock()
+            self._task_session.reset()
+            generation_start = clock()
+            stream = self._task_session.generate_tokens(token_ids, options)
+            try:
+                create_end = clock()
+                previous_arrival = create_end
+                first_token_s: float | None = None
+                emitted_ids: list[int] = []
+                decode_s: list[float] = []
+                while True:
+                    update = stream.read_next()
+                    arrival = clock()
+                    if update is None:
+                        completion_s = arrival - previous_arrival
+                        break
+                    if emitted_ids:
+                        decode_s.append(arrival - previous_arrival)
+                    else:
+                        first_token_s = arrival - generation_start
+                    emitted_ids.append(int(update.token_id))
+                    previous_arrival = arrival
+                result = stream.result
+                result.raise_for_error()
+                result_end = clock()
+                stop_reason = self._task_stop_reason(result.finish_reason)
+                result_ids = tuple(int(token) for token in result.token_ids)
+                if result_ids != tuple(emitted_ids):
+                    raise LlamaSessionError(
+                        "The Task result token IDs disagree with its stream updates."
+                    )
+                if int(result.prompt_token_count) != len(token_ids):
+                    raise LlamaSessionError(
+                        "The Task result prompt count disagrees with the submitted prompt."
+                    )
+                if len(result_ids) > max_new_tokens:
+                    raise LlamaSessionError(
+                        "The Task result exceeds the requested generated token limit."
+                    )
+            finally:
+                _close_quietly(stream)
 
         return LlamaGenerationTiming(
-            input_tokens=len(token_ids),
-            generated_tokens=len(fragments),
-            reset_s=prefill_start - reset_start,
-            prefill_s=first_token_start - prefill_start,
-            first_token_s=first_token_end - first_token_start,
+            input_tokens=int(result.prompt_token_count),
+            generated_tokens=len(result_ids),
+            reset_s=generation_start - reset_start,
+            stream_create_s=create_end - generation_start,
+            first_token_s=first_token_s,
             decode_s=decode_s,
-            detokenization_s=detokenization_s,
-            response_text="".join(fragments),
+            completion_s=completion_s,
+            result_fetch_s=result_end - arrival,
+            generation_s=result_end - generation_start,
+            response_text=str(result.text),
             stop_reason=stop_reason,
         )
 
     # -- internals --------------------------------------------------------------
+    @staticmethod
+    def _task_stop_reason(reason: Any) -> str:
+        name = str(getattr(reason, "name", ""))
+        normalized = {
+            "EOS_TOKEN": "EOS",
+            "STOP_TOKEN": "STOP_TOKEN",
+            "MAX_TOKENS": "MAX_TOKENS",
+            "SEQUENCE_CAPACITY": "CAPACITY",
+            "CANCELED": "CANCELED",
+        }
+        if name not in normalized:
+            raise LlamaSessionError(f"The Task ended with an unsuccessful finish reason: {name}.")
+        return normalized[name]
+
     def _runtime_errors(self) -> tuple[type[BaseException], ...]:
         errors = tuple(
             error
@@ -684,7 +767,7 @@ class WinMLLlamaSession:
                 "decoder is required"
             ) from exc
 
-    def _discover_vocabulary(self, stage: Any) -> tuple[int | None, frozenset[int]]:
+    def _discover_vocabulary(self, stage: Any) -> int | None:
         with stage.schema() as schema:
             _data_type, output_shape = schema.output_desc(0)
         vocabulary_size = _fixed_size(output_shape[-1]) if output_shape else None
@@ -697,7 +780,7 @@ class WinMLLlamaSession:
         if bos_token is not None:
             special.append(int(bos_token))
         self._validate_token_ids(special, "tokenizer special")
-        return vocabulary_size, frozenset(eos_tokens)
+        return vocabulary_size
 
     @staticmethod
     def _resolved_device(stage: Any) -> str | None:
@@ -718,49 +801,6 @@ class WinMLLlamaSession:
                     f"{label} token {token_id} is outside the model vocabulary of "
                     f"{vocabulary_size if vocabulary_size is not None else 'unknown'} entries"
                 )
-
-    def _run_tokens(self, token_ids: Sequence[int]) -> None:
-        """Bind token IDs as decoder input 0 and run the pipeline once."""
-        values = tuple(token_ids)
-        shape = (len(values),) if self._token_rank == 1 else (1, len(values))
-        element = "i" if self._token_data_type == self._wr.TensorDataType.INT32 else "q"
-        payload = struct.pack(f"<{len(values)}{element}", *values)
-        with (
-            _translate_native_errors("run", device=self._device),
-            self._runtime.create_tensor(
-                self._token_data_type,
-                shape,
-                payload,
-                target=self._token_target,
-            ) as token_tensor,
-        ):
-            self._stage.bind_input(0, token_tensor)
-            self._pipeline.run()
-
-    def _next_token(self) -> int:
-        """Read the final-position logits row and return its argmax."""
-        with (
-            _translate_native_errors("run", device=self._device),
-            self._stage.output(0) as output_tensor,
-        ):
-            _data_type, shape = output_tensor.desc()
-            if not shape or shape[-1] <= 0:
-                raise LlamaSessionError("GGUF logits must have a vocabulary dimension")
-            if len(shape) == 1:
-                logits = output_tensor.to_numpy()
-            else:
-                starts = [0] * len(shape)
-                extents = [1] * len(shape)
-                starts[-2] = shape[-2] - 1
-                extents[-1] = shape[-1]
-                with output_tensor.region(
-                    starts,
-                    extents,
-                    target=self._token_target,
-                ) as final_position:
-                    logits = final_position.to_numpy()
-        array = np.asarray(logits)
-        return int(array.reshape(-1, array.shape[-1])[-1].argmax())
 
 
 __all__ = [

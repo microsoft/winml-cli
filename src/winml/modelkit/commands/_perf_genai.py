@@ -496,8 +496,8 @@ def _aggregate_request_samples(
 ) -> tuple[list[_RequestSample], dict[str, Any]]:
     """Summarize timed requests (warmups excluded) into the canonical ``aggregate`` block.
 
-    Shared by the generation runtimes (``ort-genai`` and GGUF) so their
-    ``aggregate`` JSON stays field-for-field identical.
+    Used by ``ort-genai`` for its model-phase timing report. GGUF Tasks use
+    separate aggregation because stream timing does not expose those phases.
 
     Returns:
         ``(timed, aggregate)``: the samples the statistics cover (every sample when

@@ -2,23 +2,21 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Unit tests for the GGUF (llama.cpp) Windows ML Runtime session.
+"""Unit tests for GGUF generation through Windows ML Tasks.
 
-A fake ``windowsml.runtime`` module stands in for the preview Runtime, so these
-tests need neither the preview packages nor a GGUF model. The fake decoder
-always predicts ``last_token + 1`` and the tokenizer marks the last vocabulary
-entry as EOS, which makes every stop condition deterministic.
+Fake Runtime and Task modules avoid preview packages and model downloads. The
+Task emits successor tokens algorithmically; the Runtime exposes model metadata
+but must not be used for a Python-managed generation loop.
 """
 
 from __future__ import annotations
 
-import struct
 import sys
-from itertools import count
+from dataclasses import dataclass
+from enum import IntEnum
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
 import pytest
 
 from winml.modelkit.session import (
@@ -87,24 +85,6 @@ class _Target(_Closable):
         self.kind = SimpleNamespace(name=kind)
 
 
-class _Tensor(_Closable):
-    def __init__(self, value: np.ndarray) -> None:
-        super().__init__()
-        self.value = value
-
-    def desc(self) -> tuple[Any, tuple[int, ...]]:
-        return _DataTypes.FLOAT32, tuple(self.value.shape)
-
-    def to_numpy(self) -> np.ndarray:
-        return self.value
-
-    def region(self, starts: list[int], extents: list[int], *, target: Any) -> _Tensor:
-        index = tuple(
-            slice(start, start + extent) for start, extent in zip(starts, extents, strict=True)
-        )
-        return _Tensor(self.value[index])
-
-
 class _Schema(_Closable):
     def __init__(self, token_type: Any, token_rank: int) -> None:
         super().__init__()
@@ -122,7 +102,7 @@ class _Schema(_Closable):
 
 
 class _Stage(_Closable):
-    """Decoder stage that predicts ``last token + 1`` for every position."""
+    """Runtime metadata consumed by the Task configuration."""
 
     def __init__(self, target: _Target, *, token_type: Any, token_rank: int) -> None:
         super().__init__()
@@ -133,8 +113,6 @@ class _Stage(_Closable):
         self.capacity_hint: int | None = None
         self.default_capacity = 64
         self.sequence_position = 0
-        self.bound: list[int] = []
-        self.last_run: list[int] = []
 
     @property
     def sequence_capacity(self) -> int:
@@ -153,17 +131,6 @@ class _Stage(_Closable):
     def schema(self) -> _Schema:
         return _Schema(self._token_type, self._token_rank)
 
-    def bind_input(self, index: int, tensor: _Tensor) -> None:
-        assert index == 0
-        self.bound = [int(value) for value in tensor.value.reshape(-1)]
-
-    def output(self, index: int) -> _Tensor:
-        assert index in self.requested_outputs
-        logits = np.zeros((1, len(self.last_run), _VOCABULARY), dtype=np.float32)
-        for position, token in enumerate(self.last_run):
-            logits[0, position, (token + 1) % _VOCABULARY] = 1.0
-        return _Tensor(logits)
-
 
 class _Pipeline(_Closable):
     def __init__(self, stage: _Stage) -> None:
@@ -172,10 +139,7 @@ class _Pipeline(_Closable):
         self.runs: list[list[int]] = []
 
     def run(self) -> None:
-        stage = self._stage
-        stage.sequence_position += len(stage.bound)
-        stage.last_run = list(stage.bound)
-        self.runs.append(list(stage.bound))
+        raise AssertionError("Generation must be delegated to the native Task")
 
     def reset(self) -> None:
         self._stage.sequence_position = 0
@@ -201,14 +165,6 @@ class _Builder(_Closable):
         return self._runtime.pipeline
 
 
-class _Decoder(_Closable):
-    def decode_token(self, token: int) -> str:
-        return f"<{token}>"
-
-    def reset(self) -> None:
-        pass
-
-
 class _Formatted(_Closable):
     def __init__(self, token_ids: list[int]) -> None:
         super().__init__()
@@ -232,9 +188,6 @@ class _Tokenizer(_Closable):
             raise _NotSupportedError("model has no chat template")
         self.requests.append(request)
         return _Formatted(list(_TEMPLATED_PROMPT))
-
-    def create_decoder(self) -> _Decoder:
-        return _Decoder()
 
 
 class _Runtime(_Closable):
@@ -264,12 +217,234 @@ class _Runtime(_Closable):
     def create_pipeline_builder(self) -> _Builder:
         return _Builder(self)
 
-    def create_tensor(
-        self, data_type: Any, shape: tuple[int, ...], payload: bytes, *, target: Any
-    ) -> _Tensor:
-        element = "i" if data_type is _DataTypes.INT32 else "q"
-        values = struct.unpack(f"<{len(payload) // struct.calcsize(element)}{element}", payload)
-        return _Tensor(np.asarray(values, dtype=np.int64).reshape(shape))
+
+class _FinishReason(IntEnum):
+    EOS_TOKEN = 0
+    STOP_TOKEN = 1
+    MAX_TOKENS = 2
+    SEQUENCE_CAPACITY = 3
+    CANCELED = 4
+    ERROR = 5
+
+
+@dataclass
+class _TaskOptions:
+    max_new_tokens: int = 256
+    stop_token_ids: tuple[int, ...] = ()
+    temperature: float = 0.0
+    top_k: int = 0
+    top_p: float = 1.0
+    min_p: float = 0.0
+    repetition_penalty: float = 1.0
+    repetition_penalty_window: int = 0
+    presence_penalty: float = 0.0
+    frequency_penalty: float = 0.0
+    seed: int = 0
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.value = 0.0
+
+    def __call__(self) -> float:
+        return self.value
+
+    def advance(self, duration: float) -> None:
+        self.value += duration
+
+
+class _TaskConfiguration(_Closable):
+    def __init__(self, owner: _Tasks) -> None:
+        super().__init__()
+        self.owner = owner
+        self.bindings: dict[str, Any] = {}
+        self.validated = False
+        self.consumed = False
+
+    def configure_unified(self, **kwargs: Any) -> _TaskConfiguration:
+        self.bindings = kwargs
+        return self
+
+    def validate(self) -> None:
+        stage = self.owner.runtime.stage
+        assert self.bindings["pipeline"] is self.owner.runtime.pipeline
+        assert self.bindings["token_input_stage"] is stage
+        assert self.bindings["output_stage"] is stage
+        assert self.bindings["state_owner_stage"] is stage
+        assert self.bindings["token_input_index"] == 0
+        assert self.bindings["output_index"] == 0
+        assert self.bindings["output_kind"] == 0
+        assert self.bindings["tokenizer"] is self.owner.api.tokenizers[0]
+        assert self.bindings["token_target"].kind.name == stage._target_kind
+        self.validated = True
+
+
+class _Tasks(_Closable):
+    def __init__(self, runtime: _Runtime) -> None:
+        super().__init__()
+        self.runtime = runtime
+        self.api = runtime._api
+        self.api.tasks.append(self)
+
+    def create_text_generation_configuration(self) -> _TaskConfiguration:
+        configuration = _TaskConfiguration(self)
+        self.api.configurations.append(configuration)
+        return configuration
+
+    def create_text_generation_task(
+        self, tokenizer: _Tokenizer, eos_token_ids: Any = None, **kwargs: Any
+    ) -> _GenerationTask:
+        assert eos_token_ids is None
+        task = _GenerationTask(self, tokenizer, kwargs.get("default_configuration"))
+        self.api.generation_tasks.append(task)
+        return task
+
+
+class _GenerationTask(_Closable):
+    def __init__(
+        self, owner: _Tasks, tokenizer: _Tokenizer, configuration: _TaskConfiguration | None
+    ) -> None:
+        super().__init__()
+        self.owner = owner
+        self.tokenizer = tokenizer
+        self.configuration = configuration
+        self._default_session: _GenerationSession | None = None
+
+    def create_session(self, configuration: _TaskConfiguration) -> _GenerationSession:
+        assert configuration.validated
+        assert not configuration.consumed
+        configuration.consumed = True
+        if self.owner.api.task_create_hresult is not None:
+            raise _WinMLError("Task creation failed", self.owner.api.task_create_hresult)
+        session = _GenerationSession(self, configuration)
+        self.owner.api.generation_sessions.append(session)
+        return session
+
+    @property
+    def default_session(self) -> _GenerationSession:
+        if self._default_session is None:
+            assert self.configuration is not None
+            self._default_session = self.create_session(self.configuration)
+        return self._default_session
+
+
+class _GenerationSession(_Closable):
+    def __init__(self, task: _GenerationTask, configuration: _TaskConfiguration) -> None:
+        super().__init__()
+        self.task = task
+        self.configuration = configuration
+        self.api = task.owner.api
+        self.reset_count = 0
+        self.streams: list[_TaskStream] = []
+
+    def reset(self) -> None:
+        assert not self.closed
+        assert all(stream.closed for stream in self.streams)
+        self.reset_count += 1
+        self.api.clock.advance(2.0)
+        self.task.owner.runtime.stage.sequence_position = 0
+
+    def generate_tokens(self, token_ids: Any, options: _TaskOptions) -> _TaskStream:
+        assert not self.closed
+        assert self.reset_count == len(self.streams) + 1
+        assert options.temperature == 0.0
+        assert options.top_k == 0 and options.top_p == 1.0 and options.min_p == 0.0
+        assert options.repetition_penalty == 1.0
+        assert options.presence_penalty == options.frequency_penalty == 0.0
+        self.api.clock.advance(3.0)
+        stream = _TaskStream(self, list(token_ids), options)
+        self.streams.append(stream)
+        return stream
+
+    def close(self) -> None:
+        assert all(stream.closed for stream in self.streams)
+        super().close()
+
+
+class _TaskResult:
+    def __init__(self, stream: _TaskStream) -> None:
+        api = stream.session.api
+        self.token_ids = tuple(stream.tokens)
+        if api.result_token_mismatch and self.token_ids:
+            self.token_ids = (*self.token_ids[:-1], (self.token_ids[-1] + 1) % _VOCABULARY)
+        if api.result_count_mismatch:
+            self.token_ids = self.token_ids[:-1]
+        self.generated_token_count = len(self.token_ids)
+        self.prompt_token_count = len(stream.prompt) + api.result_prompt_offset
+        self.text = "".join(stream.fragments) + api.result_suffix
+        self.finish_reason = api.finish_override or stream.finish_reason
+        self.error_code = api.result_hresult or 0
+        self.speculative_statistics = None
+
+    def raise_for_error(self) -> None:
+        if self.error_code:
+            raise _WinMLError("Task result failed", self.error_code)
+
+
+class _TaskStream(_Closable):
+    def __init__(
+        self, session: _GenerationSession, prompt: list[int], options: _TaskOptions
+    ) -> None:
+        super().__init__()
+        self.session = session
+        self.prompt = prompt
+        self.tokens: list[int] = []
+        self.fragments: list[str] = []
+        self.read_index = 0
+        self.completed = False
+        capacity = session.task.owner.runtime.stage.sequence_capacity
+        previous = prompt[-1]
+        self.finish_reason = _FinishReason.MAX_TOKENS
+        for _ in range(options.max_new_tokens):
+            token = (previous + 1) % _VOCABULARY
+            if token in session.task.tokenizer.eos_token_ids:
+                self.finish_reason = _FinishReason.EOS_TOKEN
+                break
+            if len(prompt) + len(self.tokens) >= capacity:
+                self.finish_reason = _FinishReason.SEQUENCE_CAPACITY
+                break
+            self.tokens.append(token)
+            self.fragments.append("" if token == session.api.empty_fragment_token else f"<{token}>")
+            previous = token
+
+    def read_next(self) -> Any:
+        assert not self.closed
+        if self.session.api.read_hresult is not None:
+            raise _WinMLError("Task stream failed", self.session.api.read_hresult)
+        if self.read_index == len(self.tokens):
+            self.completed = True
+            self.session.api.clock.advance(7.0)
+            return None
+        self.session.api.clock.advance(5.0)
+        update = SimpleNamespace(
+            token_id=self.tokens[self.read_index], fragment=self.fragments[self.read_index]
+        )
+        self.read_index += 1
+        return update
+
+    @property
+    def result(self) -> _TaskResult:
+        assert not self.closed and self.completed
+        self.session.api.clock.advance(11.0)
+        return _TaskResult(self)
+
+    def __iter__(self) -> _TaskStream:
+        return self
+
+    def __next__(self) -> Any:
+        update = self.read_next()
+        if update is None:
+            raise StopIteration
+        return update
+
+
+def _tasks_api() -> SimpleNamespace:
+    return SimpleNamespace(
+        Tasks=_Tasks,
+        TextGenerationOptions=_TaskOptions,
+        TextGenerationOutputKind=SimpleNamespace(LOGITS=0, SAMPLED_TOKEN=1),
+        TextGenerationFinishReason=_FinishReason,
+    )
 
 
 def _runtime_api(
@@ -297,6 +472,20 @@ def _runtime_api(
         token_rank=token_rank,
         runtimes=[],
         tokenizers=[],
+        tasks=[],
+        configurations=[],
+        generation_tasks=[],
+        generation_sessions=[],
+        clock=_Clock(),
+        empty_fragment_token=None,
+        result_suffix="",
+        read_hresult=None,
+        result_hresult=None,
+        task_create_hresult=None,
+        result_token_mismatch=False,
+        result_count_mismatch=False,
+        result_prompt_offset=0,
+        finish_override=None,
     )
     api.Runtime = lambda: _Runtime(api)
 
@@ -319,7 +508,9 @@ def _session(
     tmp_path: Path, *, device: str = "cpu", **api_kwargs: Any
 ) -> tuple[WinMLLlamaSession, SimpleNamespace]:
     api = _runtime_api(**api_kwargs)
-    return WinMLLlamaSession(_gguf(tmp_path), device=device, runtime_api=api), api
+    return WinMLLlamaSession(
+        _gguf(tmp_path), device=device, runtime_api=api, tasks_api=_tasks_api()
+    ), api
 
 
 # ---------------------------------------------------------------------------
@@ -350,6 +541,28 @@ class TestConstruction:
         with pytest.raises(LlamaNotInstalledError, match="windowsml-llama-core"):
             session.open_tokenizer()
 
+    def test_tokenization_does_not_require_tasks_module(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setitem(sys.modules, "windowsml.tasks", None)
+        session = WinMLLlamaSession(_gguf(tmp_path), runtime_api=_runtime_api())
+        assert session.encode_prompt("hello") == _TEMPLATED_PROMPT
+        with pytest.raises(LlamaNotInstalledError, match="Task"):
+            session.load()
+
+    def test_missing_tasks_module_at_load_is_actionable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setitem(sys.modules, "windowsml.tasks", None)
+        api = _runtime_api()
+        with (
+            WinMLLlamaSession(_gguf(tmp_path), runtime_api=api) as session,
+            pytest.raises(LlamaNotInstalledError, match=r"windowsml.tasks") as excinfo,
+        ):
+            session.load()
+        assert "Install a matching preview" in str(excinfo.value)
+        assert api.runtimes[0].loaded == []
+
 
 class TestLoad:
     def test_builds_one_decoder_stage_with_capacity_hint(self, tmp_path: Path) -> None:
@@ -368,6 +581,7 @@ class TestLoad:
             "tokenizer_create_duration_ms",
             "model_create_duration_ms",
             "pipeline_build_duration_ms",
+            "task_create_duration_ms",
         }
 
     def test_without_hint_keeps_backend_capacity(self, tmp_path: Path) -> None:
@@ -407,6 +621,33 @@ class TestLoad:
         with pytest.raises(LlamaLoadError, match="INT32 or INT64"):
             session.load()
 
+    def test_task_creation_failure_closes_acquired_resources(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path)
+        api.task_create_hresult = 0x80004005
+        with pytest.raises(LlamaLoadError, match="0x80004005"):
+            session.load()
+        assert api.configurations[0].closed
+        assert api.generation_tasks[0].closed
+        assert api.tasks[0].closed
+        assert api.runtimes[0].pipeline.closed
+        assert api.runtimes[0].stage.closed
+
+    def test_missing_native_tasks_library_is_actionable(self, tmp_path: Path) -> None:
+        def missing_tasks(_runtime: Any) -> None:
+            raise FileNotFoundError("WinMLTasks.dll not found")
+
+        api = _runtime_api()
+        tasks_api = _tasks_api()
+        tasks_api.Tasks = missing_tasks
+        with (
+            WinMLLlamaSession(_gguf(tmp_path), runtime_api=api, tasks_api=tasks_api) as session,
+            pytest.raises(LlamaNotInstalledError, match=r"WinMLTasks.dll") as excinfo,
+        ):
+            session.load()
+        assert "Reinstall the matching preview" in str(excinfo.value)
+        assert api.runtimes[0].pipeline.closed
+        assert api.runtimes[0].stage.closed
+
 
 # ---------------------------------------------------------------------------
 # Prompting and generation
@@ -442,9 +683,7 @@ class TestGenerateTimed:
         assert timing.input_tokens == len(_TEMPLATED_PROMPT)
         assert timing.generated_tokens == 3
         assert timing.response_text == "<4><5><6>"
-        # Prefill runs the whole prompt once; tokens 4 and 5 are fed back. Token
-        # 6 selects EOS, so the step that ran it emits nothing and is not timed.
-        assert api.runtimes[0].pipeline.runs == [_TEMPLATED_PROMPT, [4], [5], [6]]
+        assert api.runtimes[0].pipeline.runs == []
         assert len(timing.decode_s) == 2
 
     def test_stops_at_max_new_tokens(self, tmp_path: Path) -> None:
@@ -455,8 +694,7 @@ class TestGenerateTimed:
         assert timing.stop_reason == "MAX_TOKENS"
         assert timing.generated_tokens == 2
         assert timing.response_text == "<3><4>"
-        # The last emitted token is never run.
-        assert api.runtimes[0].pipeline.runs == [_RAW_PROMPT, [3]]
+        assert api.runtimes[0].pipeline.runs == []
         assert len(timing.decode_s) == 1
 
     def test_stops_before_exceeding_capacity(self, tmp_path: Path) -> None:
@@ -469,31 +707,98 @@ class TestGenerateTimed:
         assert api.runtimes[0].stage.sequence_position < session.context_length
 
     def test_immediate_eos_emits_nothing(self, tmp_path: Path) -> None:
-        session, _api = _session(tmp_path)
+        session, api = _session(tmp_path)
         session.load(context_length=32)
-        timing = session.generate_timed([_EOS - 1], max_new_tokens=4)
+        timing = session.generate_timed([_EOS - 1], max_new_tokens=4, clock=api.clock)
 
         assert (timing.stop_reason, timing.generated_tokens, timing.decode_s) == ("EOS", 0, [])
         assert timing.response_text == ""
+        assert timing.first_token_s is None
+        assert timing.completion_s == 7.0
+        assert timing.result_fetch_s == 11.0
+        assert timing.generation_s == 3.0 + 7.0 + 11.0
 
     def test_each_request_resets_sequence_state(self, tmp_path: Path) -> None:
-        session, _api = _session(tmp_path)
+        session, api = _session(tmp_path)
         session.load(context_length=32)
         first = session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
         second = session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
         assert first.response_text == second.response_text == "<4><5><6>"
+        assert len(api.generation_sessions) == 1
+        assert api.generation_sessions[0].reset_count == 2
+        assert all(stream.closed for stream in api.generation_sessions[0].streams)
 
     def test_phase_spans_follow_the_clock(self, tmp_path: Path) -> None:
-        session, _api = _session(tmp_path)
+        session, api = _session(tmp_path)
         session.load(context_length=32)
-        ticks = count()
-        timing = session.generate_timed(
-            _TEMPLATED_PROMPT, max_new_tokens=16, clock=lambda: float(next(ticks))
-        )
+        timing = session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16, clock=api.clock)
 
-        assert (timing.reset_s, timing.prefill_s, timing.first_token_s) == (1.0, 1.0, 1.0)
-        assert timing.decode_s == [1.0, 1.0]
-        assert timing.detokenization_s == 3.0
+        assert timing.reset_s == 2.0
+        assert timing.stream_create_s == 3.0
+        assert timing.first_token_s == 8.0
+        assert timing.decode_s == [5.0, 5.0]
+        assert timing.completion_s == 7.0
+        assert timing.result_fetch_s == 11.0
+        assert timing.generation_s == 3.0 + 3 * 5.0 + 7.0 + 11.0
+
+    def test_empty_fragment_still_counts_as_a_token(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path)
+        api.empty_fragment_token = (_TEMPLATED_PROMPT[-1] + 1) % _VOCABULARY
+        session.load(context_length=32)
+        timing = session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16, clock=api.clock)
+        result = api.generation_sessions[0].streams[0]
+        assert timing.generated_tokens == len(result.tokens)
+        assert len(timing.decode_s) == len(result.tokens) - 1
+        assert timing.first_token_s == 8.0
+
+    def test_uses_canonical_task_result_text(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path)
+        api.result_suffix = "terminal text"
+        session.load(context_length=32)
+        timing = session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
+        stream = api.generation_sessions[0].streams[0]
+        assert timing.response_text == "".join(stream.fragments) + api.result_suffix
+
+    @pytest.mark.parametrize("failure_source", ["read_hresult", "result_hresult"])
+    def test_closes_stream_when_task_fails(self, tmp_path: Path, failure_source: str) -> None:
+        session, api = _session(tmp_path)
+        setattr(api, failure_source, 0x80004005)
+        session.load(context_length=32)
+        with pytest.raises(LlamaSessionError, match="0x80004005"):
+            session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
+        assert api.generation_sessions[0].streams[0].closed
+
+    @pytest.mark.parametrize(
+        "mismatch", ["result_token_mismatch", "result_count_mismatch", "result_prompt_offset"]
+    )
+    def test_rejects_inconsistent_task_result(self, tmp_path: Path, mismatch: str) -> None:
+        session, api = _session(tmp_path)
+        setattr(api, mismatch, 1)
+        session.load(context_length=32)
+        with pytest.raises(LlamaSessionError):
+            session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
+        assert api.generation_sessions[0].streams[0].closed
+
+    def test_error_finish_reason_is_not_success(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path)
+        api.finish_override = _FinishReason.ERROR
+        session.load(context_length=32)
+        with pytest.raises(LlamaSessionError):
+            session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
+        assert api.generation_sessions[0].streams[0].closed
+
+    @pytest.mark.parametrize("finish_reason", [_FinishReason.STOP_TOKEN, _FinishReason.CANCELED])
+    def test_preserves_task_terminal_outcome(
+        self, tmp_path: Path, finish_reason: _FinishReason
+    ) -> None:
+        session, api = _session(tmp_path)
+        api.finish_override = finish_reason
+        session.load(context_length=32)
+        timing = session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
+        stream = api.generation_sessions[0].streams[0]
+        assert timing.stop_reason == finish_reason.name
+        assert timing.generated_tokens == len(stream.tokens)
+        assert stream.closed
 
     def test_requires_load(self, tmp_path: Path) -> None:
         session, _api = _session(tmp_path)
@@ -536,6 +841,10 @@ class TestClose:
         assert pipeline.closed
         assert stage.closed
         assert api.tokenizers[0].closed
+        assert api.generation_sessions[0].closed
+        assert api.generation_tasks[0].closed
+        assert api.configurations[0].closed
+        assert api.tasks[0].closed
         with pytest.raises(LlamaSessionError, match="load"):
             session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=4)
 

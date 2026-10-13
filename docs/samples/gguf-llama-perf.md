@@ -1,11 +1,12 @@
 # GGUF — llama.cpp on Windows ML Runtime (Experimental)
 
-`winml perf` can benchmark a GGUF language model on the llama.cpp backend of the
-Windows ML Runtime API (`windowsml.runtime`). The Runtime selects llama.cpp from
-the `.gguf` extension, and winml-cli drives the model as one decoder stage with
-greedy decoding. The report uses the same prefill, time-to-first-token (TTFT), and
-decode metrics as `--runtime ort-genai`, so GGUF and onnxruntime-genai runs of the
-same model can be compared field by field.
+`winml perf` can benchmark a GGUF language model through the Windows ML Task API
+(`windowsml.tasks`). The Task uses one decoder stage on the Runtime's llama.cpp
+backend and manages greedy generation, token streaming, and sequence state. The
+Runtime still selects llama.cpp from the `.gguf` extension. The report measures
+time to the first Task token update, intervals between token updates, and total
+generation time. These include Task processing and are distinct from the model
+phase timings reported by `--runtime ort-genai`.
 
 !!! warning "Experimental"
     llama.cpp support ships only in the preview **Windows ML 2.7 experimental**
@@ -23,7 +24,7 @@ same model can be compared field by field.
 
 | Package | Version | Provides |
 |---|---|---|
-| `windowsml[with-ort]` | `2.7.2021a0` | The Runtime API (`windowsml.runtime`) and the matching `onnxruntime-windowsml` build |
+| `windowsml[with-ort]` | `2.7.2021a0` | The Runtime and Task APIs (`windowsml.runtime`, `windowsml.tasks`) and the matching `onnxruntime-windowsml` build |
 | `windowsml-llama-core` | `2.7.2021a0` | The Runtime llama.cpp adapter, the llama.cpp and ggml modules, and the CPU backend |
 
 - A local GGUF file. For example, the Windows ML samples use
@@ -73,7 +74,7 @@ winml-cli's `<1.28` constraint.
 Check the installation:
 
 ```powershell
-python -c "import windowsml.runtime; print('Windows ML Runtime API is available')"
+python -c "import windowsml.runtime, windowsml.tasks; print('Windows ML Runtime and Task APIs are available')"
 uv pip show windowsml-llama-core   # or: python -m pip show windowsml-llama-core
 ```
 
@@ -90,7 +91,7 @@ winml perf -m models\qwen2.5-0.5b-instruct-q4_k_m.gguf --device cpu `
 
 The console report lists the runtime and backend, the device, the installed preview
 package versions, the prompt and generated token counts with the stop reason, the
-model response, startup spans, a TTFT table, and prefill and decode throughput. The
+model response, startup spans, a Task TTFT table, and token-update throughput. The
 JSON report is written to `~/.cache/winml/perf/<model-file-stem>/<timestamp>.json`
 unless you pass `--output`.
 
@@ -124,7 +125,8 @@ capacity the Runtime reports is saved as `benchmark_info.context_length`.
 A generation stops at the end-of-sequence token, at `--max-new-tokens`, or at the
 capacity. The stop reason of the first timed generation is saved as
 `benchmark_info.stop_reason`, and `aggregate.stop_reason_counts` counts all timed
-generations.
+generations. The Task session is reset before every warmup and timed request, so
+each generation evaluates its prompt independently.
 
 ## Run on a GPU
 
@@ -214,30 +216,61 @@ with HRESULT `0x80070032`.
 
 ## Report fields
 
-GGUF reports use the GenAI phase-based schema (`schema_version: 2`, `load`,
-`requests`, `aggregate`, optional `memory`), so the
-[GenAI metric definitions](../commands/perf.md#genai-metric-definitions) apply. The
-differences are:
+GGUF Task reports use `schema_version: 3`, retaining the `load`, `requests`,
+`aggregate`, and optional `memory` sections. Only GGUF reports use this version;
+`ort-genai` reports remain at version 2. Earlier GGUF version 2 reports measured
+individual Runtime calls and Python token selection. Version 3 measures the Task
+stream, which includes native sampling and detokenization. Do not interpret its
+TTFT or token-update intervals as the earlier model-compute phases.
 
 | Field | GGUF value |
 |---|---|
 | `benchmark_info.runtime` / `backend` / `model_format` | `winml-runtime` / `llama.cpp` / `gguf` |
+| `benchmark_info.api` / `timing_source` | `windowsml.tasks` / `task-stream` |
 | `benchmark_info.experimental` | `true` |
 | `benchmark_info.ep` | `null`. llama.cpp does not use an ONNX Runtime execution provider. |
 | `benchmark_info.packages` | Installed versions of `windowsml` and `windowsml-llama-core`. The legacy `windowsml-llama-cuda` entry is retained in the report schema and is `null` for this release; a locally built CUDA backend does not install a Python distribution. |
 | `benchmark_info.llama_backends` | Backend families found under `windowsml\lib\LlamaBackends`. |
 | `load.model_create_duration_ms` | `Runtime.load_model` for the GGUF file. |
 | `load.pipeline_build_duration_ms` | Building the one-stage decoder pipeline. `native_load_duration_ms` is model load plus pipeline build. |
+| `load.task_create_duration_ms` | Creating the Task configuration, Task, and generation session. |
 | `load.weight_upload_*` | `null` / `unavailable`. The Runtime does not expose weight-upload timing. |
 | `requests[].tokenization_duration_ms` | Chat-template rendering and tokenization, which the Runtime performs in one call. `template_duration_ms` is `0`. |
-| `requests[].generator_create_duration_ms` | Resetting the decoder's sequence state for a new generation. |
-| `requests[].decode_token_durations_ms` | One entry per generated token after the first. A step that selects the end-of-sequence token is not recorded. |
+| `requests[].generator_create_duration_ms` | Resetting the Task session before a new generation. |
+| `requests[].task_stream_create_duration_ms` | The `generate_tokens` call that creates the pull stream. |
+| `requests[].task_ttft_duration_ms` | From immediately before `generate_tokens` through the first token update; includes stream creation. |
+| `requests[].request_ttft_duration_ms` | Tokenization plus session reset plus Task TTFT. |
+| `requests[].decode_token_durations_ms` | Arrival intervals between consecutive token updates, including Task sampling and detokenization. There is one interval per token after the first. |
+| `requests[].steady_state_decode_tokens_per_second` | Tokens after the first divided by the sum of token-update intervals. TPOT uses those same intervals. |
+| `requests[].task_stream_completion_duration_ms` | From the last token update to the terminal read returning `None`; when no token is produced, from stream creation's end. Includes any final stop-token processing. |
+| `requests[].result_fetch_duration_ms` | Fetching the terminal Task result after the stream completes. |
+| `requests[].task_generation_duration_ms` | From immediately before `generate_tokens` through the terminal read and result fetch. |
+| `requests[].request_duration_ms` | Tokenization plus session reset plus Task generation duration. |
 | `memory` | RAM fields only. VRAM fields are omitted because llama.cpp does not report which adapter a GPU backend uses. |
+
+`aggregate` summarizes timed requests only; warmups remain in `requests` but do not
+contribute to its distributions. Task, request, and cold-start TTFT are `null`
+when the corresponding generation produces no token update.
+Decode throughput and TPOT are `null` when there is no interval after the first
+token. An empty text fragment still represents a token update.
+
+The Task API does not expose separate prefill, model-compute, or detokenization
+timers. The following request fields, and their aggregate counterparts where
+present, are `null` rather than estimated from stream timing:
+
+- `prefill_duration_ms` and `prefill_tokens_per_second`
+- `first_token_duration_ms` and `detokenization_duration_ms`
+- `model_ttft_duration_ms` and `model_compute_duration_ms`
+- `response_eval_duration_ms` and `response_eval_tokens_per_second`
+- `sequence_fetch_duration_ms`
 
 ## Limitations
 
 - Local `.gguf` files only; Hugging Face Hub references are not resolved.
-- Greedy decoding with batch size 1.
+- Greedy decoding with batch size 1; Task sampling and speculation options are
+  not exposed by this command.
+- Task stream timings include native sampling and detokenization; separate model
+  phase timings are unavailable.
 - No NPU target, `--monitor`, or operator tracing.
 - Targets the Windows ML 2.7 experimental packages (`2.7.2021a0`). Later previews
   can change the Runtime API.
@@ -257,6 +290,6 @@ environment is unchanged.
 
 ## See also
 
-- [winml perf](../commands/perf.md): full flag reference and the GenAI metric definitions
+- [winml perf](../commands/perf.md): full flag reference and runtime-specific metric definitions
 - [Qwen3 — Genai Bundle](qwen3-genai-bundle.md): the onnxruntime-genai path for decoder models
 - [GGUF language models](https://github.com/microsoft/WindowsML/blob/main/docs/Runtime/gguf-models.md) in the Windows ML documentation

@@ -2,11 +2,10 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Tests for GGUF benchmarking in ``winml perf`` -- mock-based, no model, no Runtime.
+"""Tests for GGUF benchmarking in ``winml perf`` without native dependencies.
 
-A fake session returning canned :class:`LlamaGenerationTiming` objects makes the
-aggregation deterministic, so these tests never import the preview Windows ML
-Runtime. The session itself is unit-tested in
+A fake session returning clock-generated :class:`LlamaGenerationTiming` objects
+makes aggregation deterministic without importing Windows ML Tasks. The session is tested in
 ``tests/unit/session/test_llama_session.py``.
 """
 
@@ -14,7 +13,10 @@ from __future__ import annotations
 
 import json
 from io import StringIO
+from itertools import accumulate, count, pairwise
 from pathlib import Path
+from random import Random
+from statistics import fmean
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -35,7 +37,12 @@ from winml.modelkit.commands._perf_gguf import (
     write_gguf_report,
 )
 from winml.modelkit.commands.perf import _resolve_runtime, perf
-from winml.modelkit.session import LlamaGenerationTiming, LlamaNotInstalledError
+from winml.modelkit.session import (
+    LlamaGenerationTiming,
+    LlamaLoadError,
+    LlamaNotInstalledError,
+    LlamaSessionError,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -44,32 +51,35 @@ from winml.modelkit.session import LlamaGenerationTiming, LlamaNotInstalledError
 
 
 def _timing(
-    prefill_s: float,
-    first_token_s: float,
-    decode_s: list[float],
     *,
+    generated_tokens: int = 3,
     input_tokens: int = 4,
-    reset_s: float = 0.0,
-    detokenization_s: float = 0.0,
+    scale: float = 1.0,
     stop_reason: str = "MAX_TOKENS",
-    response_text: str = "hi",
 ) -> LlamaGenerationTiming:
-    """Build a timing with ``1 + len(decode_s)`` generated tokens."""
+    """Derive session spans from generated native-operation timestamps."""
+    random = Random(generated_tokens + input_tokens)
+    durations = [random.uniform(0.001, 0.1) * scale for _ in range(generated_tokens + 4)]
+    reset_end, create_end, *after_create = accumulate(durations)
+    arrivals = after_create[:generated_tokens]
+    terminal, result_end = after_create[generated_tokens:]
     return LlamaGenerationTiming(
         input_tokens=input_tokens,
-        generated_tokens=1 + len(decode_s),
-        reset_s=reset_s,
-        prefill_s=prefill_s,
-        first_token_s=first_token_s,
-        decode_s=list(decode_s),
-        detokenization_s=detokenization_s,
-        response_text=response_text,
+        generated_tokens=generated_tokens,
+        reset_s=reset_end,
+        stream_create_s=create_end - reset_end,
+        first_token_s=arrivals[0] - reset_end if arrivals else None,
+        decode_s=[end - start for start, end in pairwise(arrivals)],
+        completion_s=terminal - (arrivals[-1] if arrivals else create_end),
+        result_fetch_s=result_end - terminal,
+        generation_s=result_end - reset_end,
+        response_text="".join(chr(ord("a") + index) for index in range(generated_tokens)),
         stop_reason=stop_reason,
     )
 
 
 class _FakeLlamaSession:
-    """WinMLLlamaSession stand-in returning canned timings in order."""
+    """WinMLLlamaSession stand-in returning generated timings in order."""
 
     def __init__(
         self,
@@ -79,17 +89,24 @@ class _FakeLlamaSession:
         chat_template: bool = True,
     ) -> None:
         self._timings = list(timings)
-        self._prompt_ids = prompt_ids if prompt_ids is not None else [1, 2, 3, 4]
+        self._prompt_ids = prompt_ids if prompt_ids is not None else list(range(4))
         self._chat_template = chat_template
         self.chat_template_applied: bool | None = None
         self.context_length: int | None = None
         self.effective_device: str | None = None
         self.payload = None
         self.load_timings_ms = {
-            "runtime_create_duration_ms": 1.0,
-            "tokenizer_create_duration_ms": 2.0,
-            "model_create_duration_ms": 30.0,
-            "pipeline_build_duration_ms": 10.0,
+            name: float(index)
+            for index, name in enumerate(
+                (
+                    "runtime_create_duration_ms",
+                    "tokenizer_create_duration_ms",
+                    "model_create_duration_ms",
+                    "pipeline_build_duration_ms",
+                    "task_create_duration_ms",
+                ),
+                start=1,
+            )
         }
         self.calls: list[str] = []
         self.generate_kwargs: list[dict[str, Any]] = []
@@ -132,7 +149,10 @@ def _run_fake(
     tmp_path: Path, timings: list[LlamaGenerationTiming], **overrides: Any
 ) -> tuple[GGUFBenchmarkResult, _FakeLlamaSession]:
     session = _FakeLlamaSession(timings)
-    benchmark = GGUFPerfBenchmark(_config(tmp_path, **overrides), session=session)
+    ticks = count(step=0.001)
+    benchmark = GGUFPerfBenchmark(
+        _config(tmp_path, **overrides), session=session, clock=lambda: next(ticks)
+    )
     return benchmark.run(), session
 
 
@@ -149,57 +169,162 @@ def _gguf(tmp_path: Path, name: str = "model.gguf") -> Path:
 
 class TestBenchmark:
     def test_sizes_context_from_prompt_and_loads_before_generating(self, tmp_path: Path) -> None:
-        timings = [_timing(0.1, 0.01, [0.02, 0.02]) for _ in range(3)]
-        _result, session = _run_fake(tmp_path, timings)
+        timings = [_timing() for _ in range(3)]
+        result, session = _run_fake(tmp_path, timings)
 
         assert session.calls[:4] == ["open_tokenizer", "encode_prompt", "load", "encode_prompt"]
-        # 4 prompt tokens + max_new_tokens=3.
-        assert session.context_length == 7
-        assert all(kwargs["max_new_tokens"] == 3 for kwargs in session.generate_kwargs)
+        assert session.context_length == timings[0].input_tokens + result.config.max_new_tokens
+        assert all(
+            kwargs["max_new_tokens"] == result.config.max_new_tokens
+            for kwargs in session.generate_kwargs
+        )
         assert not session.closed  # injected sessions belong to the caller
 
     def test_aggregates_timed_requests_only(self, tmp_path: Path) -> None:
         timings = [
-            _timing(9.0, 9.0, [9.0, 9.0], stop_reason="EOS"),  # warmup, excluded
-            _timing(0.1, 0.01, [0.02, 0.04], reset_s=0.001),
-            _timing(0.3, 0.03, [0.02, 0.04], reset_s=0.001),
+            _timing(scale=100.0, stop_reason="EOS"),  # warmup, excluded
+            *[_timing(scale=float(index)) for index in range(1, 3)],
         ]
         result, _session = _run_fake(tmp_path, timings)
         aggregate = result.aggregate
 
         assert aggregate["warmup_request_count"] == 1
         assert aggregate["timed_request_count"] == 2
-        assert aggregate["prefill_duration_ms"]["mean"] == pytest.approx(200.0)
-        assert aggregate["model_ttft_duration_ms"]["mean"] == pytest.approx(220.0)
-        assert aggregate["steady_state_tpot_ms"]["mean"] == pytest.approx(30.0)
-        assert aggregate["steady_state_decode_tokens_per_second"]["mean"] == pytest.approx(2 / 0.06)
+        measured = timings[result.config.warmup :]
+        assert aggregate["task_ttft_duration_ms"]["mean"] == pytest.approx(
+            fmean(timing.first_token_s for timing in measured) * 1000
+        )
+        assert aggregate["task_generation_duration_ms"]["mean"] == pytest.approx(
+            fmean(timing.generation_s for timing in measured) * 1000
+        )
+        assert aggregate["steady_state_tpot_ms"]["mean"] == pytest.approx(
+            fmean(fmean(timing.decode_s) for timing in measured) * 1000
+        )
+        assert aggregate["steady_state_decode_tokens_per_second"]["mean"] == pytest.approx(
+            fmean(len(timing.decode_s) / sum(timing.decode_s) for timing in measured)
+        )
         assert aggregate["stop_reason_counts"] == {"MAX_TOKENS": 2}
         assert result.stop_reason == "MAX_TOKENS"
-        assert (result.prompt_tokens, result.generated_tokens) == (4, 3)
+        assert (result.prompt_tokens, result.generated_tokens) == (
+            measured[0].input_tokens,
+            measured[0].generated_tokens,
+        )
 
     def test_load_metrics_come_from_session_spans(self, tmp_path: Path) -> None:
-        timings = [_timing(0.1, 0.01, []) for _ in range(3)]
-        result, _session = _run_fake(tmp_path, timings)
+        timings = [_timing(generated_tokens=1) for _ in range(3)]
+        result, session = _run_fake(tmp_path, timings)
 
-        assert result.load["model_create_duration_ms"] == 30.0
-        assert result.load["pipeline_build_duration_ms"] == 10.0
-        assert result.load["native_load_duration_ms"] == 40.0
+        for name, duration in session.load_timings_ms.items():
+            assert result.load[name] == duration
+        assert result.load["native_load_duration_ms"] == sum(
+            session.load_timings_ms[name]
+            for name in ("model_create_duration_ms", "pipeline_build_duration_ms")
+        )
         assert result.load["weight_upload_duration_ms"] is None
         assert result.load["weight_upload_estimate_source"] == "unavailable"
 
-    def test_tokenization_and_reset_map_to_request_fields(self, tmp_path: Path) -> None:
-        ticks = iter(float(value) for value in range(100))
-        session = _FakeLlamaSession([_timing(0.1, 0.01, [0.02], reset_s=0.005)] * 3)
+    def test_request_timing_includes_stream_startup_and_terminal_work(self, tmp_path: Path) -> None:
+        clock_step_s = 0.125
+        ticks = count(step=clock_step_s)
+        timing = _timing()
+        session = _FakeLlamaSession([timing] * 3)
         benchmark = GGUFPerfBenchmark(_config(tmp_path), session=session, clock=lambda: next(ticks))
-        sample = benchmark.run().requests[-1]
+        result = benchmark.run()
+        sample = result.requests[-1]
 
         assert sample.template_duration_ms == 0.0
-        assert sample.tokenization_duration_ms == pytest.approx(1000.0)
-        assert sample.generator_create_duration_ms == pytest.approx(5.0)
-        assert sample.sequence_fetch_duration_ms == 0.0
+        assert sample.tokenization_duration_ms == pytest.approx(clock_step_s * 1000)
+        assert sample.generator_create_duration_ms == pytest.approx(timing.reset_s * 1000)
+        assert sample.task_ttft_duration_ms == pytest.approx(timing.first_token_s * 1000)
+        assert sample.task_generation_duration_ms == pytest.approx(timing.generation_s * 1000)
+        assert sample.task_stream_create_duration_ms == pytest.approx(timing.stream_create_s * 1000)
+        assert sample.task_stream_completion_duration_ms == pytest.approx(
+            timing.completion_s * 1000
+        )
+        assert sample.result_fetch_duration_ms == pytest.approx(timing.result_fetch_s * 1000)
+        assert sample.decode_token_durations_ms == pytest.approx(
+            [duration * 1000 for duration in timing.decode_s]
+        )
+        assert sample.request_ttft_duration_ms == pytest.approx(
+            (clock_step_s + timing.reset_s + timing.first_token_s) * 1000
+        )
+        assert sample.request_duration_ms == pytest.approx(
+            (clock_step_s + timing.reset_s + timing.generation_s) * 1000
+        )
+        assert result.aggregate["cold_start_ttft_duration_ms"] == pytest.approx(
+            result.load["session_load_duration_ms"] + result.requests[0].request_ttft_duration_ms
+        )
+        assert result.aggregate["cold_start_total_duration_ms"] == pytest.approx(
+            result.load["session_load_duration_ms"] + result.requests[0].request_duration_ms
+        )
+
+    @pytest.mark.parametrize(
+        "metric",
+        [
+            "prefill_duration_ms",
+            "prefill_tokens_per_second",
+            "first_token_duration_ms",
+            "detokenization_duration_ms",
+            "model_ttft_duration_ms",
+            "model_compute_duration_ms",
+            "response_eval_duration_ms",
+            "response_eval_tokens_per_second",
+            "sequence_fetch_duration_ms",
+        ],
+    )
+    def test_unobservable_model_phases_are_null(self, tmp_path: Path, metric: str) -> None:
+        result, _session = _run_fake(tmp_path, [_timing()] * 3)
+        report = result.to_dict()
+
+        assert report["aggregate"][metric] is None
+        assert all(sample[metric] is None for sample in report["requests"])
+
+    @pytest.mark.parametrize("generated_tokens", range(2))
+    def test_no_decode_intervals_leave_decode_metrics_null(
+        self, tmp_path: Path, generated_tokens: int
+    ) -> None:
+        timing = _timing(generated_tokens=generated_tokens, stop_reason="EOS")
+        result, _session = _run_fake(tmp_path, [timing] * 3)
+        report = result.to_dict()
+        sample = report["requests"][-1]
+
+        assert sample["decode_token_durations_ms"] == []
+        for metric in ("steady_state_tpot_ms", "steady_state_decode_tokens_per_second"):
+            assert sample[metric] is None
+            assert report["aggregate"][metric] is None
+        if generated_tokens == 0:
+            assert sample["task_ttft_duration_ms"] is None
+            assert sample["request_ttft_duration_ms"] is None
+            assert report["aggregate"]["task_ttft_duration_ms"] is None
+            assert report["aggregate"]["request_ttft_duration_ms"] is None
+            assert report["aggregate"]["cold_start_ttft_duration_ms"] is None
+        assert result.requests[-1].request_duration_ms == pytest.approx(
+            (0.001 + timing.reset_s + timing.generation_s) * 1000
+        )
+
+    def test_unavailable_observations_do_not_dilute_timed_averages(self, tmp_path: Path) -> None:
+        timings = [_timing(generated_tokens=index) for index in range(3)]
+        result, _session = _run_fake(tmp_path, timings, warmup=0, iterations=len(timings))
+
+        assert result.aggregate["task_ttft_duration_ms"]["mean"] == pytest.approx(
+            fmean(timing.first_token_s for timing in timings[1:]) * 1000
+        )
+        assert result.aggregate["steady_state_tpot_ms"]["mean"] == pytest.approx(
+            fmean(timings[-1].decode_s) * 1000
+        )
+        assert result.aggregate["cold_start_ttft_duration_ms"] is None
+
+    def test_warmup_only_run_does_not_become_timed_data(self, tmp_path: Path) -> None:
+        result, _session = _run_fake(tmp_path, [_timing()], warmup=1, iterations=0)
+
+        assert result.aggregate["timed_request_count"] == 0
+        assert result.aggregate["warmup_request_count"] == 1
+        assert result.aggregate["task_generation_duration_ms"] is None
+        assert result.aggregate["request_duration_ms"] is None
+        assert result.aggregate["stop_reason_counts"] == {}
 
     def test_owned_session_is_closed(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        session = _FakeLlamaSession([_timing(0.1, 0.01, [])] * 3)
+        session = _FakeLlamaSession([_timing(generated_tokens=1)] * 3)
         monkeypatch.setattr(perf_gguf, "WinMLLlamaSession", lambda *_args, **_kwargs: session)
 
         GGUFPerfBenchmark(_config(tmp_path)).run()
@@ -211,7 +336,7 @@ class TestBenchmark:
     ) -> None:
         rss = iter([100.0, 400.0, 420.0])
         monkeypatch.setattr("winml.modelkit.commands._perf_genai._get_rss_mb", lambda: next(rss))
-        timings = [_timing(0.1, 0.01, []) for _ in range(3)]
+        timings = [_timing(generated_tokens=1) for _ in range(3)]
         result, _session = _run_fake(tmp_path, timings, memory=True)
 
         assert result.memory_profile is not None
@@ -221,12 +346,14 @@ class TestBenchmark:
 
 class TestResultToDict:
     def test_reports_runtime_backend_and_format(self, tmp_path: Path) -> None:
-        timings = [_timing(0.1, 0.01, [0.02]) for _ in range(3)]
+        timings = [_timing() for _ in range(3)]
         result, _session = _run_fake(tmp_path, timings, requested_device="auto")
         info = result.to_dict()["benchmark_info"]
 
         assert info["runtime"] == "winml-runtime"
         assert info["backend"] == "llama.cpp"
+        assert info["api"] == "windowsml.tasks"
+        assert info["timing_source"] == "task-stream"
         assert info["model_format"] == "gguf"
         assert info["experimental"] is True
         assert info["ep"] is None
@@ -239,12 +366,12 @@ class TestResultToDict:
             "windowsml-llama-cuda",
         }
 
-    def test_shares_the_genai_report_layout(self, tmp_path: Path) -> None:
-        timings = [_timing(0.1, 0.01, [0.02]) for _ in range(3)]
+    def test_retains_report_layout_with_task_timing_schema(self, tmp_path: Path) -> None:
+        timings = [_timing() for _ in range(3)]
         result, _session = _run_fake(tmp_path, timings)
         report = result.to_dict()
 
-        assert report["schema_version"] == 2
+        assert report["schema_version"] == 3
         assert {"load", "requests", "aggregate", "response_text"} <= set(report)
         assert len(report["requests"]) == 3
         assert report["requests"][0]["kind"] == "warmup"
@@ -257,8 +384,8 @@ class TestResultToDict:
 
 
 class TestReporting:
-    def test_console_report_shows_phases_and_device_resolution(self, tmp_path: Path) -> None:
-        timings = [_timing(0.1, 0.01, [0.02]) for _ in range(3)]
+    def test_console_report_shows_task_metrics_and_device_resolution(self, tmp_path: Path) -> None:
+        timings = [_timing() for _ in range(3)]
         result, _session = _run_fake(tmp_path, timings, requested_device="auto")
         buffer = StringIO()
         display_gguf_report(result, Console(file=buffer, width=200, color_system=None))
@@ -266,20 +393,26 @@ class TestReporting:
 
         assert "llama.cpp, experimental" in output
         assert "auto -> cpu" in output
-        assert "Time to first token" in output
-        assert "Prefill:" in output
-        assert "Decode:" in output
+        assert "API:" in output
+        assert "Windows ML Tasks" in output
+        assert "Task TTFT" in output
+        assert "Pure prefill: unavailable" in output
+        assert "Decode (Task stream):" in output
 
     def test_console_report_warns_when_nothing_was_generated(self, tmp_path: Path) -> None:
-        empty = LlamaGenerationTiming(4, 0, 0.0, 0.1, 0.01, [], 0.0, "", "EOS")
+        empty = _timing(generated_tokens=0, stop_reason="EOS")
         result, _session = _run_fake(tmp_path, [empty] * 3)
         buffer = StringIO()
         display_gguf_report(result, Console(file=buffer, width=200, color_system=None))
 
-        assert "stopped before generating a token" in buffer.getvalue()
+        output = buffer.getvalue()
+        assert "stopped before generating a token" in output
+        assert "Cold TTFT: n/a" in output
+        assert "n/a tokens/sec" in output
+        assert "n/a ms/token" in output
 
     def test_write_report_round_trips(self, tmp_path: Path) -> None:
-        timings = [_timing(0.1, 0.01, [0.02]) for _ in range(3)]
+        timings = [_timing() for _ in range(3)]
         result, _session = _run_fake(tmp_path, timings)
         path = tmp_path / "nested" / "report.json"
         write_gguf_report(result, path)
@@ -301,21 +434,25 @@ class TestReporting:
 
 
 class TestRunGGUFPerf:
-    def test_missing_packages_become_click_errors(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        "error",
+        (LlamaNotInstalledError, LlamaLoadError, LlamaSessionError, FileNotFoundError),
+    )
+    def test_session_failures_become_click_errors(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: type[Exception]
     ) -> None:
         def fail(_self: GGUFPerfBenchmark) -> GGUFBenchmarkResult:
-            raise LlamaNotInstalledError("install windowsml-llama-core")
+            raise error(error.__name__)
 
         monkeypatch.setattr(GGUFPerfBenchmark, "run", fail)
         console = Console(file=StringIO())
-        with pytest.raises(click.ClickException, match="windowsml-llama-core"):
+        with pytest.raises(click.ClickException, match=error.__name__):
             run_gguf_perf(_config(tmp_path), console=console, json_mode=False)
 
     def test_json_mode_prints_and_saves_report(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        timings = [_timing(0.1, 0.01, [0.02]) for _ in range(3)]
+        timings = [_timing() for _ in range(3)]
         result, _session = _run_fake(tmp_path, timings)
         monkeypatch.setattr(GGUFPerfBenchmark, "run", lambda _self: result)
         config = _config(tmp_path)

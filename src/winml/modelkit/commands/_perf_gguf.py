@@ -4,17 +4,14 @@
 # --------------------------------------------------------------------------
 """GGUF generation benchmarking for ``winml perf`` (experimental).
 
-``winml perf -m model.gguf`` benchmarks a GGUF decoder on the Windows ML
-Runtime llama.cpp backend through :class:`~winml.modelkit.session.WinMLLlamaSession`.
-Like ``--runtime ort-genai``, decoder generation splits into a **prefill** phase
-(prompt -> first token) and a **decode** phase (later tokens), so the report
-reuses the GenAI phase-based schema (``load`` / ``requests`` / ``aggregate`` /
-``memory``) with ``benchmark_info.runtime == "winml-runtime"`` and
-``benchmark_info.backend == "llama.cpp"``. GGUF and GenAI runs of the same model
-therefore compare field by field.
+``winml perf -m model.gguf`` benchmarks a GGUF decoder through Windows ML Tasks
+and :class:`~winml.modelkit.session.WinMLLlamaSession`. The llama.cpp backend's
+native Task stream owns sampling and detokenization. Schema version 3 measures
+Task TTFT and successive stream-update arrivals; unavailable model-only phases
+remain null in the ``load`` / ``requests`` / ``aggregate`` / ``memory`` layout.
 
 llama.cpp support ships only in preview Windows ML packages that winml-cli does
-not depend on (``windowsml`` with ``windowsml.runtime`` plus
+not depend on (``windowsml`` with ``windowsml.runtime`` and ``windowsml.tasks`` plus
 ``windowsml-llama-core``). Missing packages surface as actionable errors; see
 ``docs/samples/gguf-llama-perf.md`` for the environment.
 
@@ -39,10 +36,9 @@ from rich.markup import escape
 from ..session import LlamaSessionError, WinMLLlamaSession, llama_package_versions
 from ._perf_genai import (
     _DEFAULT_PROMPT,
-    _aggregate_request_samples,
     _GenaiMemoryTracker,
-    _RequestSample,
     _round_stats,
+    _stats,
 )
 
 
@@ -64,6 +60,31 @@ RUNTIME_TYPE: RuntimeName = "winml-runtime"
 BACKEND_NAME = "llama.cpp"
 MODEL_FORMAT = "gguf"
 GGUF_SUFFIX = ".gguf"
+_UNAVAILABLE_MODEL_METRICS = (
+    "prefill_duration_ms",
+    "prefill_tokens_per_second",
+    "first_token_duration_ms",
+    "detokenization_duration_ms",
+    "model_ttft_duration_ms",
+    "model_compute_duration_ms",
+    "response_eval_duration_ms",
+    "response_eval_tokens_per_second",
+    "sequence_fetch_duration_ms",
+)
+_MEASURED_REQUEST_METRICS = (
+    "template_duration_ms",
+    "tokenization_duration_ms",
+    "generator_create_duration_ms",
+    "task_ttft_duration_ms",
+    "task_generation_duration_ms",
+    "task_stream_create_duration_ms",
+    "task_stream_completion_duration_ms",
+    "result_fetch_duration_ms",
+    "request_ttft_duration_ms",
+    "request_duration_ms",
+    "steady_state_tpot_ms",
+    "steady_state_decode_tokens_per_second",
+)
 
 
 def is_gguf_model(model: str | Path) -> bool:
@@ -118,6 +139,79 @@ class GGUFPerfConfig:
 
 
 @dataclass
+class _GGUFRequestSample:
+    """Request timings observable at the native Task stream boundary."""
+
+    kind: str
+    index: int
+    prompt_tokens: int
+    generated_tokens: int
+    template_duration_ms: float
+    tokenization_duration_ms: float
+    generator_create_duration_ms: float
+    task_ttft_duration_ms: float | None
+    task_generation_duration_ms: float
+    task_stream_create_duration_ms: float
+    task_stream_completion_duration_ms: float
+    result_fetch_duration_ms: float
+    decode_token_durations_ms: list[float]
+    response_text: str = ""
+
+    @property
+    def request_ttft_duration_ms(self) -> float | None:
+        """Prompt preparation and Task execution through the first update."""
+        if self.task_ttft_duration_ms is None:
+            return None
+        return (
+            self.template_duration_ms
+            + self.tokenization_duration_ms
+            + self.generator_create_duration_ms
+            + self.task_ttft_duration_ms
+        )
+
+    @property
+    def request_duration_ms(self) -> float:
+        """Prompt preparation through the completed Task result fetch."""
+        return (
+            self.template_duration_ms
+            + self.tokenization_duration_ms
+            + self.generator_create_duration_ms
+            + self.task_generation_duration_ms
+        )
+
+    @property
+    def steady_state_tpot_ms(self) -> float | None:
+        """Mean time between updates, including native sampling and text decode."""
+        if not self.decode_token_durations_ms:
+            return None
+        return sum(self.decode_token_durations_ms) / len(self.decode_token_durations_ms)
+
+    @property
+    def steady_state_decode_tokens_per_second(self) -> float | None:
+        """Update throughput after the first token, when intervals are measurable."""
+        total_ms = sum(self.decode_token_durations_ms)
+        return len(self.decode_token_durations_ms) * 1000.0 / total_ms if total_ms > 0 else None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize measured request spans and explicit unavailable legacy fields."""
+        result: dict[str, Any] = {
+            "kind": self.kind,
+            "index": self.index,
+            "prompt_tokens": self.prompt_tokens,
+            "generated_tokens": self.generated_tokens,
+            "decode_token_durations_ms": [
+                round(value, 3) for value in self.decode_token_durations_ms
+            ],
+            **dict.fromkeys(_UNAVAILABLE_MODEL_METRICS),
+        }
+        for metric in _MEASURED_REQUEST_METRICS:
+            value = getattr(self, metric)
+            precision = 2 if metric == "steady_state_decode_tokens_per_second" else 3
+            result[metric] = round(value, precision) if value is not None else None
+        return result
+
+
+@dataclass
 class GGUFBenchmarkResult:
     """Canonical results from a GGUF generation benchmark."""
 
@@ -133,18 +227,20 @@ class GGUFBenchmarkResult:
     packages: dict[str, str | None] = field(default_factory=dict)
     llama_backends: list[str] = field(default_factory=list)
     load: dict[str, float | str | None] = field(default_factory=dict)
-    requests: list[_RequestSample] = field(default_factory=list)
+    requests: list[_GGUFRequestSample] = field(default_factory=list)
     aggregate: dict[str, Any] = field(default_factory=dict)
     memory_profile: dict[str, float | None] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to a JSON-serializable dictionary (GenAI-compatible schema)."""
+        """Convert to a JSON-serializable Task timing report."""
         cfg = self.config
         result: dict[str, Any] = {
-            "schema_version": 2,
+            "schema_version": 3,
             "benchmark_info": {
                 "runtime": RUNTIME_TYPE,
                 "backend": BACKEND_NAME,
+                "api": "windowsml.tasks",
+                "timing_source": "task-stream",
                 "model_format": MODEL_FORMAT,
                 "experimental": True,
                 "model_id": str(cfg.model_path),
@@ -286,10 +382,10 @@ class GGUFPerfBenchmark:
         *,
         kind: str,
         index: int,
-    ) -> _RequestSample:
+    ) -> _GGUFRequestSample:
         """Run one generation and convert its spans to a canonical request sample.
 
-        The Runtime renders the chat template and tokenizes in one call, so that
+        The tokenizer renders the chat template and tokenizes in one call, so that
         span is reported as ``tokenization_duration_ms``; ``template_duration_ms``
         is ``0``. Resetting the sequence state for a new request is reported as
         ``generator_create_duration_ms``.
@@ -308,7 +404,7 @@ class GGUFPerfBenchmark:
             logger.info("Model response (iteration 1): %s", timing.response_text)
         else:
             logger.debug("Model response (iteration %d): %s", index + 1, timing.response_text)
-        return _RequestSample(
+        return _GGUFRequestSample(
             kind=kind,
             index=index,
             prompt_tokens=timing.input_tokens,
@@ -316,21 +412,40 @@ class GGUFPerfBenchmark:
             template_duration_ms=0.0,
             tokenization_duration_ms=(tokenize_end - tokenize_start) * 1000.0,
             generator_create_duration_ms=timing.reset_s * 1000.0,
-            prefill_duration_ms=timing.prefill_s * 1000.0,
-            first_token_duration_ms=timing.first_token_s * 1000.0,
+            task_ttft_duration_ms=(
+                timing.first_token_s * 1000.0 if timing.first_token_s is not None else None
+            ),
+            task_generation_duration_ms=timing.generation_s * 1000.0,
+            task_stream_create_duration_ms=timing.stream_create_s * 1000.0,
+            task_stream_completion_duration_ms=timing.completion_s * 1000.0,
+            result_fetch_duration_ms=timing.result_fetch_s * 1000.0,
             decode_token_durations_ms=[value * 1000.0 for value in timing.decode_s],
-            sequence_fetch_duration_ms=0.0,
-            detokenization_duration_ms=timing.detokenization_s * 1000.0,
             response_text=timing.response_text,
         )
 
     def _aggregate(
-        self, samples: list[_RequestSample], *, session_load_ms: float
+        self, samples: list[_GGUFRequestSample], *, session_load_ms: float
     ) -> GGUFBenchmarkResult:
         """Aggregate canonical samples (warmup requests excluded from stats)."""
-        timed, aggregate = _aggregate_request_samples(samples, session_load_ms=session_load_ms)
-        timed_kinds = {sample.kind for sample in timed}
-        timed_stops = [reason for kind, reason in self._stop_reasons if kind in timed_kinds]
+        timed = [sample for sample in samples if sample.kind == "timed"]
+        first = samples[0] if samples else None
+        first_ttft_ms = first.request_ttft_duration_ms if first is not None else None
+        aggregate: dict[str, Any] = {
+            "warmup_excluded": True,
+            "warmup_request_count": sum(sample.kind == "warmup" for sample in samples),
+            "timed_request_count": len(timed),
+            "cold_start_ttft_duration_ms": (
+                session_load_ms + first_ttft_ms if first_ttft_ms is not None else None
+            ),
+            "cold_start_total_duration_ms": (
+                session_load_ms + first.request_duration_ms if first is not None else None
+            ),
+            **dict.fromkeys(_UNAVAILABLE_MODEL_METRICS),
+        }
+        for metric in _MEASURED_REQUEST_METRICS:
+            values = [value for sample in timed if (value := getattr(sample, metric)) is not None]
+            aggregate[metric] = _stats(values) if values else None
+        timed_stops = [reason for kind, reason in self._stop_reasons if kind == "timed"]
         aggregate["stop_reason_counts"] = dict(sorted(Counter(timed_stops).items()))
         first_timed = timed[0] if timed else None
         session = self._session
@@ -362,6 +477,7 @@ class GGUFPerfBenchmark:
             "tokenizer_create_duration_ms": float(timings.get("tokenizer_create_duration_ms", 0.0)),
             "model_create_duration_ms": model_create_ms,
             "pipeline_build_duration_ms": pipeline_build_ms,
+            "task_create_duration_ms": float(timings.get("task_create_duration_ms", 0.0)),
             "native_load_duration_ms": model_create_ms + pipeline_build_ms,
             "weight_upload_duration_ms": None,
             "weight_upload_estimate_duration_ms": None,
@@ -378,11 +494,15 @@ def display_gguf_report(result: GGUFBenchmarkResult, console: Console) -> None:
     """Render a GGUF benchmark report to the console."""
     from rich.table import Table
 
+    def format_metric(value: float | None) -> str:
+        return f"{value:.2f}" if value is not None else "n/a"
+
     cfg = result.config
     device = result.effective_device or cfg.device
     device_str = device if cfg.requested_device == device else f"{cfg.requested_device} -> {device}"
     console.print()
     console.print(f"[dim]Runtime:[/dim]   {RUNTIME_TYPE} ({BACKEND_NAME}, experimental)")
+    console.print("[dim]API:[/dim]       Windows ML Tasks (task-stream timing)")
     console.print(f"[dim]Device:[/dim]    {device_str}")
     console.print(f"[dim]Model:[/dim]     {escape(str(cfg.model_path))}")
     packages = ", ".join(
@@ -412,40 +532,37 @@ def display_gguf_report(result: GGUFBenchmarkResult, console: Console) -> None:
         f"Native load: {float(load.get('native_load_duration_ms') or 0.0):.2f} ms"
     )
     console.print(
-        f"  Cold TTFT: {float(aggregate.get('cold_start_ttft_duration_ms') or 0.0):.2f} ms  |  "
-        f"Cold total: {float(aggregate.get('cold_start_total_duration_ms') or 0.0):.2f} ms"
+        f"  Cold TTFT: {format_metric(aggregate.get('cold_start_ttft_duration_ms'))} ms  |  "
+        f"Cold total: {format_metric(aggregate.get('cold_start_total_duration_ms'))} ms"
     )
 
     console.print()
-    console.print("[bold]Time to first token (ms)[/bold]")
-    model_ttft = aggregate.get("model_ttft_duration_ms", {})
+    console.print("[bold]Task TTFT (ms)[/bold]")
+    task_ttft = aggregate.get("task_ttft_duration_ms") or {}
     table = Table(show_header=True, header_style="bold cyan")
     for column in ["Avg", "P50", "P90", "P95", "P99", "Min", "Max"]:
         table.add_column(column, justify="right")
     table.add_row(
         *(
-            f"{model_ttft.get(key, 0.0):.2f}"
+            format_metric(task_ttft.get(key))
             for key in ("mean", "p50", "p90", "p95", "p99", "min", "max")
         )
     )
     console.print(table)
 
-    prefill_duration = aggregate.get("prefill_duration_ms", {})
-    prefill_tps = aggregate.get("prefill_tokens_per_second", {})
-    decode_tps = aggregate.get("steady_state_decode_tokens_per_second", {})
-    tpot = aggregate.get("steady_state_tpot_ms", {})
-    request_duration = aggregate.get("request_duration_ms", {})
+    decode_tps = aggregate.get("steady_state_decode_tokens_per_second") or {}
+    tpot = aggregate.get("steady_state_tpot_ms") or {}
+    request_duration = aggregate.get("request_duration_ms") or {}
     console.print()
+    console.print("[bold]Pure prefill:[/bold] unavailable (not exposed by Tasks)")
     console.print(
-        f"[bold]Prefill:[/bold]   {prefill_duration.get('mean', 0.0):.2f} ms avg  |  "
-        f"{prefill_tps.get('mean', 0.0):.2f} tokens/sec"
+        "[bold]Decode (Task stream):[/bold] "
+        f"{format_metric(decode_tps.get('mean'))} tokens/sec  |  "
+        f"{format_metric(tpot.get('mean'))} ms/token (TPOT)"
     )
     console.print(
-        f"[bold]Decode:[/bold]    {decode_tps.get('mean', 0.0):.2f} tokens/sec  |  "
-        f"{tpot.get('mean', 0.0):.2f} ms/token (TPOT)"
-    )
-    console.print(
-        f"[bold]Warm start:[/bold] {request_duration.get('mean', 0.0):.2f} ms avg per generation"
+        f"[bold]Warm start:[/bold] {format_metric(request_duration.get('mean'))} "
+        "ms avg per generation"
     )
     if cfg.warmup > 0:
         console.print(
