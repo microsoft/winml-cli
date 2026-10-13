@@ -468,6 +468,9 @@ def ep_option(
         default=default if not required else None,
         show_default=True,
         type=click.Choice(choices, case_sensitive=False),
+        metavar="["
+        + "|".join(name for name in choices if name not in ("winmlcg", "WinMLCGExecutionProvider"))
+        + "]",
         help=help_text,
     )
 

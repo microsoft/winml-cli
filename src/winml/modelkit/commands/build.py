@@ -841,6 +841,7 @@ def _maybe_build_genai_bundle(
     "--backend",
     type=click.Choice(list(RUNTIME_BACKENDS)),
     default=None,
+    hidden=True,
     help="Backend used when auto-generating config, as in winml config --backend.",
 )
 @click.option(
@@ -925,9 +926,6 @@ def build(
     Examples:
         # Auto-generate config (no -c needed)
         winml build -m microsoft/resnet-50 -o output/
-
-        # One-step CGIR build, preserving the existing ONNX precision
-        winml build -m model.onnx -o output/ --backend cgc --no-quant
 
         # Full pipeline with explicit config
         winml build -c config.json -m microsoft/resnet-50 -o output/
