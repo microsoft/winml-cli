@@ -1,58 +1,40 @@
 # Native DXCGC perf host (experimental)
 
-`winml perf --runtime dxcgc` loads local MLIR in a native process that calls
-`DXCGCCreateDevice`, `IDXCGCCompiler::Compile`, and `IDXCGCExecutable::Record`.
-D3D12 owns buffers, command lists, submission, and fence synchronization.
-Neither Windows ML Runtime API nor ORT participates in that process. The CLI
-launch and Python overhead are outside the measured loop.
+`winml perf --runtime dxcgc` compiles local MLIR with dxcgc.dll and executes
+through D3D12 in a native host, without the Windows ML Runtime API.
 
-Build with Visual Studio 2022 C++ tools, Windows SDK 10.0.26100 or newer, CMake,
-and the matching DXCGC Drop11.3 `include/dxcgc.h`:
+By default the host loads dxcgc.dll, its dependencies and D3D12Core.dll from
+the installed windowsml package's lib directory. Explicit --dxcgc-dir and
+--dxcgc-sdk-path remain available for diagnostics. SDK version defaults to 721.
+The native host must be built against compatible DXCGC headers. No SDK
+headers or DLLs are redistributed here.
 
 ```powershell
 cmake -S native/dxcgc-perf -B temp/dxcgc-build -A x64 -DDXCGC_INCLUDE_DIR=C:/DXCGC/include
 cmake --build temp/dxcgc-build --config Release
-winml perf -m model.mlir --runtime dxcgc --dxcgc-host temp/dxcgc-build/Release/winml-dxcgc-perf.exe --dxcgc-dir C:/DXCGC --dxcgc-sdk-path C:/DXCGC/D3D12 --dxcgc-sdk-version 721 --dxcgc-adapter 0 --input-data inputs.npz --iterations 100 --warmup 10 -o perf.json
+winml perf -m model.mlir --runtime dxcgc --dxcgc-host temp/dxcgc-build/Release/winml-dxcgc-perf.exe --input-data inputs.npz --iterations 500 --warmup 50 -o perf.json
 ```
 
-Supply the matching DLL set, compatible DirectML dependency, Agility SDK, and
-GPU driver separately. No private SDK headers or binaries are redistributed.
-This helper is built separately from the Python wheel.
+Host timing always includes CPU input copy, upload, command recording, GPU
+submission/completion, readback and caller-owned CPU output copy on every
+iteration. Compilation and disk I/O are excluded. GPU timestamps separately
+measure only execution. There is no resident-only timing option.
 
-The input NPZ must contain arrays in the model's logical input order. Shape,
-dtype and byte count are checked against native tensor reflection. Input names
-are not used for binding. Output views and initializer exports are resolved
-through the DXCGC reflection API, including offsets into packed arguments.
-The adjacent `perf.outputs.npz` contains the final inference outputs.
+Staging resources are reused, while CPU output buffers are allocated per
+iteration. Runtime API Python projection, allocation and scheduling policies
+can still differ; the gap describes the complete execution paths rather than
+an isolated native API-call cost.
 
-JSON reports separate GPU timestamps from host recording/submission/fence
-time. Compilation, executable creation, weight preprocessing, input uploads
-and output readback occur outside both inference measurements. The
-`compile_ms` field includes loading and compilation, but excludes executable
-creation. GPU timing cannot be subtracted from a Runtime API host latency to
-claim Runtime API overhead. A controlled same-boundary comparison is needed.
+Inputs are NPZ arrays in logical input order; shapes, dtypes and byte counts
+are validated using native reflection. Final CPU outputs are saved next to
+the JSON report as .outputs.npz. Initializer exports and tensor-view offsets
+are resolved using DXCGC reflection.
 
-Initial scope: one static program, buffer bindings, embedded constants,
-explicit NPZ inputs, fixed iteration count. External safetensors weights,
-texture bindings, dynamic shapes, resource monitoring and other perf build/EP
-options are unsupported. Unsupported CLI options fail explicitly. The SDK
-may use DirectML for compiled partitions. This is not a guarantee of exclusive
-driver-native MLIR execution.
+Initial scope: Windows, one static program, buffer bindings, embedded weights,
+explicit NPZ input and fixed iteration count. External weights, textures and
+dynamic shapes are unsupported. The helper is built separately from the wheel.
 
-Validation uses pytest. Set WINML_DXCGC_MODEL, WINML_DXCGC_HOST,
-WINML_DXCGC_DIR, WINML_DXCGC_SDK, WINML_DXCGC_INPUT, and
-WINML_DXCGC_REFERENCE (a CPU-reference NPZ for the same inputs), then run
-`pytest tests/unit/commands/test_perf_dxcgc.py`. The hardware test executes
-100 measured iterations after 10 warmups and checks relative L2 error <1%.
-
-### CPU round-trip comparison
-
-Add `--dxcgc-io-mode cpu-roundtrip` to include CPU input copying, upload,
-GPU execution, readback and a caller-owned CPU output copy in every host
-sample. Staging GPU resources are reused; output CPU buffers are allocated
-per iteration. Disk I/O and compilation remain excluded. The default
-`resident` mode retains GPU-resident inputs and excludes tensor transfers.
-Compare `host_ms` in round-trip mode with the Runtime API feed/infer/fetch
-latency, not with `gpu_ms`. Runtime API Python projection, resource allocation
-and scheduling policies still differ; matching compiler DLLs and compiled
-work is required before attributing the entire gap to API overhead.
+For the GPU pytest set WINML_DXCGC_MODEL, WINML_DXCGC_HOST, WINML_DXCGC_INPUT
+and WINML_DXCGC_REFERENCE (CPU-reference NPZ for the same inputs). Run
+pytest tests/unit/commands/test_perf_dxcgc.py. It uses the installed Runtime
+DLLs by default and checks output relative L2 error below 1%.

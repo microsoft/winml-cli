@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import importlib.util
 import json
 import math
 import subprocess
@@ -55,7 +56,6 @@ def run_dxcgc(ctx: click.Context) -> None:
         "dxcgc_sdk_path",
         "dxcgc_sdk_version",
         "dxcgc_adapter",
-        "dxcgc_io_mode",
         "iterations",
         "warmup",
         "input_data",
@@ -81,7 +81,15 @@ def run_dxcgc(ctx: click.Context) -> None:
     model = Path(p["model"]).resolve()
     if model.suffix.lower() not in (".mlir", ".mlirbc") or not model.is_file():
         raise click.UsageError("DXCGC requires a local .mlir or .mlirbc file")
-    for name in ("dxcgc_host", "dxcgc_dir", "dxcgc_sdk_path", "input_data"):
+    spec = importlib.util.find_spec("windowsml")
+    if spec is None or not spec.submodule_search_locations:
+        raise click.ClickException("The installed windowsml Runtime package is required")
+    runtime_dir = Path(next(iter(spec.submodule_search_locations))) / "lib"
+    if p["dxcgc_dir"] is None:
+        p["dxcgc_dir"] = runtime_dir
+    if p["dxcgc_sdk_path"] is None:
+        p["dxcgc_sdk_path"] = runtime_dir
+    for name in ("dxcgc_host", "input_data"):
         if p[name] is None:
             raise click.UsageError("--" + name.replace("_", "-") + " is required for DXCGC")
     output = (p["output"] or Path("dxcgc-perf.json")).resolve()
@@ -119,7 +127,6 @@ def run_dxcgc(ctx: click.Context) -> None:
                 str(p["iterations"]),
                 str(p["warmup"]),
                 str(work),
-                p["dxcgc_io_mode"],
             ]
             process = subprocess.run(  # noqa: S603 - explicit local executable; no shell
                 command,
@@ -157,13 +164,12 @@ def run_dxcgc(ctx: click.Context) -> None:
                 "compile_ms": float(info[1]),
                 "iterations": p["iterations"],
                 "warmup": p["warmup"],
-                "io_mode": p["dxcgc_io_mode"],
+                "io_mode": "cpu-roundtrip",
                 "measurement": {
                     "gpu_ms": "D3D12 timestamps around Record, excluding upload/readback",
                     "host_ms": ("CPU input copy/upload, command recording, submission, "
                                 "GPU fence completion, readback and caller-owned CPU output copy"
-                                if p["dxcgc_io_mode"] == "cpu-roundtrip" else
-                                "Command recording, submission, and GPU fence completion"),
+                                ),
                 },
                 "samples": samples,
                 "mean_gpu_ms": float(np.mean(samples["gpu_ms"])),

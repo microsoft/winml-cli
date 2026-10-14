@@ -2916,20 +2916,14 @@ def _validate_duration(
 @click.option(
     "--dxcgc-dir",
     type=click.Path(exists=True, file_okay=False, path_type=Path),
-    help="[dxcgc] Matching DXCGC DLL directory.",
+    help="[dxcgc] DLL directory (default: installed windowsml/lib).",
 )
 @click.option(
     "--dxcgc-sdk-path",
     type=click.Path(exists=True, file_okay=False, path_type=Path),
-    help="[dxcgc] Agility SDK DLL directory.",
+    help="[dxcgc] Agility SDK directory (default: installed windowsml/lib).",
 )
 @click.option("--dxcgc-sdk-version", type=click.IntRange(min=1), default=721)
-@click.option(
-    "--dxcgc-io-mode",
-    type=click.Choice(["resident", "cpu-roundtrip"]),
-    default="resident",
-    help="[dxcgc] Include per-iteration CPU input/output transfers.",
-)
 @click.option(
     "--dxcgc-adapter",
     type=click.IntRange(min=0),
@@ -3169,7 +3163,6 @@ def perf(
     dxcgc_sdk_path: Path | None,
     dxcgc_sdk_version: int,
     dxcgc_adapter: int,
-    dxcgc_io_mode: str,
     backend: RuntimeBackend | None,
     prompt: str,
     prompt_file: Path | None,

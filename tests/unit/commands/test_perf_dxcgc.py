@@ -47,19 +47,18 @@ def test_options_require_dxcgc():
 
 
 @pytest.mark.skipif(not os.environ.get('WINML_DXCGC_MODEL'), reason='Requires DXCGC GPU fixtures')
-@pytest.mark.parametrize('io_mode', ['resident', 'cpu-roundtrip'])
-def test_resnet_native(tmp_path, io_mode):
+def test_resnet_native(tmp_path):
     args = ['-m', os.environ['WINML_DXCGC_MODEL'], '--runtime', 'dxcgc',
             '--dxcgc-host', os.environ['WINML_DXCGC_HOST'],
-            '--dxcgc-dir', os.environ['WINML_DXCGC_DIR'],
-            '--dxcgc-sdk-path', os.environ['WINML_DXCGC_SDK'],
             '--input-data', os.environ['WINML_DXCGC_INPUT'],
-            '--dxcgc-io-mode', io_mode,
             '--iterations', '100', '--warmup', '10', '-o', str(tmp_path / 'perf.json')]
     result = CliRunner().invoke(perf, args)
     assert result.exit_code == 0, result.output
     report = json.loads((tmp_path / 'perf.json').read_text())
     assert len(report['samples']['gpu_ms']) == 100
+    assert report['io_mode'] == 'cpu-roundtrip'
+    assert any('windowsml' in path and path.endswith('dxcgc.dll')
+               for path in report['provenance'])
     with np.load(tmp_path / 'perf.outputs.npz') as actual, np.load(
         Path(os.environ['WINML_DXCGC_REFERENCE'])
     ) as expected:

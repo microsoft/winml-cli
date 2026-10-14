@@ -277,13 +277,10 @@ static Buffer view(IDXCGCModule *m, DXCGC_MODULE_TENSOR_ID id, Executable &e) {
 }
 int wmain(int argc, wchar_t **argv) {
   try {
-    if (argc != 10)
+    if (argc != 9)
       throw std::runtime_error(
           "Expected: model dll-dir sdk-dir sdk-version "
-          "adapter-index iterations warmup data-dir io-mode");
-    const bool roundtrip = std::wstring(argv[9]) == L"cpu-roundtrip";
-    if (!roundtrip && std::wstring(argv[9]) != L"resident")
-      throw std::runtime_error("Invalid I/O mode");
+          "adapter-index iterations warmup data-dir");
     fs::path model = argv[1], dll = argv[2], sdk = argv[3], data = argv[8];
     int iterations = std::stoi(argv[6]), warmup = std::stoi(argv[7]);
     if (iterations < 1 || warmup < 0)
@@ -436,7 +433,7 @@ int wmain(int argc, wchar_t **argv) {
     for (int i = 0; i < warmup + iterations; ++i) {
       auto begin = Clock::now();
       h.begin();
-      if (roundtrip) {
+      {
         for (size_t j = 0; j < inputViews.size(); ++j) {
           void *mapped;
           check(uploads[j].resource->Map(0, nullptr, &mapped));
@@ -456,7 +453,7 @@ int wmain(int argc, wchar_t **argv) {
       h.list->EndQuery(queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 1);
       h.list->ResolveQueryData(queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0, 2,
                                times.resource.Get(), 0);
-      if (roundtrip) {
+      {
         for (size_t j = 0; j < outputViews.size(); ++j) {
           h.transition(outputViews[j], D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                        D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -468,7 +465,7 @@ int wmain(int argc, wchar_t **argv) {
         }
       }
       h.submit();
-      if (roundtrip) {
+      {
         outputBytes.clear();
         for (const auto &b : readbacks) {
           void *mapped;
@@ -490,13 +487,8 @@ int wmain(int argc, wchar_t **argv) {
     }
     perf.close();
     for (SIZE_T i = 0; i < outputs; ++i) {
-      if (roundtrip)
-        write(data / ("output-" + std::to_string(i) + ".bin"),
-              outputBytes[i].data(), outputBytes[i].size());
-      else
-        h.download(view(module.Get(),
-                        {program, DXCGC_MODULE_TENSOR_TYPE_OUTPUT_VIEW, i}, e),
-                   data / ("output-" + std::to_string(i) + ".bin"));
+      write(data / ("output-" + std::to_string(i) + ".bin"),
+            outputBytes[i].data(), outputBytes[i].size());
     }
     std::ofstream info(data / "device.tsv");
     info << utf8(ad.Description) << std::endl
