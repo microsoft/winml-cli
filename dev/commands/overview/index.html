@@ -1661,34 +1661,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../cgc/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    cgc
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -2795,7 +2767,7 @@ journey from model discovery to a deployment-ready artifact. Every subcommand
 shares a consistent invocation style — <code>winml &lt;command&gt; [flags]</code> — and the
 same global flags are available on the root <code>winml</code> group.</p>
 <p>The commands group by user intent. <strong>Discover</strong> (<code>sys</code>, <code>inspect</code>, <code>catalog</code>,
-<code>cgc</code>, <code>analyze</code>) helps you understand your hardware and model before writing any
+<code>analyze</code>) helps you understand your hardware and model before writing any
 artifacts. <strong>Configure</strong> (<code>config</code>, <code>optimize</code>) produces a reusable build
 configuration and tunes the ONNX graph. <strong>Build</strong> (<code>export</code>, <code>quantize</code>,
 <code>compile</code>, <code>build</code>) runs the pipeline stages that produce deployment artifacts.
@@ -2830,11 +2802,6 @@ measure speed and accuracy.</p>
 <td><a href="../catalog/"><code>catalog</code></a></td>
 <td>Discover</td>
 <td>Browse the curated winml-cli catalog of validated models and benchmarks.</td>
-</tr>
-<tr>
-<td><a href="../cgc/"><code>cgc</code></a></td>
-<td>Discover</td>
-<td>Inspect D3D12 adapters and the MLIR patterns their drivers declare.</td>
 </tr>
 <tr>
 <td><a href="../config/"><code>config</code></a></td>
@@ -2888,8 +2855,6 @@ measure speed and accuracy.</p>
 <li><strong>I want to see what hardware and EPs I have</strong> → <code>winml sys</code></li>
 <li><strong>I want to know if my model is supported</strong> → <code>winml inspect</code></li>
 <li><strong>I want to browse validated models with known benchmarks</strong> → <code>winml catalog</code></li>
-<li><strong>I want to know whether a GPU driver implements D3D MLIR programs</strong> → <code>winml cgc adapters</code></li>
-<li><strong>I want to see the MLIR patterns a GPU driver declares</strong> → <code>winml cgc patterns</code></li>
 <li><strong>I want to verify EP operator compatibility before compiling</strong> → <code>winml analyze</code></li>
 <li><strong>I want to convert a Hugging Face model to ONNX</strong> → <code>winml export</code></li>
 <li><strong>I want to run the whole pipeline in one go</strong> → <code>winml build</code></li>

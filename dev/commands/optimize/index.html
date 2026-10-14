@@ -1559,34 +1559,6 @@
 
               
             
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../cgc/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    cgc
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
           </ul>
         </nav>
       
@@ -1931,17 +1903,6 @@
     <span class="md-ellipsis">
       
         Examples
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#cgc-compatibility-rewrites" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        CGC compatibility rewrites
       
     </span>
   </a>
@@ -2834,17 +2795,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#cgc-compatibility-rewrites" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        CGC compatibility rewrites
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#common-pitfalls" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3044,99 +2994,6 @@
 </span><span id="__span-8-22"><a id="__codelineno-8-22" name="__codelineno-8-22" href="#__codelineno-8-22"></a>Enable any of the above with its --enable-* flag (dependencies are auto-enabled).
 </span></code></pre></div>
 <p>Add <code>-v</code> to list every affected node and constant instead of a sample.</p>
-<h2 id="cgc-compatibility-rewrites">CGC compatibility rewrites<a class="headerlink" href="#cgc-compatibility-rewrites" title="Permanent link">&para;</a></h2>
-<p>For an existing ONNX model, explicitly enable the required compatibility rules before
-exporting CGIR MLIR. These rules are all <strong>default off</strong> and are independent of the
-ordinary optimization/fusion defaults.</p>
-<p>CGC-specific patterns are isolated in <code>src\winml\modelkit\pattern\cgc</code>, with
-private matching helpers in <code>cgc\utils.py</code> and public pattern exports in
-<code>cgc\__init__.py</code>. The CGIR compatibility pipe owns rule selection and execution;
-the shared pattern package does not re-export these backend-specific patterns.</p>
-<table>
-<thead>
-<tr>
-<th>Capability</th>
-<th>Transformation and scope</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>normalize-int32-dq</code></td>
-<td>Normalize initializer-backed INT32 <code>DequantizeLinear</code> in the standard domain (opset &gt;= 10) and <code>com.microsoft</code> (opset 1): omit immutable all-zero scalar/singleton zero points. Preserve scale inputs, shared initializers and domains; skip overridable parameters, per-axis vectors, unsupported attributes and nonlocal inputs. Handles nested graphs, not local functions. Enabled by CGC build configuration, disabled by default elsewhere.</td>
-</tr>
-<tr>
-<td><code>deduplicate-opset-imports</code></td>
-<td>Remove repeated model-level opset declarations with identical domain and version, retaining the first declaration and domain order. Reject conflicting versions for the same domain. Run before operator rewrites and opset upgrades; do not alter graph content, local functions, or the retained versions.</td>
-</tr>
-<tr>
-<td><code>gridsample-to-gather</code></td>
-<td>Decompose 2D <code>GridSample</code> with linear interpolation and zero padding into four <code>GatherND</code> reads, bounds masks and weighted sums. Supports both <code>align_corners</code> settings, FP16/FP32 IO and dynamic batch, with known positive channel, input spatial and grid spatial dimensions. Rank-3 indices contain explicit batch and spatial coordinates; <code>batch_dims=0</code> avoids the ORT symbolic shape inference defect tracked in <a href="https://github.com/microsoft/onnxruntime/pull/24206">onnxruntime#24206</a>. Batch coordinates are generated dynamically and shared across the four reads; sampled values are reshaped back to the grid layout. FP16 interpolation is computed in FP32 and cast back. Requires opset &gt;= 16 (<code>bilinear</code> before opset 20); other modes are unchanged. Enabled by CGC builds, disabled in ordinary optimization. Floating-point rounding may differ from native sampling.</td>
-</tr>
-<tr>
-<td><code>omit-empty-resize-inputs</code></td>
-<td>Replace statically empty Resize ROI/scales with omitted inputs. Do not rely on graph-input defaults or rewrite crop-and-resize semantics. Requires opset 13; upgrade older matching models using ONNX version conversion.</td>
-</tr>
-<tr>
-<td><code>cgc-constant-folding</code></td>
-<td>Fill FoundryToolbox constant-folding gaps without an ORT Session. In graphs containing <code>Shape</code>, fold statically known selected dimensions and bounded constant integer/boolean expressions (<code>Gather</code>, <code>Concat</code>, <code>Reshape</code>, <code>Slice</code>, <code>Transpose</code>, <code>Squeeze</code>, <code>Unsqueeze</code>, integer <code>Cast</code>, <code>ConstantOfShape</code>, arithmetic, <code>Equal</code>, <code>Where</code>). Iterate with shape inference, up to 32 rounds. Requires opset &gt;= 11. Only the main graph is rewritten; preserve tensor names for shared uses and subgraph captures. Graphs without <code>Shape</code>, runtime floating-point computations and unresolved dimensions remain unchanged. This rule does not freeze inputs: specialize dimensions before optimization when needed; later Foundry <code>freeze-dims</code> does not retroactively affect this rule. Limits: 128 dependency values per traversal, 65,536 elements per operation and 1,048,576 cached elements per round. Enabled by CGC builds; disabled in ordinary optimization.</td>
-</tr>
-<tr>
-<td><code>resize-tf-half-pixel-for-nn-to-asymmetric</code></td>
-<td>Change only the coordinate mode for nearest/floor Resize with static, non-overridable, positive integer scales. Dynamic/fractional scales and sizes-based inference are outside this rule.</td>
-</tr>
-<tr>
-<td><code>approximate-cubic-resize-with-linear</code></td>
-<td><strong>Lossy</strong>, explicit cubic-to-linear approximation. Excludes antialiasing, outside exclusion, and crop-and-resize semantics. Prints a warning when applied.</td>
-</tr>
-<tr>
-<td><code>gathernd-to-reshape</code></td>
-<td>Replace GatherND only when data/indices/output ranks are not all equal and static, non-overridable int64 indices visit every input slice exactly once in storage order. Require positive static data dimensions; support batch dimensions, multi-coordinate indices, and equivalent negative indices. Dynamic data shapes or indices, overridable defaults, empty tensors, partial selection, repetition, and reordering are outside this rule.</td>
-</tr>
-<tr>
-<td><code>prelu-to-relu</code></td>
-<td>Decompose <code>PRelu(x, slope)</code> into <code>Relu(x) - slope * Relu(-x)</code> for FP16/FP32/FP64 and opset 7+. Require a direct, non-overridable initializer or Constant slope containing only finite values; preserve slope broadcasting and sharing. Dynamic data shapes are supported. Dynamic/non-finite slopes, integer types, and BF16 are outside this rule.</td>
-</tr>
-<tr>
-<td><code>dft-to-matmul</code></td>
-<td>Decompose DFT into real-valued sine/cosine matrix multiplications for FP16/FP32/FP64. Support opset 17+ axis attributes and opset 20+ scalar axis inputs; require known rank, static positive signal length, real/complex component count, and static optional axis/length parameters. Support forward/inverse full transforms, real forward onesided transforms, truncation, zero-padding, and dynamic batch dimensions. Dynamic transform parameters, BF16, and inverse onesided transforms are outside this rule.</td>
-</tr>
-</tbody>
-</table>
-<p>Configuration keys can use underscores in place of hyphens.</p>
-<p>Add <code>--enable-deduplicate-opset-imports</code> (configuration: <code>"deduplicate_opset_imports": true</code>)
-when repeated identical opset declarations leave a stale version during conversion.
-This is an optimize rule, not an exporter fix: the saved optimized ONNX can be used
-either for explicit CGIR export or directly by WinML Runtime's CGC backend.
-It neither upgrades an opset nor resolves conflicting versions.</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>winml optimize -m model.onnx -o model.opt.onnx --disable-ort-graph-optimization --enable-omit-empty-resize-inputs --enable-resize-tf-half-pixel-for-nn-to-asymmetric
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>winml export -m model.opt.onnx -o model.mlir --target cgir
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>winml perf -m model.mlir --runtime winml-runtime --backend cgc --device gpu
-</span></code></pre></div>
-<p>Add <code>--enable-approximate-cubic-resize-with-linear</code> to optimize only when an accuracy-changing
-approximation is acceptable. This option is not included in the example's preserving rewrites.</p>
-<p>Add <code>--enable-gathernd-to-reshape</code> (configuration: <code>"gathernd_to_reshape": true</code>) for
-equivalent GatherND elimination. Rank mismatch alone is not sufficient: if identity
-indexing cannot be proved, GatherND is retained. This bypasses CGC's DirectML descriptor
-rank-alignment limitation; it does not implement general GatherND rank alignment.</p>
-<p>Add <code>--enable-prelu-to-relu</code> (configuration: <code>"prelu_to_relu": true</code>) to bypass IX's
-missing ONNX PRelu legalization. CGC already has a parameterized-ReLU implementation;
-the missing mapping is in IX. This is an algebraic decomposition, not an interpolation
-approximation, but it does not guarantee preservation of the sign bit of zero.
-Non-finite slopes are excluded because multiplying them by zero on the inactive
-branch could introduce NaNs.</p>
-<p>Add <code>--enable-dft-to-matmul</code> (configuration: <code>"dft_to_matmul": true</code>) for DFT legalization.
-The rewrite implements the DFT equation, including inverse normalization, without
-requiring power-of-two lengths. It uses dense Fourier bases rather than an FFT:
-constant storage and per-vector arithmetic are quadratic in the transform length.
-It is intended as a compatibility workaround, not a performance replacement for a
-native FFT. Different accumulation order and rounded coefficients mean floating-point
-results are not bit-identical to the original DFT implementation.</p>
-<p>The CGIR compatibility pipe applies each enabled rule once, matching the result of the
-preceding rule. This lets different rewrites affect the same Resize without changing
-the shared rewrite pipe's conflict policy. Rewrites retain the original model IR version;
-an opset upgrade may affect the whole model. These capabilities do not provide
-general GatherND replacement, dynamic-length DFT decomposition, or general control-flow folding.
-An upstream conversion/runtime limitation can still prevent export or execution.</p>
 <h2 id="common-pitfalls">Common pitfalls<a class="headerlink" href="#common-pitfalls" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong><code>--model</code> is required for actual optimization</strong> — it can be omitted only when using <code>--list-capabilities</code> or <code>--list-rewrites</code>. Missing <code>--model</code> in any other case raises a usage error.</li>

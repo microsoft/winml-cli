@@ -29,10 +29,6 @@
          <lastmod>2026-10-14</lastmod>
     </url>
     <url>
-         <loc>https://microsoft.github.io/winml-cli/dev/commands/cgc/</loc>
-         <lastmod>2026-10-14</lastmod>
-    </url>
-    <url>
          <loc>https://microsoft.github.io/winml-cli/dev/commands/compile/</loc>
          <lastmod>2026-10-14</lastmod>
     </url>
@@ -121,10 +117,6 @@
          <lastmod>2026-10-14</lastmod>
     </url>
     <url>
-         <loc>https://microsoft.github.io/winml-cli/dev/getting-started/cgc-onboarding/</loc>
-         <lastmod>2026-10-14</lastmod>
-    </url>
-    <url>
          <loc>https://microsoft.github.io/winml-cli/dev/getting-started/installation/</loc>
          <lastmod>2026-10-14</lastmod>
     </url>
@@ -178,14 +170,6 @@
     </url>
     <url>
          <loc>https://microsoft.github.io/winml-cli/dev/samples/qwen3-genai-bundle/</loc>
-         <lastmod>2026-10-14</lastmod>
-    </url>
-    <url>
-         <loc>https://microsoft.github.io/winml-cli/dev/samples/resnet50-cgir/</loc>
-         <lastmod>2026-10-14</lastmod>
-    </url>
-    <url>
-         <loc>https://microsoft.github.io/winml-cli/dev/samples/yolo11-cgir/</loc>
          <lastmod>2026-10-14</lastmod>
     </url>
     <url>
