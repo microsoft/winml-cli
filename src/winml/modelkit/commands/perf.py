@@ -2909,8 +2909,27 @@ def _validate_duration(
 @click.command("perf")
 @cli_utils.model_option(required=False)
 @click.option(
+    "--dxcgc-host",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="[dxcgc] Built native benchmark host.",
+)
+@click.option(
+    "--dxcgc-dir",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    help="[dxcgc] Matching DXCGC DLL directory.",
+)
+@click.option(
+    "--dxcgc-sdk-path",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    help="[dxcgc] Agility SDK DLL directory.",
+)
+@click.option("--dxcgc-sdk-version", type=click.IntRange(min=1), default=721)
+@click.option(
+    "--dxcgc-adapter", type=click.IntRange(min=0), default=0, help="[dxcgc] DXGI adapter index."
+)
+@click.option(
     "--runtime",
-    type=click.Choice(list(RUNTIME_NAMES)),
+    type=click.Choice([*RUNTIME_NAMES, "dxcgc"]),
     default="auto",
     show_default=True,
     help="'auto' selects ort-genai for folders containing genai_config.json, "
@@ -2918,7 +2937,8 @@ def _validate_duration(
     "'winml-ort' benchmarks single-shot ONNX inference; "
     "'ort-genai' benchmarks an onnxruntime-genai bundle folder "
     "(LLM generation: TTFT + decode tokens/sec); 'winml-runtime' performs "
-    "online conversion for ONNX/PyTorch inputs or loads CGC MLIR directly.",
+    "online conversion for ONNX/PyTorch inputs or loads CGC MLIR directly. "
+    "'dxcgc' uses the native DXCGC DLL benchmark host for local MLIR.",
 )
 @click.option(
     "--backend",
@@ -3134,7 +3154,12 @@ def _validate_duration(
 def perf(
     ctx: click.Context,
     model: str | None,
-    runtime: RuntimeName,
+    runtime: RuntimeName | Literal["dxcgc"],
+    dxcgc_host: Path | None,
+    dxcgc_dir: Path | None,
+    dxcgc_sdk_path: Path | None,
+    dxcgc_sdk_version: int,
+    dxcgc_adapter: int,
     backend: RuntimeBackend | None,
     prompt: str,
     prompt_file: Path | None,
@@ -3217,6 +3242,17 @@ def perf(
     """
     if not model:
         raise click.UsageError("A model is required via -m/--model.")
+
+    if runtime == "dxcgc":
+        from ._perf_dxcgc import run_dxcgc
+
+        run_dxcgc(ctx)
+        return
+    if any(
+        ctx.get_parameter_source(name) == click.core.ParameterSource.COMMANDLINE
+        for name in ctx.params if name.startswith("dxcgc_")
+    ):
+        raise click.UsageError("--dxcgc-* options require --runtime dxcgc")
 
     ep_provider_options = cli_utils.parse_ep_options(ep_options)
     ctx.params["ep_options"] = ep_provider_options
