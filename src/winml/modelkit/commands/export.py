@@ -103,6 +103,7 @@ def _warn_partial_composite(completed: list[Path]) -> None:
     type=click.Choice(list(EXPORT_TARGETS), case_sensitive=False),
     default="onnx",
     show_default=True,
+    hidden=True,
     help="Export target.",
 )
 @click.option(
@@ -110,6 +111,7 @@ def _warn_partial_composite(completed: list[Path]) -> None:
     "target_options",
     multiple=True,
     metavar="KEY=VALUE",
+    hidden=True,
     help=(
         "Additional target options (repeatable). CGIR supports external-weights, "
         "update-opset, topo-sort-nodes, and freeze-dims "

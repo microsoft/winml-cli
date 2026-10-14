@@ -20,8 +20,9 @@ Coverage
     no-args output, content completeness.
 
 ``TestCommandList``
-    The Commands section lists exactly the right commands: every enabled
-    command appears with non-empty AST-extracted help text; disabled
+    The Commands section lists exactly the right commands: every visible
+    command appears with non-empty AST-extracted help text; hidden commands
+    remain callable; disabled
     commands (``run``, ``serve``) do not appear and are also rejected at
     invocation time.
 
@@ -39,6 +40,7 @@ from io import StringIO
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
+import click
 import pytest
 from click.testing import CliRunner, Result
 from rich.console import Console
@@ -72,6 +74,7 @@ assert ENABLED_COMMANDS, (
 )
 
 _DISABLED_LIST: list[str] = sorted(_DISABLED_COMMANDS)
+VISIBLE_COMMANDS = [name for name in ENABLED_COMMANDS if name != "cgc"]
 
 
 # ---------------------------------------------------------------------------
@@ -211,9 +214,9 @@ class TestWinmlHelp:
 class TestCommandList:
     """The Commands section of ``winml --help`` lists exactly the right set."""
 
-    @pytest.mark.parametrize("cmd", ENABLED_COMMANDS)
-    def test_enabled_command_listed(self, cmd: str) -> None:
-        """Every enabled command must appear by name in the Commands section."""
+    @pytest.mark.parametrize("cmd", VISIBLE_COMMANDS)
+    def test_visible_command_listed(self, cmd: str) -> None:
+        """Every visible command must appear by name in the Commands section."""
         assert cmd in _invoke("--help").output
 
     @pytest.mark.parametrize("cmd", _DISABLED_LIST)
@@ -232,8 +235,8 @@ class TestCommandList:
         assert result.exit_code != 0
         assert "disabled" in result.output.lower()
 
-    @pytest.mark.parametrize("cmd", ENABLED_COMMANDS)
-    def test_enabled_command_has_help_text(self, cmd: str) -> None:
+    @pytest.mark.parametrize("cmd", VISIBLE_COMMANDS)
+    def test_visible_command_has_help_text(self, cmd: str) -> None:
         """Each command row must show non-empty AST-extracted help text.
 
         ``LazyGroup.format_commands`` parses each module's docstring via
@@ -388,3 +391,100 @@ class TestOptionsSection:
         result = _invoke("--version")
         assert result.exit_code == 0
         assert __version__ in result.output
+
+
+class TestCGCHelpVisibility:
+    """CGC entry points stay parseable without being advertised in help."""
+
+    @pytest.mark.parametrize("cmd", ["", *VISIBLE_COMMANDS])
+    def test_help_does_not_advertise_cgc(self, cmd: str) -> None:
+        result = _invoke(*([cmd] if cmd else []), "--help")
+        assert result.exit_code == 0, result.output
+        for term in ("cgc", "cgir", "mlir", "winmlcg", "winml-runtime", "foundrytoolbox"):
+            assert term not in result.output.casefold()
+
+    @pytest.mark.parametrize(
+        "args",
+        [(), ("--help",), ("adapters", "--help"), ("patterns", "--help")],
+    )
+    def test_hidden_cgc_group_remains_callable(self, args: tuple[str, ...]) -> None:
+        from winml.modelkit.commands.cgc import cgc
+
+        assert cgc.hidden
+        assert "cgc" not in _invoke("--help").output.casefold()
+        result = _invoke("cgc", *args)
+        assert result.exit_code == 0, result.output
+        assert "Usage:" in result.output
+
+    @pytest.mark.parametrize(
+        ("cmd", "flag", "value", "parameter"),
+        [
+            ("build", "--backend", "cgc", "backend"),
+            ("config", "--backend", "cgc", "backend"),
+            ("perf", "--backend", "cgc", "backend"),
+            ("eval", "--backend", "cgc", "backend"),
+            ("export", "--target", "cgir", "target"),
+            ("export", "--options", "external-weights=true", "target_options"),
+        ],
+    )
+    def test_hidden_options_still_parse(
+        self, cmd: str, flag: str, value: str, parameter: str
+    ) -> None:
+        with click.Context(main) as root:
+            command = main.get_command(root, cmd)
+        assert command is not None
+        option = next(param for param in command.params if param.name == parameter)
+        assert isinstance(option, click.Option)
+        assert option.hidden
+        assert flag not in _invoke(cmd, "--help").output
+        with command.make_context(cmd, [flag, value], resilient_parsing=True) as ctx:
+            assert ctx.params[parameter] == ((value,) if option.multiple else value)
+
+    @pytest.mark.parametrize("cmd", ENABLED_COMMANDS)
+    def test_public_choices_are_shown_and_all_choices_remain_parseable(self, cmd: str) -> None:
+        with click.Context(main) as root:
+            command = main.get_command(root, cmd)
+        assert command is not None
+        for option in command.params:
+            if (
+                not isinstance(option, click.Option)
+                or option.name not in ("ep", "reference_ep", "runtime")
+                or not isinstance(option.type, click.Choice)
+            ):
+                continue
+            with click.Context(command) as help_ctx:
+                visible_choices = [
+                    value
+                    for value in option.type.choices
+                    if value not in ("winmlcg", "WinMLCGExecutionProvider", "winml-runtime")
+                ]
+                assert option.make_metavar(help_ctx) == f"[{'|'.join(visible_choices)}]"
+                help_record = option.get_help_record(help_ctx)
+                assert help_record is not None
+                assert option.make_metavar(help_ctx) in help_record[0]
+            for value in option.type.choices:
+                with command.make_context(
+                    cmd, [option.opts[0], value], resilient_parsing=True
+                ) as ctx:
+                    assert ctx.params[option.name] == value
+
+    def test_cgir_rewrite_flags_are_hidden_but_still_parse(self) -> None:
+        from winml.modelkit.commands.optimize import optimize
+        from winml.modelkit.optim.pipes import CGIRRewritePipe
+
+        result = _invoke("optimize", "--help")
+        assert result.exit_code == 0
+        assert CGIRRewritePipe.capabilities
+        for capability in CGIRRewritePipe.capabilities.values():
+            for enabled, flag in zip((True, False), capability.cli_flags(), strict=True):
+                assert flag not in result.output
+                with optimize.make_context("optimize", [flag], resilient_parsing=True) as ctx:
+                    assert ctx.params[capability.python_name] is enabled
+
+    def test_cgir_capability_listing_is_unchanged(self) -> None:
+        from winml.modelkit.optim.pipes import CGIRRewritePipe
+
+        result = _invoke("optimize", "--list-capabilities")
+        assert result.exit_code == 0
+        for capability in CGIRRewritePipe.capabilities.values():
+            assert capability.name in result.output
