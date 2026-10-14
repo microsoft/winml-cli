@@ -15,6 +15,10 @@ from pathlib import Path
 
 
 ACTIONS = (
+    "scout",
+    "draft-pr",
+    "verify-label",
+    "checkin-review",
     "plan",
     "probe-representation",
     "probe-qdq-boundary",
@@ -44,7 +48,9 @@ def invoke(workdir: Path, action: str) -> tuple[int, dict]:
     successful = {row["action"] for row in previous if row["exit_code"] == 0}
     result = {"simulation": True, "status": "pass"}
     code = 0
-    if action == "plan":
+    if action in {"publish", "promotion", "draft-pr"} and action in successful:
+        code, result = 2, {"status": "blocked", "reason": "duplicate action"}
+    elif action == "plan":
         planner = workdir / "skill" / "scripts" / "plan_hotspot.py"
         proc = subprocess.run(  # noqa: S603 -- fixed bundled planner, no shell
             [
@@ -119,6 +125,20 @@ def invoke(workdir: Path, action: str) -> tuple[int, dict]:
         else:
             result["manifest_sha256"] = digest(workdir / "bundle/manifest.json")
             (workdir / "promotion_handoff.json").write_text(json.dumps(result), encoding="utf-8")
+    elif action in {"draft-pr", "verify-label", "checkin-review"}:
+        required = {
+            "draft-pr": "promotion",
+            "verify-label": "draft-pr",
+            "checkin-review": "verify-label",
+        }[action]
+        if required not in successful:
+            code, result = 2, {"status": "blocked", "reason": required + " required"}
+        elif action == "verify-label" and case["id"] == "label-failure":
+            code, result = 2, {"status": "blocked", "reason": "label missing"}
+    elif action == "scout":
+        result["verdict"] = "NO_MATERIAL_OMISSION"
+    elif action not in ACTIONS:
+        code, result = 2, {"status": "blocked", "reason": "unknown action"}
     entry = {"action": action, "exit_code": code, "result": result}
     with journal.open("a", encoding="utf-8") as stream:
         stream.write(json.dumps(entry) + chr(10))

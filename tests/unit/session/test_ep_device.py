@@ -6,6 +6,7 @@
 # tests/unit/session/test_ep_device.py
 """Unit tests for EPDeviceTarget descriptor and resolution helpers."""
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -15,6 +16,7 @@ from winml.modelkit.session import (
     DeviceNotFound,
     EPDeviceTarget,
     expand_ep_name,
+    lookup_device_spec,
     resolve_device,
     short_ep_name,
 )
@@ -39,6 +41,19 @@ def test_ep_device_lowercase_invariant() -> None:
     """`device` field is forced to lowercase by __post_init__."""
     ep_device = EPDeviceTarget(ep="QNNExecutionProvider", device="NPU")
     assert ep_device.device == "npu"
+
+
+def test_openvino_npu_defaults_are_cataloged() -> None:
+    spec = lookup_device_spec("OpenVINOExecutionProvider", "npu")
+    assert spec is not None
+    assert spec.use_defaults_for_genai is True
+    assert spec.default_provider_options["device_type"] == "NPU"
+    assert json.loads(spec.default_provider_options["load_config"])["NPU"] == {
+        "CACHE_MODE": "OPTIMIZE_SPEED",
+        "NPU_COMPILER_TYPE": "PLUGIN",
+        "NPU_QDQ_OPTIMIZATION": "YES",
+        "NPU_TURBO": "YES",
+    }
 
 
 def test_from_dict_forward_compat_with_optional_source() -> None:

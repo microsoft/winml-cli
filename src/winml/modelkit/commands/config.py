@@ -578,8 +578,10 @@ def config(
                 _ep_full = normalize_ep_name(ep_name)
                 console.print(f"      EP:         [cyan]{_ep_full}[/cyan]")
 
-            # Quant types — display exactly what config contains
-            if _quant:
+            # FP16 conversion does not use the integer weight/activation fields.
+            if _quant and _quant.mode == "fp16":
+                console.print("      Quant:      [cyan]FP16[/cyan]")
+            elif _quant:
                 console.print(
                     f"      Quant:      "
                     f"[cyan]{_quant.weight_type}/{_quant.activation_type}"

@@ -6,9 +6,12 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from typing import ClassVar
 from unittest.mock import patch
+
+import pytest
 
 from winml.modelkit.models.hf.qwen3 import (
     DecoderIOMapping,
@@ -561,6 +564,58 @@ class TestBuildQwen3TransformerOnlyStages:
         assert vitisai_opts["no_linear_slice"] == "1"
         assert itr_opts["log_id"] == "onnxruntime-genai.iterator"
 
+    @pytest.mark.parametrize("ep", ["openvino", "OpenVINOExecutionProvider", "OPENVINO"])
+    def test_openvino_only_routes_transformer_stages(self, ep) -> None:
+        with self._patch_onnx():
+            stages, _ = build_qwen3_transformer_only_stages(
+                "ctx.onnx", "iter.onnx", num_layers=4, ep=ep
+            )
+        stage_map = {stage.name: stage for stage in stages}
+        assert stage_map["embeddings"].session_options is None
+        assert stage_map["lm_head"].session_options is None
+        for name in ("context", "iterator"):
+            options = stage_map[name].session_options
+            assert options["log_id"] == f"onnxruntime-genai.{name}"
+            assert options["provider_options"][0]["openvino"]["device_type"] == "NPU"
+        assert (
+            stage_map["context"].session_options["provider_options"]
+            == stage_map["iterator"].session_options["provider_options"]
+        )
+
+    def test_openvino_defaults_reach_serialized_pipeline(self) -> None:
+        with self._patch_onnx():
+            stages, decoder_io = build_qwen3_transformer_only_stages(
+                "ctx.onnx", "iter.onnx", num_layers=4, ep="openvino"
+            )
+        config = build_genai_config(
+            _mock_config(num_hidden_layers=4),
+            max_cache_len=256,
+            prefill_seq_len=64,
+            pipeline=stages,
+            decoder_io=decoder_io,
+        )
+        pipeline = json.loads(json.dumps(config))["model"]["decoder"]["pipeline"]
+        stage_map = {name: stage for entry in pipeline for name, stage in entry.items()}
+        for name in ("context", "iterator"):
+            provider = stage_map[name]["session_options"]["provider_options"][0]["openvino"]
+            assert isinstance(provider["load_config"], str)
+            assert json.loads(provider["load_config"])["NPU"]["NPU_TURBO"] == "YES"
+        assert "session_options" not in stage_map["embeddings"]
+        assert "session_options" not in stage_map["lm_head"]
+
+    def test_openvino_gpu_uses_gpu_without_npu_config(self) -> None:
+        with self._patch_onnx():
+            stages, _ = build_qwen3_transformer_only_stages(
+                "ctx.onnx",
+                "iter.onnx",
+                num_layers=4,
+                ep="openvino",
+                device="gpu",
+            )
+        stage_map = {stage.name: stage for stage in stages}
+        for name in ("context", "iterator"):
+            provider = stage_map[name].session_options["provider_options"][0]["openvino"]
+            assert provider == {"device_type": "GPU"}
 
 # ---------------------------------------------------------------------------
 # Tests: write_genai_bundle wrapper (ep routing + transformer_onnx_passes)
@@ -618,3 +673,46 @@ class TestWriteGenaiBundleWrapper:
         kwargs = mock_write.call_args.kwargs
         assert kwargs["context_session_options"] is None
         assert kwargs["iterator_session_options"] is None
+
+    def test_openvino_defaults_weights_to_bundle_directory(self, tmp_path) -> None:
+        output_dir = tmp_path / "bundle"
+        with self._patch_generic() as mock_write:
+            write_genai_bundle(output_dir, ep="openvino", **self._COMMON)
+        kwargs = mock_write.call_args.kwargs
+        for name in ("context", "iterator"):
+            options = kwargs[f"{name}_session_options"]
+            assert options["log_id"] == f"onnxruntime-genai.{name}"
+            provider = options["provider_options"][0]["openvino"]
+            assert provider["device_type"] == "NPU"
+            config = json.loads(provider["load_config"])
+            assert config["NPU"]["WEIGHTS_PATH"] == str(output_dir.resolve())
+        assert "openvino_weights_path" not in kwargs
+
+    def test_openvino_gpu_does_not_add_npu_weights_config(self, tmp_path) -> None:
+        with self._patch_generic() as mock_write:
+            write_genai_bundle(
+                tmp_path / "bundle",
+                ep="openvino",
+                device="gpu",
+                **self._COMMON,
+            )
+        kwargs = mock_write.call_args.kwargs
+        for name in ("context", "iterator"):
+            provider = kwargs[f"{name}_session_options"]["provider_options"][0]["openvino"]
+            assert provider == {"device_type": "GPU"}
+
+    def test_openvino_forwards_custom_weights_path(self, tmp_path) -> None:
+        weights_dir = tmp_path / "shared weights"
+        with self._patch_generic() as mock_write:
+            write_genai_bundle(
+                tmp_path / "bundle",
+                ep="OpenVINOExecutionProvider",
+                openvino_weights_path=weights_dir,
+                **self._COMMON,
+            )
+        kwargs = mock_write.call_args.kwargs
+        for name in ("context", "iterator"):
+            provider = kwargs[f"{name}_session_options"]["provider_options"][0]["openvino"]
+            config = json.loads(provider["load_config"])
+            assert config["NPU"]["NPU_TURBO"] == "YES"
+            assert config["NPU"]["WEIGHTS_PATH"] == str(weights_dir.resolve())

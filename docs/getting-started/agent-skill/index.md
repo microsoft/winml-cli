@@ -32,3 +32,6 @@ Make the selected directory under
 to an agent runtime that supports skills or custom instructions, then describe
 your goal in natural language. Each guide provides example prompts and explains
 what the skill handles automatically.
+Repository source directories are not automatically registered by every host.
+For loading diagnostics and stale-copy checks, see
+[Auto Optimize loading and verification](auto-optimize.md#loading-and-verification).

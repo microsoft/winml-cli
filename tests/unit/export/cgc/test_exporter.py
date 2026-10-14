@@ -3,16 +3,90 @@
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
 
+import sys
+from enum import Enum
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 import numpy as np
 import pytest
 from onnx import ModelProto, TensorProto, helper, numpy_helper, save_model
 
 from winml.modelkit.export import WinMLExportConfig
-from winml.modelkit.export.cgc import CGCExporter, CGCExportResult, CGCOptions
-from winml.modelkit.export.cgc.foundry import FoundryCompileError
+from winml.modelkit.export.cgc import (
+    CGCExporter,
+    CGCExportResult,
+    CGCOptions,
+    FoundryToolboxUnavailableError,
+    create_foundry_compiler,
+)
+
+
+class _CompilerError(RuntimeError):
+    def __init__(
+        self, result: Enum, *, message: str = "", op_name: str = "", file_path: str = "",
+    ) -> None:
+        super().__init__(message)
+        self.result = result
+        self.message = message
+        self.op_name = op_name
+        self.file_path = file_path
+
+
+@pytest.fixture(autouse=True)
+def foundry_api(monkeypatch: pytest.MonkeyPatch) -> Mock:
+    """Isolate exporter tests from the preview wheel's binding."""
+    errors = {
+        name: type(name, (_CompilerError,), {})
+        for name in (
+            "UnsupportedOperationError", "MissingExternalDataFileError", "ShapeInferenceError",
+        )
+    }
+    api = Mock(
+        spec=[
+            "CompileOptions", "CompilerError", "Result",
+            "SourceFormat", "Target", "SerializationFormat", "OverrideDynamicDimsByDimName",
+            *errors,
+        ],
+        CompilerError=_CompilerError,
+        Result=Enum("Result", [
+            "ERROR_UNSUPPORTED_OPERATION",
+            "ERROR_MISSING_EXTERNAL_DATA_FILE", "ERROR_SHAPE_INFERENCE_FAILED",
+        ]),
+        CompileOptions=Mock(side_effect=SimpleNamespace),
+        **errors,
+    )
+    monkeypatch.setitem(sys.modules, "_foundry", api)
+    return api
+
+
+@pytest.mark.parametrize("entry_point", ["exporter", "compiler"])
+def test_missing_foundry_binding(monkeypatch, entry_point):
+    monkeypatch.setitem(sys.modules, "_foundry", None)
+    with pytest.raises(FoundryToolboxUnavailableError, match="preview wheels") as captured:
+        if entry_point == "exporter":
+            CGCExporter(CGCOptions())._convert_to_cgir(Path("source.onnx"))
+        else:
+            create_foundry_compiler()
+    assert isinstance(captured.value.__cause__, ModuleNotFoundError)
+    assert captured.value.__cause__.name == "_foundry"
+
+
+@pytest.mark.parametrize("entry_point", ["exporter", "compiler"])
+def test_foundry_dependency_import_error_is_preserved(entry_point):
+    error = ModuleNotFoundError("Missing SDK dependency", name="sdk_dependency")
+    exporter = CGCExporter(CGCOptions())
+    source = Path("source.onnx")
+    with (
+        patch("builtins.__import__", side_effect=error),
+        pytest.raises(ModuleNotFoundError) as captured,
+    ):
+        if entry_point == "exporter":
+            exporter._convert_to_cgir(source)
+        else:
+            create_foundry_compiler()
+    assert captured.value is error
 
 
 def _make_model() -> ModelProto:
@@ -87,6 +161,17 @@ def test_pytorch_export_hides_onnx_intermediate(tmp_path: Path) -> None:
     assert not intermediate_paths[0].parent.exists()
 
 
+class _MlirModule:
+    def __init__(self, serialized: bytes) -> None:
+        self.serialized = serialized
+
+    def serialize(self, format: object) -> bytes:
+        from _foundry import SerializationFormat
+
+        assert format == SerializationFormat.TEXT
+        return self.serialized
+
+
 class _ExternalMlirCompiler:
     def __enter__(self):
         return self
@@ -94,9 +179,10 @@ class _ExternalMlirCompiler:
     def __exit__(self, *_args):
         return None
 
-    def compile_onnx(self, _source, **kwargs):
-        kwargs["output_data_file"].write_bytes(b"new weights")
-        return b"module { cgc.test }"
+    def compile_file(self, _source, options):
+        if options.output_data_file is not None:
+            Path(options.output_data_file).write_bytes(b"new weights")
+        return _MlirModule(b"module { cgc.test }")
 
 
 def test_external_mlir_overwrite_replaces_sidecar(tmp_path: Path) -> None:
@@ -108,7 +194,7 @@ def test_external_mlir_overwrite_replaces_sidecar(tmp_path: Path) -> None:
     sidecar.write_bytes(b"old weights")
 
     with patch(
-        "winml.modelkit.export.cgc.exporter.FoundryCompiler",
+        "winml.modelkit.export.cgc.exporter.create_foundry_compiler",
         return_value=_ExternalMlirCompiler(),
     ):
         CGCExporter(CGCOptions(external_weights=True)).export(
@@ -134,7 +220,7 @@ def test_external_mlir_failure_preserves_existing_bundle(tmp_path: Path) -> None
 
     with (
         patch(
-            "winml.modelkit.export.cgc.exporter.FoundryCompiler",
+            "winml.modelkit.export.cgc.exporter.create_foundry_compiler",
             return_value=_ExternalMlirCompiler(),
         ),
         patch.object(
@@ -165,14 +251,14 @@ def test_mlir_bundle_publication(
     exporter = CGCExporter(CGCOptions(external_weights=weights_mode != "embedded"))
 
     class Compiler(_ExternalMlirCompiler):
-        def compile_onnx(self, serialized, **kwargs):
-            data_path = kwargs["output_data_file"]
+        def compile_file(self, source_path, options):
+            data_path = options.output_data_file
             if data_path is not None and weights_mode == "external":
-                data_path.write_bytes(serialized)
-            return b"module { cgc.test }"
+                Path(data_path).write_bytes(source_path.read_bytes())
+            return _MlirModule(b"module { cgc.test }")
 
     monkeypatch.setattr(
-        "winml.modelkit.export.cgc.exporter.FoundryCompiler", Compiler,
+        "winml.modelkit.export.cgc.exporter.create_foundry_compiler", Compiler,
     )
     if existing:
         exporter.export_onnx(source, output)
@@ -234,19 +320,9 @@ def test_export_prints_progress(capsys: pytest.CaptureFixture[str], tmp_path: Pa
     output = tmp_path / "model.mlir"
     save_model(_make_model(), str(source))
 
-    class FakeCompiler:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return None
-
-        def compile_onnx(self, _source, **_kwargs):
-            return b"module { cgc.test }"
-
     with patch(
-        "winml.modelkit.export.cgc.exporter.FoundryCompiler",
-        return_value=FakeCompiler(),
+        "winml.modelkit.export.cgc.exporter.create_foundry_compiler",
+        return_value=_ExternalMlirCompiler(),
     ):
         CGCExporter(CGCOptions()).export(source, output)
 
@@ -322,29 +398,26 @@ def test_auto_freeze_ignores_non_input_symbols(tmp_path, location):
     assert exporter._freeze_dims == {}
 
 
-def test_freeze_dims_are_forwarded_to_foundry(tmp_path: Path) -> None:
+def test_freeze_dims_are_forwarded_to_foundry(tmp_path: Path, foundry_api) -> None:
     source = tmp_path / "source.onnx"
     output = tmp_path / "model.mlir"
     save_model(_make_model(), str(source))
 
-    class FakeCompiler:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return None
-
-        def compile_onnx(self, _source, **kwargs):
-            assert kwargs["freeze_dims"] == {"batch": 1, "seq": 128}
-            return b"module { cgc.test }"
+    class FakeCompiler(_ExternalMlirCompiler):
+        def compile_file(self, source_path, options):
+            assert options.passes == [
+                foundry_api.OverrideDynamicDimsByDimName.return_value,
+            ]
+            return super().compile_file(source_path, options)
 
     with patch(
-        "winml.modelkit.export.cgc.exporter.FoundryCompiler",
+        "winml.modelkit.export.cgc.exporter.create_foundry_compiler",
         return_value=FakeCompiler(),
     ):
         CGCExporter(
             CGCOptions(freeze_dims="batch=1,seq=128")
         ).export_onnx(source, output)
+    foundry_api.OverrideDynamicDimsByDimName.assert_called_once_with({"batch": 1, "seq": 128})
 
 
 @pytest.mark.parametrize(
@@ -357,39 +430,49 @@ def test_invalid_freeze_dims_are_rejected(freeze_dims: str) -> None:
 
 
 @pytest.mark.parametrize(
-    ("error", "expected"),
+    ("error_type", "result_name", "details", "expected"),
     [
         (
-            FoundryCompileError(
-                9,
-                native_message="Operation is not registered.",
-                unsupported_op="com.example.CustomOp",
-            ),
+            "UnsupportedOperationError",
+            "ERROR_UNSUPPORTED_OPERATION",
+            {"message": "Operation is not registered.", "op_name": "com.example.CustomOp"},
             "ONNX operator 'com.example.CustomOp' is not supported.",
         ),
         (
-            FoundryCompileError(
-                11,
-                native_message="File does not exist.",
-                missing_external_data="weights/model.data",
-            ),
+            "MissingExternalDataFileError",
+            "ERROR_MISSING_EXTERNAL_DATA_FILE",
+            {"message": "File does not exist.", "file_path": "weights/model.data"},
             "ONNX external weights file was not found: 'weights/model.data'.",
         ),
         (
-            FoundryCompileError(
-                3,
-                native_message="Could not infer output shape.",
-            ),
+            "ShapeInferenceError",
+            "ERROR_SHAPE_INFERENCE_FAILED",
+            {"message": "Could not infer output shape."},
             "--options freeze-dims=batch=1,seq=128",
         ),
     ],
 )
 def test_exporter_formats_foundry_diagnostics(
-    error: FoundryCompileError,
+    foundry_api,
+    error_type: str,
+    result_name: str,
+    details: dict[str, str],
     expected: str,
 ) -> None:
-    message = CGCExporter(CGCOptions())._format_foundry_error(error)
+    error = getattr(foundry_api, error_type)(
+        getattr(foundry_api.Result, result_name), **details,
+    )
+    with (
+        patch(
+            "winml.modelkit.export.cgc.exporter.create_foundry_compiler",
+            side_effect=error,
+        ),
+        pytest.raises(RuntimeError) as captured,
+    ):
+        CGCExporter(CGCOptions())._convert_to_cgir(Path("source.onnx"))
+    assert captured.value.__cause__ is error
+    message = str(captured.value)
 
-    assert f"[{error.result_name}]" in message
-    assert error.native_message in message
+    assert f"[{error.result.name}]" in message
+    assert error.message in message
     assert expected in message

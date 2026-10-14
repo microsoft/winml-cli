@@ -2555,7 +2555,6 @@ def _run_simple_loop(
 _GENAI_IGNORED_FLAGS: dict[str, str] = {
     "task": "--task",
     "precision": "--precision",
-    "ep_options": "--ep-options",
     "shape_config_path": "--shape-config",
     "input_specs": "--input-specs",
     "export_config": "--export-config",
@@ -2782,6 +2781,11 @@ def _run_genai_runtime(
         ep = cast("EPNameOrAlias", short_ep_name(target.ep)) if target is not None else None
         if target is not None:
             device = target.device
+    provider_options: dict[str, str] | None = p.get("ep_options")
+    if provider_options and ep is None:
+        raise click.UsageError(
+            "--ep-options requires --ep or a concrete --device with --runtime ort-genai."
+        )
 
     # Keep any bundle-lifetime resources alive across the benchmark.
     with contextlib.ExitStack() as stack:
@@ -2844,6 +2848,7 @@ def _run_genai_runtime(
             model_id=model,
             ep=ep,
             device=device,
+            provider_options=provider_options,
             prompt=prompt,
             apply_template=p["apply_template"],
             max_new_tokens=p["max_new_tokens"],
@@ -3214,6 +3219,7 @@ def perf(
         raise click.UsageError("A model is required via -m/--model.")
 
     ep_provider_options = cli_utils.parse_ep_options(ep_options)
+    ctx.params["ep_options"] = ep_provider_options
     if device_luid is not None and "device_id" in (ep_provider_options or {}):
         raise click.UsageError(
             "--device-luid cannot be combined with --ep-options device_id=...; "
