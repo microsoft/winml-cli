@@ -277,9 +277,13 @@ static Buffer view(IDXCGCModule *m, DXCGC_MODULE_TENSOR_ID id, Executable &e) {
 }
 int wmain(int argc, wchar_t **argv) {
   try {
-    if (argc != 9)
-      throw std::runtime_error("Expected: model dll-dir sdk-dir sdk-version "
-                               "adapter-index iterations warmup data-dir");
+    if (argc != 10)
+      throw std::runtime_error(
+          "Expected: model dll-dir sdk-dir sdk-version "
+          "adapter-index iterations warmup data-dir io-mode");
+    const bool roundtrip = std::wstring(argv[9]) == L"cpu-roundtrip";
+    if (!roundtrip && std::wstring(argv[9]) != L"resident")
+      throw std::runtime_error("Invalid I/O mode");
     fs::path model = argv[1], dll = argv[2], sdk = argv[3], data = argv[8];
     int iterations = std::stoi(argv[6]), warmup = std::stoi(argv[7]);
     if (iterations < 1 || warmup < 0)
@@ -304,10 +308,11 @@ int wmain(int argc, wchar_t **argv) {
     auto sdkPath = utf8(sdk.wstring()) + "/";
     check(config->CreateDeviceFactory(std::stoi(argv[4]), sdkPath.c_str(),
                                       IID_PPV_ARGS(&factory)));
-    ComPtr<IDXGIFactory4> dxgi;
+    ComPtr<IDXGIFactory6> dxgi;
     check(CreateDXGIFactory1(IID_PPV_ARGS(&dxgi)));
     ComPtr<IDXGIAdapter1> adapter;
-    check(dxgi->EnumAdapters1(std::stoi(argv[5]), &adapter));
+    check(dxgi->EnumAdapterByGpuPreference(std::stoi(argv[5]),
+          DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&adapter)));
     DXGI_ADAPTER_DESC1 ad;
     check(adapter->GetDesc1(&ad));
     if (ad.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
@@ -369,6 +374,8 @@ int wmain(int argc, wchar_t **argv) {
     inputCount >> supplied;
     if (supplied != inputs)
       throw std::runtime_error("Input count does not match model");
+    std::vector<Buffer> inputViews, uploads, outputViews, readbacks;
+    std::vector<std::vector<char>> inputBytes, outputBytes;
     std::ofstream metadata(data / "io.tsv");
     for (auto type : {DXCGC_MODULE_TENSOR_TYPE_INPUT_VIEW,
                       DXCGC_MODULE_TENSOR_TYPE_OUTPUT_VIEW})
@@ -408,6 +415,12 @@ int wmain(int argc, wchar_t **argv) {
           if (!spec)
             throw std::runtime_error("Invalid input metadata");
           h.upload(b, bytes.data(), bytes.size());
+          inputViews.push_back(b);
+          inputBytes.push_back(std::move(bytes));
+          uploads.push_back(h.buffer(b.size, D3D12_HEAP_TYPE_UPLOAD));
+        } else {
+          outputViews.push_back(b);
+          readbacks.push_back(h.buffer(b.size, D3D12_HEAP_TYPE_READBACK));
         }
       }
     metadata.close();
@@ -423,12 +436,48 @@ int wmain(int argc, wchar_t **argv) {
     for (int i = 0; i < warmup + iterations; ++i) {
       auto begin = Clock::now();
       h.begin();
+      if (roundtrip) {
+        for (size_t j = 0; j < inputViews.size(); ++j) {
+          void *mapped;
+          check(uploads[j].resource->Map(0, nullptr, &mapped));
+          memcpy(mapped, inputBytes[j].data(), inputBytes[j].size());
+          uploads[j].resource->Unmap(0, nullptr);
+          h.transition(inputViews[j], D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                       D3D12_RESOURCE_STATE_COPY_DEST);
+          h.list->CopyBufferRegion(
+              inputViews[j].resource.Get(), inputViews[j].offset,
+              uploads[j].resource.Get(), 0, inputViews[j].size);
+          h.transition(inputViews[j], D3D12_RESOURCE_STATE_COPY_DEST,
+                       D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        }
+      }
       h.list->EndQuery(queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0);
       record(h, e);
       h.list->EndQuery(queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 1);
       h.list->ResolveQueryData(queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0, 2,
                                times.resource.Get(), 0);
+      if (roundtrip) {
+        for (size_t j = 0; j < outputViews.size(); ++j) {
+          h.transition(outputViews[j], D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                       D3D12_RESOURCE_STATE_COPY_SOURCE);
+          h.list->CopyBufferRegion(readbacks[j].resource.Get(), 0,
+                                   outputViews[j].resource.Get(),
+                                   outputViews[j].offset, outputViews[j].size);
+          h.transition(outputViews[j], D3D12_RESOURCE_STATE_COPY_SOURCE,
+                       D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        }
+      }
       h.submit();
+      if (roundtrip) {
+        outputBytes.clear();
+        for (const auto &b : readbacks) {
+          void *mapped;
+          check(b.resource->Map(0, nullptr, &mapped));
+          outputBytes.emplace_back((const char *)mapped,
+                                   (const char *)mapped + b.size);
+          b.resource->Unmap(0, nullptr);
+        }
+      }
       double host =
           std::chrono::duration<double, std::milli>(Clock::now() - begin)
               .count();
@@ -440,10 +489,15 @@ int wmain(int argc, wchar_t **argv) {
         perf << gpu << ',' << host << std::endl;
     }
     perf.close();
-    for (SIZE_T i = 0; i < outputs; ++i)
-      h.download(view(module.Get(),
-                      {program, DXCGC_MODULE_TENSOR_TYPE_OUTPUT_VIEW, i}, e),
-                 data / ("output-" + std::to_string(i) + ".bin"));
+    for (SIZE_T i = 0; i < outputs; ++i) {
+      if (roundtrip)
+        write(data / ("output-" + std::to_string(i) + ".bin"),
+              outputBytes[i].data(), outputBytes[i].size());
+      else
+        h.download(view(module.Get(),
+                        {program, DXCGC_MODULE_TENSOR_TYPE_OUTPUT_VIEW, i}, e),
+                   data / ("output-" + std::to_string(i) + ".bin"));
+    }
     std::ofstream info(data / "device.tsv");
     info << utf8(ad.Description) << std::endl
          << compileMs << std::endl

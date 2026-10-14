@@ -55,6 +55,7 @@ def run_dxcgc(ctx: click.Context) -> None:
         "dxcgc_sdk_path",
         "dxcgc_sdk_version",
         "dxcgc_adapter",
+        "dxcgc_io_mode",
         "iterations",
         "warmup",
         "input_data",
@@ -118,6 +119,7 @@ def run_dxcgc(ctx: click.Context) -> None:
                 str(p["iterations"]),
                 str(p["warmup"]),
                 str(work),
+                p["dxcgc_io_mode"],
             ]
             process = subprocess.run(  # noqa: S603 - explicit local executable; no shell
                 command,
@@ -155,9 +157,13 @@ def run_dxcgc(ctx: click.Context) -> None:
                 "compile_ms": float(info[1]),
                 "iterations": p["iterations"],
                 "warmup": p["warmup"],
+                "io_mode": p["dxcgc_io_mode"],
                 "measurement": {
                     "gpu_ms": "D3D12 timestamps around Record, excluding upload/readback",
-                    "host_ms": "Command recording, submission, and GPU fence completion",
+                    "host_ms": ("CPU input copy/upload, command recording, submission, "
+                                "GPU fence completion, readback and caller-owned CPU output copy"
+                                if p["dxcgc_io_mode"] == "cpu-roundtrip" else
+                                "Command recording, submission, and GPU fence completion"),
                 },
                 "samples": samples,
                 "mean_gpu_ms": float(np.mean(samples["gpu_ms"])),

@@ -44,3 +44,15 @@ WINML_DXCGC_DIR, WINML_DXCGC_SDK, WINML_DXCGC_INPUT, and
 WINML_DXCGC_REFERENCE (a CPU-reference NPZ for the same inputs), then run
 `pytest tests/unit/commands/test_perf_dxcgc.py`. The hardware test executes
 100 measured iterations after 10 warmups and checks relative L2 error <1%.
+
+### CPU round-trip comparison
+
+Add `--dxcgc-io-mode cpu-roundtrip` to include CPU input copying, upload,
+GPU execution, readback and a caller-owned CPU output copy in every host
+sample. Staging GPU resources are reused; output CPU buffers are allocated
+per iteration. Disk I/O and compilation remain excluded. The default
+`resident` mode retains GPU-resident inputs and excludes tensor transfers.
+Compare `host_ms` in round-trip mode with the Runtime API feed/infer/fetch
+latency, not with `gpu_ms`. Runtime API Python projection, resource allocation
+and scheduling policies still differ; matching compiler DLLs and compiled
+work is required before attributing the entire gap to API overhead.
