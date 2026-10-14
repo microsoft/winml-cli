@@ -246,6 +246,7 @@ def build_genai_bundle(
     force_rebuild: bool = False,
     cache_dir: str | Path | None = None,
     emit: Callable[[str], None] | None = None,
+    assemble_options: Mapping[str, object] | None = None,
 ) -> Path:
     """Build (or reuse) every bundle component and assemble the genai bundle.
 
@@ -270,6 +271,8 @@ def build_genai_bundle(
         force_rebuild: Rebuild components even if cached.
         cache_dir: Build cache directory override.
         emit: Optional progress sink invoked with human-readable status lines.
+        assemble_options: Model-specific keyword arguments forwarded to the
+            registered bundle assembler.
 
     Returns:
         Path to the written ``genai_config.json``.
@@ -379,9 +382,11 @@ def build_genai_bundle(
         max_cache_len=max_cache_len,
         prefill_seq_len=prefill_seq_len,
         ep=ep,
+        device=device,
         soc_model=soc_model,
         transformer_onnx_passes=list(recipe.transformer_onnx_passes),
         **{f"{role}_src": path for role, path in companion_srcs.items()},
+        **dict(assemble_options or {}),
     )
     _emit(f"  genai_config.json -> {config_path}")
     return Path(config_path)

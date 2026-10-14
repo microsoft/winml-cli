@@ -537,6 +537,8 @@ module = [
   # onnxruntime-genai-winml ships no py.typed marker or stubs; treat as untyped.
   "onnxruntime_genai",
   "onnxruntime_genai.*",
+  # FoundryToolbox bindings are bundled only with newer Windows ML preview wheels.
+  "_foundry",
   "datasets.*",
   "optimum.*",
   "snakemd",

@@ -155,6 +155,32 @@ def validate_quality_gate(leader: Any) -> None:
         raise ReportError("leader.quality_gate.evidence_gap is required")
 
 
+def _display_sections(report):
+    yield "baseline", report["baseline"], ("p90_ms", "p99_ms", "throughput_ips")
+    yield (
+        "execution",
+        report["evidence"].get("execution", {}),
+        ("accelerator_pct", "host_overhead_pct", "partition_count", "fallback_nodes", "transfers"),
+    )
+    yield "analyzer", report["evidence"].get("analyzer", {}), ("coverage", "optimizations")
+    yield (
+        "detail_profile",
+        report["evidence"].get("detail_profile", {}),
+        ("hardware_time_us", "memory_time_us", "ddr_read_bytes", "ddr_write_bytes"),
+    )
+    for i, row in enumerate(report["model"].get("components", [])):
+        yield f"components[{i}]", row, ("nodes",)
+    for i, row in enumerate(report["baseline"].get("hotspots", [])):
+        yield f"hotspots[{i}]", row, ("hardware_time_us", "memory_time_us", "dram_bytes")
+
+
+def _display_value(row, key):
+    value = row.get(key)
+    if value is None or value == [] or value == "":
+        return row.get("missing_reasons", {}).get(key, "Not recorded")
+    return value
+
+
 def validate_report(report: Any, *, final: bool = False) -> dict[str, Any]:
     """Validate the stable report v2 fact contract."""
     if not isinstance(report, dict):
@@ -242,6 +268,18 @@ def validate_report(report: Any, *, final: bool = False) -> dict[str, Any]:
         return report
 
     errors: list[str] = []
+    for section, row, fields in _display_sections(report):
+        reasons = row.get("missing_reasons", {})
+        if not isinstance(reasons, dict):
+            errors.append(f"{section}.missing_reasons must be an object")
+            continue
+        errors.extend(
+            f"{section}.{field}: value or missing reason required"
+            for field in fields
+            if row.get(field) in (None, "", [])
+            and not (isinstance(reasons.get(field), str) and reasons[field].strip())
+        )
+
     for section in ("baseline", "leader"):
         metrics = report[section]
         for field in (
@@ -432,9 +470,13 @@ def _rows(values: list[dict[str, Any]], columns: list[tuple[str, str]]) -> str:
         return f'<tr><td colspan="{len(columns)}" class="empty">No evidence yet</td></tr>'
     rendered = []
     for value in values:
-        cells = "".join(f"<td>{_escape(value.get(key))}</td>" for key, _ in columns)
+        cells = "".join(f"<td>{_escape(_display_value(value, key))}</td>" for key, _ in columns)
         rendered.append(f"<tr>{cells}</tr>")
     return "".join(rendered)
+
+
+def _evidence_table(row, key, columns):
+    return _table(row[key], columns) if row.get(key) else _escape(_display_value(row, key))
 
 
 def _table(values: list[dict[str, Any]], columns: list[tuple[str, str]]) -> str:
@@ -459,8 +501,24 @@ def _status_class(value: Any) -> str:
 
 
 def _metric(label: str, value: Any, suffix: str = "") -> str:
-    rendered = "-" if value is None else f"{_escape(value)}{suffix}"
-    return f'<div class="metric"><span>{_escape(label)}</span><strong>{rendered}</strong></div>'
+    if isinstance(value, str) and (bool(suffix) or len(value) > 40):
+        content = f"<strong>N/A</strong><small>{_escape(value)}</small>"
+    elif value is None:
+        content = "<strong>N/A</strong><small>Not recorded</small>"
+    else:
+        unit = suffix if isinstance(value, (int, float)) else ""
+        content = f"<strong>{_escape(value)}{unit}</strong>"
+    return (
+        "<div class="
+        + chr(34)
+        + "metric"
+        + chr(34)
+        + "><span>"
+        + _escape(label)
+        + "</span>"
+        + content
+        + "</div>"
+    )
 
 
 def _hypothesis_rows(items: list[dict[str, Any]]) -> str:
@@ -589,7 +647,7 @@ def _gain_chart(experiments: list[dict[str, Any]]) -> str:
         rows.append(
             f'<div class="gain-row"><span>{_escape(item.get("id"))}</span>'
             f'<span class="bar-track"><i class="{css}" style="width:{width:.1f}%"></i>'
-            f"</span><strong>{_escape(gain)}%</strong></div>"
+            f"</span><strong>{_escape(gain)}</strong></div>"
         )
     return "".join(rows) or '<div class="empty">No measured experiment</div>'
 
@@ -645,6 +703,7 @@ def render_report(report: dict[str, Any], output: Path) -> None:
         ("instances", "Instances"),
     ]
     hotspot_columns = [
+        ("cycles", "Cycles"),
         ("name", "Operation"),
         ("share_pct", "Share %"),
         ("hardware_time_us", "Hardware us"),
@@ -806,39 +865,39 @@ title="Toggle dark mode" aria-label="Toggle dark mode">\
 {_escape(evidence.get("diagnosis"))}\
 </div><div class="metrics">\
 {_metric("p50", baseline.get("p50_ms"), " ms")}\
-{_metric("p90", baseline.get("p90_ms"), " ms")}\
-{_metric("p99", baseline.get("p99_ms"), " ms")}\
-{_metric("Throughput", baseline.get("throughput_ips"), " inf/s")}\
+{_metric("p90", _display_value(baseline, "p90_ms"), " ms")}\
+{_metric("p99", _display_value(baseline, "p99_ms"), " ms")}\
+{_metric("Throughput", _display_value(baseline, "throughput_ips"), " inf/s")}\
 </div><div class="two-col"><div><h3>Ranked levers</h3>\
 <ol class="lever-list">{levers}</ol></div>\
 <div><h3>Evidence gaps</h3><ul>{gaps}</ul><h3>Protocol</h3><p>\
 {_escape(baseline.get("protocol"))}\
 </p></div></div></section>
 <section id="execution"><h2>Execution Evidence</h2><div class="composition">\
-<div><span>Accelerator</span><strong>\
-{_escape(execution.get("accelerator_pct"))}%</strong></div>\
-<div><span>Host overhead</span><strong>\
-{_escape(execution.get("host_overhead_pct"))}%</strong></div>\
+<div><span>Accelerator (%)</span><strong>\
+{_escape(_display_value(execution, "accelerator_pct"))}</strong></div>\
+<div><span>Host overhead (%)</span><strong>\
+{_escape(_display_value(execution, "host_overhead_pct"))}</strong></div>\
 <div><span>Partitions</span><strong>\
-{_escape(execution.get("partition_count"))}</strong></div>\
+{_escape(_display_value(execution, "partition_count"))}</strong></div>\
 <div><span>Fallback nodes</span><strong>\
-{_escape(execution.get("fallback_nodes"))}</strong></div>\
+{_escape(_display_value(execution, "fallback_nodes"))}</strong></div>\
 <div><span>Transfers</span><strong>\
-{_escape(execution.get("transfers"))}</strong></div></div>\
+{_escape(_display_value(execution, "transfers"))}</strong></div></div>\
 <div class="three-col"><div><h3>Analyzer coverage</h3>\
-{_table(analyzer.get("coverage", []), coverage_columns)}\
+{_evidence_table(analyzer, "coverage", coverage_columns)}\
 </div><div><h3>Optimization opportunities</h3>\
-{_table(analyzer.get("optimizations", []), optimization_columns)}\
+{_evidence_table(analyzer, "optimizations", optimization_columns)}\
 </div><div><h3>Detail profile</h3><p>\
 <span class="status {_status_class(detail.get("status"))}">\
 {_escape(detail.get("status"))}</span></p><dl>\
 <dt>Hardware time</dt><dd>\
-{_escape(detail.get("hardware_time_us"))} us</dd>\
+{_escape(_display_value(detail, "hardware_time_us"))} us</dd>\
 <dt>Memory time</dt><dd>\
-{_escape(detail.get("memory_time_us"))} us</dd>\
+{_escape(_display_value(detail, "memory_time_us"))} us</dd>\
 <dt>DDR read / write</dt><dd>\
-{_escape(detail.get("ddr_read_bytes"))} / \
-{_escape(detail.get("ddr_write_bytes"))} bytes</dd>\
+{_escape(_display_value(detail, "ddr_read_bytes"))} / \
+{_escape(_display_value(detail, "ddr_write_bytes"))} bytes</dd>\
 <dt>Artifacts</dt><dd>{_json(detail.get("artifacts", []))}</dd>\
 </dl></div></div><h3>Hotspots</h3>\
 {_table(baseline.get("hotspots", []), hotspot_columns)}</section>

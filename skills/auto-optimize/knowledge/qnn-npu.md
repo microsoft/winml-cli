@@ -4,7 +4,7 @@ Use these as questions for the current graph, not universal preferences.
 
 - Normalize constants and infer static shapes before attribution. Raw ONNX
   node count, file size, and initializer count are not latency evidence.
-- Planning router: at 70 percent dominant accelerator time or higher with valid provider attribution and no larger fallback, partition, or transfer explanation, the fast lane is priority only, schedules at most two probes, does not prune other candidates, and keeps the normal correctness and paired performance gates. Write `hotspot_evidence.json`, run `python scripts/plan_hotspot.py hotspot_evidence.json --output hotspot_plan.json`, and adopt that JSON as the current plan. If mode is `dominant-hotspot-fast-lane`, execute only its steps and exit instruction before loading cases or proposing normal-loop hypotheses. If mode is `normal-hypothesis-loop`, continue normally. For quantized graphs, the second bounded step is qdq-boundary placement.
+- Follow the [planning router](../SKILL.md#planning-router---evaluate-before-loading-cases-or-proposing-hypotheses) before loading cases. Keep routing rules in that single contract.
 - Treat static Split and complete sibling Slice partitions as competing
   representations. Measure both directions when relevant. A representation may
   matter mainly because it exposes a downstream fusion.

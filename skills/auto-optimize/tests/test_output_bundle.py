@@ -39,7 +39,7 @@ def output_module() -> ModuleType:
 
 
 def _report() -> dict[str, Any]:
-    return {
+    report = {
         "schema_version": 2,
         "title": "Output bundle test",
         "updated_at": "2026-08-12T00:00:00Z",
@@ -155,6 +155,35 @@ def _report() -> dict[str, Any]:
             "manifest": "pending",
         },
     }
+
+    sections = [
+        (report["baseline"], ("p90_ms", "p99_ms", "throughput_ips")),
+        (
+            report["evidence"]["execution"],
+            (
+                "accelerator_pct",
+                "host_overhead_pct",
+                "partition_count",
+                "fallback_nodes",
+                "transfers",
+            ),
+        ),
+        (report["evidence"]["analyzer"], ("coverage", "optimizations")),
+        (
+            report["evidence"]["detail_profile"],
+            ("hardware_time_us", "memory_time_us", "ddr_read_bytes", "ddr_write_bytes"),
+        ),
+    ]
+    sections += [(row, ("nodes",)) for row in report["model"]["components"]]
+    sections += [
+        (row, ("hardware_time_us", "memory_time_us", "dram_bytes"))
+        for row in report["baseline"]["hotspots"]
+    ]
+    for row, fields in sections:
+        row["missing_reasons"] = {
+            key: "Not collected in this fixture" for key in fields if row.get(key) in (None, "", [])
+        }
+    return report
 
 
 def _inputs(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
@@ -1634,3 +1663,13 @@ def test_invalid_reproduction_overwrite_preserves_existing_bundle(
     assert (output / "champion.onnx").read_bytes() == original_champion
     assert (output / "manifest.json").read_bytes() == original_manifest
     output_module.validate_output_bundle(output)
+
+
+def test_finalizer_rejects_unfinished_closure(output_module, tmp_path):
+    report, champion, config, companion = _inputs(tmp_path)
+    facts = json.loads(report.read_text(encoding="utf-8"))
+    facts["capability_closure"]["coverage_verdict"] = "INSUFFICIENT_EVIDENCE"
+    report.write_text(json.dumps(facts), encoding="utf-8")
+    with pytest.raises(ValueError, match="closure"):
+        output_module.finalize_output(report, champion, config, [companion], tmp_path / "output")
+    assert not (tmp_path / "output").exists()

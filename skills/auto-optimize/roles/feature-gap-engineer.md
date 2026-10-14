@@ -25,12 +25,11 @@ through the public CLI with the exact effective serialized config in a clean dir
 artifacts remain in experiment lineage.
 
 Run Ponytail review (or fallback) on `origin/main...HEAD`, save
-`complexity-review.md`, and resolve or technically waive every finding. Then run
-`gh label list` or equivalent and verify the target repo contains `model-opt-by-skill`; if missing or unavailable, block handoff and do not
-create the label automatically. Create reviewable commits, push, and open a
-Draft PR with `gh pr create --draft --label model-opt-by-skill`. Immediately
-run `gh pr view <url> --json labels` and verify containment. This role handles
-an optimizer PR only; it never creates or reviews a recipe PR.
+`complexity-review.md`, and resolve or technically waive every finding.
 
-Return the clean public-CLI artifact path, exact effective serialized config,
-clean-directory validation evidence, branch, commits, Draft PR URL, verified label list, validation summary, measured gain, and open risks. Do not mark the PR ready for check-in.
+Create reviewable commits, then return the clean public-CLI artifact path, exact effective serialized config,
+clean-directory validation evidence, branch, commits, validation summary,
+measured gain and open risks. Do not push or create a PR. The main agent owns
+the optimizer PR after bundle validation and promotion routing, including
+label checks and independent check-in review. A statistical tie does not
+prove a positive performance result for a new generic implementation.

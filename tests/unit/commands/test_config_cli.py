@@ -137,8 +137,10 @@ def test_backend_stage_settings(
     mock_generate_config.return_value = [cfg] if kind == "module" else cfg
     output = tmp_path / "config.json"
     args = [
-        "-m", str(onnx_model_path) if kind == "onnx" else "test-model",
-        "-o", str(output),
+        "-m",
+        str(onnx_model_path) if kind == "onnx" else "test-model",
+        "-o",
+        str(output),
     ]
     if kind == "module":
         args += ["--module", "test-module"]
@@ -171,15 +173,18 @@ def test_backend_stage_settings(
 
 @pytest.mark.parametrize(
     ("backend", "ep"),
-    [(None, None), ("ort", None), ("cgc", None), (None, "winmlcg"),
-     (None, "WinMLCGExecutionProvider")],
+    [
+        (None, None),
+        ("ort", None),
+        ("cgc", None),
+        (None, "winmlcg"),
+        (None, "WinMLCGExecutionProvider"),
+    ],
 )
 def test_generator_cgc_settings(onnx_model_path, backend, ep):
     from winml.modelkit.config import generate_build_config
 
-    cfg = generate_build_config(
-        onnx_path=onnx_model_path, device="gpu", backend=backend, ep=ep
-    )
+    cfg = generate_build_config(onnx_path=onnx_model_path, device="gpu", backend=backend, ep=ep)
     assert cfg.export is None
     if backend == "cgc" or ep is not None:
         assert cfg.auto is False
@@ -202,8 +207,7 @@ def _assert_cgc_optim(optim):
     assert "backend" not in optim
     rules = CGIRRewritePipe.build_config(**optim).rules
     all_options = {
-        capability.python_name: True
-        for capability in CGIRRewritePipe.capabilities.values()
+        capability.python_name: True for capability in CGIRRewritePipe.capabilities.values()
     }
     assert rules == CGIRRewritePipe.build_config(**all_options).rules
     assert len(optim) - 1 == len(rules)
@@ -598,6 +602,83 @@ class TestConfigOnnxLocalPath:
         assert outfile.exists()
 
         _assert_onnx_config_structure(json.loads(outfile.read_text()))
+
+
+class TestConfigQuantSummary:
+    """The summary must describe the effective quantization configuration."""
+
+    @pytest.mark.parametrize(
+        "target_args",
+        [
+            pytest.param(["--precision", "fp16"], id="precision"),
+            pytest.param([], id="config-file"),
+            pytest.param(["--backend", "cgc"], id="cgc-backend"),
+            pytest.param(["--ep", "winmlcg"], id="winmlcg-ep"),
+        ],
+    )
+    def test_fp16_summary_matches_saved_mode(
+        self,
+        runner: CliRunner,
+        onnx_model_path: Path,
+        tmp_path: Path,
+        target_args: list[str],
+    ) -> None:
+        """FP16 must not be reported as the unused integer quantization types."""
+        from winml.modelkit.commands.config import config
+        from winml.modelkit.quant import WinMLQuantizationConfig
+
+        output_file = tmp_path / "config.json"
+        args = ["-m", str(onnx_model_path), "--device", "gpu", "-o", str(output_file)]
+        if not target_args:
+            override_file = tmp_path / "override.json"
+            quant = WinMLQuantizationConfig(mode="fp16")
+            override_file.write_text(json.dumps({"quant": quant.to_dict()}))
+            args.extend(["--config", str(override_file)])
+        else:
+            args.extend(target_args)
+
+        result = runner.invoke(config, args)
+
+        assert result.exit_code == 0, result.output
+        saved_quant = json.loads(output_file.read_text())["quant"]
+        assert saved_quant["mode"] == "fp16"
+        summary = next(line for line in result.output.splitlines() if "Quant:" in line)
+        assert saved_quant["mode"].upper() in summary
+        assert saved_quant["weight_type"] not in summary
+        assert saved_quant["activation_type"] not in summary
+        assert "(weight/activation)" not in summary
+
+    @pytest.mark.parametrize("precision", ["int8", "int16", "w8a16"])
+    def test_integer_summary_matches_saved_types(
+        self,
+        runner: CliRunner,
+        onnx_model_path: Path,
+        tmp_path: Path,
+        precision: str,
+    ) -> None:
+        """Integer quantization retains its weight/activation type summary."""
+        from winml.modelkit.commands.config import config
+
+        output_file = tmp_path / "config.json"
+        result = runner.invoke(
+            config,
+            [
+                "-m",
+                str(onnx_model_path),
+                "--device",
+                "cpu",
+                "--precision",
+                precision,
+                "-o",
+                str(output_file),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        saved_quant = json.loads(output_file.read_text())["quant"]
+        summary = next(line for line in result.output.splitlines() if "Quant:" in line)
+        assert f"{saved_quant['weight_type']}/{saved_quant['activation_type']}" in summary
+        assert "(weight/activation)" in summary
 
 
 # =============================================================================

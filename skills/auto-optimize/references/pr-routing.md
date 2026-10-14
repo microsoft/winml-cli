@@ -52,3 +52,12 @@ model bundle, report, or manifest.
 Finalize and validate the replayed bundle before promotion.py create. Freeze it once the handoff records its manifest hash. Keep subsequent PR URLs and review state in the standalone handoff. Changed model evidence requires a new versioned bundle and handoff; never rewrite the bundle behind an existing handoff.
 
 Replay requires PowerShell 7.3 or newer. The generated wrapper enables native-command error handling: a nonzero native exit stops replay before later commands can overwrite the failure.
+
+## Creation ownership
+
+Feature Gap Engineer returns implementation and public-path evidence only.
+The main agent finalizes and validates the bundle, creates the handoff, then
+creates at most one eligible optimizer Draft PR and verifies its label before
+Check-in Reviewer. With no generic source change, skip optimizer PR creation
+and optimizer label requirements. Missing labels block that route, not an
+already validated model bundle.

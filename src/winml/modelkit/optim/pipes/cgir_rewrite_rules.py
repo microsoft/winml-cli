@@ -139,7 +139,7 @@ GRIDSAMPLE_TO_GATHER = BoolCapability(
 NORMALIZE_INT32_DQ = BoolCapability(
     name="normalize-int32-dq",
     ort_name=None,
-    description="Omit constant INT32 DQ zero points and scalarize singleton scales for CGIR",
+    description="Omit constant INT32 DQ zero points for CGIR",
     category=CapabilityCategory.REWRITE,
     default=False,
 )

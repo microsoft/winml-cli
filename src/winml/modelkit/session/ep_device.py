@@ -357,6 +357,7 @@ class EPDeviceSpec:
     ep: EPName
     device: DeviceType
     default_provider_options: Mapping[str, str] = field(default_factory=dict)
+    use_defaults_for_genai: bool = False
     provider_option_hints: Mapping[str, str] = field(default_factory=dict)
 
 
@@ -386,9 +387,25 @@ EP_DEVICE_SPECS: Final[tuple[EPDeviceSpec, ...]] = (
             "backend_type": "htp",
         },
     ),
-    EPDeviceSpec(ep="OpenVINOExecutionProvider", device="npu"),
+    EPDeviceSpec(
+        ep="OpenVINOExecutionProvider",
+        device="npu",
+        default_provider_options={
+            "device_type": "NPU",
+            "load_config": (
+                '{"NPU":{"CACHE_MODE":"OPTIMIZE_SPEED","NPU_COMPILER_TYPE":"PLUGIN",'
+                '"NPU_QDQ_OPTIMIZATION":"YES","NPU_TURBO":"YES"}}'
+            ),
+        },
+        use_defaults_for_genai=True,
+    ),
     EPDeviceSpec(ep="VitisAIExecutionProvider", device="npu"),
-    EPDeviceSpec(ep="OpenVINOExecutionProvider", device="gpu"),
+    EPDeviceSpec(
+        ep="OpenVINOExecutionProvider",
+        device="gpu",
+        default_provider_options={"device_type": "GPU"},
+        use_defaults_for_genai=True,
+    ),
     EPDeviceSpec(ep="MIGraphXExecutionProvider", device="gpu"),
     EPDeviceSpec(ep="TensorrtExecutionProvider", device="gpu"),
     EPDeviceSpec(ep="NvTensorRTRTXExecutionProvider", device="gpu"),
