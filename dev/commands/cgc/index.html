@@ -1,0 +1,4154 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A CLI toolkit to build portable, performant, and high-quality models for Windows ML.">
+      
+      
+      
+        <link rel="canonical" href="https://microsoft.github.io/winml-cli/dev/commands/cgc/">
+      
+      
+        <link rel="prev" href="../catalog/">
+      
+      
+        <link rel="next" href="../config/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>cgc - Windows ML CLI</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#winml-cgc" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Windows ML CLI" class="md-header__button md-logo" aria-label="Windows ML CLI" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Windows ML CLI
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              cgc
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/microsoft/winml-cli" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    microsoft/winml-cli
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/installation/" class="md-tabs__link">
+          
+  
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../concepts/how-it-works/" class="md-tabs__link">
+          
+  
+  
+  Concepts
+
+        </a>
+      </li>
+    
+  
+
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../overview/" class="md-tabs__link">
+          
+  
+  
+  Commands
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../samples/bert-config-build/" class="md-tabs__link">
+          
+  
+  
+  Samples
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../tutorials/" class="md-tabs__link">
+          
+  
+  
+  Tutorials
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../troubleshooting/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Troubleshooting
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../contributing/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Contributing
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../Privacy/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Privacy
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Windows ML CLI" class="md-nav__button md-logo" aria-label="Windows ML CLI" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Windows ML CLI
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/microsoft/winml-cli" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    microsoft/winml-cli
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/ui-quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    UI Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_4" id="__nav_2_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Use with AI Agent
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Use with AI Agent
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/agent-skill/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/agent-skill/use-winml-cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Use WinML CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/agent-skill/adding-model-support/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Add model support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/agent-skill/auto-optimize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Auto Optimize
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_1" id="__nav_3_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Fundamentals
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Fundamentals
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/how-it-works/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How winml-cli works
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/graphs-and-ir/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graph and IR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/weight-and-activation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Weight and Activation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/quantization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datatype and Quantization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/eps-and-devices/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    EP and Device
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    WinML CLI
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    WinML CLI
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/load-and-export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Load and export
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/primitives-and-pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Primitives and pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/analyze-and-optimize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analyze and optimize
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/compile-and-epcontext/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compile and EPContext
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/perf-and-monitoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Perf and monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/eval-and-datasets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Eval and datasets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/config-and-build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config and build
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Commands
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Commands
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discover
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Discover
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sys/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sys
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../inspect/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    inspect
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../catalog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    cgc
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    cgc
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#when-to-use-this" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When to use this
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#synopsis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Synopsis
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Requirements
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flags
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#usage-scenarios" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Usage scenarios
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Usage scenarios">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-machine-with-no-redist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A machine with no redist
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#list-adapters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        List adapters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#counts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Counts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dump" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dump
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Dump">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dumping-an-adapter-with-no-mlir-support" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dumping an adapter with no MLIR support
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-adapter-slug" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The adapter slug
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#after-a-driver-update" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        After a driver update
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#selecting-an-adapter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Selecting an adapter
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#driving-it-from-a-script" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Driving it from a script
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#patternsjson" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        patterns.json
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="patterns.json">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#browsing-a-dump" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Browsing a dump
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#patterns-and-rules-are-not-the-same-number" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Patterns and rules are not the same number
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#finding-the-redist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Finding the redist
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Finding the redist">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-bin-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The bin/ default
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-sdk-720-floor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The SDK 720 floor
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exit-codes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exit codes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-something-looks-wrong" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When something looks wrong
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configure
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configure
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_4" id="__nav_4_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Build
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    export
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../analyze/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    analyze
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../optimize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    optimize
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quantize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    quantize
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compile/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    compile
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    build
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_5" id="__nav_4_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Measure
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Measure
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../perf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    perf
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../eval/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    eval
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Samples
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Samples
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../samples/bert-config-build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    BERT — Config + Build + Perf
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../samples/clip-composite/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLIP — Composite Models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../samples/qwen3-genai-bundle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Qwen3 — Genai Bundle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tutorials
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tutorials
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/npu-convnext/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hugging Face Model to NPU
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/build-from-onnx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bring Your Own ONNX Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config Schema
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/output-layout/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Output Layout
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/supported-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Supported Models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../Privacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#when-to-use-this" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When to use this
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#synopsis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Synopsis
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Requirements
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flags
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#usage-scenarios" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Usage scenarios
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Usage scenarios">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-machine-with-no-redist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A machine with no redist
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#list-adapters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        List adapters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#counts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Counts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dump" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dump
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Dump">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dumping-an-adapter-with-no-mlir-support" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dumping an adapter with no MLIR support
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-adapter-slug" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The adapter slug
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#after-a-driver-update" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        After a driver update
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#selecting-an-adapter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Selecting an adapter
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#driving-it-from-a-script" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Driving it from a script
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#patternsjson" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        patterns.json
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="patterns.json">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#browsing-a-dump" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Browsing a dump
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#patterns-and-rules-are-not-the-same-number" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Patterns and rules are not the same number
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#finding-the-redist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Finding the redist
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Finding the redist">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-bin-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The bin/ default
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-sdk-720-floor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The SDK 720 floor
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#exit-codes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exit codes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-something-looks-wrong" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When something looks wrong
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/microsoft/winml-cli/edit/main/docs/commands/cgc.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="winml-cgc">winml cgc<a class="headerlink" href="#winml-cgc" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>Which D3D12 adapters are on this machine, and what patterns does an adapter's driver
+declare it can match.</p>
+</blockquote>
+<h2 id="when-to-use-this">When to use this<a class="headerlink" href="#when-to-use-this" title="Permanent link">&para;</a></h2>
+<p>Two questions get asked on every new machine and after every driver update: which
+adapters are here, and what does this driver's MLIR-program implementation claim it can
+match. <code>winml cgc adapters</code> answers the first and <code>winml cgc patterns</code> the second, both
+from public Windows APIs through <code>ctypes</code>, so nothing has to be built.</p>
+<p>Use it to check whether a GPU's driver implements D3D MLIR programs before relying on
+the CGC path, to record what a driver declares after a driver update, and to compare
+two drivers' matching surfaces.</p>
+<h2 id="synopsis">Synopsis<a class="headerlink" href="#synopsis" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>$<span class="w"> </span>winml<span class="w"> </span>cgc<span class="w"> </span>adapters<span class="w"> </span><span class="o">[</span>options<span class="o">]</span><span class="w">           </span><span class="c1"># which adapters are here</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>$<span class="w"> </span>winml<span class="w"> </span>cgc<span class="w"> </span>patterns<span class="w"> </span><span class="o">[</span>options<span class="o">]</span><span class="w">           </span><span class="c1"># what a driver declares it can match</span>
+</span></code></pre></div>
+<p><code>cgc</code> is a command group; run <code>winml cgc</code> or <code>winml cgc --help</code> to list its subcommands.
+Both print help and exit 0.</p>
+<h2 id="requirements">Requirements<a class="headerlink" href="#requirements" title="Permanent link">&para;</a></h2>
+<p>Listing adapters needs nothing beyond Windows.</p>
+<p>Querying a driver's MLIR support or patterns needs an <strong>Agility SDK <code>D3D12Core.dll</code> of
+SDK 720 or newer</strong>, matching the Python interpreter's architecture, and a compatible
+driver. The MLIR-program feature is a preview feature that the inbox D3D12 runtime does
+not serve. See <a href="#finding-the-redist">Finding the redist</a>.</p>
+<p><code>winml cgc patterns --open</code> without <code>--dump</code> only opens the viewer or an existing JSON
+dump. It needs a browser, but neither a GPU nor a redist, and does not query drivers.</p>
+<h2 id="flags">Flags<a class="headerlink" href="#flags" title="Permanent link">&para;</a></h2>
+<p>Shared by both subcommands:</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Short</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--d3d12-dir</code></td>
+<td></td>
+<td>path</td>
+<td><code>""</code></td>
+<td>Directory holding <code>D3D12Core.dll</code>. Overrides every other source.</td>
+</tr>
+<tr>
+<td><code>--verbose</code></td>
+<td><code>-v</code></td>
+<td>count</td>
+<td><code>0</code></td>
+<td>Increase logging verbosity (<code>-v</code> for INFO, <code>-vv</code> for DEBUG). Any nonzero level also adds raw capability HRESULTs and, under <code>patterns</code>, a per-pattern listing. Accepted at the root or subcommand, so <code>winml -v cgc adapters</code> and <code>winml cgc adapters -v</code> behave the same.</td>
+</tr>
+<tr>
+<td><code>--quiet</code></td>
+<td><code>-q</code></td>
+<td>flag</td>
+<td><code>false</code></td>
+<td>Errors only on the logging channel. Does not silence stdout or the directly printed probe details requested by <code>-v</code>.</td>
+</tr>
+<tr>
+<td><code>--help</code></td>
+<td><code>-h</code></td>
+<td>flag</td>
+<td>—</td>
+<td>Show help and exit.</td>
+</tr>
+</tbody>
+</table>
+<p><code>winml cgc patterns</code> adds:</p>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Short</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--adapter</code></td>
+<td><code>-a</code></td>
+<td>string</td>
+<td><code>""</code></td>
+<td>The adapter to ask, by description substring (case-insensitive) or by index. A number that is not an index is tried as a substring, so <code>-a 5060</code> names an RTX 5060. Without it, every enumerated adapter is asked. Required by <code>--dump</code>.</td>
+</tr>
+<tr>
+<td><code>--dump</code></td>
+<td></td>
+<td>flag</td>
+<td><code>false</code></td>
+<td>Write a dump under <code>./patterns</code>. The files depend on the response: text, bytecode, empty, or unsupported; see <a href="#dump">Dump</a>. Needs <code>-a</code>.</td>
+</tr>
+<tr>
+<td><code>--overwrite/--no-overwrite</code></td>
+<td></td>
+<td>flag</td>
+<td><code>false</code></td>
+<td>Replace an existing dump directory.</td>
+</tr>
+<tr>
+<td><code>--open</code></td>
+<td></td>
+<td>flag or path</td>
+<td>—</td>
+<td>Open the <a href="#browsing-a-dump">pattern atlas</a> in a browser. With <code>--dump</code>, show this run's dump when available. Given a <code>patterns.json</code>, show that file. With neither a file nor <code>--dump</code>, open an empty atlas. Without <code>--dump</code>, no driver is queried, so neither a redist nor a GPU is needed.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="usage-scenarios">Usage scenarios<a class="headerlink" href="#usage-scenarios" title="Permanent link">&para;</a></h2>
+<p>Common tasks, including viewing a dump without querying a driver.</p>
+<table>
+<thead>
+<tr>
+<th>You want to know</th>
+<th>Run</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>which adapters are on this machine, and whose driver implements MLIR programs</td>
+<td><code>winml cgc adapters</code></td>
+</tr>
+<tr>
+<td><em>why</em> an adapter is marked <code>no</code></td>
+<td><code>winml cgc adapters -v</code></td>
+</tr>
+<tr>
+<td>which Agility core a live query uses</td>
+<td>the <code>redist:</code> line of a run that reaches redist resolution; viewer-only runs do not resolve one</td>
+</tr>
+<tr>
+<td>how many patterns and rules this driver declares</td>
+<td><code>winml cgc patterns -a nvidia</code></td>
+</tr>
+<tr>
+<td>what every enumerated adapter's driver declares</td>
+<td><code>winml cgc patterns</code></td>
+</tr>
+<tr>
+<td>every pattern it declares, and what kind of claim each one is</td>
+<td><code>winml cgc patterns -a nvidia -v</code></td>
+</tr>
+<tr>
+<td>whether a non-NVIDIA adapter claims anything</td>
+<td><code>winml cgc patterns -a amd</code></td>
+</tr>
+<tr>
+<td>keep the declaration on disk, for a diff or a record</td>
+<td><code>winml cgc patterns -a nvidia --dump</code></td>
+</tr>
+<tr>
+<td>re-capture after a driver update</td>
+<td><code>winml cgc patterns -a nvidia --dump --overwrite</code></td>
+</tr>
+<tr>
+<td>dump a driver's patterns and browse them in the atlas</td>
+<td><code>winml cgc patterns -a nvidia --dump --open</code></td>
+</tr>
+<tr>
+<td>browse an existing dump without querying drivers</td>
+<td><code>winml cgc patterns --open &lt;patterns.json&gt;</code></td>
+</tr>
+<tr>
+<td>open an empty atlas to load a dump manually</td>
+<td><code>winml cgc patterns --open</code></td>
+</tr>
+<tr>
+<td>what a <em>different</em> redist makes the same driver say</td>
+<td><code>winml cgc patterns -a nvidia --d3d12-dir &lt;dir&gt;</code></td>
+</tr>
+<tr>
+<td>record that an adapter has <em>no</em> MLIR support, for the same baseline</td>
+<td><code>winml cgc patterns -a amd --dump</code></td>
+</tr>
+<tr>
+<td>which subcommands the group has</td>
+<td><code>winml cgc --help</code></td>
+</tr>
+</tbody>
+</table>
+<p>The output examples below illustrate the format. Adapter names, versions, counts, and
+HRESULTs depend on the machine, driver, and selected redist; they are not compatibility
+guarantees.</p>
+<h3 id="a-machine-with-no-redist">A machine with no redist<a class="headerlink" href="#a-machine-with-no-redist" title="Permanent link">&para;</a></h3>
+<p>Listing adapters needs no redist, so this is the first thing to run on a new box.
+Without a redist the capability question cannot be asked, and the column says so rather
+than guessing:</p>
+<div class="language-console highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="gp">$ </span>winml<span class="w"> </span>cgc<span class="w"> </span>adapters
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="go">redist: none -- MLIR support unknown (run with -v to see where cgc looked)</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="go">IDX ADAPTER                        DRIVER            TYPE       ATTRIBUTES  MLIR</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="go">--------------------------------------------------------------------------------</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="go">0   NVIDIA GeForce RTX 5060 Laptop 32.0.16.3004      hardware   ML CC GFX   ?</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="go">1   AMD Radeon(TM) 880M Graphics   32.0.31041.1004   integrated ML CC GFX   ?</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="go">2   Microsoft Basic Render Driver  10.0.26100.9278   software   ML CC GFX   ?</span>
+</span></code></pre></div>
+<p><code>?</code> is not <code>no</code>. The driver versions and the table are still correct and still useful.</p>
+<h3 id="list-adapters">List adapters<a class="headerlink" href="#list-adapters" title="Permanent link">&para;</a></h3>
+<p>The command enumerates DXCore adapters advertising generic ML support. If that list
+is empty, it retries with core-compute support; it does not combine the two lists or
+enumerate every graphics-only adapter. The list is sorted hardware-first, then by
+high-performance preference.</p>
+<div class="language-console highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="gp">$ </span>winml<span class="w"> </span>cgc<span class="w"> </span>adapters<span class="w"> </span>--d3d12-dir<span class="w"> </span>C:<span class="se">\p</span>ath<span class="se">\t</span>o<span class="se">\D</span>3D12
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="go">redist: C:\path\to\D3D12 (SDK 720, x64)</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="go">IDX ADAPTER                        DRIVER            TYPE       ATTRIBUTES  MLIR</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="go">--------------------------------------------------------------------------------</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="go">0   NVIDIA GeForce RTX 5060 Laptop 32.0.16.3004      hardware   ML CC GFX   yes</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="go">1   AMD Radeon(TM) 880M Graphics   32.0.31041.1004   integrated ML CC GFX   no</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="go">2   Microsoft Basic Render Driver  10.0.26100.9278   software   ML CC GFX   no</span>
+</span></code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>IDX</code></td>
+<td>Selection index accepted by <code>patterns -a</code>.</td>
+</tr>
+<tr>
+<td><code>ADAPTER</code></td>
+<td>DXCore description, truncated to 30 characters in this table only.</td>
+</tr>
+<tr>
+<td><code>DRIVER</code></td>
+<td>Driver version as four 16-bit components.</td>
+</tr>
+<tr>
+<td><code>TYPE</code></td>
+<td><code>hardware</code>, <code>integrated</code>, or <code>software</code>.</td>
+</tr>
+<tr>
+<td><code>ATTRIBUTES</code></td>
+<td><code>ML</code>: generic ML; <code>CC</code>: core compute; <code>GFX</code>: D3D12 graphics. These are not MLIR support indicators.</td>
+</tr>
+<tr>
+<td><code>MLIR</code></td>
+<td><code>yes</code> or <code>no</code> from the capability probe, or <code>?</code> when it could not be asked through a usable redist.</td>
+</tr>
+</tbody>
+</table>
+<p>The <code>redist:</code> line precedes the table when redist resolution is reached. An explicitly
+named directory rejected by the on-disk checks fails before that line; a DLL that
+passes those checks but is rejected by D3D12 fails afterwards. See
+<a href="#driving-it-from-a-script">Driving it from a script</a> for output on failed runs.</p>
+<p><code>MLIR</code> is the column that matters: it is what the driver claims about the MLIR-program
+exchange through the redist on the <code>redist:</code> line. A driver may report support through
+a 721-shaped query but refuse the subsequent pattern exchange; see
+<a href="#when-something-looks-wrong">When something looks wrong</a>. Fetching a declaration with
+<code>patterns</code> checks that exchange, not whether a particular model will compile.</p>
+<p>Probing support attempts to create a D3D12 device for each adapter and can take longer
+than enumerating adapter metadata. Its cost depends on the machine and driver.</p>
+<h3 id="counts">Counts<a class="headerlink" href="#counts" title="Permanent link">&para;</a></h3>
+<div class="language-console highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="gp">$ </span>winml<span class="w"> </span>cgc<span class="w"> </span>patterns<span class="w"> </span>-a<span class="w"> </span>nvidia
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="go">redist: C:\path\to\D3D12 (SDK 720, x64)</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="go">NVIDIA GeForce RTX 5060 Laptop GPU: 51 patterns / 63 rules</span>
+</span></code></pre></div>
+<p><code>-a</code> answers for <strong>one</strong> adapter, so it reports that adapter rather
+than printing the table. Add <code>-v</code> to list every pattern the driver declares, grouped by
+what kind of claim it is:</p>
+<div class="language-console highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="gp">$ </span>winml<span class="w"> </span>cgc<span class="w"> </span>patterns<span class="w"> </span>-a<span class="w"> </span>nvidia<span class="w"> </span>-v
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="go">redist: C:\path\to\D3D12 (SDK 720, x64)</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="go">NVIDIA GeForce RTX 5060 Laptop GPU: 51 patterns / 63 rules</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="go">kernel   12 patterns, 16 rules   declares a jitFunction -- the only kind that claims work</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="go">    38  gemm_input_major_expression_epilogue_cluster</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="go">    36  gemm_input_major  3 rules</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="go">   ...</span>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="go">fusion    4 patterns,  6 rules   collapses a marked cluster into one native op</span>
+</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="go">   200  lora_no_views_output_major  3 rules</span>
+</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="go">   ...</span>
+</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="go">hint      5 patterns,  9 rules   anchors a cluster and sets the order clusters grow in</span>
+</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a><span class="go">mark     25 patterns, 27 rules   tags an op so a fusion root can absorb it later</span>
+</span><span id="__span-4-14"><a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a><span class="go">rewrite   5 patterns,  5 rules   graph surgery, so that other patterns can match</span>
+</span></code></pre></div>
+<p>The five kinds are read off each pattern's body, never its name: a <code>jitFunction</code> makes
+it a <strong>kernel</strong>, a <code>subgraph_rewrite_desc</code> without one a <strong>fusion</strong>, then
+<code>cgc_add_pattern_cluster_hint</code> a <strong>hint</strong>, <code>cgc_mark_pattern_cluster_op</code> a <strong>mark</strong>, and
+anything left a <strong>rewrite</strong>. Groups run from most claimed to least, patterns within a
+group by descending benefit, then by full name for ties. A missing benefit is sorted
+as zero and displayed as <code>-</code>. A per-pattern rule count appears only where a pattern
+expands to more than one rule. A kind the driver declares nothing for is left out.</p>
+<p>On an adapter whose driver has no MLIR support, this is a normal answer, not an error
+(<strong>exit 0</strong>):</p>
+<div class="language-console highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="gp">$ </span>winml<span class="w"> </span>cgc<span class="w"> </span>patterns<span class="w"> </span>-a<span class="w"> </span>amd
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="go">redist: C:\path\to\D3D12 (SDK 720, x64)</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="go">AMD Radeon(TM) 880M Graphics: driver does not implement MLIR programs</span>
+</span></code></pre></div>
+<p>Without a redist the question cannot be asked at all, and that is a failure rather
+than an answer (<strong>exit 1</strong>):</p>
+<div class="language-console highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="gp">$ </span>winml<span class="w"> </span>cgc<span class="w"> </span>patterns<span class="w"> </span>-a<span class="w"> </span>nvidia
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="go">redist: none -- MLIR support unknown (run with -v to see where cgc looked)</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="go">Error: cgc patterns needs an Agility SDK redist; none was found (run with -v to see where cgc looked)</span>
+</span></code></pre></div>
+<h3 id="dump">Dump<a class="headerlink" href="#dump" title="Permanent link">&para;</a></h3>
+<p><code>--dump</code> must name its adapter with <code>-a</code>:</p>
+<div class="language-console highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="gp">$ </span>winml<span class="w"> </span>cgc<span class="w"> </span>patterns<span class="w"> </span>-a<span class="w"> </span>nvidia<span class="w"> </span>--dump
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="go">redist: C:\path\to\D3D12 (SDK 720, x64)</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="go">NVIDIA GeForce RTX 5060 Laptop GPU: 51 patterns / 63 rules</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="go">wrote patterns\nvidia-geforce-rtx-5060-laptop-gpu\32.0.16.3004\patterns.mlir (124753 bytes)</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="go">wrote patterns\nvidia-geforce-rtx-5060-laptop-gpu\32.0.16.3004\patterns.json</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="go">wrote patterns\nvidia-geforce-rtx-5060-laptop-gpu\32.0.16.3004\metadata.txt</span>
+</span></code></pre></div>
+<p>For a non-empty text response, three files are written:</p>
+<table>
+<thead>
+<tr>
+<th>file</th>
+<th>what it is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>patterns.mlir</code></td>
+<td>the driver's declaration as text, with LF line endings and without the C string terminator the driver appends</td>
+</tr>
+<tr>
+<td><code>patterns.json</code></td>
+<td>the same patterns split one per record and grouped — see <a href="#patternsjson">patterns.json</a></td>
+</tr>
+<tr>
+<td><code>metadata.txt</code></td>
+<td>provenance: adapter, driver, redist, SDK, and the counts</td>
+</tr>
+</tbody>
+</table>
+<p>Other responses produce different files:</p>
+<table>
+<thead>
+<tr>
+<th>Response</th>
+<th>Files written by <code>--dump</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MLIR bytecode</td>
+<td><code>patterns.mlirbc</code> and <code>metadata.txt</code>; no counts or <code>patterns.json</code>.</td>
+</tr>
+<tr>
+<td>Empty declaration after text normalization</td>
+<td><code>metadata.txt</code> with <code>status=empty</code>.</td>
+</tr>
+<tr>
+<td>No MLIR support reported by the probe</td>
+<td><code>metadata.txt</code> with <code>status=unsupported</code>.</td>
+</tr>
+<tr>
+<td>Redist or pattern exchange failure</td>
+<td>No new dump is written; the command exits 1.</td>
+</tr>
+</tbody>
+</table>
+<p>Naming the adapter is required rather than defaulted, because a dump is filed under a
+slug and a driver version: dumping whichever adapter happened to be first writes a
+correct-looking directory for the wrong device. Omitting <code>-a</code> is a usage error:</p>
+<div class="language-console highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="gp">$ </span>winml<span class="w"> </span>cgc<span class="w"> </span>patterns<span class="w"> </span>--dump
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="go">Usage: winml cgc patterns [OPTIONS]</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="go">Try 'winml cgc patterns --help' for help.</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="go">Error: --dump needs an adapter: name one with -a &lt;substring|index&gt;      # exit 2</span>
+</span></code></pre></div>
+<p>The layout is <code>patterns/&lt;adapter-slug&gt;/&lt;driver-version&gt;/</code>, relative to the working
+directory. It is keyed by the normalized description and driver version, not by a
+unique device ID or SDK version. Identical descriptions, descriptions that normalize
+to the same slug, and different redists used with the same driver can therefore share
+a destination. Use separate working directories to keep those captures independently.
+The root is always <code>patterns/</code>; there is no output-directory flag.</p>
+<p>A dump is <strong>never silently overwritten</strong>:</p>
+<div class="language-console highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="gp">$ </span>winml<span class="w"> </span>cgc<span class="w"> </span>patterns<span class="w"> </span>-a<span class="w"> </span>nvidia<span class="w"> </span>--dump<span class="w">    </span><span class="c1"># second time</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="go">Error: Dump directory 'patterns\nvidia-geforce-rtx-5060-laptop-gpu\32.0.16.3004' already exists and is not empty. Re-run with --overwrite to replace its contents.</span>
+</span></code></pre></div>
+<p>That message goes to stderr and the exit status is 1. After a successful query,
+<code>--overwrite</code> removes the four known dump files (<code>patterns.mlir</code>, <code>patterns.mlirbc</code>,
+<code>patterns.json</code>, and <code>metadata.txt</code>) before writing the replacement; unrelated files
+are preserved. A query failure leaves the previous dump untouched, but a later
+filesystem write failure can still leave an incomplete replacement. A non-empty
+directory or an existing file at the destination blocks without <code>--overwrite</code>; an
+empty directory is reused.</p>
+<p><code>metadata.txt</code> alongside the dump:</p>
+<div class="language-ini highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="na">adapter</span><span class="o">=</span><span class="s">NVIDIA GeForce RTX 5060 Laptop GPU</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="na">driver_version</span><span class="o">=</span><span class="s">32.0.16.3004</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="na">status</span><span class="o">=</span><span class="s">dumped</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="na">received_encoding</span><span class="o">=</span><span class="s">text</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="na">text_file</span><span class="o">=</span><span class="s">patterns.mlir</span>
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="na">bytecode_file</span><span class="o">=</span>
+</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="na">abi</span><span class="o">=</span><span class="s">720</span>
+</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="na">sdk_version</span><span class="o">=</span><span class="s">720</span>
+</span><span id="__span-10-9"><a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="na">redist</span><span class="o">=</span><span class="s">C:\path\to\D3D12</span>
+</span><span id="__span-10-10"><a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a><span class="na">patterns</span><span class="o">=</span><span class="s">51</span>
+</span><span id="__span-10-11"><a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a><span class="na">rules</span><span class="o">=</span><span class="s">63</span>
+</span><span id="__span-10-12"><a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a><span class="na">received_bytes</span><span class="o">=</span><span class="s">127117</span>
+</span><span id="__span-10-13"><a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a><span class="na">line_endings</span><span class="o">=</span><span class="s">lf</span>
+</span></code></pre></div>
+<p>The first six keys are the ones <code>dxcgc-dump-driver-patterns.exe</code> writes, unchanged so
+existing readers keep working; the rest record which redist and ABI produced the dump.</p>
+<table>
+<thead>
+<tr>
+<th>key</th>
+<th>values</th>
+<th>meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>status</code></td>
+<td><code>dumped</code> | <code>unsupported</code> | <code>empty</code></td>
+<td>whether patterns were captured, the driver has no MLIR support, or it returned an empty declaration</td>
+</tr>
+<tr>
+<td><code>received_encoding</code></td>
+<td><code>text</code> | <code>bytecode</code> | <code>none</code></td>
+<td>the stored payload's encoding; <code>none</code> for <code>unsupported</code> or <code>empty</code></td>
+</tr>
+<tr>
+<td><code>text_file</code> / <code>bytecode_file</code></td>
+<td>filename or empty</td>
+<td>only one is ever set</td>
+</tr>
+<tr>
+<td><code>abi</code> / <code>sdk_version</code></td>
+<td>e.g. <code>720</code></td>
+<td>both currently record the SDK version; SDK 720 uses the 720 exchange shape, SDK 721 or newer uses the 721 shape</td>
+</tr>
+<tr>
+<td><code>patterns</code> / <code>rules</code></td>
+<td>integers, or empty</td>
+<td>empty when the counts could not be taken (<code>unsupported</code>, <code>empty</code>, or a bytecode answer)</td>
+</tr>
+<tr>
+<td><code>received_bytes</code></td>
+<td>integer, or empty</td>
+<td>size returned by the exchange, including any terminator; an empty response records <code>0</code> (or the terminator's size), while an unsupported adapter leaves this empty</td>
+</tr>
+<tr>
+<td><code>line_endings</code></td>
+<td><code>lf</code>, or empty</td>
+<td><code>lf</code> when a text payload was normalised to LF line endings and its terminator removed before it was stored</td>
+</tr>
+</tbody>
+</table>
+<h4 id="dumping-an-adapter-with-no-mlir-support">Dumping an adapter with no MLIR support<a class="headerlink" href="#dumping-an-adapter-with-no-mlir-support" title="Permanent link">&para;</a></h4>
+<p>This is a normal answer, not an error (<strong>exit 0</strong>). No <code>patterns.mlir</code> is written — just
+a <code>metadata.txt</code> recording that this driver was asked and said no, so the baseline covers
+every adapter rather than silently omitting the ones that declined:</p>
+<div class="language-console highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="gp">$ </span>winml<span class="w"> </span>cgc<span class="w"> </span>patterns<span class="w"> </span>-a<span class="w"> </span>amd<span class="w"> </span>--dump
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="go">redist: C:\path\to\D3D12 (SDK 720, x64)</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="go">AMD Radeon(TM) 880M Graphics: driver does not implement MLIR programs</span>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="go">wrote patterns\amd-radeon-880m-graphics\32.0.31041.1004\metadata.txt</span>
+</span></code></pre></div>
+<div class="language-ini highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="na">adapter</span><span class="o">=</span><span class="s">AMD Radeon(TM) 880M Graphics</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="na">driver_version</span><span class="o">=</span><span class="s">32.0.31041.1004</span>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="na">status</span><span class="o">=</span><span class="s">unsupported</span>
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="na">received_encoding</span><span class="o">=</span><span class="s">none</span>
+</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="na">text_file</span><span class="o">=</span>
+</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="na">bytecode_file</span><span class="o">=</span>
+</span><span id="__span-12-7"><a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="na">abi</span><span class="o">=</span><span class="s">720</span>
+</span><span id="__span-12-8"><a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="na">sdk_version</span><span class="o">=</span><span class="s">720</span>
+</span><span id="__span-12-9"><a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a><span class="na">redist</span><span class="o">=</span><span class="s">C:\path\to\D3D12</span>
+</span><span id="__span-12-10"><a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a><span class="na">patterns</span><span class="o">=</span>
+</span><span id="__span-12-11"><a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a><span class="na">rules</span><span class="o">=</span>
+</span><span id="__span-12-12"><a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a><span class="na">received_bytes</span><span class="o">=</span>
+</span><span id="__span-12-13"><a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a><span class="na">line_endings</span><span class="o">=</span>
+</span></code></pre></div>
+<h4 id="the-adapter-slug">The adapter slug<a class="headerlink" href="#the-adapter-slug" title="Permanent link">&para;</a></h4>
+<p>The directory name is the description lowercased, with <code>(R)</code>, <code>(TM)</code> and <code>(C)</code> removed
+and every run outside ASCII <code>a-z</code> and <code>0-9</code> collapsed to a single <code>-</code>, then any leading
+or trailing <code>-</code> trimmed. If nothing remains, the slug is <code>adapter</code>:</p>
+<table>
+<thead>
+<tr>
+<th>description</th>
+<th>slug</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>NVIDIA GeForce RTX 5060 Laptop GPU</code></td>
+<td><code>nvidia-geforce-rtx-5060-laptop-gpu</code></td>
+</tr>
+<tr>
+<td><code>AMD Radeon(TM) 880M Graphics</code></td>
+<td><code>amd-radeon-880m-graphics</code></td>
+</tr>
+<tr>
+<td><code>Intel(R) Graphics</code></td>
+<td><code>intel-graphics</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="after-a-driver-update">After a driver update<a class="headerlink" href="#after-a-driver-update" title="Permanent link">&para;</a></h3>
+<p>Three things move: the version in the table, the counts, and the dump. In that order:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>winml<span class="w"> </span>cgc<span class="w"> </span>adapters<span class="w">                  </span><span class="c1"># current driver versions</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>winml<span class="w"> </span>cgc<span class="w"> </span>patterns<span class="w"> </span>-a<span class="w"> </span>nvidia<span class="w">        </span><span class="c1"># current pattern and rule counts</span>
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>winml<span class="w"> </span>cgc<span class="w"> </span>patterns<span class="w"> </span>-a<span class="w"> </span>nvidia<span class="w"> </span>-v<span class="w">     </span><span class="c1"># inspect the current declarations</span>
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>winml<span class="w"> </span>cgc<span class="w"> </span>patterns<span class="w"> </span>-a<span class="w"> </span>nvidia<span class="w"> </span>--dump<span class="w"> </span><span class="c1"># keep the current declaration</span>
+</span></code></pre></div>
+<p>The dump lands under the new driver version, so the previous one is still there beside
+it. Compare the two with <code>git diff --no-index OLD NEW</code>. Re-dumping the <em>same</em> version
+is refused until you pass <code>--overwrite</code>.</p>
+<p>Text dumps are stored with LF line endings and no trailing NULs; bytecode is preserved
+unchanged. Older text dumps may retain CRLF endings and a trailing NUL. Compare
+normalized copies: remove trailing NUL bytes and normalize line endings first.
+<code>git diff --no-index --ignore-cr-at-eol OLD NEW</code> only ignores end-of-line CRs; it does
+not remove a trailing NUL, which can make Git treat an older text dump as binary.</p>
+<h3 id="selecting-an-adapter">Selecting an adapter<a class="headerlink" href="#selecting-an-adapter" title="Permanent link">&para;</a></h3>
+<p><code>-a</code> takes a description substring (case-insensitive) or a bare index:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>winml<span class="w"> </span>cgc<span class="w"> </span>patterns<span class="w"> </span>-a<span class="w"> </span>nvidia
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>winml<span class="w"> </span>cgc<span class="w"> </span>patterns<span class="w"> </span>-a<span class="w"> </span><span class="m">0</span>
+</span></code></pre></div>
+<p>With no <code>-a</code>, <code>winml cgc patterns</code> asks <strong>every enumerated adapter</strong> and prints one line
+each. A driver that cannot answer -- one that claims the
+exchange and then refuses it -- costs only its own line, on stderr; the rest are still
+reported and the run then exits 1. <code>--dump</code> does not accept that default: it names
+its adapter with <code>-a</code> or it exits 2.</p>
+<p>A <code>-a</code> value is matched as an index when one exists, and otherwise as a description
+substring, so <code>-a 5060</code> finds an RTX 5060 on a three-adapter machine. If several
+descriptions match, the first in enumeration order wins; use <code>IDX</code> to distinguish
+them. Matching uses the full description, not the table's truncated display.</p>
+<p>Once adapters and a usable redist are available, a selector that matches nothing
+exits 2. <code>winml cgc adapters</code> takes no <code>-a</code>: it always prints the enumerated list.
+If enumeration finds no adapters after argument checks, either live-query subcommand prints
+<code>no D3D12 adapters found</code> and exits 0 without resolving a redist.</p>
+<h3 id="driving-it-from-a-script">Driving it from a script<a class="headerlink" href="#driving-it-from-a-script" title="Permanent link">&para;</a></h3>
+<p><code>stdout</code> carries the <code>redist:</code> line, table, counts, verbose pattern listing, and
+<code>wrote</code>/<code>opening</code> notices. <code>stderr</code> carries logging and diagnostics such as the <code>-v</code>
+probes and redist failure report. This is human-readable output, not a JSON stream:</p>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="n">winml</span> <span class="n">cgc</span> <span class="n">patterns</span> <span class="n">-a</span> <span class="n">nvidia</span> <span class="p">&gt;</span> <span class="n">counts</span><span class="p">.</span><span class="n">txt</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="k">if</span> <span class="p">(</span><span class="nv">$LASTEXITCODE</span> <span class="o">-ne</span> <span class="n">0</span><span class="p">)</span> <span class="p">{</span> <span class="s2">"command failed; output may be partial"</span> <span class="p">}</span>
+</span></code></pre></div>
+<p>The <code>redist:</code> line is written after redist resolution succeeds or concludes that no
+implicit candidate is available. It remains in stdout if a later step fails. Parsing
+errors and an explicitly named redist rejected during discovery fail before that
+line. Viewer-only runs do not print it.</p>
+<p><strong>A failed multi-adapter run can contain partial results.</strong> Successful adapters are
+still printed when another adapter's exchange fails, and the command exits 1 after
+the sweep. A selected-adapter failure can leave just the <code>redist:</code> line. Always check
+the exit code; neither non-empty output nor a count line proves the whole run
+succeeded.</p>
+<p>Read <code>patterns=</code> and <code>rules=</code> from a successfully written dump's <code>metadata.txt</code>, or
+the structured <code>patterns.json</code>, rather than re-parsing stdout. There is no JSON-output
+flag for these subcommands.</p>
+<h2 id="patternsjson">patterns.json<a class="headerlink" href="#patternsjson" title="Permanent link">&para;</a></h2>
+<p>A text dump also writes <code>patterns.json</code>: every pattern in the declaration, split out
+one per record and grouped, so a reader never has to parse MLIR. The
+<a href="#browsing-a-dump">CGC Pattern Atlas</a> page is built on it.</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="p">{</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="w">  </span><span class="nt">"format"</span><span class="p">:</span><span class="w"> </span><span class="s2">"winml-cgc-patterns/1"</span><span class="p">,</span>
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="w">  </span><span class="nt">"meta"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="w">    </span><span class="nt">"adapter"</span><span class="p">:</span><span class="w"> </span><span class="s2">"NVIDIA GeForce RTX 5060 Laptop GPU"</span><span class="p">,</span>
+</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a><span class="w">    </span><span class="nt">"driver_version"</span><span class="p">:</span><span class="w"> </span><span class="s2">"32.0.16.3004"</span><span class="p">,</span>
+</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a><span class="w">    </span><span class="nt">"sdk_version"</span><span class="p">:</span><span class="w"> </span><span class="mi">720</span><span class="p">,</span>
+</span><span id="__span-16-7"><a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a><span class="w">    </span><span class="nt">"redist"</span><span class="p">:</span><span class="w"> </span><span class="s2">"C:\\path\\to\\D3D12"</span><span class="p">,</span>
+</span><span id="__span-16-8"><a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a><span class="w">    </span><span class="nt">"encoding"</span><span class="p">:</span><span class="w"> </span><span class="s2">"text"</span><span class="p">,</span>
+</span><span id="__span-16-9"><a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a><span class="w">    </span><span class="nt">"bytes"</span><span class="p">:</span><span class="w"> </span><span class="mi">124753</span>
+</span><span id="__span-16-10"><a id="__codelineno-16-10" name="__codelineno-16-10" href="#__codelineno-16-10"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-16-11"><a id="__codelineno-16-11" name="__codelineno-16-11" href="#__codelineno-16-11"></a><span class="w">  </span><span class="nt">"summary"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-16-12"><a id="__codelineno-16-12" name="__codelineno-16-12" href="#__codelineno-16-12"></a><span class="w">    </span><span class="nt">"patterns"</span><span class="p">:</span><span class="w"> </span><span class="mi">51</span><span class="p">,</span><span class="w"> </span><span class="nt">"rules"</span><span class="p">:</span><span class="w"> </span><span class="mi">63</span><span class="p">,</span><span class="w"> </span><span class="nt">"kernel_patterns"</span><span class="p">:</span><span class="w"> </span><span class="mi">12</span><span class="p">,</span>
+</span><span id="__span-16-13"><a id="__codelineno-16-13" name="__codelineno-16-13" href="#__codelineno-16-13"></a><span class="w">    </span><span class="nt">"distinct_kernels"</span><span class="p">:</span><span class="w"> </span><span class="mi">9</span><span class="p">,</span><span class="w"> </span><span class="nt">"sources"</span><span class="p">:</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="nt">"top_benefit"</span><span class="p">:</span><span class="w"> </span><span class="mi">200</span>
+</span><span id="__span-16-14"><a id="__codelineno-16-14" name="__codelineno-16-14" href="#__codelineno-16-14"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-16-15"><a id="__codelineno-16-15" name="__codelineno-16-15" href="#__codelineno-16-15"></a><span class="w">  </span><span class="nt">"kinds"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"kernel"</span><span class="p">:</span><span class="w"> </span><span class="mi">12</span><span class="p">,</span><span class="w"> </span><span class="nt">"fusion"</span><span class="p">:</span><span class="w"> </span><span class="mi">4</span><span class="p">,</span><span class="w"> </span><span class="nt">"hint"</span><span class="p">:</span><span class="w"> </span><span class="mi">5</span><span class="p">,</span><span class="w"> </span><span class="nt">"mark"</span><span class="p">:</span><span class="w"> </span><span class="mi">25</span><span class="p">,</span><span class="w"> </span><span class="nt">"rewrite"</span><span class="p">:</span><span class="w"> </span><span class="mi">5</span><span class="w"> </span><span class="p">},</span>
+</span><span id="__span-16-16"><a id="__codelineno-16-16" name="__codelineno-16-16" href="#__codelineno-16-16"></a><span class="w">  </span><span class="nt">"sources"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+</span><span id="__span-16-17"><a id="__codelineno-16-17" name="__codelineno-16-17" href="#__codelineno-16-17"></a><span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"nvidia_conv_central.pdll"</span><span class="p">,</span><span class="w"> </span><span class="nt">"patterns"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="mi">3</span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-16-18"><a id="__codelineno-16-18" name="__codelineno-16-18" href="#__codelineno-16-18"></a><span class="w">  </span><span class="p">],</span>
+</span><span id="__span-16-19"><a id="__codelineno-16-19" name="__codelineno-16-19" href="#__codelineno-16-19"></a><span class="w">  </span><span class="nt">"patterns"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+</span><span id="__span-16-20"><a id="__codelineno-16-20" name="__codelineno-16-20" href="#__codelineno-16-20"></a><span class="w">    </span><span class="p">{</span>
+</span><span id="__span-16-21"><a id="__codelineno-16-21" name="__codelineno-16-21" href="#__codelineno-16-21"></a><span class="w">      </span><span class="nt">"index"</span><span class="p">:</span><span class="w"> </span><span class="mi">28</span><span class="p">,</span>
+</span><span id="__span-16-22"><a id="__codelineno-16-22" name="__codelineno-16-22" href="#__codelineno-16-22"></a><span class="w">      </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"nvidia.gemm_input_major_expression_epilogue_cluster"</span><span class="p">,</span>
+</span><span id="__span-16-23"><a id="__codelineno-16-23" name="__codelineno-16-23" href="#__codelineno-16-23"></a><span class="w">      </span><span class="nt">"short_name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"gemm_input_major_expression_epilogue_cluster"</span><span class="p">,</span>
+</span><span id="__span-16-24"><a id="__codelineno-16-24" name="__codelineno-16-24" href="#__codelineno-16-24"></a><span class="w">      </span><span class="nt">"kind"</span><span class="p">:</span><span class="w"> </span><span class="s2">"kernel"</span><span class="p">,</span>
+</span><span id="__span-16-25"><a id="__codelineno-16-25" name="__codelineno-16-25" href="#__codelineno-16-25"></a><span class="w">      </span><span class="nt">"benefit"</span><span class="p">:</span><span class="w"> </span><span class="mi">38</span><span class="p">,</span>
+</span><span id="__span-16-26"><a id="__codelineno-16-26" name="__codelineno-16-26" href="#__codelineno-16-26"></a><span class="w">      </span><span class="nt">"rules"</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+</span><span id="__span-16-27"><a id="__codelineno-16-27" name="__codelineno-16-27" href="#__codelineno-16-27"></a><span class="w">      </span><span class="nt">"source"</span><span class="p">:</span><span class="w"> </span><span class="s2">"nvidia_handwritten.mlir"</span><span class="p">,</span>
+</span><span id="__span-16-28"><a id="__codelineno-16-28" name="__codelineno-16-28" href="#__codelineno-16-28"></a><span class="w">      </span><span class="nt">"kernel"</span><span class="p">:</span><span class="w"> </span><span class="s2">"GemmCluster"</span><span class="p">,</span>
+</span><span id="__span-16-29"><a id="__codelineno-16-29" name="__codelineno-16-29" href="#__codelineno-16-29"></a><span class="w">      </span><span class="nt">"lines"</span><span class="p">:</span><span class="w"> </span><span class="mi">92</span><span class="p">,</span>
+</span><span id="__span-16-30"><a id="__codelineno-16-30" name="__codelineno-16-30" href="#__codelineno-16-30"></a><span class="w">      </span><span class="nt">"mlir"</span><span class="p">:</span><span class="w"> </span><span class="s2">"cgc_pattern.pattern @nvidia.gemm_input_major_expression_epilogue_cluster ..."</span>
+</span><span id="__span-16-31"><a id="__codelineno-16-31" name="__codelineno-16-31" href="#__codelineno-16-31"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-16-32"><a id="__codelineno-16-32" name="__codelineno-16-32" href="#__codelineno-16-32"></a><span class="w">  </span><span class="p">]</span>
+</span><span id="__span-16-33"><a id="__codelineno-16-33" name="__codelineno-16-33" href="#__codelineno-16-33"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>(<code>sources</code> and <code>patterns</code> are abbreviated here.)</p>
+<table>
+<thead>
+<tr>
+<th>field</th>
+<th>derived from</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>meta.bytes</code></td>
+<td>length of the normalized text payload, not the original <code>received_bytes</code> in <code>metadata.txt</code></td>
+</tr>
+<tr>
+<td><code>index</code>, <code>short_name</code></td>
+<td>one-based declaration order, and the portion of <code>name</code> after its final <code>.</code></td>
+</tr>
+<tr>
+<td><code>kind</code>, <code>benefit</code>, <code>rules</code></td>
+<td>the same parser that prints the counts; <code>benefit</code> is <code>null</code> if absent</td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td>the preceding <code>// from &lt;file&gt;.pdll</code> / <code>// from &lt;file&gt;.mlir</code> marker, or <code>null</code> if none exists; prose beginning with "from" does not open a section</td>
+</tr>
+<tr>
+<td><code>kernel</code></td>
+<td>the value matched from <code>jitFunction = #cgc.string&lt;"Name"&gt;</code> or a plain string; <code>null</code> if no kernel name is parsed</td>
+</tr>
+<tr>
+<td><code>lines</code>, <code>mlir</code></td>
+<td>line count and text from the declaration through its closing brace, including comments; invalid UTF-8 is decoded with replacement characters</td>
+</tr>
+<tr>
+<td><code>summary.kernel_patterns</code>, <code>summary.distinct_kernels</code></td>
+<td>records with a parsed kernel name, and the number of distinct names</td>
+</tr>
+<tr>
+<td><code>sources</code>, <code>summary.sources</code></td>
+<td>groups of pattern indices by source; records without a source share the <code>(unattributed)</code> group, which is included in the count</td>
+</tr>
+</tbody>
+</table>
+<p><code>format</code> names the layout, so a reader can refuse a file it does not understand. A
+bytecode dump gets no <code>patterns.json</code> — splitting it needs the real MLIR parser — and
+neither does an unsupported adapter or an empty declaration. Non-empty text with no
+recognized pattern declarations does produce JSON with an empty <code>patterns</code> array.</p>
+<h3 id="browsing-a-dump">Browsing a dump<a class="headerlink" href="#browsing-a-dump" title="Permanent link">&para;</a></h3>
+<p>The <strong>CGC Pattern Atlas</strong> is a single self-contained HTML page, opened by <code>--open</code>:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>winml<span class="w"> </span>cgc<span class="w"> </span>patterns<span class="w"> </span>-a<span class="w"> </span>nvidia<span class="w"> </span>--dump<span class="w"> </span>--open<span class="w"> </span><span class="c1"># dump this driver, then show it</span>
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>winml<span class="w"> </span>cgc<span class="w"> </span>patterns<span class="w"> </span>--open<span class="w"> </span>patterns.json<span class="w">   </span><span class="c1"># show a dump taken earlier</span>
+</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>winml<span class="w"> </span>cgc<span class="w"> </span>patterns<span class="w"> </span>--open<span class="w">                 </span><span class="c1"># open an empty page; no driver query</span>
+</span></code></pre></div>
+<p>Without <code>--dump</code>, <code>--open</code> bypasses adapter and redist selection. Use the file form
+without <code>--dump</code>: when <code>--dump</code> is present, the viewer uses this run's output rather
+than any filename passed to <code>--open</code>. If no <code>patterns.json</code> was written (bytecode,
+empty declaration, or unsupported adapter), the CLI warns and opens an empty atlas.</p>
+<p>An absent, unreadable, non-JSON, or wrong-format file is a usage error (exit 2). The
+CLI checks the format tag and metadata object; the browser validates the pattern
+array separately. The atlas currently requires at least one pattern, so an empty or
+malformed array produces a browser error rather than a CLI exit-code failure.</p>
+<p>It shows the summary, filters by name, kernel and kind, groups by source file or by
+kind, and expands each pattern's MLIR on demand. Nothing is uploaded; the file is read
+in the browser. The page ships with the package, at
+<code>winml/modelkit/commands/assets/cgc-pattern-atlas.html</code>, so <code>--open</code> finds it in an
+installed wheel as well as in a checkout; open that file directly if you would rather
+not go through the command.</p>
+<h2 id="patterns-and-rules-are-not-the-same-number">Patterns and rules are not the same number<a class="headerlink" href="#patterns-and-rules-are-not-the-same-number" title="Permanent link">&para;</a></h2>
+<p>A <strong>pattern</strong> is one <code>cgc_pattern.pattern</code> declaration. A <strong>rule</strong> is one flat match
+alternative after <code>any_of</code> expansion: <code>any_of { all_of {…} all_of {…} }</code> contributes one
+rule per branch, and several such blocks in one pattern multiply.</p>
+<p>They can diverge. For example, the following recorded counts show why both are useful:</p>
+<table>
+<thead>
+<tr>
+<th>driver</th>
+<th style="text-align: right;">patterns</th>
+<th style="text-align: right;">rules</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>32.0.16.2009</td>
+<td style="text-align: right;">13</td>
+<td style="text-align: right;">13</td>
+</tr>
+<tr>
+<td>32.0.16.2035</td>
+<td style="text-align: right;">60</td>
+<td style="text-align: right;">60</td>
+</tr>
+<tr>
+<td>32.0.16.3004</td>
+<td style="text-align: right;">51</td>
+<td style="text-align: right;"><strong>63</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Reading only the declaration count across the 2035 → 3004 examples shows 60 → 51,
+while the rule count increases from 60 to 63 because of <code>any_of</code> alternatives.
+Neither number alone proves broader model coverage or better performance: these are
+counts of declarations, not a compilation or execution test.</p>
+<p>Beware <code>apply_native_constraint "cgc_is_any_of"</code>, which is an op-family whitelist and
+not a rule multiplier at all. A substring search for <code>any_of</code> conflates the two.</p>
+<h2 id="finding-the-redist">Finding the redist<a class="headerlink" href="#finding-the-redist" title="Permanent link">&para;</a></h2>
+<p>For a run that reaches redist resolution, an <strong>explicitly named</strong> redist -- the flag,
+or the first non-empty environment variable -- is the only candidate. If it cannot
+be used, the run exits 1 rather than answering about a different runtime. Only the
+implicit <code>bin/</code> roots are tried in sequence, stopping at the first candidate that
+passes the on-disk checks:</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Source</th>
+<th>Where</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>--d3d12-dir PATH</code></td>
+<td>the flag; when given it is the <strong>only</strong> candidate</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>$WINML_D3D12_DIR</code></td>
+<td>environment</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>$D3D12_DIR</code></td>
+<td>environment</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>&lt;venv-parent&gt;/bin/</code></td>
+<td>the directory holding the virtual environment — beside <code>.venv</code></td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>&lt;worktree&gt;/bin/</code></td>
+<td>the directory holding <code>pyproject.toml</code>, for a source checkout</td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>&lt;package&gt;/bin/</code></td>
+<td>the installed <code>winml</code> package</td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>&lt;site-packages&gt;/bin/</code></td>
+<td>the directory holding that package</td>
+</tr>
+<tr>
+<td>8</td>
+<td><code>&lt;prefix&gt;/bin/</code></td>
+<td>the environment root itself, e.g. <code>&lt;venv&gt;/bin/</code></td>
+</tr>
+</tbody>
+</table>
+<p>An explicit <code>--d3d12-dir</code> short-circuits the rest, so a wrong path fails loudly instead
+of silently falling through to some other core.</p>
+<p>In PowerShell, set the environment variable with <code>$env:</code>:</p>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="nv">$env:WINML_D3D12_DIR</span> <span class="p">=</span> <span class="s1">'C:\path\to\D3D12'</span>
+</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="n">winml</span> <span class="n">cgc</span> <span class="n">adapters</span>
+</span></code></pre></div>
+<h3 id="the-bin-default">The <code>bin/</code> default<a class="headerlink" href="#the-bin-default" title="Permanent link">&para;</a></h3>
+<p>A redist dropped in a <code>bin/</code> folder at the root of either a development worktree or a
+wheel installation is used with no flag and no environment variable, from any working
+directory.</p>
+<p><strong>Development environment</strong> — the <code>bin/</code> folder sits <strong>beside <code>.venv</code></strong>:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>my-project/
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>  .venv/
+</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>  bin/D3D12/D3D12Core.dll     &lt;- dropped here
+</span></code></pre></div>
+<p>This is the rule that matters in practice, and it is checked first. It is derived from
+<code>sys.prefix</code>, not from the source tree, so it keeps working once winml-cli is installed
+from a wheel into a project's venv — at that point there is no <code>pyproject.toml</code> to walk
+up to from <code>site-packages</code>, but <code>.venv</code>'s parent is still the project.</p>
+<p>A source checkout is also located by its <code>pyproject.toml</code>, which covers a venv kept
+somewhere other than the worktree. In the usual case the two are the same directory and
+collapse to one set of candidates.</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>winml-cli/
+</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a>  .venv/
+</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a>  bin/D3D12/D3D12Core.dll     &lt;- dropped here
+</span><span id="__span-20-4"><a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a>  pyproject.toml
+</span><span id="__span-20-5"><a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a>  src/winml/...
+</span></code></pre></div>
+<p><strong>Wheel installation</strong> — these additional locations are searched for a locally
+supplied redist:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>&lt;venv&gt;/
+</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a>  bin/D3D12/D3D12Core.dll                          &lt;- &lt;prefix&gt;
+</span><span id="__span-21-3"><a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a>  Lib/site-packages/
+</span><span id="__span-21-4"><a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a>    bin/D3D12/D3D12Core.dll                        &lt;- &lt;site-packages&gt;
+</span><span id="__span-21-5"><a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a>    winml/
+</span><span id="__span-21-6"><a id="__codelineno-21-6" name="__codelineno-21-6" href="#__codelineno-21-6"></a>      bin/D3D12/D3D12Core.dll                      &lt;- &lt;package&gt;
+</span></code></pre></div>
+<p>These are discovery locations, not a promise that the wheel contains an Agility SDK.
+winml-cli does not download a redist; supply one separately.</p>
+<p>Each root is checked twice — <code>bin/D3D12/</code> first, then <code>bin/</code> holding <code>D3D12Core.dll</code>
+directly. The <code>D3D12</code> subfolder is preferred because it is the Agility SDK's own
+convention, mirroring the <code>D3D12SDKPath</code> an application exports, but a flat <code>bin/</code> works.</p>
+<p>Duplicate paths are checked once. Automatic worktree and virtual-environment-parent
+roots at a filesystem root are excluded.</p>
+<p>Without a separately supplied redist, the <code>MLIR</code> column reads <code>?</code>. Which candidate was
+chosen is on the <code>redist:</code> line whether or not <code>-v</code> was passed. <code>-v</code> adds each
+adapter's raw capability HRESULT on stderr, and the negotiated IR version when
+nonzero:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>  NVIDIA GeForce RTX 5060 Laptop GPU: feature 70 -&gt; 0x00000000 (S_OK)
+</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>  AMD Radeon(TM) 880M Graphics: feature 70 -&gt; 0x80004001 (E_NOTIMPL)
+</span><span id="__span-22-3"><a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a>  Microsoft Basic Render Driver: feature 70 -&gt; 0x8000FFFF (E_UNEXPECTED)
+</span></code></pre></div>
+<p>A candidate directory is accepted only after its <code>D3D12Core.dll</code> is found, its PE
+machine type matches this interpreter, and its exported <code>D3D12SDKVersion</code> is read — by
+parsing the export table, never by loading the DLL, which would pin a runtime before the
+choice has been made. <code>isdir()</code> is not enough on its own.</p>
+<p>Passing these checks does not guarantee D3D12 can load the redist. If runtime loading
+then fails, the command does not retry another candidate: an <code>adapters</code> listing with
+an automatically discovered redist warns and shows <code>?</code>, while a named redist or a
+<code>patterns</code> query fails with exit 1.</p>
+<h3 id="the-sdk-720-floor">The SDK 720 floor<a class="headerlink" href="#the-sdk-720-floor" title="Permanent link">&para;</a></h3>
+<p>A core older than SDK 720 is <strong>never used</strong>. It is <em>named</em> in the failure report when
+no usable redist is found at all; when a later candidate does work, the rejection is not
+reported -- the <code>redist:</code> line names the core that answered, and that is the one the
+result describes:</p>
+<div class="language-console highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="gp">$ </span>winml<span class="w"> </span>cgc<span class="w"> </span>adapters<span class="w"> </span>--d3d12-dir<span class="w"> </span>C:<span class="se">\W</span>indows<span class="se">\S</span>ystem32
+</span><span id="__span-23-2"><a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a><span class="go">cgc: no usable D3D12 Agility SDK redist found (need a directory containing</span>
+</span><span id="__span-23-3"><a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a><span class="go">     D3D12Core.dll of SDK 720 or newer, built for x64).</span>
+</span><span id="__span-23-4"><a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a>
+</span><span id="__span-23-5"><a id="__codelineno-23-5" name="__codelineno-23-5" href="#__codelineno-23-5"></a><span class="go">Looked in, in order:</span>
+</span><span id="__span-23-6"><a id="__codelineno-23-6" name="__codelineno-23-6" href="#__codelineno-23-6"></a><span class="go">  1. --d3d12-dir                C:\Windows\System32</span>
+</span><span id="__span-23-7"><a id="__codelineno-23-7" name="__codelineno-23-7" href="#__codelineno-23-7"></a><span class="go">     SDK 616 is older than 720 and does not serve D3D MLIR programs</span>
+</span><span id="__span-23-8"><a id="__codelineno-23-8" name="__codelineno-23-8" href="#__codelineno-23-8"></a><span class="go">...</span>
+</span><span id="__span-23-9"><a id="__codelineno-23-9" name="__codelineno-23-9" href="#__codelineno-23-9"></a><span class="go">Error: --d3d12-dir named a redist that cannot be used; refusing to answer about a different one.</span>
+</span></code></pre></div>
+<p>This exits <strong>1</strong>.</p>
+<p>This matters because an old core does not fail loudly — it answers <code>E_INVALIDARG</code> for
+the feature query, which would report a perfectly capable driver as <code>MLIR no</code>. Falling
+back to one would create a healthy-looking device with the MLIR path silently absent.
+The CLI does not fall back to the inbox core. Candidate rejection is based on SDK
+version and architecture, not on the directory name alone.</p>
+<p>The SDK version also selects the <strong>wire ABI</strong> used by this CLI: SDK 720 selects the
+exchange by GUID; SDK 721 and newer use a <code>Type</code> enum plus a negotiated IR version.
+There is no <code>--abi</code> flag: point <code>--d3d12-dir</code> at the redist you want and the ABI follows.
+Use separate invocations to compare redists.</p>
+<h2 id="exit-codes">Exit codes<a class="headerlink" href="#exit-codes" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>code</th>
+<th>meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>the CLI completed: includes an unsupported adapter, an empty declaration, no adapters found, <code>adapters</code> with support unknown, help, or a viewer launch request</td>
+</tr>
+<tr>
+<td>1</td>
+<td>a live query could not complete, a dump was refused or could not be written, or the installed atlas asset is missing; an <code>adapters</code> listing through an unusable auto-discovered redist instead warns, shows <code>?</code>, and exits 0</td>
+</tr>
+<tr>
+<td>2</td>
+<td>bad arguments: an unknown flag, <code>--dump</code> without <code>-a</code>, an unmatched selector after redist resolution, or a file rejected by <code>--open</code> validation</td>
+</tr>
+</tbody>
+</table>
+<h2 id="when-something-looks-wrong">When something looks wrong<a class="headerlink" href="#when-something-looks-wrong" title="Permanent link">&para;</a></h2>
+<p><strong><code>MLIR</code> shows <code>?</code> for every adapter.</strong> Either no redist was found, or D3D12 refused the
+one that was (the reason is then on stderr, e.g. a preview redist with Developer Mode
+off). Either way the question could not be asked, and the listing itself is still
+correct. When no redist was found, <code>-v</code> shows every place cgc looked.</p>
+<p><strong><code>MLIR</code> shows <code>no</code> on a GPU you expect to support it.</strong> Check <code>-v</code> for a device-creation
+failure or the capability-query result. <code>S_OK</code> alone does not mean support: the
+returned support value must also be nonzero. For SDK 721 or newer, a zero negotiated
+IR version is reported as <code>no</code> even if the HRESULT is <code>S_OK</code>.</p>
+<p><strong>The exchange fails after the driver claimed support.</strong> The declaration was not
+retrieved, so the run exits 1 rather than reporting the adapter as unsupported.
+One possible cause is a driver/redist ABI mismatch: a driver can advertise capability
+through a 721-shaped query but reject the exchange with <code>DXGI_ERROR_UNSUPPORTED</code>.
+Check the HRESULT and try a redist compatible with that driver.</p>
+<p><strong>A driver answers in bytecode.</strong> The CLI prints its byte count rather than pattern
+counts. With <code>--dump</code>, it writes <code>patterns.mlirbc</code> and <code>metadata.txt</code>, but no
+<code>patterns.json</code>. Rendering bytecode as text needs an MLIR-aware tool such as <code>cgc-opt</code>.</p>
+<p><strong><code>--open</code> reports a missing atlas asset.</strong> The installed package must contain the HTML
+page. Reinstall a package that includes it. If <code>--dump</code> already completed, the files
+remain available even though opening the viewer failed.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
