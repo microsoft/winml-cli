@@ -6,7 +6,7 @@ shares a consistent invocation style — `winml <command> [flags]` — and the
 same global flags are available on the root `winml` group.
 
 The commands group by user intent. **Discover** (`sys`, `inspect`, `catalog`,
-`analyze`) helps you understand your hardware and model before writing any
+`cgc`, `analyze`) helps you understand your hardware and model before writing any
 artifacts. **Configure** (`config`, `optimize`) produces a reusable build
 configuration and tunes the ONNX graph. **Build** (`export`, `quantize`,
 `compile`, `build`) runs the pipeline stages that produce deployment artifacts.
@@ -26,6 +26,7 @@ measure speed and accuracy.
 | [`sys`](sys.md) | Discover | Inspect your machine — devices, EPs, and runtime versions at a glance. |
 | [`inspect`](inspect.md) | Discover | Inspect a model's tasks, classes, and hierarchy before committing to an export. |
 | [`catalog`](catalog.md) | Discover | Browse the curated winml-cli catalog of validated models and benchmarks. |
+| [`cgc`](cgc.md) | Discover | Inspect D3D12 adapters and the MLIR patterns their drivers declare. |
 | [`config`](config.md) | Configure | Generate a reusable build configuration for a Hugging Face model or ONNX file. |
 | [`export`](export.md) | Build | Convert a PyTorch / Hugging Face model to ONNX, preserving module hierarchy. |
 | [`analyze`](analyze.md) | Build | Verify an ONNX model is compatible with a target execution provider before deployment. |
@@ -41,6 +42,8 @@ measure speed and accuracy.
 - **I want to see what hardware and EPs I have** → `winml sys`
 - **I want to know if my model is supported** → `winml inspect`
 - **I want to browse validated models with known benchmarks** → `winml catalog`
+- **I want to know whether a GPU driver implements D3D MLIR programs** → `winml cgc adapters`
+- **I want to see the MLIR patterns a GPU driver declares** → `winml cgc patterns`
 - **I want to verify EP operator compatibility before compiling** → `winml analyze`
 - **I want to convert a Hugging Face model to ONNX** → `winml export`
 - **I want to run the whole pipeline in one go** → `winml build`
