@@ -13,6 +13,7 @@ exclude_docs: |
   /pytest-best-practices.md
   /reports/download_report.py
   /reports/README.md
+  /commands/cgc.md
   /getting-started/cgc-onboarding.md
   /samples/resnet50-cgir.md
   /samples/yolo11-cgir.md
@@ -117,7 +118,6 @@ nav:
           - sys: commands/sys.md
           - inspect: commands/inspect.md
           - catalog: commands/catalog.md
-          - cgc: commands/cgc.md
       - Configure:
           - config: commands/config.md
       - Build:

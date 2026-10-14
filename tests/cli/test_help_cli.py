@@ -20,8 +20,9 @@ Coverage
     no-args output, content completeness.
 
 ``TestCommandList``
-    The Commands section lists exactly the right commands: every enabled
-    command appears with non-empty AST-extracted help text; disabled
+    The Commands section lists exactly the right commands: every visible
+    command appears with non-empty AST-extracted help text; hidden commands
+    remain callable; disabled
     commands (``run``, ``serve``) do not appear and are also rejected at
     invocation time.
 
@@ -73,6 +74,7 @@ assert ENABLED_COMMANDS, (
 )
 
 _DISABLED_LIST: list[str] = sorted(_DISABLED_COMMANDS)
+VISIBLE_COMMANDS = [name for name in ENABLED_COMMANDS if name != "cgc"]
 
 
 # ---------------------------------------------------------------------------
@@ -212,9 +214,9 @@ class TestWinmlHelp:
 class TestCommandList:
     """The Commands section of ``winml --help`` lists exactly the right set."""
 
-    @pytest.mark.parametrize("cmd", ENABLED_COMMANDS)
-    def test_enabled_command_listed(self, cmd: str) -> None:
-        """Every enabled command must appear by name in the Commands section."""
+    @pytest.mark.parametrize("cmd", VISIBLE_COMMANDS)
+    def test_visible_command_listed(self, cmd: str) -> None:
+        """Every visible command must appear by name in the Commands section."""
         assert cmd in _invoke("--help").output
 
     @pytest.mark.parametrize("cmd", _DISABLED_LIST)
@@ -233,8 +235,8 @@ class TestCommandList:
         assert result.exit_code != 0
         assert "disabled" in result.output.lower()
 
-    @pytest.mark.parametrize("cmd", ENABLED_COMMANDS)
-    def test_enabled_command_has_help_text(self, cmd: str) -> None:
+    @pytest.mark.parametrize("cmd", VISIBLE_COMMANDS)
+    def test_visible_command_has_help_text(self, cmd: str) -> None:
         """Each command row must show non-empty AST-extracted help text.
 
         ``LazyGroup.format_commands`` parses each module's docstring via
@@ -394,12 +396,25 @@ class TestOptionsSection:
 class TestCGCHelpVisibility:
     """CGC entry points stay parseable without being advertised in help."""
 
-    @pytest.mark.parametrize("cmd", ["", *ENABLED_COMMANDS])
+    @pytest.mark.parametrize("cmd", ["", *VISIBLE_COMMANDS])
     def test_help_does_not_advertise_cgc(self, cmd: str) -> None:
         result = _invoke(*([cmd] if cmd else []), "--help")
         assert result.exit_code == 0, result.output
         for term in ("cgc", "cgir", "mlir", "winmlcg", "winml-runtime", "foundrytoolbox"):
             assert term not in result.output.casefold()
+
+    @pytest.mark.parametrize(
+        "args",
+        [(), ("--help",), ("adapters", "--help"), ("patterns", "--help")],
+    )
+    def test_hidden_cgc_group_remains_callable(self, args: tuple[str, ...]) -> None:
+        from winml.modelkit.commands.cgc import cgc
+
+        assert cgc.hidden
+        assert "cgc" not in _invoke("--help").output.casefold()
+        result = _invoke("cgc", *args)
+        assert result.exit_code == 0, result.output
+        assert "Usage:" in result.output
 
     @pytest.mark.parametrize(
         ("cmd", "flag", "value", "parameter"),
