@@ -36,7 +36,10 @@
       {"name": "present_3_key"}, {"name": "present_3_value"},
       {"name": "present_4_key"}, {"name": "present_4_value"},
       {"name": "present_5_key"}, {"name": "present_5_value"}
-    ]
+    ],
+    "compatibility": {
+      "transformers_attention": "eager"
+    }
   },
   "optim": {
     "clamp_constant_values": true,
