@@ -1680,7 +1680,7 @@ class WinMLSession:
             self._io_config["precision"] = self._get_precision(model)
         return self._io_config
 
-    def _load_input_value_ranges(self) -> dict[str, list[int]]:
+    def _load_input_value_ranges(self) -> dict[str, list[float]]:
         """Load input value ranges from the winml_build_config.json.
 
         Searches for the build config file in the same directory as the
@@ -1692,7 +1692,7 @@ class WinMLSession:
         """
         import json
 
-        value_ranges: dict[str, list[int]] = {}
+        value_ranges: dict[str, list[float]] = {}
         model_dir = self._onnx_path.parent
 
         # Try exact name first, then glob for prefixed variants
