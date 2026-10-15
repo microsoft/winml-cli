@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WinML CLI Agent Design Doc</title>
+<style>
+:root {
+  --bg: #ffffff;
+  --fg: #1f2328;
+  --muted: #59636e;
+  --border: #d1d9e0;
+  --accent: #0969da;
+  --code-bg: #f6f8fa;
+  --table-stripe: #f6f8fa;
+  --sidebar-bg: #f6f8fa;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --border: #30363d;
+    --accent: #4493f8; --code-bg: #161b22; --table-stripe: #161b22; --sidebar-bg: #161b22;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  font-size: 16px; line-height: 1.65;
+}
+.layout { display: flex; max-width: 1450px; margin: 0 auto; }
+nav.toc {
+  width: 300px; flex-shrink: 0; position: sticky; top: 0; align-self: flex-start;
+  height: 100vh; overflow-y: auto; padding: 24px 16px 60px; border-right: 1px solid var(--border);
+  background: var(--sidebar-bg); font-size: 13.5px;
+}
+nav.toc .toc-title {
+  font-weight: 700; font-size: 14px; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--muted); margin: 0 0 12px;
+}
+nav.toc ul { list-style: none; margin: 0; padding-left: 14px; }
+nav.toc > ul { padding-left: 0; }
+nav.toc li { margin: 2px 0; }
+nav.toc a { color: var(--fg); text-decoration: none; display: block; padding: 3px 8px; border-radius: 6px; }
+nav.toc a:hover { background: rgba(99,110,123,.15); color: var(--accent); }
+main { flex: 1; min-width: 0; padding: 40px 56px 120px; }
+@media (max-width: 1000px) {
+  nav.toc { display: none; }
+  main { padding: 24px; }
+}
+h1, h2, h3, h4 { line-height: 1.3; margin-top: 1.8em; margin-bottom: .6em; font-weight: 650; scroll-margin-top: 16px; }
+h1 { font-size: 2em; border-bottom: 2px solid var(--border); padding-bottom: .3em; margin-top: 0; }
+h2 { font-size: 1.5em; border-bottom: 1px solid var(--border); padding-bottom: .25em; }
+h3 { font-size: 1.2em; }
+h4 { font-size: 1.02em; }
+a { color: var(--accent); }
+p, li { overflow-wrap: break-word; }
+code {
+  font-family: "SF Mono", "Cascadia Code", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 85%; background: var(--code-bg); padding: .2em .4em; border-radius: 6px;
+}
+table { border-collapse: collapse; width: 100%; margin: 1em 0; display: block; overflow-x: auto; font-size: 14px; }
+th, td { border: 1px solid var(--border); padding: 7px 12px; text-align: left; vertical-align: top; }
+th { background: var(--sidebar-bg); font-weight: 650; }
+tr:nth-child(even) td { background: var(--table-stripe); }
+blockquote { margin: 1em 0; padding: .2em 1em; color: var(--muted); border-left: 4px solid var(--border); }
+.headerlink { text-decoration: none; opacity: 0; margin-left: .4em; font-weight: 400; }
+h1:hover .headerlink, h2:hover .headerlink, h3:hover .headerlink, h4:hover .headerlink { opacity: .5; }
+.user-input-strip {
+  margin: 1em 0;
+  border: 3px solid #4a56b8;
+  border-radius: 14px;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.user-input-strip .label {
+  font-weight: 700;
+}
+.chip {
+  display: inline-block;
+  background: #eef0f8;
+  color: #4a56b8;
+  border-radius: 8px;
+  padding: 2px 8px;
+  font-size: 90%;
+  font-weight: 600;
+}
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="toc">
+  <p class="toc-title">Contents</p>
+  <div class="toc">
+    <ul>
+      <li><a href="#problem-statement">Problem statement</a></li>
+      <li><a href="#key-user-scenarios">Key user scenarios</a></li>
+      <li><a href="#execution-plan-and-deliverables">Execution plan and deliverables</a></li>
+      <li><a href="#winml-cli-vs-olive">winml-cli vs Olive</a></li>
+      <li><a href="#design-principles">Design principles</a></li>
+      <li><a href="#solution">Solution</a><ul>
+        <li><a href="#diagram-walkthrough">Diagram walkthrough</a></li>
+        <li><a href="#autoconfig-positioning">Autoconfig positioning</a></li>
+        <li><a href="#loop-v3-vs-agent-layer">Loop v3 vs agent layer</a></li>
+      </ul></li>
+      <li><a href="#input">Input</a></li>
+      <li><a href="#output">Output</a></li>
+      <li><a href="#roles-and-responsibilities">Roles and responsibilities</a></li>
+      <li><a href="#auto-research-inspired-policy">Auto-research-inspired policy</a></li>
+      <li><a href="#how-it-works">How it works</a><ul>
+        <li><a href="#lifecycle-orchestration">Lifecycle orchestration</a></li>
+        <li><a href="#cross-device-integration">Cross-device integration</a></li>
+        <li><a href="#self-evolution-integration">Self-evolution integration</a></li>
+        <li><a href="#evidence-constraints">Evidence constraints</a></li>
+        <li><a href="#key-concerns">Key concerns</a></li>
+        <li><a href="#open-questions">Open questions</a></li>
+      </ul></li>
+      <li><a href="#references">References</a></li>
+    </ul>
+  </div>
+</nav>
+<main>
+<h1 id="winml-cli-agent-design-doc">WinML CLI Agent Design Doc<a class="headerlink" href="#winml-cli-agent-design-doc" title="Permanent link">&para;</a></h1>
+<p><strong>Status:</strong> Draft (research POC) · <strong>Updated:</strong> 2026-06-21</p>
+
+<h2 id="problem-statement">Problem statement<a class="headerlink" href="#problem-statement" title="Permanent link">&para;</a></h2>
+<p>
+Although winml-cli provides default config generation, real deployment needs usually require model- and target-specific trade-offs.
+The same default can behave very differently when objective shifts across latency, accuracy, memory, EP, and device.
+</p>
+<table>
+  <thead><tr><th>Customer signal</th><th>Observed ask</th><th>Design implication</th></tr></thead>
+  <tbody>
+    <tr><td>Teams / ecosystem feedback</td><td>Need usable CLI/tooling for model analysis, optimization, and benchmarking; WinML CLI introduced as recommended entry.</td><td>Agent layer must turn primitives into guided workflows, not raw command output only.</td></tr>
+    <tr><td>Canva / Affinity</td><td>One universal model across IHVs, near-real-time performance, minimal per-vendor tuning, better debuggability than black-box behavior.</td><td>Cross-device confidence + explainable diagnostics are core requirements.</td></tr>
+    <tr><td>Adobe</td><td>DML memory footprint and GPU↔CPU fallback ping-pong called out as major blockers.</td><td>Need EP-behavior visibility, fallback analysis, and actionable optimization guidance.</td></tr>
+    <tr><td>CyberLink</td><td>Need parity vs native runtimes, one model across silicon, and minimal engineering overhead (auto EP preference).</td><td>Agent must optimize for portability + performance while reducing expert intervention.</td></tr>
+  </tbody>
+</table>
+<p>
+Problem focus in this design:
+</p>
+<ol>
+  <li><strong>Default config is not always enough.</strong> Users have different constraints (perf, accuracy, memory, cross-EP/device portability), and trade-offs should be made from actual runtime evidence on target devices, sometimes requiring coordinated cross-device tuning.</li>
+  <li><strong>Negative optimization exists on some models.</strong> Current measurements show default config can regress specific models; this must be identified systematically and resolved with explainable diagnostics.</li>
+  <li><strong>Optimization behavior changes over time.</strong> EP/driver/winml version upgrades can shift optimal settings; the system should capture these shifts and stay up-to-date instead of freezing historical assumptions.</li>
+  <li><strong>Analyzer → optimizer coverage is still incomplete.</strong> Not all meaningful fusion opportunities are currently detected and translated into optimization actions; we need to identify which missed fusion opportunities matter most on real models and prioritize them.</li>
+</ol>
+
+<h2 id="key-user-scenarios">Key user scenarios<a class="headerlink" href="#key-user-scenarios" title="Permanent link">&para;</a></h2>
+<table>
+  <thead><tr><th>Scenario</th><th>Example ask</th><th>Expected outcome</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Constraint-driven config search</td>
+      <td>"Find a ConvNeXt config with accuracy drop &lt; 10% and memory &lt; 800MB."</td>
+      <td>Feasible config set + ranked recommendation + trade-off table.</td>
+    </tr>
+    <tr>
+      <td>Cross-device / cross-EP search</td>
+      <td>"Find a ConvNeXt model/config that runs on 3 NPUs." / "Find a model that can run on all EPs."</td>
+      <td>Portability-aware recommendation, fallback chain, and confidence by device/EP scope.</td>
+    </tr>
+    <tr>
+      <td>Model optimization upgrade</td>
+      <td>"Find a model/config faster than current one with accuracy drop &lt; 5%."</td>
+      <td>Candidate replacements with verified speedup, bounded accuracy loss, and migration guidance.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="execution-plan-and-deliverables">Execution plan and deliverables<a class="headerlink" href="#execution-plan-and-deliverables" title="Permanent link">&para;</a></h2>
+<p>
+Execution will use <strong>built-in model recipe tuning</strong> as the driver task. Each iteration improves two things at once:
+the skill's reasoning quality and the per-model built-in recipe quality.
+</p>
+<ul>
+  <li>Run iterative tuning on built-in model set across target EP/device scopes.</li>
+  <li>Capture gaps in analyzer/optimizer coverage and convert high-impact misses into prioritized feature work.</li>
+  <li>Feed validated results back to recipes, EP-specific knowledge, and skill evaluation signals.</li>
+</ul>
+
+<div style="border:1px solid var(--border); border-radius:10px; padding:14px; margin:14px 0 18px; overflow-x:auto;">
+  <svg width="100%" height="240" viewBox="0 0 980 240" preserveAspectRatio="none" style="display:block; min-width:900px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+    <defs>
+      <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+        <polygon points="0 0,8 3,0 6" fill="#94a3b8"></polygon>
+      </marker>
+    </defs>
+    <rect x="24" y="24" width="190" height="44" rx="8" fill="#eef0f8" stroke="#d1d9e0"></rect>
+    <text x="119" y="51" text-anchor="middle" font-size="12" fill="#334">Built-in model recipe tuning</text>
+    <rect x="266" y="24" width="160" height="44" rx="8" fill="#eef0f8" stroke="#d1d9e0"></rect>
+    <text x="346" y="51" text-anchor="middle" font-size="12" fill="#334">Run + measure</text>
+    <rect x="468" y="24" width="200" height="44" rx="8" fill="#eef0f8" stroke="#d1d9e0"></rect>
+    <text x="568" y="51" text-anchor="middle" font-size="12" fill="#334">Analyze misses / regressions</text>
+    <rect x="720" y="24" width="230" height="44" rx="8" fill="#eef0f8" stroke="#d1d9e0"></rect>
+    <text x="835" y="51" text-anchor="middle" font-size="12" fill="#334">Update skill + recipes + requirements</text>
+
+    <line x1="214" y1="46" x2="266" y2="46" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"></line>
+    <line x1="426" y1="46" x2="468" y2="46" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"></line>
+    <line x1="668" y1="46" x2="720" y2="46" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"></line>
+    <path d="M 948 70 C 948 112, 750 126, 210 126 C 110 126, 70 110, 60 88" fill="none" stroke="#7aa2f7" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arr)"></path>
+    <text x="746" y="116" font-size="11" fill="#4a5f8a">iterate with next recipe/model batch</text>
+
+    <!-- Outcome pyramid (4 layers) -->
+    <polygon points="250,220 730,220 660,182 320,182" fill="#e6f4ea" stroke="#d1d9e0"></polygon>
+    <polygon points="320,182 660,182 610,146 370,146" fill="#e8eefc" stroke="#d1d9e0"></polygon>
+    <polygon points="370,146 610,146 560,112 420,112" fill="#f5f0ff" stroke="#d1d9e0"></polygon>
+    <polygon points="420,112 560,112 490,72" fill="#efe6ff" stroke="#d1d9e0"></polygon>
+
+    <text x="490" y="205" text-anchor="middle" font-size="11" fill="#334">Improved built-in model recipes</text>
+    <text x="490" y="167" text-anchor="middle" font-size="11" fill="#334">EP-specific optimization experience / knowledge</text>
+    <text x="490" y="133" text-anchor="middle" font-size="11" fill="#334">WinML CLI feature requirements</text>
+    <text x="490" y="98" text-anchor="middle" font-size="11" fill="#334">Self-evaluated skills</text>
+  </svg>
+</div>
+
+<h2 id="winml-cli-vs-olive">winml-cli vs Olive<a class="headerlink" href="#winml-cli-vs-olive" title="Permanent link">&para;</a></h2>
+<p>
+The overlap is real at implementation level (both use ORT ecosystem), but the optimization philosophy is intentionally different.
+<strong>winml-cli focuses on a limited set of high-impact, commonly needed tuning levers with regular verification</strong>.
+<strong>Olive is a broader optimization framework with deeper knobs and stronger low-level control</strong>.
+</p>
+<table>
+  <thead><tr><th>Dimension</th><th>Olive</th><th>winml-cli (+ agent layer)</th></tr></thead>
+  <tbody>
+    <tr><td>Tuning scope</td><td>Comprehensive optimization surface, including many advanced pass combinations</td><td>Curated, high-impact optimization set for common Windows deployment paths</td></tr>
+    <tr><td>Control depth</td><td>Fine-grained and expert-oriented</td><td>Constrained and opinionated by design to reduce operational complexity</td></tr>
+    <tr><td>Verification model</td><td>User-driven validation strategy</td><td>Regular verification built into flow (baseline checks, eval gates, confidence-aware decisions)</td></tr>
+    <tr><td>Primary investment</td><td>Broad model transformation and deep optimization control</td><td>Stronger debugging/diagnostic capability, explainability, and safer decision support</td></tr>
+    <tr><td>Deep model adjustment ownership</td><td>First-class (advanced pass-level tuning)</td><td>Often delegated to Olive / Mobius for heavy model surgery</td></tr>
+    <tr><td>Primary user</td><td>ML/optimization engineer</td><td>WinApp developer / product engineer prioritizing time-to-ship</td></tr>
+    <tr><td>Default UX goal</td><td>Maximum controllability</td><td>Minimum engineering effort with explainable, reliable outcomes</td></tr>
+  </tbody>
+</table>
+
+<h2 id="design-principles">Design principles<a class="headerlink" href="#design-principles" title="Permanent link">&para;</a></h2>
+<ol>
+  <li><strong>Agent for judgment, tools for computation</strong>: keep heavy search deterministic and use the agent for diagnosis, prioritization, and explanation.</li>
+  <li><strong>Lifecycle orchestration first</strong>: one orchestrator role spans Intake → Insight → Opt Loop → Outcome.</li>
+  <li><strong>Evidence over intuition</strong>: all recommendations are backed by validation signals and confidence semantics.</li>
+  <li><strong>Cross-device by default</strong>: design for deployment fleets, not only the developer machine.</li>
+  <li><strong>Self-evolving knowledge</strong>: findings are promoted through confidence levels before broad reuse.</li>
+</ol>
+<blockquote>
+Lifecycle visual reference: <a href="./autoconfig_diagram.html"><code>autoconfig_diagram.html</code></a>.
+</blockquote>
+
+<h2 id="solution">Solution<a class="headerlink" href="#solution" title="Permanent link">&para;</a></h2>
+<p>
+The solution is the lifecycle shown in <a href="./autoconfig_diagram.html"><code>autoconfig_diagram.html</code></a>:
+an orchestrated pipeline from intake to outcome, with an explicit optimization loop in the middle.
+</p>
+
+<h3 id="diagram-walkthrough">Diagram walkthrough<a class="headerlink" href="#diagram-walkthrough" title="Permanent link">&para;</a></h3>
+<ol>
+  <li><strong>Phase 0 · Intake:</strong> establish baseline + correctness contract, and load resume state.</li>
+  <li><strong>Phase 1 · Insight:</strong> collect profiling/analyzer/graph evidence and generate <code>hypothesis_pool</code>.</li>
+  <li><strong>Phase 2 · Opt Loop:</strong> Explorer → Optimizer → Reviewer repeatedly evaluate candidate deltas.</li>
+  <li><strong>Phase 3 · Outcome:</strong> emit champion config, report, experiment artifacts, and KB draft findings.</li>
+</ol>
+<p>
+The key is the <strong>loop</strong>: hypotheses are not run once in a fixed sequence. Reviewer verdicts feed back into the next Explorer iteration until stop conditions are met (objective reached, queue exhausted, or plateau).
+</p>
+
+<h3 id="autoconfig-positioning">Autoconfig positioning<a class="headerlink" href="#autoconfig-positioning" title="Permanent link">&para;</a></h3>
+<p>
+Autoconfig is a <strong>sub-tool</strong>, not the primary UX entry. The agent uses it for targeted sweep over
+<code>EP × opset × graph options</code>, then returns an explainable report with a feasible-options comparison table.
+Correctness validation (<code>winml eval</code>) is mandatory before recommendation.
+</p>
+
+<h3 id="loop-v3-vs-agent-layer">Loop v3 vs agent layer<a class="headerlink" href="#loop-v3-vs-agent-layer" title="Permanent link">&para;</a></h3>
+<p>Autoconfig loop v3 already improved core execution quality (thresholded verdicts, early exit, crash-resume, KB-guided pruning, DVFS-aware handling). The agent layer still adds capabilities the loop alone does not provide:</p>
+<ol>
+  <li><strong>Architecture-aware reasoning</strong>: explain why a hypothesis exists for this model, not only run it.</li>
+  <li><strong>Failure explanation</strong>: convert DISCARD/failure traces into actionable diagnosis.</li>
+  <li><strong>Cross-device confidence</strong>: reason about deployment behavior beyond the local machine.</li>
+  <li><strong>Adaptive strategy</strong>: stop/reprioritize based on evidence trajectory, not only fixed counters.</li>
+  <li><strong>Knowledge narration</strong>: present promoted findings in developer-readable form, not just raw artifacts.</li>
+</ol>
+
+<h2 id="input">Input<a class="headerlink" href="#input" title="Permanent link">&para;</a></h2>
+<div class="user-input-strip">
+  <span style="font-size:20px;line-height:1;">&#128100;</span>
+  <span class="label">User input</span>
+  <span>&mdash; Model ID + Target EP + Objective:</span>
+  <span class="chip">accuracy-primary</span>
+  <span class="chip">latency-primary</span>
+  <span class="chip">Pareto</span>
+  <span>+ optional budget / accuracy floor</span>
+</div>
+
+<h2 id="output">Output<a class="headerlink" href="#output" title="Permanent link">&para;</a></h2>
+<table>
+  <thead><tr><th>Output</th><th>Source in autoconfig_diagram</th><th>Value</th></tr></thead>
+  <tbody>
+    <tr><td>Champion config</td><td><code>config_&lt;ep&gt;_optimal.json</code></td><td>Directly consumable best-known config</td></tr>
+    <tr><td>HTML benchmark report + comparison table</td><td><code>report.html</code> with experiment chart/table</td><td>Explainable recommendation and tradeoff visibility</td></tr>
+    <tr><td>Experiment artifacts</td><td><code>experiments/&lt;n&gt;/</code>, plus loop telemetry in <code>results.tsv</code> and <code>session.json</code></td><td>Audit trail, reproducibility, crash-resume continuity</td></tr>
+    <tr><td>KB draft entry</td><td><code>ep_knowledge/&lt;ep&gt;.json</code> with new entries marked <code>status="draft"</code></td><td>Feeds confidence-gated knowledge evolution</td></tr>
+    <tr><td>Feature requirements</td><td>Issue references for capability gaps (e.g. fused-op diagnostics, DVFS-aware perf)</td><td>Turns findings into product backlog action</td></tr>
+  </tbody>
+</table>
+
+<h2 id="roles-and-responsibilities">Roles and responsibilities<a class="headerlink" href="#roles-and-responsibilities" title="Permanent link">&para;</a></h2>
+<table>
+  <thead><tr><th>Role</th><th>Responsibility</th><th>Key artifacts</th></tr></thead>
+  <tbody>
+    <tr><td>Orchestrator</td><td>Controls phase transitions, loop gates, stop conditions, and resume behavior</td><td><code>session.json</code>, run state, final synthesis</td></tr>
+    <tr><td>Explorer</td><td>Builds and ranks candidate experiments from <code>hypothesis_pool</code> under KB constraints</td><td><code>skip_set</code>, <code>priority_queue</code>, candidate deltas</td></tr>
+    <tr><td>Optimizer</td><td>Executes build/perf/eval for each candidate and records measurement evidence</td><td>perf/eval logs, <code>results.tsv</code>, experiment folders</td></tr>
+    <tr><td>Reviewer</td><td>Applies acceptance policy and returns verdict/suggestions to next loop iteration</td><td>KEEP/MARGINAL/DISCARD outcomes + rationale</td></tr>
+  </tbody>
+</table>
+<p>
+The Insight phase can leverage <strong>debug-model</strong> as a sub-skill to enrich failure analysis and bottleneck interpretation before hypothesis ranking.
+</p>
+
+<h2 id="auto-research-inspired-policy">Auto-research-inspired policy<a class="headerlink" href="#auto-research-inspired-policy" title="Permanent link">&para;</a></h2>
+<p>
+This design borrows from auto-research thinking: Explorer expands search and manages both termination and acceptance conditions through explicit policy, not ad-hoc trial-and-error.
+</p>
+<h3 id="search-space-definition">Search space definition<a class="headerlink" href="#search-space-definition" title="Permanent link">&para;</a></h3>
+<p>Explorer currently mutates all major tunable knobs exposed in the winml build path, including:</p>
+<ol>
+  <li>opset version</li>
+  <li><code>winml optimize</code> options</li>
+  <li>quantization parameters</li>
+  <li>ORT runtime configuration options</li>
+</ol>
+<h3 id="termination-condition">Termination condition<a class="headerlink" href="#termination-condition" title="Permanent link">&para;</a></h3>
+<p>The loop stops when all experiments considered worth exploring have been executed (or when global stop conditions trigger).</p>
+<h3 id="acceptance-condition">Acceptance condition<a class="headerlink" href="#acceptance-condition" title="Permanent link">&para;</a></h3>
+<p>
+An experiment is accepted only when <strong>performance, accuracy, and memory</strong> all satisfy user requirements, and the observed performance gain is <strong>stable</strong> rather than noise.
+</p>
+
+<h2 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
+<h3 id="lifecycle-orchestration">Lifecycle orchestration<a class="headerlink" href="#lifecycle-orchestration" title="Permanent link">&para;</a></h3>
+<p>
+The orchestrator controls phase transitions and loop gates. Explorer/Optimizer/Reviewer execute the optimization loop,
+while outcome synthesis consolidates recommendation and evidence into final outputs.
+</p>
+<ul>
+  <li><strong>Phase governance:</strong> enforce intake prerequisites (baseline + correctness contract) before optimization starts.</li>
+  <li><strong>Loop governance:</strong> drive <code>priority_queue</code> consumption, enforce stop conditions (objective met, plateau, queue empty), and keep run state resumable via <code>session.json</code>.</li>
+  <li><strong>Decision governance:</strong> ensure each recommendation is backed by benchmark evidence and clear verdict logic, then package it into operator-friendly outputs.</li>
+  <li><strong>Reliability governance:</strong> preserve crash-resume semantics and avoid losing completed experiments when long sweeps are interrupted.</li>
+</ul>
+<p>
+In practice, Orchestrator is the control plane and Explorer/Optimizer/Reviewer are the execution plane. This separation keeps compute deterministic while allowing higher-level strategy updates without rewriting bench primitives.
+</p>
+
+<h3 id="cross-device-integration">Cross-device integration<a class="headerlink" href="#cross-device-integration" title="Permanent link">&para;</a></h3>
+<p>
+From <code>cross-device-design.html</code>: treat <code>winml serve</code> Phase 0 endpoints as distributed workers,
+optimize with joint objective across devices, and add a device axis to portability confidence.
+</p>
+<ul>
+  <li><strong>Execution model:</strong> each device runs <code>winml serve</code> as a worker; orchestrator fans out build/perf/eval calls and aggregates results centrally.</li>
+  <li><strong>Objective model:</strong> replace single-host “best local config” with a weighted multi-device objective (latency/accuracy/coverage by deployment mix).</li>
+  <li><strong>Portability model:</strong> mark findings with device scope (local-only vs cross-device stable) so recommendations can express confidence per hardware tier.</li>
+  <li><strong>Operational model:</strong> generate fallback chains (for example QNN → DML → CPU) when a single universal winner is not feasible.</li>
+</ul>
+<p>
+This directly addresses customer requests for “one model across IHVs” and reduced manual per-vendor tuning by shifting complexity from app teams into orchestration logic.
+</p>
+
+<h3 id="self-evolution-integration">Self-evolution integration<a class="headerlink" href="#self-evolution-integration" title="Permanent link">&para;</a></h3>
+<p>
+From <code>self-evolution-design.html</code>: use paired A/B protocol and adaptive sampling to stabilize conclusions,
+then promote findings through L1→L5 confidence levels before broad KB reuse.
+</p>
+<ul>
+  <li><strong>Measurement robustness:</strong> paired A/B reduces thermal/order bias; adaptive session count increases confidence only when needed.</li>
+  <li><strong>Knowledge quality:</strong> promotion gates prevent noisy one-off wins from entering reusable KB rules prematurely.</li>
+  <li><strong>Search efficiency:</strong> once findings are promoted, <code>skip_set</code> and ranking improve, reducing wasted experiments in future runs.</li>
+  <li><strong>Governance loop:</strong> each sweep contributes structured evidence back to KB, making later recommendations faster and more reliable.</li>
+</ul>
+<p>
+The result is a closed-loop system: run experiments → accumulate evidence → promote stable patterns → improve next orchestration cycle.
+</p>
+
+<h3 id="evidence-constraints">Evidence constraints<a class="headerlink" href="#evidence-constraints" title="Permanent link">&para;</a></h3>
+<table>
+  <thead><tr><th>Finding</th><th>Implication</th><th>Required control</th></tr></thead>
+  <tbody>
+    <tr><td><code>npu-001</code></td><td>opset 21 benefits Conv+residual patterns</td><td>Keep opset as first-class search lever</td></tr>
+    <tr><td><code>npu-006</code></td><td>Conv fusion can cause catastrophic NPU regressions</td><td>Hard-block risky fusion hypotheses</td></tr>
+    <tr><td><code>npu-007</code></td><td>DVFS distorts naive perf conclusions</td><td>Use DVFS-aware bench protocol + confidence gating</td></tr>
+  </tbody>
+</table>
+
+<h3 id="key-concerns">Key concerns<a class="headerlink" href="#key-concerns" title="Permanent link">&para;</a></h3>
+<table>
+  <thead><tr><th>Concern</th><th>Mitigation in design</th></tr></thead>
+  <tbody>
+    <tr><td>Device heterogeneity may invalidate local optimum</td><td>Cross-Device Confidence Agent + multi-device objective and fallback chains</td></tr>
+    <tr><td>Trust/auditability of recommendations</td><td>Require provenance artifacts and report-level explanation</td></tr>
+    <tr><td>Noise-driven false wins</td><td>DVFS-aware protocol, thresholded verdict policy, confidence gates</td></tr>
+    <tr><td>Overlap concerns with Olive</td><td>Differentiate on UX/explainability and Windows deployment reasoning</td></tr>
+  </tbody>
+</table>
+
+<h3 id="open-questions">Open questions<a class="headerlink" href="#open-questions" title="Permanent link">&para;</a></h3>
+<ol>
+  <li>Should this ship as <code>winml agent</code> or as agent-assist modes on existing commands?</li>
+  <li>How should cross-device execution be provisioned: local lab fleet, cloud runners, or hybrid?</li>
+  <li>What is the minimal offline fallback for restricted environments?</li>
+</ol>
+
+<h2 id="references">References<a class="headerlink" href="#references" title="Permanent link">&para;</a></h2>
+<ul>
+  <li><a href="./agent-design.md"><code>agent-design.md</code></a></li>
+  <li><a href="./autoconfig_diagram.html"><code>autoconfig_diagram.html</code></a></li>
+  <li><a href="./cross-device-design.html"><code>cross-device-design.html</code></a></li>
+  <li><a href="./self-evolution-design.html"><code>self-evolution-design.html</code></a></li>
+</ul>
+</main>
+</div>
+</body>
+</html>
