@@ -1,5 +1,7 @@
+# -------------------------------------------------------------------------
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Native DXCGC compile/record/submit path without Windows ML Runtime API."""
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import click
 import numpy as np
@@ -160,7 +163,7 @@ def run_dxcgc(ctx: click.Context) -> None:
             if (work / "driver-policy.txt").read_text(encoding="utf8") != "python_ctypes_per_call":
                 raise ValueError("Native Python driver acknowledgement is missing")
             info = (work / "device.tsv").read_text(encoding="utf-8").splitlines()
-            outputs = {}
+            outputs: dict[str, Any] = {}
             reverse = {value: key for key, value in _TYPES.items()}
             for line in (work / "io.tsv").read_text(encoding="utf-8").splitlines():
                 kind, index, dtype, shape, _name = line.split(chr(9))

@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Python-driven in-process native DXCGC loop (isolated once per benchmark)."""
 
 import csv
@@ -5,11 +9,12 @@ import ctypes
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
 
-def main():
+def main() -> None:
     host, *arguments = sys.argv[1:]
     work = Path(arguments[7])
     library = ctypes.CDLL(str(Path(host).with_name("winml-dxcgc-python.dll")))
@@ -45,7 +50,7 @@ def main():
         16: "float16",
     }
 
-    def drive(step, context, iterations, warmup):
+    def drive(step: Any, context: Any, iterations: int, warmup: int) -> int:
         try:
             specs = []
             for line in (work / "io.tsv").read_text(encoding="utf8").splitlines():
@@ -68,6 +73,8 @@ def main():
                 if i >= warmup:
                     samples.append((gpu.value, elapsed))
                 last = outputs
+            if last is None:
+                raise ValueError("No inference iterations executed")
             for (index, _, _), array in zip(specs, last, strict=True):
                 array.tofile(work / f"output-{index}.bin")
             return 0
