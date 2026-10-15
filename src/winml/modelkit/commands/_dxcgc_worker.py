@@ -1,4 +1,5 @@
 """Python-driven in-process native DXCGC loop (isolated once per benchmark)."""
+
 import csv
 import ctypes
 import sys
@@ -12,15 +13,37 @@ def main():
     host, *arguments = sys.argv[1:]
     work = Path(arguments[7])
     library = ctypes.CDLL(str(Path(host).with_name("winml-dxcgc-python.dll")))
-    step_type = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p,
-                                ctypes.POINTER(ctypes.c_double),
-                                ctypes.POINTER(ctypes.c_void_p))
-    driver_type = ctypes.CFUNCTYPE(ctypes.c_int, step_type, ctypes.c_void_p,
-                                  ctypes.c_int, ctypes.c_int)
+    abi = library.DxcgcPythonHostAbiVersion
+    abi.argtypes = []
+    abi.restype = ctypes.c_uint
+    if abi() != 2:
+        raise RuntimeError("Native DXCGC host ABI mismatch; rebuild the native host")
+    step_type = ctypes.CFUNCTYPE(
+        ctypes.c_int,
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_double),
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.POINTER(ctypes.c_size_t),
+        ctypes.c_size_t,
+    )
+    driver_type = ctypes.CFUNCTYPE(
+        ctypes.c_int, step_type, ctypes.c_void_p, ctypes.c_int, ctypes.c_int
+    )
     errors, samples = [], []
-    types = {1: "bool", 4: "int8", 5: "int16", 6: "int32", 7: "int64",
-             10: "uint8", 11: "uint16", 12: "uint32", 13: "uint64",
-             14: "float64", 15: "float32", 16: "float16"}
+    types = {
+        1: "bool",
+        4: "int8",
+        5: "int16",
+        6: "int32",
+        7: "int64",
+        10: "uint8",
+        11: "uint16",
+        12: "uint32",
+        13: "uint64",
+        14: "float64",
+        15: "float32",
+        16: "float16",
+    }
 
     def drive(step, context, iterations, warmup):
         try:
@@ -28,15 +51,17 @@ def main():
             for line in (work / "io.tsv").read_text(encoding="utf8").splitlines():
                 kind, index, dtype, shape, _name = line.split(chr(9))
                 if kind == "output":
-                    specs.append((index, tuple(int(x) for x in shape.split(",") if x),
-                                  types[int(dtype)]))
+                    specs.append(
+                        (index, tuple(int(x) for x in shape.split(",") if x), types[int(dtype)])
+                    )
             gpu = ctypes.c_double()
             last = None
             for i in range(iterations + warmup):
                 start = time.perf_counter()
                 outputs = [np.empty(shape, dtype=dtype) for _, shape, dtype in specs]
                 pointers = (ctypes.c_void_p * len(outputs))(*(a.ctypes.data for a in outputs))
-                code = step(context, ctypes.byref(gpu), pointers)
+                sizes = (ctypes.c_size_t * len(outputs))(*(a.nbytes for a in outputs))
+                code = step(context, ctypes.byref(gpu), pointers, sizes, len(outputs))
                 elapsed = (time.perf_counter() - start) * 1000
                 if code:
                     raise RuntimeError("Native inference failed")

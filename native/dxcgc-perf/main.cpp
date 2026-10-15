@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 // Native DXCGC benchmark host. No Windows ML Runtime API or ORT dependency.
 #define NOMINMAX
+#include "constant_export.h"
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
@@ -17,11 +18,11 @@
 #include <vector>
 #include <windows.h>
 #include <wrl/client.h>
-#include "constant_export.h"
 using Microsoft::WRL::ComPtr;
 namespace fs = std::filesystem;
 using Clock = std::chrono::steady_clock;
-using PythonStep = int(__cdecl *)(void *, double *, void **);
+using PythonStep = int(__cdecl *)(void *, double *, void **, const size_t *,
+                                  size_t);
 using PythonDriver = int(__cdecl *)(PythonStep, void *, int, int);
 static thread_local PythonDriver pythonDriver = nullptr;
 static thread_local std::string pythonStepError;
@@ -270,20 +271,23 @@ static Buffer view(IDXCGCModule *m, DXCGC_MODULE_TENSOR_ID id, Executable &e,
                    Host *host = nullptr, std::string *printedIr = nullptr) {
   DXCGC_MODULE_TENSOR_SOURCE source;
   HRESULT hr = m->GetTensorSource(id, &source);
-  if (hr == E_NOTIMPL && id.type == DXCGC_MODULE_TENSOR_TYPE_CONSTANT_EXPORT_VIEW &&
-      host && printedIr) {
+  if (hr == E_NOTIMPL &&
+      id.type == DXCGC_MODULE_TENSOR_TYPE_CONSTANT_EXPORT_VIEW && host &&
+      printedIr) {
     // Older reflection cannot expose exports backed directly by embedded
     // constants. Resolve the explicit alias from this exact compiled module.
     if (printedIr->empty()) {
       ComPtr<ID3DBlob> text;
       check(m->Print(&text));
-      printedIr->assign(static_cast<const char *>(text->GetBufferPointer()), text->GetBufferSize());
+      printedIr->assign(static_cast<const char *>(text->GetBufferPointer()),
+                        text->GetBufferSize());
     }
     SIZE_T length = 0;
     check(m->GetSymbolName(id.symbol, &length, nullptr));
     std::string symbol(length, 0);
     check(m->GetSymbolName(id.symbol, &length, symbol.data()));
-    while (!symbol.empty() && !symbol.back()) symbol.pop_back();
+    while (!symbol.empty() && !symbol.back())
+      symbol.pop_back();
     auto mapping = resolveConstantExport(*printedIr, symbol, tensorName(m, id));
     if (!mapping.literal.empty()) {
       if (mapping.literal.size() != mapping.bytes)
@@ -318,11 +322,12 @@ static Buffer view(IDXCGCModule *m, DXCGC_MODULE_TENSOR_ID id, Executable &e,
 int wmain(int argc, wchar_t **argv) {
   try {
     if (argc != 9 && argc != 10)
-      throw std::runtime_error(
-          "Expected: model dll-dir sdk-dir sdk-version "
-          "adapter-index iterations warmup data-dir [--disable-d3d-mlir-programs]");
+      throw std::runtime_error("Expected: model dll-dir sdk-dir sdk-version "
+                               "adapter-index iterations warmup data-dir "
+                               "[--disable-d3d-mlir-programs]");
     const bool disableD3dMlir = argc == 10;
-    if (disableD3dMlir && std::wstring(argv[9]) != L"--disable-d3d-mlir-programs")
+    if (disableD3dMlir &&
+        std::wstring(argv[9]) != L"--disable-d3d-mlir-programs")
       throw std::runtime_error("Unknown native host option");
     fs::path model = argv[1], dll = argv[2], sdk = argv[3], data = argv[8];
     int iterations = std::stoi(argv[6]), warmup = std::stoi(argv[7]);
@@ -352,7 +357,8 @@ int wmain(int argc, wchar_t **argv) {
     check(CreateDXGIFactory1(IID_PPV_ARGS(&dxgi)));
     ComPtr<IDXGIAdapter1> adapter;
     check(dxgi->EnumAdapterByGpuPreference(std::stoi(argv[5]),
-          DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&adapter)));
+                                           DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,
+                                           IID_PPV_ARGS(&adapter)));
     DXGI_ADAPTER_DESC1 ad;
     check(adapter->GetDesc1(&ad));
     if (ad.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)
@@ -371,7 +377,8 @@ int wmain(int argc, wchar_t **argv) {
       if (disableD3dMlir) {
         check(device->CreateCompilerParameters(IID_PPV_ARGS(&params)));
         DXCGC_INTERNAL_OPTION option{"disable-d3d-mlir-programs", "true"};
-        HRESULT hr = params->SetOption(DXCGC_COMPILER_OPTION_INTERNAL, &option, sizeof(option));
+        HRESULT hr = params->SetOption(DXCGC_COMPILER_OPTION_INTERNAL, &option,
+                                       sizeof(option));
         if (FAILED(hr)) {
           std::cerr << "DXCGC rejected --disable-d3d-mlir-programs: ";
           check(hr);
@@ -383,7 +390,8 @@ int wmain(int argc, wchar_t **argv) {
                               nullptr, IID_PPV_ARGS(&module)));
     } else if (input->GetType() == DXCGC_MODULE_IR_TYPE_OUTPUT) {
       if (disableD3dMlir)
-        throw std::runtime_error("--disable-d3d-mlir-programs requires Input IR; Output IR targets are already compiled");
+        throw std::runtime_error("--disable-d3d-mlir-programs requires Input "
+                                 "IR; Output IR targets are already compiled");
       module = input;
     } else
       throw std::runtime_error("Unsupported IR type");
@@ -413,7 +421,8 @@ int wmain(int argc, wchar_t **argv) {
       for (SIZE_T i = 0; i < n; ++i) {
         DXCGC_MODULE_TENSOR_ID tid = {
             id, DXCGC_MODULE_TENSOR_TYPE_CONSTANT_EXPORT_VIEW, i};
-        processed[tensorName(module.Get(), tid)] = view(module.Get(), tid, e, &h, &printedIr);
+        processed[tensorName(module.Get(), tid)] =
+            view(module.Get(), tid, e, &h, &printedIr);
       }
     }
     auto e = create(h, device.Get(), module.Get(), program, processed);
@@ -486,15 +495,24 @@ int wmain(int argc, wchar_t **argv) {
     std::ofstream perf(data / "samples.csv");
     perf << "gpu_ms,host_ms\n";
     perf.precision(12);
-    auto runOnce = [&](void **callerOutputs) -> double {
+    auto runOnce = [&](void **callerOutputs, const size_t *outputSizes,
+                       size_t outputCount) -> double {
+      if (callerOutputs) {
+        if (!outputSizes || outputCount != readbacks.size())
+          throw std::runtime_error("Caller output count mismatch");
+        for (size_t j = 0; j < outputCount; ++j)
+          if (!callerOutputs[j] || outputSizes[j] != readbacks[j].size)
+            throw std::runtime_error("Caller output byte size mismatch");
+      }
       auto begin = Clock::now();
       // Match per-call feed ownership without forcing costly committed-resource
       // allocation that the Runtime may satisfy from its own memory pools.
       auto ownedInputs = inputBytes;
       std::vector<Buffer> boundArguments = e.args;
       for (SIZE_T j = 0; j < boundArguments.size(); ++j) {
-        check(e.state->BindResource({DXCGC_EXECUTABLE_RESOURCE_TYPE_ARGUMENT, j},
-              boundArguments[j].resource.Get(), boundArguments[j].offset));
+        check(e.state->BindResource(
+            {DXCGC_EXECUTABLE_RESOURCE_TYPE_ARGUMENT, j},
+            boundArguments[j].resource.Get(), boundArguments[j].offset));
       }
       h.begin();
       {
@@ -556,9 +574,11 @@ int wmain(int argc, wchar_t **argv) {
       return gpu;
     };
     if (pythonDriver) {
-      PythonStep step = [](void *context, double *gpu, void **outputs) -> int {
+      PythonStep step = [](void *context, double *gpu, void **outputs,
+                           const size_t *sizes, size_t count) -> int {
         try {
-          *gpu = (*static_cast<decltype(runOnce) *>(context))(outputs);
+          *gpu = (*static_cast<decltype(runOnce) *>(context))(outputs, sizes,
+                                                              count);
           return 0;
         } catch (const std::exception &error) {
           pythonStepError = error.what();
@@ -569,13 +589,17 @@ int wmain(int argc, wchar_t **argv) {
         }
       };
       if (pythonDriver(step, &runOnce, iterations, warmup) != 0)
-        throw std::runtime_error("Python-driven execution failed: " + pythonStepError);
+        throw std::runtime_error("Python-driven execution failed: " +
+                                 pythonStepError);
     } else {
       for (int i = 0; i < warmup + iterations; ++i) {
         auto begin = Clock::now();
-        double gpu = runOnce(nullptr);
-        double host = std::chrono::duration<double, std::milli>(Clock::now() - begin).count();
-        if (i >= warmup) perf << gpu << ',' << host << std::endl;
+        double gpu = runOnce(nullptr, nullptr, 0);
+        double host =
+            std::chrono::duration<double, std::milli>(Clock::now() - begin)
+                .count();
+        if (i >= warmup)
+          perf << gpu << ',' << host << std::endl;
       }
     }
     perf.close();
@@ -600,12 +624,18 @@ int wmain(int argc, wchar_t **argv) {
 
 // Setup and all native resources remain alive while Python drives individual
 // inference calls in this same process. No per-iteration process/pipe traffic.
-extern "C" __declspec(dllexport) int __cdecl RunPythonDriven(
-    int argc, wchar_t **argv, PythonDriver driver) {
-  if (!driver || pythonDriver) return 2;
+extern "C"
+    __declspec(dllexport) int __cdecl RunPythonDriven(int argc, wchar_t **argv,
+                                                      PythonDriver driver) {
+  if (!driver || pythonDriver)
+    return 2;
   pythonDriver = driver;
   pythonStepError.clear();
   int result = wmain(argc, argv);
   pythonDriver = nullptr;
   return result;
+}
+
+extern "C" __declspec(dllexport) unsigned __cdecl DxcgcPythonHostAbiVersion() {
+  return 2;
 }

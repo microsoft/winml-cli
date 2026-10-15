@@ -188,10 +188,11 @@ def run_dxcgc(ctx: click.Context) -> None:
                 "call_driver": "python_ctypes_per_call",
                 "measurement": {
                     "gpu_ms": "D3D12 timestamps around Record, excluding upload/readback",
-                    "host_ms": ("Per-call CPU input ownership/copy, argument rebinding, upload, "
-                                "command recording, submission, "
-                                "GPU fence completion, readback and caller-owned CPU output copy"
-                                ),
+                    "host_ms": (
+                        "Per-call CPU input ownership/copy, argument rebinding, upload, "
+                        "command recording, submission, "
+                        "GPU fence completion, readback and caller-owned CPU output copy"
+                    ),
                 },
                 "samples": samples,
                 "mean_gpu_ms": float(np.mean(samples["gpu_ms"])),
@@ -199,11 +200,14 @@ def run_dxcgc(ctx: click.Context) -> None:
                 "outputs_finite": True,
                 "provenance": {
                     str(path): hashlib.sha256(path.read_bytes()).hexdigest()
-                    for path in (model, p["input_data"].resolve(),
-                                 p["dxcgc_host"].resolve(),
-                                 p["dxcgc_host"].resolve().with_name("winml-dxcgc-python.dll"),
-                                 Path(__file__).with_name("_dxcgc_worker.py"),
-                                 (p["dxcgc_dir"] / "dxcgc.dll").resolve())
+                    for path in (
+                        model,
+                        p["input_data"].resolve(),
+                        p["dxcgc_host"].resolve(),
+                        p["dxcgc_host"].resolve().with_name("winml-dxcgc-python.dll"),
+                        Path(__file__).with_name("_dxcgc_worker.py"),
+                        (p["dxcgc_dir"] / "dxcgc.dll").resolve(),
+                    )
                 },
                 "limitations": [
                     "Input arrays use NPZ order; names are not used for binding",

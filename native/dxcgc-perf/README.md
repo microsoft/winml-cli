@@ -77,3 +77,18 @@ projections, internal allocators or scheduling are identical.
 Rebuild both the EXE and winml-dxcgc-python.dll. Results include
 call_driver=python_ctypes_per_call plus the worker/DLL hashes; old results must
 not be relabeled as this protocol.
+
+### Build and compatibility
+
+Requires Visual Studio 2022 C++ tools, Windows SDK 10.0.26100 or newer
+(including DirectXPackedVector.h), CMake 3.24+, and compatible DXCGC headers.
+The Python worker requires native host ABI version 2; older DLLs are rejected
+before callbacks. Native calls validate output byte sizes before copying into
+Python-owned arrays.
+
+When tensor reflection returns E_NOTIMPL for a constant export, a fail-closed
+text-IR fallback supports direct embedded resources, explicit static int64
+lists, and exactly representable scalar float16 literals. It resolves exact
+initializer/export/SSA mappings and verifies byte counts; unsupported layouts
+or syntax fail rather than guessing. Printing compiled IR can increase setup
+memory; this happens outside inference timing.
