@@ -45,6 +45,17 @@ def _samples(path: Path, iterations: int) -> dict[str, list[float]]:
     return result
 
 
+def _io_policy(work: Path) -> str:
+    """Require acknowledgement from the actual executable, not a CLI label."""
+    path = work / "io-policy.txt"
+    if not path.is_file():
+        raise ValueError("Native host has no I/O policy acknowledgement; rebuild the native host")
+    policy = path.read_text(encoding="utf-8").strip()
+    if policy != "per_call_cpu_ownership_and_binding":
+        raise ValueError("Native host I/O policy mismatch; rebuild the native host")
+    return policy
+
+
 def run_dxcgc(ctx: click.Context) -> None:
     """Validate arguments and invoke the native host outside Python timing."""
     p = ctx.params
@@ -131,6 +142,7 @@ def run_dxcgc(ctx: click.Context) -> None:
             ]
             if p["disable_d3d_mlir_programs"]:
                 command.append("--disable-d3d-mlir-programs")
+            command = [sys.executable, str(Path(__file__).with_name("_dxcgc_worker.py")), *command]
             process = subprocess.run(  # noqa: S603 - explicit local executable; no shell
                 command,
                 capture_output=True,
@@ -144,6 +156,9 @@ def run_dxcgc(ctx: click.Context) -> None:
                     f"Native DXCGC host failed ({process.returncode}): " + process.stderr[-8000:]
                 )
             samples = _samples(work / "samples.csv", p["iterations"])
+            policy = _io_policy(work)
+            if (work / "driver-policy.txt").read_text(encoding="utf8") != "python_ctypes_per_call":
+                raise ValueError("Native Python driver acknowledgement is missing")
             info = (work / "device.tsv").read_text(encoding="utf-8").splitlines()
             outputs = {}
             reverse = {value: key for key, value in _TYPES.items()}
@@ -169,9 +184,12 @@ def run_dxcgc(ctx: click.Context) -> None:
                 "iterations": p["iterations"],
                 "warmup": p["warmup"],
                 "io_mode": "cpu-roundtrip",
+                "io_binding_policy": policy,
+                "call_driver": "python_ctypes_per_call",
                 "measurement": {
                     "gpu_ms": "D3D12 timestamps around Record, excluding upload/readback",
-                    "host_ms": ("CPU input copy/upload, command recording, submission, "
+                    "host_ms": ("Per-call CPU input ownership/copy, argument rebinding, upload, "
+                                "command recording, submission, "
                                 "GPU fence completion, readback and caller-owned CPU output copy"
                                 ),
                 },
@@ -183,6 +201,8 @@ def run_dxcgc(ctx: click.Context) -> None:
                     str(path): hashlib.sha256(path.read_bytes()).hexdigest()
                     for path in (model, p["input_data"].resolve(),
                                  p["dxcgc_host"].resolve(),
+                                 p["dxcgc_host"].resolve().with_name("winml-dxcgc-python.dll"),
+                                 Path(__file__).with_name("_dxcgc_worker.py"),
                                  (p["dxcgc_dir"] / "dxcgc.dll").resolve())
                 },
                 "limitations": [

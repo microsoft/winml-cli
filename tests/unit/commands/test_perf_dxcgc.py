@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 from click.testing import CliRunner
 
-from winml.modelkit.commands._perf_dxcgc import _samples
+from winml.modelkit.commands._perf_dxcgc import _io_policy, _samples
 from winml.modelkit.commands.perf import perf
 
 
@@ -24,6 +24,17 @@ def test_reject_incomplete_samples(tmp_path):
     path.write_text('gpu_ms,host_ms\n1,2\n')
     with pytest.raises(ValueError, match='Expected 2'):
         _samples(path, 2)
+
+
+@pytest.mark.parametrize('policy', [None, 'resident', 'per_call_cpu_ownership_and_binding'])
+def test_native_io_policy_acknowledgement(tmp_path, policy):
+    if policy is not None:
+        (tmp_path / 'io-policy.txt').write_text(policy)
+    if policy == 'per_call_cpu_ownership_and_binding':
+        assert _io_policy(tmp_path) == policy
+    else:
+        with pytest.raises(ValueError, match='rebuild the native host'):
+            _io_policy(tmp_path)
 
 
 def test_requires_mlir(tmp_path):
@@ -96,6 +107,8 @@ def test_resnet_native(tmp_path, disabled):
     report = json.loads((tmp_path / 'perf.json').read_text())
     assert len(report['samples']['gpu_ms']) == 100
     assert report['io_mode'] == 'cpu-roundtrip'
+    assert report['io_binding_policy'] == 'per_call_cpu_ownership_and_binding'
+    assert report['call_driver'] == 'python_ctypes_per_call'
     assert report['disable_d3d_mlir_programs'] is disabled
     assert any('windowsml' in path and path.endswith('dxcgc.dll')
                for path in report['provenance'])

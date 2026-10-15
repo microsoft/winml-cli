@@ -20,8 +20,14 @@ submission/completion, readback and caller-owned CPU output copy on every
 iteration. Compilation and disk I/O are excluded. GPU timestamps separately
 measure only execution. There is no resident-only timing option.
 
-Staging resources are reused, while CPU output buffers are allocated per
-iteration. Runtime API Python projection, allocation and scheduling policies
+Each measured iteration creates owned CPU input copies and rebinds executable
+arguments, then uploads inputs and returns owned CPU output copies. GPU and
+staging buffers remain pooled/reused; the Runtime's internal allocation policy
+is unknown, so this does not force fresh committed GPU allocations. Results
+record `io_binding_policy=per_call_cpu_ownership_and_binding`, acknowledged by
+the native executable (older hosts must be rebuilt). The Offline CLI path is
+restored to its original per-call behavior. Python projection and scheduling
+policies
 can still differ; the gap describes the complete execution paths rather than
 an isolated native API-call cost.
 
@@ -51,3 +57,23 @@ The report records `disable_d3d_mlir_programs`. CPU input/output round-trip
 timing and the default Runtime-package DLL selection remain unchanged. The
 flag disables a compiler target; it does not disable D3D12 command submission
 or independently certify that every compiled operation uses DirectML.
+
+### Python-driven per-call measurement
+
+The CLI starts one Python worker for setup and execution. The worker loads
+winml-dxcgc-python.dll beside --dxcgc-host and drives one in-process ctypes
+call per iteration; no per-inference process launch or IPC is timed. Compilation
+and setup precede the Python measurement loop.
+
+Each sample includes Python-owned NumPy output allocation, ctypes argument
+marshalling, native CPU input ownership/copy, argument rebinding, GPU upload,
+execution, fence completion and direct readback into the owned NumPy outputs.
+Native input temporaries are released before the call returns. Output arrays
+survive the call; writing outputs and timing CSV is outside the measured loop.
+GPU/staging resources remain reusable; the original Offline path is unchanged.
+This aligns the Python call boundary but does not claim ctypes and Runtime COM
+projections, internal allocators or scheduling are identical.
+
+Rebuild both the EXE and winml-dxcgc-python.dll. Results include
+call_driver=python_ctypes_per_call plus the worker/DLL hashes; old results must
+not be relabeled as this protocol.

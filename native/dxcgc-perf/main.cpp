@@ -17,9 +17,14 @@
 #include <vector>
 #include <windows.h>
 #include <wrl/client.h>
+#include "constant_export.h"
 using Microsoft::WRL::ComPtr;
 namespace fs = std::filesystem;
 using Clock = std::chrono::steady_clock;
+using PythonStep = int(__cdecl *)(void *, double *, void **);
+using PythonDriver = int(__cdecl *)(PythonStep, void *, int, int);
+static thread_local PythonDriver pythonDriver = nullptr;
+static thread_local std::string pythonStepError;
 static void check(HRESULT hr) {
   if (FAILED(hr)) {
     std::ostringstream s;
@@ -261,9 +266,44 @@ static Executable create(Host &h, IDXCGCDevice *d, IDXCGCModule *m,
     }
   return e;
 }
-static Buffer view(IDXCGCModule *m, DXCGC_MODULE_TENSOR_ID id, Executable &e) {
+static Buffer view(IDXCGCModule *m, DXCGC_MODULE_TENSOR_ID id, Executable &e,
+                   Host *host = nullptr, std::string *printedIr = nullptr) {
   DXCGC_MODULE_TENSOR_SOURCE source;
-  check(m->GetTensorSource(id, &source));
+  HRESULT hr = m->GetTensorSource(id, &source);
+  if (hr == E_NOTIMPL && id.type == DXCGC_MODULE_TENSOR_TYPE_CONSTANT_EXPORT_VIEW &&
+      host && printedIr) {
+    // Older reflection cannot expose exports backed directly by embedded
+    // constants. Resolve the explicit alias from this exact compiled module.
+    if (printedIr->empty()) {
+      ComPtr<ID3DBlob> text;
+      check(m->Print(&text));
+      printedIr->assign(static_cast<const char *>(text->GetBufferPointer()), text->GetBufferSize());
+    }
+    SIZE_T length = 0;
+    check(m->GetSymbolName(id.symbol, &length, nullptr));
+    std::string symbol(length, 0);
+    check(m->GetSymbolName(id.symbol, &length, symbol.data()));
+    while (!symbol.empty() && !symbol.back()) symbol.pop_back();
+    auto mapping = resolveConstantExport(*printedIr, symbol, tensorName(m, id));
+    if (!mapping.literal.empty()) {
+      if (mapping.literal.size() != mapping.bytes)
+        throw std::runtime_error("Direct constant literal size mismatch");
+      auto buffer = host->buffer(mapping.bytes);
+      host->upload(buffer, mapping.literal.data(), mapping.literal.size());
+      return buffer;
+    }
+    DXCGC_MODULE_RESOURCE_ID resource;
+    check(m->GetResourceId(mapping.resource.c_str(), &resource));
+    SIZE_T size = 0;
+    const void *bytes = nullptr;
+    check(m->GetResourceData(resource, &size, &bytes));
+    if (!bytes || size != mapping.bytes)
+      throw std::runtime_error("Direct constant export resource size mismatch");
+    auto buffer = host->buffer(size);
+    host->upload(buffer, bytes, size);
+    return buffer;
+  }
+  check(hr);
   if (source.id.type != DXCGC_MODULE_TENSOR_TYPE_ARGUMENT ||
       source.id.index >= e.args.size())
     throw std::runtime_error("Unsupported tensor view source");
@@ -352,6 +392,7 @@ int wmain(int argc, wchar_t **argv) {
     if (module->GetSymbolCount(DXCGC_MODULE_SYMBOL_TYPE_PROGRAM) != 1)
       throw std::runtime_error("Exactly one program required");
     std::map<std::string, Buffer> processed;
+    std::string printedIr;
     DXCGC_MODULE_SYMBOL_ID program = {DXCGC_MODULE_SYMBOL_TYPE_PROGRAM, 0};
     SIZE_T count = 0;
     check(module->ResolveSymbolDependencies(
@@ -372,7 +413,7 @@ int wmain(int argc, wchar_t **argv) {
       for (SIZE_T i = 0; i < n; ++i) {
         DXCGC_MODULE_TENSOR_ID tid = {
             id, DXCGC_MODULE_TENSOR_TYPE_CONSTANT_EXPORT_VIEW, i};
-        processed[tensorName(module.Get(), tid)] = view(module.Get(), tid, e);
+        processed[tensorName(module.Get(), tid)] = view(module.Get(), tid, e, &h, &printedIr);
       }
     }
     auto e = create(h, device.Get(), module.Get(), program, processed);
@@ -445,14 +486,22 @@ int wmain(int argc, wchar_t **argv) {
     std::ofstream perf(data / "samples.csv");
     perf << "gpu_ms,host_ms\n";
     perf.precision(12);
-    for (int i = 0; i < warmup + iterations; ++i) {
+    auto runOnce = [&](void **callerOutputs) -> double {
       auto begin = Clock::now();
+      // Match per-call feed ownership without forcing costly committed-resource
+      // allocation that the Runtime may satisfy from its own memory pools.
+      auto ownedInputs = inputBytes;
+      std::vector<Buffer> boundArguments = e.args;
+      for (SIZE_T j = 0; j < boundArguments.size(); ++j) {
+        check(e.state->BindResource({DXCGC_EXECUTABLE_RESOURCE_TYPE_ARGUMENT, j},
+              boundArguments[j].resource.Get(), boundArguments[j].offset));
+      }
       h.begin();
       {
         for (size_t j = 0; j < inputViews.size(); ++j) {
           void *mapped;
           check(uploads[j].resource->Map(0, nullptr, &mapped));
-          memcpy(mapped, inputBytes[j].data(), inputBytes[j].size());
+          memcpy(mapped, ownedInputs[j].data(), ownedInputs[j].size());
           uploads[j].resource->Unmap(0, nullptr);
           h.transition(inputViews[j], D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                        D3D12_RESOURCE_STATE_COPY_DEST);
@@ -482,11 +531,17 @@ int wmain(int argc, wchar_t **argv) {
       h.submit();
       {
         outputBytes.clear();
+        size_t outputIndex = 0;
         for (const auto &b : readbacks) {
           void *mapped;
           check(b.resource->Map(0, nullptr, &mapped));
-          outputBytes.emplace_back((const char *)mapped,
-                                   (const char *)mapped + b.size);
+          if (callerOutputs) {
+            memcpy(callerOutputs[outputIndex], mapped, b.size);
+          } else {
+            outputBytes.emplace_back((const char *)mapped,
+                                     (const char *)mapped + b.size);
+          }
+          ++outputIndex;
           b.resource->Unmap(0, nullptr);
         }
       }
@@ -497,11 +552,34 @@ int wmain(int argc, wchar_t **argv) {
       check(times.resource->Map(0, nullptr, (void **)&ticks));
       double gpu = (ticks[1] - ticks[0]) * 1000.0 / frequency;
       times.resource->Unmap(0, nullptr);
-      if (i >= warmup)
-        perf << gpu << ',' << host << std::endl;
+      (void)host;
+      return gpu;
+    };
+    if (pythonDriver) {
+      PythonStep step = [](void *context, double *gpu, void **outputs) -> int {
+        try {
+          *gpu = (*static_cast<decltype(runOnce) *>(context))(outputs);
+          return 0;
+        } catch (const std::exception &error) {
+          pythonStepError = error.what();
+          return 1;
+        } catch (...) {
+          pythonStepError = "Unknown native execution error";
+          return 1;
+        }
+      };
+      if (pythonDriver(step, &runOnce, iterations, warmup) != 0)
+        throw std::runtime_error("Python-driven execution failed: " + pythonStepError);
+    } else {
+      for (int i = 0; i < warmup + iterations; ++i) {
+        auto begin = Clock::now();
+        double gpu = runOnce(nullptr);
+        double host = std::chrono::duration<double, std::milli>(Clock::now() - begin).count();
+        if (i >= warmup) perf << gpu << ',' << host << std::endl;
+      }
     }
     perf.close();
-    for (SIZE_T i = 0; i < outputs; ++i) {
+    for (SIZE_T i = 0; !pythonDriver && i < outputs; ++i) {
       write(data / ("output-" + std::to_string(i) + ".bin"),
             outputBytes[i].data(), outputBytes[i].size());
     }
@@ -510,10 +588,24 @@ int wmain(int argc, wchar_t **argv) {
          << compileMs << std::endl
          << ad.AdapterLuid.HighPart << ':' << ad.AdapterLuid.LowPart
          << std::endl;
+    const std::string ioPolicy = "per_call_cpu_ownership_and_binding";
+    write(data / "io-policy.txt", ioPolicy.data(), ioPolicy.size());
     check(device->UnregisterMessageCallback(cookie));
     return 0;
   } catch (const std::exception &e) {
     std::cerr << e.what() << std::endl;
     return 1;
   }
+}
+
+// Setup and all native resources remain alive while Python drives individual
+// inference calls in this same process. No per-iteration process/pipe traffic.
+extern "C" __declspec(dllexport) int __cdecl RunPythonDriven(
+    int argc, wchar_t **argv, PythonDriver driver) {
+  if (!driver || pythonDriver) return 2;
+  pythonDriver = driver;
+  pythonStepError.clear();
+  int result = wmain(argc, argv);
+  pythonDriver = nullptr;
+  return result;
 }
