@@ -698,6 +698,7 @@ class WinMLRuntimeSession:
 
         # Perf tracking, enabled inside perf().
         self._perf_stats: PerfStats | None = None
+        self._reusable_io: Any = None
 
     # -- lifecycle ----------------------------------------------------------
     def set_input_shapes(self, input_shapes: Mapping[str, Any]) -> None:
@@ -922,6 +923,61 @@ class WinMLRuntimeSession:
                 outputs[name] = self._stage.output(index).to_numpy()
         return outputs
 
+    def prepare_reusable_io(self, inputs: dict[str, Any]) -> None:
+        """Allocate and bind fixed-shape CPU I/O once, outside perf timing.
+
+        Each subsequent run still copies fresh input bytes and returns an owned
+        output copy. This does not imply Runtime-internal GPU buffer reuse.
+        """
+        import numpy as np
+
+        with self._lock:
+            self._ensure_built_locked()
+            if self._perf_stats is not None:
+                raise RuntimeError("Prepare reusable I/O before entering perf().")
+            if self._reusable_io is not None:
+                raise RuntimeError("Reusable I/O is already prepared; reset before reconfiguring.")
+            if self._backend != "cgc":
+                raise ValueError("Reusable I/O currently requires the CGC Runtime backend.")
+            assert self._io_config is not None
+            prepared = self._prepare_inputs(inputs)
+            buffers: dict[str, dict[str, np.ndarray]] = {"input": {}, "output": {}}
+            tensors = []
+            input_copies = []
+            try:
+                for kind in ("input", "output"):
+                    for index, (name, shape, dtype) in enumerate(zip(
+                        self._io_config[kind + "_names"],
+                        self._io_config[kind + "_shapes"],
+                        self._io_config[kind + "_types"], strict=True,
+                    )):
+                        if not all(isinstance(d, int) and d > 0 for d in shape):
+                            raise ValueError("Reusable I/O requires positive static dimensions.")
+                        array = np.zeros(tuple(shape), dtype=dtype)
+                        if kind == "input" and prepared[name].shape != array.shape:
+                            raise ValueError(f"Input shape mismatch for {name}")
+                        tensor = self._runtime.tensor_from_buffer(
+                            array, self._wr.TensorDataType[array.dtype.name.upper()],
+                            array.shape, access=self._wr.TensorAccessMode.READWRITE,
+                        )
+                        buffers[kind][name] = array
+                        tensors.append(tensor)
+                        if kind == "input":
+                            owned = self._runtime.create_tensor(
+                                self._wr.TensorDataType[array.dtype.name.upper()], array.shape,
+                            )
+                            tensors.append(owned)
+                            input_copies.append((owned, tensor))
+                            tensor = owned
+                        getattr(self._stage, "bind_" + kind)(index, tensor)
+                self._reusable_io = (buffers, tensors, input_copies)
+            except Exception:
+                # Partial binding must not leave references to released arrays.
+                self._close_locked()
+                for tensor in reversed(tensors):
+                    tensor.close()
+                raise
+
     def run(self, inputs: dict[str, Any]) -> dict[str, np.ndarray]:
         """Run one inference and return ``{output_name: ndarray}``.
 
@@ -941,6 +997,24 @@ class WinMLRuntimeSession:
         assert self._io_config is not None
         input_names = self._io_config["input_names"]
         output_count = len(self._io_config["output_names"])
+        if self._reusable_io is not None:
+            import numpy as np
+
+            buffers, _tensors, input_copies = self._reusable_io
+            for name, array in buffers["input"].items():
+                if prepared[name].shape != array.shape or prepared[name].dtype != array.dtype:
+                    raise ValueError(f"Reusable input shape/dtype changed: {name}")
+
+            def _reused() -> dict[str, np.ndarray]:
+                for name, array in buffers["input"].items():
+                    np.copyto(array, prepared[name], casting="no")
+                for owned, staging in input_copies:
+                    owned.copy_from(staging)
+                with _translate_native_errors("run"):
+                    self._pipeline.run()
+                return {name: array.copy() for name, array in buffers["output"].items()}
+
+            return self._perf_stats.record(_reused) if self._perf_stats is not None else _reused()
 
         def _do() -> dict[str, np.ndarray]:
             named = _bind_inputs(
@@ -1014,6 +1088,8 @@ class WinMLRuntimeSession:
             self._close_locked()
 
     def _close_locked(self) -> None:
+        reusable = getattr(self, "_reusable_io", None)
+        self._reusable_io = None
         for attr in ("_pipeline", "_stage", "_model", "_runtime", "_adapter_handle"):
             obj = getattr(self, attr, None)
             if obj is None:
@@ -1029,6 +1105,12 @@ class WinMLRuntimeSession:
             self._compiled_artifacts.cleanup()
             self._compiled_artifacts = None
         self._built = False
+        if reusable is not None:
+            for tensor in reversed(reusable[1]):
+                try:
+                    tensor.close()
+                except Exception:  # noqa: PERF203 - best-effort teardown, outside timing
+                    logger.debug("Failed to close reusable tensor", exc_info=True)
 
     def reset(self) -> None:
         """Release the pipeline so a later call can rebuild it."""

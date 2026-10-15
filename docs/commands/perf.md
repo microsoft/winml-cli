@@ -455,3 +455,18 @@ See [native host setup and limitations](../../native/dxcgc-perf/README.md).
 The result separates GPU timestamp latency and native host completion latency;
 host latency includes per-iteration CPU input upload and output readback.
 Compilation is excluded. DLLs default to the installed Windows ML Runtime package.
+
+### Reused Runtime I/O
+
+For fixed-shape CGC models, `winml perf --runtime winml-runtime` now prepares
+CPU input/output buffers and bindings before timing. Each measured call copies
+fresh input bytes into the reusable input tensor with `copy_from`, runs the
+pipeline, and returns a new CPU output array. The explicit tensor copy is
+required: changing the backing NumPy buffer alone can leave cached GPU input
+unchanged. Output buffers are prebound; `request_output` is not repeated.
+
+Results record `benchmark_info.io_binding_policy = reused_cpu_buffers`.
+Input updates and output CPU copies remain inside timing. Internal Runtime
+staging/synchronization and Python/COM overhead may still differ from the
+native DXCGC host. Historical per-call results are not rewritten. Unsupported
+mutable tensors, bindings or dynamic output shapes fail explicitly.
