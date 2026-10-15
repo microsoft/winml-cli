@@ -1,6 +1,6 @@
 # winml eval
 
-> Evaluate ONNX, CGC MLIR, or native Hugging Face PyTorch models.
+> Evaluate ONNX or native Hugging Face PyTorch models.
 
 ## When to use this
 
@@ -16,8 +16,8 @@ $ winml eval [options]
 
 | Flag | Short | Type | Default | Description |
 |---|---|---|---|---|
-| `--model` | `-m` | `TEXT` | — | HuggingFace model ID, or path to a local `.onnx` or `.mlir` file. Required (unless `--model-id` is provided directly). |
-| `--model-id` | | `TEXT` | — | HuggingFace model ID used for preprocessor and config resolution when `-m` points to an ONNX or MLIR file. |
+| `--model` | `-m` | `TEXT` | — | HuggingFace model ID, or path to a local `.onnx` file. Required (unless `--model-id` is provided directly). |
+| `--model-id` | | `TEXT` | — | HuggingFace model ID used for preprocessor and config resolution when `-m` points to an ONNX file. |
 | `--task` | | `TEXT` | auto-detected | Task name (e.g., `image-classification`). Auto-detected from `--model-id` when not provided. Required when `-m` is an ONNX file and the task cannot be inferred. |
 | `--precision` | | `TEXT` | `auto` | Precision used when building the model from a HuggingFace ID. One of `auto`, `fp32`, `fp16`, `int8`, `int16`, or a mixed `w{x}a{y}` spec (e.g., `w8a16`). `fp16`/`fp32` skip quantization. **Ignored** when `-m` is a pre-built `.onnx` file — the precision is already baked in. |
 | `--device` | | choice | `auto` | Target device. Choices: `auto`, `npu`, `gpu`, `cpu`. `auto` selects the best available device. Combined with `--precision`, this drives the build when `-m` is a HuggingFace ID. |
@@ -27,7 +27,7 @@ $ winml eval [options]
 | `--input-specs` | | `PATH` | — | JSON input tensor specs to merge into the Hugging Face export config. Symbolic string dimensions infer dynamic axes. **Ignored for pre-built `.onnx` inputs**. |
 | `--export-config` | | `PATH` | — | JSON ONNX export config overrides (opset version, constant folding, etc.) to merge into the Hugging Face export config. **Ignored for pre-built `.onnx` inputs**. |
 | `--dynamic-axes` | | `PATH` | — | JSON dynamic axes mapping for Hugging Face ONNX export, for example `{"input_ids": {"0": "batch", "1": "sequence"}}`. **Ignored for pre-built `.onnx` inputs**. |
-| `--runtime` | | `winml-ort\|winml-runtime\|pytorch` | `winml-ort` | Evaluation runtime. `winml-ort` exports Hugging Face checkpoints to ONNX; `winml-runtime` loads pre-built CGC MLIR; `pytorch` evaluates the original checkpoint and supports `auto`, `cpu`, or CUDA-backed `gpu` devices. |
+| `--runtime` | | `winml-ort\|pytorch` | `winml-ort` | Evaluation runtime. `winml-ort` exports Hugging Face checkpoints to ONNX; `pytorch` evaluates the original checkpoint and supports `auto`, `cpu`, or CUDA-backed `gpu` devices. |
 | `--dataset` | | `TEXT` | task default | HuggingFace dataset path (e.g., `imagenet-1k`, `nyu-mll/glue`). If omitted, a default dataset is selected based on the task. |
 | `--dataset-name` | | `TEXT` | — | Dataset configuration name for multi-config datasets. |
 | `--dataset-revision` | | `TEXT` | — | Git revision (branch, tag, or commit) of the dataset to load. Use `refs/convert/parquet` for HF datasets that are only served via the parquet mirror. |
@@ -50,7 +50,7 @@ $ winml eval [options]
 
 ## How it works
 
-`winml eval` loads the model and runs the evaluation pipeline via the internal `evaluate` function, then pulls the requested number of samples from a HuggingFace dataset. By default, Hugging Face model IDs and local checkpoints use the `winml-ort` runtime: they are exported to ONNX and evaluated through WinML. Pre-built CGC MLIR artifacts use `winml-runtime`. With `--runtime pytorch`, the task-resolved PyTorch model and stored dtype are preserved and the same dataset preprocessing, evaluator, and metrics run directly against that model. PyTorch `auto` selects CUDA when available and otherwise CPU; `gpu` requires CUDA. The JSON report identifies the effective runtime as `winml-ort`, `winml-runtime`, or `pytorch`.
+`winml eval` loads the model and runs the evaluation pipeline via the internal `evaluate` function, then pulls the requested number of samples from a HuggingFace dataset. By default, Hugging Face model IDs and local checkpoints use the `winml-ort` runtime: they are exported to ONNX and evaluated through WinML. With `--runtime pytorch`, the task-resolved PyTorch model and stored dtype are preserved and the same dataset preprocessing, evaluator, and metrics run directly against that model. PyTorch `auto` selects CUDA when available and otherwise CPU; `gpu` requires CUDA. The JSON report identifies the effective runtime as `winml-ort` or `pytorch` for these workflows.
 
 Python callers can pass an existing model directly with `evaluate(config, pytorch_model=model)`. An explicit `config.model_id` selects the tokenizer or processor; otherwise evaluation infers it from `model.config._name_or_path` and reports an error if neither source is available.
 

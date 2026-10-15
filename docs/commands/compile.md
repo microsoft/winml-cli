@@ -1,6 +1,6 @@
 # winml compile
 
-> Compile an ONNX model to an EP-specific format for fast runtime loading.
+> Compile ONNX to an EP-specific format.
 
 ## When to use this
 
@@ -18,14 +18,14 @@ $ winml compile [options]
 
 | Flag | Short | Type | Default | Description |
 |---|---|---|---|---|
-| `--model` | `-m` | path | *(required unless `--list`)* | Input ONNX model file. |
+| `--model` | `-m` | path | *(required unless `--list`)* | Input ONNX model. |
 | `--output` | `-o` | path | — | Output file path (e.g., `model_compiled.onnx`). Takes precedence over `--output-dir`. |
 | `--output-dir` | | path | same dir as input | Directory to write compiled output artifacts. |
 | `--device` | `-d` | choice | `auto` | Target device: `auto`, `npu`, `gpu`, or `cpu`. |
 | `--ep` | | `TEXT` | — | Force a specific execution provider, overriding device-to-provider mapping. Accepts full names (e.g., `QNNExecutionProvider`) or aliases (`qnn`, `dml`, `openvino`, `vitisai`, `migraphx`, `cpu`, `nvtensorrtrtx`). |
 | `--ep-options` | | `KEY=VALUE` | — | Execution-provider option for the compilation session. Repeat for multiple options; later duplicate keys win. Explicit CLI values override matching `compile.provider_options` keys from `--config`. |
-| `--validate` / `--no-validate` | | flag | `--validate` | Run a post-compilation validation pass on the target hardware. Enabled by default; pass `--no-validate` to skip when the target hardware or driver is unavailable. |
-| `--compiler` | | choice | `ort` | Compiler backend: `ort` (ONNX Runtime) or `qairt` (Qualcomm AI Runtime Tools). |
+| `--validate` / `--no-validate` | | flag | `--validate` | Post-compilation inference validation. |
+| `--compiler` | | choice | `ort` | Backends: `ort`, `ort_session`, `qairt`. |
 | `--qnn-sdk-root` | | path | `None` | Path to the QNN SDK root directory. |
 | `--embed/--no-embed` | | flag | `false` | Embed the EP context blob inside the ONNX file instead of writing a separate `.bin` file. |
 | `--list` | | flag | `false` | List available compiler backends for the selected device and exit without compiling. |

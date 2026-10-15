@@ -49,8 +49,8 @@ def mock_load_hf_model():
 class TestExportCLIInterface:
     """Test export command CLI interface."""
 
-    def test_export_help_shows_all_options(self, runner: CliRunner) -> None:
-        """Test export --help shows all expected options."""
+    def test_export_help_shows_public_options(self, runner: CliRunner) -> None:
+        """Test export --help shows public options without CGC entry points."""
         from winml.modelkit.commands.export import export
 
         result = runner.invoke(export, ["--help"])
@@ -77,8 +77,8 @@ class TestExportCLIInterface:
         assert "--export-config" in result.output
         assert "--dynamic-axes" in result.output
         assert "--submodel" in result.output
-        assert "--target" in result.output
-        assert "--options" in result.output
+        assert "--target" not in result.output
+        assert "--options" not in result.output
         assert "--additional-options" not in result.output
         assert "--exporter" not in result.output
         assert "--cgc-option" not in result.output

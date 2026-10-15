@@ -16,16 +16,16 @@ $ winml perf [options]
 
 | Flag | Short | Type | Default | Description |
 |---|---|---|---|---|
-| `--model` | `-m` | `TEXT` | — | HuggingFace model ID or path to a local `.onnx` file. With `--runtime winml-runtime`, also accepts a prebuilt CGC `.mlir` file. Required. With `--runtime ort-genai`, also accepts a prebuilt genai **bundle directory**, or a HuggingFace model ID that is auto-built into a bundle on demand. |
-| `--runtime` | | `auto\|winml-ort\|ort-genai\|winml-runtime` | `auto` | Inference runtime. `auto` selects `ort-genai` for local folders containing `genai_config.json`, `winml-runtime` for `.mlir` files, otherwise `winml-ort`; `winml-ort` benchmarks single-shot ONNX inference; `ort-genai` benchmarks an onnxruntime-genai bundle (LLM generation: time-to-first-token + decode tokens/sec); `winml-runtime` runs ONNX or prebuilt CGC MLIR through Windows ML Runtime. With `ort-genai`, a model ID that is not a bundle directory is auto-built into one before benchmarking. An explicit `--ep` or `--device` selects both the transformer build and runtime target; without an override, the auto-build defaults to QNN/NPU. Bundles are cached under `~/.cache/winml/`, separately for each explicit EP/device target. GenAI cache controls are tracked in issue #1275. |
+| `--model` | `-m` | `TEXT` | — | HuggingFace model ID or path to a local `.onnx` file. Required. With `--runtime ort-genai`, also accepts a prebuilt genai **bundle directory**, or a HuggingFace model ID that is auto-built into a bundle on demand. |
+| `--runtime` | | `auto\|winml-ort\|ort-genai` | `auto` | Inference runtime. `auto` selects `ort-genai` for local folders containing `genai_config.json`, otherwise `winml-ort`; `winml-ort` benchmarks single-shot ONNX inference; `ort-genai` benchmarks an onnxruntime-genai bundle (LLM generation: time-to-first-token + decode tokens/sec). With `ort-genai`, a model ID that is not a bundle directory is auto-built into one before benchmarking. An explicit `--ep` or `--device` selects both the transformer build and runtime target; without an override, the auto-build defaults to QNN/NPU. Bundles are cached under `~/.cache/winml/`, separately for each explicit EP/device target. GenAI cache controls are tracked in issue #1275. |
 | `--task` | | `TEXT` | auto-detected | Explicit task override (e.g., `image-classification`). Inferred from the model if omitted. |
 | `--iterations` | | `INTEGER` | `100` (`10` with `--op-tracing`) | Number of timed inference iterations used to compute statistics. Explicit values override the op-tracing default. |
 | `--warmup` | | `INTEGER` | `10` | Number of warm-up iterations run before timing begins; excluded from statistics. |
 | `--device` | `-d` | `auto\|cpu\|gpu\|npu` | `auto` | Device to run the benchmark on. `auto` selects the highest-priority available device. |
 | `--device-luid` | | `TEXT` | — | Pin a physical adapter within the resolved EP/device pair using its LUID from `winml sys` (`0xHHHHHHHH_0xLLLLLLLL`, case-insensitive). Requires the EP to expose that adapter's LUID. Not supported with `--runtime ort-genai`. |
 | `--precision` | | `TEXT` | `auto` | Precision mode applied during model build: `auto`, `fp32`, `fp16`, `int8`, `int16`, or compound forms such as `w8a16`. |
-| `--ep` | | `TEXT` | — | Force a specific execution provider (e.g., `qnn`, `dml`, `vitisai`, `openvino`, `cpu`). Overrides the device-to-provider mapping. With ONNX input and `--runtime winml-runtime`, the provider and `--device` class are passed to the Runtime execution target. Ignored for MLIR input. |
-| `--ep-options` | | `KEY=VALUE` (multiple) | — | Runtime EP provider option forwarded to the inference session (e.g., `--ep-options htp_performance_mode=burst`). Repeatable. Applies to both HuggingFace model IDs and ONNX file inputs. When detail op-tracing automatically compiles a raw ONNX model, these options are also applied to that compilation. Ignored with `--runtime winml-runtime`. |
+| `--ep` | | `TEXT` | — | Force a specific execution provider (e.g., `qnn`, `dml`, `vitisai`, `openvino`, `cpu`). Overrides the device-to-provider mapping. |
+| `--ep-options` | | `KEY=VALUE` (multiple) | — | Runtime EP provider option forwarded to the inference session (e.g., `--ep-options htp_performance_mode=burst`). Repeatable. Applies to both HuggingFace model IDs and ONNX file inputs. When detail op-tracing automatically compiles a raw ONNX model, these options are also applied to that compilation. |
 | `--output` | `-o` | `PATH` | `~/.cache/winml/perf/<slug>/<timestamp>.json` | Output JSON file path for the benchmark report. |
 | `--batch-size` | | `INTEGER` | `1` | Batch size used when generating synthetic input tensors. Ignored when `--input-data` is set. |
 | `--input-data` | | `PATH` | — | Path to a `.npz` file of real input tensors to benchmark with instead of randomly generated inputs. The archive's keys must match the model's inputs exactly; dtypes are cast to the model's expected dtype (with a warning) to mirror normal inference. Not supported with `--module`, `--runtime ort-genai`, or composite (dual-encoder) models. |
@@ -84,8 +84,8 @@ The enclosing perf document still uses schema version 2; the optional
 memory values and use the recorded scope rather than comparing older deltas
 as if they covered the same interval.
 
-For `winml-ort` and `winml-runtime`, RSS baseline is captured **before model
-loading**, including eager session construction and Runtime pipeline creation.
+For `winml-ort`, RSS baseline is captured **before model
+loading**, including eager session construction.
 GPU baseline is captured after resolving the bound EP/adapter but before
 constructing the model. Adapter discovery must not read lazy model properties.
 The added `*_after_load_mb` checkpoint separates loading from the explicit
@@ -154,7 +154,7 @@ target validation.
 
 ### Memory measurement contract
 
-With `--memory`, classic and Runtime runs use the lifecycle boundaries described
+With `--memory`, classic runs use the lifecycle boundaries described
 above: process RSS starts before model construction, while the load-only window
 starts after runtime/device setup and ends before benchmark input allocation.
 Preloaded composite components cannot claim a load baseline; their `load_memory`
@@ -217,8 +217,8 @@ miss sub-200-ms lifetimes; sampling does not certify the true instantaneous peak
 
 The --monitor summary uses null/N/A when RAM or device memory has no valid
 samples. Its sampled inference-window peaks have a different time boundary from
-the three phase checkpoints. Historical collectors and the external Raw CGC
-runner are not upgraded by this CLI change; those results require provenance
+the three phase checkpoints. Historical collectors
+are not upgraded by this CLI change; those results require provenance
 labels or a rerun with a compatible collector.
 
 Basic benchmark on the best available device:
@@ -248,15 +248,6 @@ Benchmark a pre-exported ONNX file on CPU with more iterations:
 ```bash
 $ winml perf -m model.onnx --device cpu --iterations 500
 ```
-
-Benchmark a prebuilt CGC MLIR model with Windows ML Runtime:
-
-```bash
-$ winml perf -m model.mlir --runtime winml-runtime --device gpu
-```
-
-For MLIR input, the resolved physical device is passed to Runtime as a DXCore
-adapter target; the resolved EP is used only to identify that device.
 
 Benchmark a text model with an explicit task, targeting the NPU:
 
@@ -420,25 +411,6 @@ not supported.
 - **`--shape-config` is ignored when real or module inputs own the shape.** It is ignored in `--module` mode and when `--input-data` is set. The command prints a warning in both situations.
 - **Random inputs do not represent real data distributions.** Latency numbers are accurate, but memory access patterns may differ from production because the generated tensors are uniform random values. For memory-bandwidth-sensitive models this can understate real-world latency.
 - **Cross-device comparison.** To compare performance across devices, run `winml perf` separately with different `--device` values and compare the resulting JSON reports.
-
-## Concrete input shapes for CGC
-
-For local ONNX models, Runtime CGC and WinMLCG receive concrete named input
-dimensions before compilation. With `--input-data`, shapes come from NPZ headers
-(NPY versions 1, 2, and 3) without allocating input tensors. Otherwise, the existing
-`--shape-config` and `--batch-size` resolution rules apply. Input names and ranks
-must match the ONNX schema, fixed axes must retain their declared extents
-(including zero), and shared symbolic names must resolve to the same positive
-int64 value. The source ONNX is not rewritten.
-
-Runtime CGC requires a Runtime compiler that supports symbolic-dimension
-options when named overrides are needed. Anonymous dynamic axes are left
-unbound rather than rejected or assigned invented names; the compiler determines
-whether they require specialization. This preserves executable graphs with
-unused anonymous inputs, but does not add general anonymous-axis binding or
-resolve internal data-dependent shapes. Accepting a matching static zero extent
-does not guarantee that every CGC operator supports empty tensors. Input payload
-loading and dtype conversion still occur at the normal input-allocation boundary.
 
 ## See also
 

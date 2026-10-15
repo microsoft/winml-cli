@@ -2939,18 +2939,19 @@ def _validate_duration(
     type=click.Choice([*RUNTIME_NAMES, "dxcgc"]),
     default="auto",
     show_default=True,
+    metavar=f"[{'|'.join(name for name in RUNTIME_NAMES if name != 'winml-runtime')}]",
     help="'auto' selects ort-genai for folders containing genai_config.json, "
-    "winml-runtime for .mlir files, otherwise winml-ort. "
+    "otherwise winml-ort. "
     "'winml-ort' benchmarks single-shot ONNX inference; "
     "'ort-genai' benchmarks an onnxruntime-genai bundle folder "
-    "(LLM generation: TTFT + decode tokens/sec); 'winml-runtime' performs "
-    "online conversion for ONNX/PyTorch inputs or loads CGC MLIR directly. "
+    "(LLM generation: TTFT + decode tokens/sec). "
     "'dxcgc' uses the native DXCGC DLL benchmark host for local MLIR.",
 )
 @click.option(
     "--backend",
     type=click.Choice(list(RUNTIME_BACKENDS)),
     default=None,
+    hidden=True,
     help="[winml-runtime] Execution backend for ONNX inputs (default: cgc). "
     "MLIR inputs always use cgc.",
 )
