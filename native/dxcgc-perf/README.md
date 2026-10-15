@@ -38,3 +38,16 @@ For the GPU pytest set WINML_DXCGC_MODEL, WINML_DXCGC_HOST, WINML_DXCGC_INPUT
 and WINML_DXCGC_REFERENCE (CPU-reference NPZ for the same inputs). Run
 pytest tests/unit/commands/test_perf_dxcgc.py. It uses the installed Runtime
 DLLs by default and checks output relative L2 error below 1%.
+
+### Disable D3D12 MLIR programs
+
+Add `--disable-d3d-mlir-programs` to `winml perf --runtime dxcgc`.
+The native host sets the DXCGC internal compiler option of the same name to
+true before creating the compiler. Default compilation is unchanged when the
+flag is absent. Unsupported DLLs fail explicitly; precompiled Output IR is
+rejected with this flag because its targets are already selected.
+
+The report records `disable_d3d_mlir_programs`. CPU input/output round-trip
+timing and the default Runtime-package DLL selection remain unchanged. The
+flag disables a compiler target; it does not disable D3D12 command submission
+or independently certify that every compiled operation uses DirectML.

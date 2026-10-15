@@ -46,17 +46,57 @@ def test_options_require_dxcgc():
     assert 'require --runtime dxcgc' in result.output
 
 
+def test_disable_target_requires_dxcgc():
+    result = CliRunner().invoke(perf, ['-m', 'x.mlir', '--disable-d3d-mlir-programs'])
+    assert result.exit_code == 2
+    assert '--disable-d3d-mlir-programs requires --runtime dxcgc' in result.output
+
+
+@pytest.mark.parametrize('disabled', [False, True])
+def test_disable_target_forwarded(tmp_path, monkeypatch, disabled):
+    from types import SimpleNamespace
+
+    import winml.modelkit.commands._perf_dxcgc as native
+
+    model = tmp_path / 'input.mlir'
+    model.touch()
+    host = tmp_path / 'host.exe'
+    host.touch()
+    (tmp_path / 'dxcgc.dll').touch()
+    inputs = tmp_path / 'inputs.npz'
+    np.savez(inputs, x=np.ones((1,), dtype=np.float32))
+    captured = []
+
+    def run(command, **kwargs):
+        captured.append(command)
+        return SimpleNamespace(returncode=1, stderr='test host error')
+
+    monkeypatch.setattr(native.subprocess, 'run', run)
+    args = ['-m', str(model), '--runtime', 'dxcgc', '--dxcgc-host', str(host),
+            '--dxcgc-dir', str(tmp_path), '--dxcgc-sdk-path', str(tmp_path),
+            '--input-data', str(inputs), '-o', str(tmp_path / 'perf.json')]
+    if disabled:
+        args.append('--disable-d3d-mlir-programs')
+    result = CliRunner().invoke(perf, args)
+    assert 'test host error' in result.output
+    assert ('--disable-d3d-mlir-programs' in captured[0]) is disabled
+
+
 @pytest.mark.skipif(not os.environ.get('WINML_DXCGC_MODEL'), reason='Requires DXCGC GPU fixtures')
-def test_resnet_native(tmp_path):
+@pytest.mark.parametrize('disabled', [False, True])
+def test_resnet_native(tmp_path, disabled):
     args = ['-m', os.environ['WINML_DXCGC_MODEL'], '--runtime', 'dxcgc',
             '--dxcgc-host', os.environ['WINML_DXCGC_HOST'],
             '--input-data', os.environ['WINML_DXCGC_INPUT'],
             '--iterations', '100', '--warmup', '10', '-o', str(tmp_path / 'perf.json')]
+    if disabled:
+        args.append('--disable-d3d-mlir-programs')
     result = CliRunner().invoke(perf, args)
     assert result.exit_code == 0, result.output
     report = json.loads((tmp_path / 'perf.json').read_text())
     assert len(report['samples']['gpu_ms']) == 100
     assert report['io_mode'] == 'cpu-roundtrip'
+    assert report['disable_d3d_mlir_programs'] is disabled
     assert any('windowsml' in path and path.endswith('dxcgc.dll')
                for path in report['provenance'])
     with np.load(tmp_path / 'perf.outputs.npz') as actual, np.load(

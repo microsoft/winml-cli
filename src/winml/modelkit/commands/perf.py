@@ -2925,6 +2925,10 @@ def _validate_duration(
 )
 @click.option("--dxcgc-sdk-version", type=click.IntRange(min=1), default=721)
 @click.option(
+    "--disable-d3d-mlir-programs", is_flag=True,
+    help="[dxcgc] Disable the D3D12 MLIR programs target when compiling Input IR.",
+)
+@click.option(
     "--dxcgc-adapter",
     type=click.IntRange(min=0),
     default=0,
@@ -3163,6 +3167,7 @@ def perf(
     dxcgc_sdk_path: Path | None,
     dxcgc_sdk_version: int,
     dxcgc_adapter: int,
+    disable_d3d_mlir_programs: bool,
     backend: RuntimeBackend | None,
     prompt: str,
     prompt_file: Path | None,
@@ -3251,6 +3256,8 @@ def perf(
 
         run_dxcgc(ctx)
         return
+    if disable_d3d_mlir_programs:
+        raise click.UsageError("--disable-d3d-mlir-programs requires --runtime dxcgc")
     if any(
         ctx.get_parameter_source(name) == click.core.ParameterSource.COMMANDLINE
         for name in ctx.params if name.startswith("dxcgc_")

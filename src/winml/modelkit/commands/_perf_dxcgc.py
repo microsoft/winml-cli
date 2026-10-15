@@ -56,6 +56,7 @@ def run_dxcgc(ctx: click.Context) -> None:
         "dxcgc_sdk_path",
         "dxcgc_sdk_version",
         "dxcgc_adapter",
+        "disable_d3d_mlir_programs",
         "iterations",
         "warmup",
         "input_data",
@@ -128,6 +129,8 @@ def run_dxcgc(ctx: click.Context) -> None:
                 str(p["warmup"]),
                 str(work),
             ]
+            if p["disable_d3d_mlir_programs"]:
+                command.append("--disable-d3d-mlir-programs")
             process = subprocess.run(  # noqa: S603 - explicit local executable; no shell
                 command,
                 capture_output=True,
@@ -158,6 +161,7 @@ def run_dxcgc(ctx: click.Context) -> None:
                 raise ValueError("Native DXCGC produced no outputs")
             report = {
                 "runtime": "dxcgc",
+                "disable_d3d_mlir_programs": p["disable_d3d_mlir_programs"],
                 "model": str(model),
                 "adapter": info[0],
                 "adapter_luid": info[2],

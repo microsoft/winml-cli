@@ -277,10 +277,13 @@ static Buffer view(IDXCGCModule *m, DXCGC_MODULE_TENSOR_ID id, Executable &e) {
 }
 int wmain(int argc, wchar_t **argv) {
   try {
-    if (argc != 9)
+    if (argc != 9 && argc != 10)
       throw std::runtime_error(
           "Expected: model dll-dir sdk-dir sdk-version "
-          "adapter-index iterations warmup data-dir");
+          "adapter-index iterations warmup data-dir [--disable-d3d-mlir-programs]");
+    const bool disableD3dMlir = argc == 10;
+    if (disableD3dMlir && std::wstring(argv[9]) != L"--disable-d3d-mlir-programs")
+      throw std::runtime_error("Unknown native host option");
     fs::path model = argv[1], dll = argv[2], sdk = argv[3], data = argv[8];
     int iterations = std::stoi(argv[6]), warmup = std::stoi(argv[7]);
     if (iterations < 1 || warmup < 0)
@@ -324,13 +327,25 @@ int wmain(int argc, wchar_t **argv) {
     ComPtr<IDXCGCModule> input, module;
     check(device->CreateModuleFromFile(model.c_str(), IID_PPV_ARGS(&input)));
     if (input->GetType() == DXCGC_MODULE_IR_TYPE_INPUT) {
+      ComPtr<IDXCGCCompilerParameters> params;
+      if (disableD3dMlir) {
+        check(device->CreateCompilerParameters(IID_PPV_ARGS(&params)));
+        DXCGC_INTERNAL_OPTION option{"disable-d3d-mlir-programs", "true"};
+        HRESULT hr = params->SetOption(DXCGC_COMPILER_OPTION_INTERNAL, &option, sizeof(option));
+        if (FAILED(hr)) {
+          std::cerr << "DXCGC rejected --disable-d3d-mlir-programs: ";
+          check(hr);
+        }
+      }
       ComPtr<IDXCGCCompiler> compiler;
-      check(device->CreateCompiler(nullptr, IID_PPV_ARGS(&compiler)));
+      check(device->CreateCompiler(params.Get(), IID_PPV_ARGS(&compiler)));
       check(compiler->Compile(input.Get(), 0, nullptr, DXCGC_COMPILE_FLAG_NONE,
                               nullptr, IID_PPV_ARGS(&module)));
-    } else if (input->GetType() == DXCGC_MODULE_IR_TYPE_OUTPUT)
+    } else if (input->GetType() == DXCGC_MODULE_IR_TYPE_OUTPUT) {
+      if (disableD3dMlir)
+        throw std::runtime_error("--disable-d3d-mlir-programs requires Input IR; Output IR targets are already compiled");
       module = input;
-    else
+    } else
       throw std::runtime_error("Unsupported IR type");
     double compileMs =
         std::chrono::duration<double, std::milli>(Clock::now() - start).count();
