@@ -2910,26 +2910,30 @@ def _validate_duration(
 @cli_utils.model_option(required=False)
 @click.option(
     "--dxcgc-host",
+    hidden=True,
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     help="[dxcgc] Built native benchmark host.",
 )
 @click.option(
     "--dxcgc-dir",
+    hidden=True,
     type=click.Path(exists=True, file_okay=False, path_type=Path),
     help="[dxcgc] DLL directory (default: installed windowsml/lib).",
 )
 @click.option(
     "--dxcgc-sdk-path",
+    hidden=True,
     type=click.Path(exists=True, file_okay=False, path_type=Path),
     help="[dxcgc] Agility SDK directory (default: installed windowsml/lib).",
 )
-@click.option("--dxcgc-sdk-version", type=click.IntRange(min=1), default=721)
+@click.option("--dxcgc-sdk-version", type=click.IntRange(min=1), default=721, hidden=True)
 @click.option(
-    "--disable-d3d-mlir-programs", is_flag=True,
+    "--disable-d3d-mlir-programs", is_flag=True, hidden=True,
     help="[dxcgc] Disable the D3D12 MLIR programs target when compiling Input IR.",
 )
 @click.option(
     "--dxcgc-adapter",
+    hidden=True,
     type=click.IntRange(min=0),
     default=0,
     help="[dxcgc] DXGI high-performance adapter index.",
@@ -2944,8 +2948,7 @@ def _validate_duration(
     "otherwise winml-ort. "
     "'winml-ort' benchmarks single-shot ONNX inference; "
     "'ort-genai' benchmarks an onnxruntime-genai bundle folder "
-    "(LLM generation: TTFT + decode tokens/sec). "
-    "'dxcgc' uses the native DXCGC DLL benchmark host for local MLIR.",
+    "(LLM generation: TTFT + decode tokens/sec).",
 )
 @click.option(
     "--backend",
