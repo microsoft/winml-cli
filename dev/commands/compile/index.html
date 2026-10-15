@@ -1938,6 +1938,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cgir-to-cg-output-ir" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CGIR to CG Output IR
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#examples" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2750,6 +2761,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#cgir-to-cg-output-ir" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CGIR to CG Output IR
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#examples" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2809,7 +2831,7 @@
 
 <h1 id="winml-compile">winml compile<a class="headerlink" href="#winml-compile" title="Permanent link">&para;</a></h1>
 <blockquote>
-<p>Compile an ONNX model to an EP-specific format for fast runtime loading.</p>
+<p>Compile ONNX to an EP-specific format, or explicitly compile CGIR to device-targeted CG Output IR.</p>
 </blockquote>
 <h2 id="when-to-use-this">When to use this<a class="headerlink" href="#when-to-use-this" title="Permanent link">&para;</a></h2>
 <p>Use <code>winml compile</code> as the final pipeline stage after <code>winml quantize</code> to
@@ -2835,7 +2857,7 @@ model) that loads faster and avoids online graph compilation at inference time.<
 <td><code>-m</code></td>
 <td>path</td>
 <td><em>(required unless <code>--list</code>)</em></td>
-<td>Input ONNX model file.</td>
+<td>Input ONNX model, or complete CGIR in explicit IR mode.</td>
 </tr>
 <tr>
 <td><code>--output</code></td>
@@ -2859,6 +2881,13 @@ model) that loads faster and avoids online graph compilation at inference time.<
 <td>Target device: <code>auto</code>, <code>npu</code>, <code>gpu</code>, or <code>cpu</code>.</td>
 </tr>
 <tr>
+<td><code>--device-luid</code></td>
+<td></td>
+<td>string</td>
+<td>—</td>
+<td>Explicit CGC IR mode only: GPU adapter LUID from <code>winml sys</code>, in <code>0xHHHHHHHH_0xLLLLLLLL</code> form.</td>
+</tr>
+<tr>
 <td><code>--ep</code></td>
 <td></td>
 <td><code>TEXT</code></td>
@@ -2877,14 +2906,14 @@ model) that loads faster and avoids online graph compilation at inference time.<
 <td></td>
 <td>flag</td>
 <td><code>--validate</code></td>
-<td>Run a post-compilation validation pass on the target hardware. Enabled by default; pass <code>--no-validate</code> to skip when the target hardware or driver is unavailable.</td>
+<td>EPContext: post-compilation inference validation. CG Output IR: reload, pipeline build and I/O schema validation, without inference.</td>
 </tr>
 <tr>
 <td><code>--compiler</code></td>
 <td></td>
 <td>choice</td>
 <td><code>ort</code></td>
-<td>Compiler backend: <code>ort</code> (ONNX Runtime) or <code>qairt</code> (Qualcomm AI Runtime Tools).</td>
+<td>Backends: <code>ort</code>, <code>ort_session</code>, <code>qairt</code>, <code>cgc</code>. <code>cgc</code> is inferred for a single <code>.mlir</code> or <code>.mlirbc</code> input.</td>
 </tr>
 <tr>
 <td><code>--qnn-sdk-root</code></td>
@@ -2930,35 +2959,78 @@ target EP; skip it with <code>--no-validate</code> when the target hardware is a
 <code>compile.provider_option_file_keys</code> in the JSON config. The CLI canonicalizes
 that option path and fingerprints its contents for EPContext cache identity;
 other provider-option strings are always passed through unchanged.</p>
+<h2 id="cgir-to-cg-output-ir">CGIR to CG Output IR<a class="headerlink" href="#cgir-to-cg-output-ir" title="Permanent link">&para;</a></h2>
+<p>This explicit mode uses the Windows ML Runtime API directly, without an ONNX
+Runtime EP. The input and output selectors make the representation unambiguous:</p>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">winml</span> <span class="n">compile</span> <span class="p">`</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>  <span class="n">-m</span> <span class="n">input</span><span class="p">.</span><span class="n">mlir</span> <span class="p">`</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>  <span class="p">-</span><span class="n">-compiler</span> <span class="n">cgc</span> <span class="p">`</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>  <span class="p">-</span><span class="n">-device</span> <span class="n">gpu</span> <span class="p">`</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>  <span class="n">-o</span> <span class="n">output</span><span class="p">.</span><span class="n">mlir</span>
+</span></code></pre></div>
+<p><code>--compiler cgc</code> is optional for <code>.mlir</code> and <code>.mlirbc</code> input. Specify it when
+the CGIR file uses another suffix or when you want to make the backend explicit.</p>
+<p>The command loads CGIR through Windows ML Runtime. Both textual and bytecode
+CGIR are accepted; invalid or unsupported input is reported by the Runtime.
+Supply a complete executable model with its weights, not a graph-only report
+projection.</p>
+<p>Compilation calls the selected GPU target's Runtime
+<code>ModelCompiler.compile_to_file()</code> with <code>CompiledModelForm.DEVICE_TARGETED</code>.
+The saved artifact is <strong>MLIR bytecode</strong>, even when named <code>.mlir</code>; text dumping
+is not provided by this command. <code>.mlirbc</code> is also accepted as an output suffix.
+No optimization or quantization pipeline runs.</p>
+<p>This first version supports GPU only (the default in explicit IR mode). A single
+GPU is selected automatically; multiple GPUs require <code>--device-luid</code>. GPU
+discovery uses DXCore, not EP discovery or provider installation.</p>
+<p>Default <code>--validate</code> reloads the compiled artifact, builds a Runtime pipeline and
+checks that its I/O schema matches the input. Unlike the EPContext validation
+path, this does not execute inference or certify accuracy. <code>--no-validate</code> skips
+that reload/build check; genuine Input IR parsing and compilation remain required.
+Run <code>winml perf</code> separately for performance.</p>
+<p>The command publishes the artifact and any Runtime-produced resource companions
+only after successful compilation and requested validation. It preserves an
+existing input's <code>&lt;stem&gt;_metadata.json</code> I/O bindings as output metadata and writes
+<code>&lt;output-stem&gt;_compile.json</code> with input/artifact hashes, output encoding, GPU LUID
+and validation status. Metadata and resource collisions also require
+<code>--overwrite</code>; the input and its metadata are never replaced. Without <code>-o</code>, the
+default is <code>&lt;input-stem&gt;_output.mlir</code> in <code>--output-dir</code> or beside the input.</p>
+<p><code>--ep</code>, <code>--ep-options</code>, <code>--embed</code>/<code>--no-embed</code>, <code>--qnn-sdk-root</code>, <code>--list</code>,
+<code>--config</code> and multiple <code>-m</code> inputs are rejected in this mode. Use the existing
+ONNX-to-EPContext mode for EP compilation. Omitting the new selectors preserves
+the original command behavior.</p>
+<p>The preview <code>windowsml</code> payload must include Runtime APIs compatible with the
+active CLI. If preview wheels override stable project pins, invoke the
+environment directly or use <code>uv run --no-sync</code> to avoid restoring stable
+packages.</p>
 <h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Compile with auto device detection (default compiler)</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>winml<span class="w"> </span>compile<span class="w"> </span>-m<span class="w"> </span>resnet50_qdq.onnx
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Compile with auto device detection (default compiler)</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>winml<span class="w"> </span>compile<span class="w"> </span>-m<span class="w"> </span>resnet50_qdq.onnx
 </span></code></pre></div>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>Input: resnet50_qdq.onnx
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>Device: npu
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>Provider: qnn
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>Compiler: ort
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>Compiling model...
-</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>
-</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>Success! Model compiled
-</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>Output: resnet50_qdq_ctx.onnx
-</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>Compile time: 12.40s
-</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>Total time: 13.05s
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>Input: resnet50_qdq.onnx
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>Device: npu
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>Provider: qnn
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>Compiler: ort
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>Compiling model...
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>Success! Model compiled
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>Output: resnet50_qdq_ctx.onnx
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>Compile time: 12.40s
+</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>Total time: 13.05s
 </span></code></pre></div>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># List available compiler backends for NPU before committing to a run</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>winml<span class="w"> </span>compile<span class="w"> </span>--list<span class="w"> </span>--device<span class="w"> </span>npu
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># List available compiler backends for NPU before committing to a run</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>winml<span class="w"> </span>compile<span class="w"> </span>--list<span class="w"> </span>--device<span class="w"> </span>npu
 </span></code></pre></div>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Compile a pre-quantized BERT model for NPU with context embedded inline</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>winml<span class="w"> </span>compile<span class="w"> </span>-m<span class="w"> </span>bert-base-uncased_qdq.onnx<span class="w"> </span>--embed
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Compile a pre-quantized BERT model for NPU with context embedded inline</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>winml<span class="w"> </span>compile<span class="w"> </span>-m<span class="w"> </span>bert-base-uncased_qdq.onnx<span class="w"> </span>--embed
 </span></code></pre></div>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Pass provider-specific options to the compilation session</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>winml<span class="w"> </span>compile<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--ep<span class="w"> </span>qnn<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span>--ep-options<span class="w"> </span><span class="nv">htp_performance_mode</span><span class="o">=</span>burst<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span>--ep-options<span class="w"> </span><span class="nv">soc_model</span><span class="o">=</span><span class="m">57</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Pass provider-specific options to the compilation session</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>winml<span class="w"> </span>compile<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--ep<span class="w"> </span>qnn<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span>--ep-options<span class="w"> </span><span class="nv">htp_performance_mode</span><span class="o">=</span>burst<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span>--ep-options<span class="w"> </span><span class="nv">soc_model</span><span class="o">=</span><span class="m">57</span>
 </span></code></pre></div>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Compile for GPU using the OpenVINO execution provider</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>winml<span class="w"> </span>compile<span class="w"> </span>-m<span class="w"> </span>microsoft_resnet50.onnx<span class="w"> </span>--device<span class="w"> </span>gpu<span class="w"> </span>--ep<span class="w"> </span>openvino
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Compile for GPU using the OpenVINO execution provider</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>winml<span class="w"> </span>compile<span class="w"> </span>-m<span class="w"> </span>microsoft_resnet50.onnx<span class="w"> </span>--device<span class="w"> </span>gpu<span class="w"> </span>--ep<span class="w"> </span>openvino
 </span></code></pre></div>
 <h2 id="common-pitfalls">Common pitfalls<a class="headerlink" href="#common-pitfalls" title="Permanent link">&para;</a></h2>
 <ul>
