@@ -17,6 +17,7 @@ See also: tests/export/test_io.py (covers bert, resnet, vit, clip_vision, clip_t
 from __future__ import annotations
 
 from typing import ClassVar
+from unittest.mock import patch
 
 import pytest
 
@@ -328,6 +329,82 @@ class TestValueRangesContent:
         ranges = specs["value_ranges"]
 
         assert ranges["pixel_values"] == (0, 1)
+
+    def test_normalized_processor_metadata_overrides_image_range(self, resnet_config) -> None:
+        """Normalized image metadata replaces Optimum's raw float range."""
+        processor_config = {
+            "size": 32,
+            "do_rescale": True,
+            "do_normalize": True,
+            "rescale_factor": 1 / 255,
+            "image_mean": [0.485, 0.456, 0.406],
+            "image_std": [0.229, 0.224, 0.225],
+        }
+
+        with patch(
+            "transformers.image_processing_utils.ImageProcessingMixin.get_image_processor_dict",
+            return_value=(processor_config, {}),
+        ):
+            specs = resolve_io_specs(
+                "resnet",
+                "image-classification",
+                resnet_config,
+                model_id="local/vision-model",
+            )
+
+        assert specs["value_ranges"]["pixel_values"] == (
+            -2.1179039478302,
+            2.640000343322754,
+        )
+
+    def test_disabled_normalization_preserves_image_fallback(self, resnet_config) -> None:
+        """Disabled normalization retains Optimum's intercepted float range."""
+        processor_config = {
+            "size": 32,
+            "do_rescale": True,
+            "do_normalize": False,
+            "rescale_factor": 1 / 255,
+            "image_mean": [0.5, 0.5, 0.5],
+            "image_std": [0.5, 0.5, 0.5],
+        }
+
+        with patch(
+            "transformers.image_processing_utils.ImageProcessingMixin.get_image_processor_dict",
+            return_value=(processor_config, {}),
+        ):
+            specs = resolve_io_specs(
+                "resnet",
+                "image-classification",
+                resnet_config,
+                model_id="local/vision-model",
+            )
+
+        assert specs["value_ranges"]["pixel_values"] == (0, 1)
+
+    def test_image_processor_metadata_does_not_change_text_inputs(self, bert_config) -> None:
+        """Processor metadata cannot replace non-image tensor ranges."""
+        processor_config = {
+            "size": 32,
+            "do_rescale": True,
+            "do_normalize": True,
+            "rescale_factor": 1 / 255,
+            "image_mean": [0.5, 0.5, 0.5],
+            "image_std": [0.5, 0.5, 0.5],
+        }
+
+        with patch(
+            "transformers.image_processing_utils.ImageProcessingMixin.get_image_processor_dict",
+            return_value=(processor_config, {}),
+        ):
+            specs = resolve_io_specs(
+                "bert",
+                "fill-mask",
+                bert_config,
+                model_id="local/text-model",
+            )
+
+        assert specs["value_ranges"]["input_ids"] == (0, bert_config.vocab_size)
+        assert specs["value_ranges"]["attention_mask"] == (0, 2)
 
     def test_gpt2_text_ranges(self, gpt2_config) -> None:
         """GPT-2 text inputs: input_ids uses vocab_size, position_ids uses n_positions."""
