@@ -499,6 +499,15 @@ def _resolve_mlir_target(
         return _ResolvedRuntimeTarget(target, device_class)
 
     adapter_luid = device.adapter_luid
+    return _resolve_adapter_target(runtime, adapter_luid, device_class)
+
+
+def _resolve_adapter_target(
+    runtime: Any,
+    adapter_luid: int | None,
+    device_class: str = "gpu",
+) -> _ResolvedRuntimeTarget:
+    """Create a Runtime target directly from a DXCore adapter LUID."""
     adapter = None
     adapter_error = None
     if adapter_luid is not None:
@@ -518,6 +527,52 @@ def _resolve_mlir_target(
     except Exception:
         adapter.close()
         raise
+
+
+def _compile_runtime_model(
+    source_model: Any,
+    resolved_target: _ResolvedRuntimeTarget,
+    output_path: Path,
+    *,
+    symbolic_dimensions: Mapping[str, int] | None = None,
+    compiled_form: Any | None = None,
+) -> None:
+    """Compile a loaded Runtime model while owning compiler/options lifetimes."""
+    with _translate_native_errors("build", device_class=resolved_target.device_class):
+        compiler = resolved_target.execution_target.model_compiler()
+        options = None
+        try:
+            if symbolic_dimensions or compiled_form is not None:
+                options = compiler.create_options()
+                if symbolic_dimensions:
+                    if not options.supports_symbolic_dimensions:
+                        raise click.ClickException(
+                            "The installed Runtime compiler does not support symbolic dimensions."
+                        )
+                    for name, extent in symbolic_dimensions.items():
+                        options.symbolic_dimensions[name] = extent
+                if compiled_form is not None:
+                    if not compiler.supports_form(compiled_form):
+                        raise click.ClickException(
+                            "Runtime does not support DEVICE_TARGETED CG Output IR."
+                        )
+                    options.form = compiled_form
+                compiler.compile_to_file(source_model, str(output_path), options=options)
+            else:
+                compiler.compile_to_file(source_model, str(output_path))
+        finally:
+            if options is not None:
+                options.close()
+            compiler.close()
+
+
+def _normalized_schema_descriptors(schema: Any) -> tuple[list[Any], list[Any]]:
+    """Return comparable I/O descriptors with Runtime dynamic dims normalized."""
+
+    def normalize(items: Any) -> list[Any]:
+        return [(dtype, tuple(_shape_with_dynamic_dims(shape))) for dtype, shape in items]
+
+    return normalize(schema.inputs()), normalize(schema.outputs())
 
 
 def _resolve_onnx_target(
@@ -638,6 +693,7 @@ class WinMLRuntimeSession:
         provider_options: Mapping[str, str] | None = None,
         session_options: Callable[[], Any] | None = None,
         backend: RuntimeBackend,
+        device_luid: int | None = None,
     ) -> None:
         """Initialize a Runtime session.
 
@@ -653,14 +709,19 @@ class WinMLRuntimeSession:
         """
         self._lock = threading.RLock()
         self._model_path = Path(model_path)
-        self._is_mlir = self._model_path.suffix.lower() == ".mlir"
+        self._is_mlir = self._model_path.suffix.lower() in {".mlir", ".mlirbc"}
         self._backend = backend
-        if self._backend == "cgc" and ep_device is None:
-            raise ValueError("ep_device is required for CGC Runtime sessions.")
+        if self._backend == "cgc" and ep_device is None and device_luid is None:
+            raise ValueError("ep_device or device_luid is required for CGC Runtime sessions.")
         self._ep_device = ep_device
-        if self._backend == "cgc":
-            assert ep_device is not None
+        self._device_luid = device_luid
+        if self._backend == "cgc" and ep_device is not None:
             device = ep_device.device.device_type.lower()
+            ep = None
+            ep_source = None
+            provider_options = None
+        elif self._backend == "cgc":
+            device = "gpu"
             ep = None
             ep_source = None
             provider_options = None
@@ -723,8 +784,9 @@ class WinMLRuntimeSession:
 
     def _resolve_target(self, runtime: Any, wr: Any) -> _ResolvedRuntimeTarget:
         if self._backend == "cgc":
-            assert self._ep_device is not None
-            return _resolve_mlir_target(runtime, self._ep_device)
+            if self._ep_device is not None:
+                return _resolve_mlir_target(runtime, self._ep_device)
+            return _resolve_adapter_target(runtime, self._device_luid)
         return _resolve_onnx_target(
             runtime,
             wr,
@@ -753,26 +815,12 @@ class WinMLRuntimeSession:
 
             self._compiled_artifacts = TemporaryDirectory(prefix="winml-runtime-cgc-")
             artifact_path = Path(self._compiled_artifacts.name) / "model.mlir"
-            with _translate_native_errors("build", device_class="gpu"):
-                compiler = resolved_target.execution_target.model_compiler()
-                options = None
-                try:
-                    if self._symbolic_dimensions:
-                        options = compiler.create_options()
-                        if not options.supports_symbolic_dimensions:
-                            raise click.ClickException(
-                                "The installed Runtime compiler does not support "
-                                "symbolic dimensions."
-                            )
-                        for name, extent in self._symbolic_dimensions.items():
-                            options.symbolic_dimensions[name] = extent
-                        compiler.compile_to_file(source_model, str(artifact_path), options=options)
-                    else:
-                        compiler.compile_to_file(source_model, str(artifact_path))
-                finally:
-                    if options is not None:
-                        options.close()
-                    compiler.close()
+            _compile_runtime_model(
+                source_model,
+                resolved_target,
+                artifact_path,
+                symbolic_dimensions=self._symbolic_dimensions,
+            )
 
             with _translate_native_errors("load"):
                 model = runtime.load_model(str(artifact_path))
@@ -968,6 +1016,65 @@ class WinMLRuntimeSession:
     def compile(self) -> None:
         """Build the Runtime pipeline if it has not already been built."""
         self._ensure_built()
+
+    def compile_to_file(self, output_path: str | Path, *, validate: bool = True) -> None:
+        """Persist this CGIR model as device-targeted CG Output IR.
+
+        The output is compiled through the same Runtime compiler path used by
+        session-backed ONNX-to-CGC execution. Optional validation reloads the
+        artifact, builds a stage and compares normalized I/O schemas.
+        """
+        if self._backend != "cgc" or not self._is_mlir:
+            raise ValueError("Persistent Runtime compilation requires a CGIR model.")
+        destination = Path(output_path)
+        wr = import_runtime()
+        runtime = wr.Runtime()
+        resolved_target = self._resolve_target(runtime, wr)
+        source_model = compiled_model = builder = stage = pipeline = source_schema = None
+        try:
+            with _translate_native_errors("load"):
+                source_model = runtime.load_model(str(self._model_path))
+                source_schema = source_model.schema()
+            _compile_runtime_model(
+                source_model,
+                resolved_target,
+                destination,
+                compiled_form=wr.CompiledModelForm.DEVICE_TARGETED,
+            )
+            if not validate:
+                return
+            with _translate_native_errors("load"):
+                compiled_model = runtime.load_model(str(destination))
+            with _translate_native_errors("build", device_class=resolved_target.device_class):
+                builder = runtime.create_pipeline_builder()
+                stage = builder.add_model_stage(
+                    compiled_model, resolved_target.execution_target
+                )
+                pipeline = builder.build()
+                compiled_schema = _stage_schema(wr, stage)
+                try:
+                    if _normalized_schema_descriptors(
+                        source_schema
+                    ) != _normalized_schema_descriptors(compiled_schema):
+                        raise click.ClickException(
+                            "CG Output IR I/O schema differs from input CGIR."
+                        )
+                finally:
+                    compiled_schema.close()
+        finally:
+            for resource in (
+                pipeline,
+                stage,
+                builder,
+                compiled_model,
+                source_schema,
+                source_model,
+                resolved_target.execution_target,
+                resolved_target.adapter,
+                runtime,
+            ):
+                if resource is not None:
+                    resource.close()
 
     # -- perf ---------------------------------------------------------------
     @contextmanager

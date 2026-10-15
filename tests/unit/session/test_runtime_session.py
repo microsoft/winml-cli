@@ -9,8 +9,9 @@ from __future__ import annotations
 import json
 import threading
 import time
+from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from unittest.mock import Mock
 
 import click
@@ -24,12 +25,9 @@ from winml.modelkit.session.runtime_session import (
     _numpy_dtype_for,
     _ResolvedRuntimeTarget,
     _shape_with_dynamic_dims,
+    _stage_schema,
     _symbolic_dimensions_for_inputs,
 )
-
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 class _NotSupportedError(Exception):
@@ -261,6 +259,70 @@ def test_schema_helpers() -> None:
         None,
         4,
     ]
+
+
+def test_stage_schema_falls_back_to_projection_interface() -> None:
+    interface = Mock()
+    wrapped = Mock()
+    stage = SimpleNamespace(interface=Mock())
+    wr = SimpleNamespace(
+        _b=SimpleNamespace(IWinMLStageSchema=interface),
+        ModelSchema=Mock(return_value=wrapped),
+    )
+
+    assert _stage_schema(wr, stage) is wrapped
+    stage.interface.QueryInterface.assert_called_once_with(interface)
+    wr.ModelSchema.assert_called_once_with(
+        stage.interface.QueryInterface.return_value, stage
+    )
+
+
+def test_persistent_compile_normalizes_dynamic_schema_dimensions(tmp_path, monkeypatch) -> None:
+    source_schema = Mock()
+    source_schema.inputs.return_value = [("float32", (0, 4))]
+    source_schema.outputs.return_value = [("float32", (0, 4))]
+    compiled_schema = Mock()
+    compiled_schema.inputs.return_value = [("float32", ((1 << 64) - 1, 4))]
+    compiled_schema.outputs.return_value = [("float32", ((1 << 64) - 1, 4))]
+    source_model = Mock(schema=Mock(return_value=source_schema))
+    compiled_model = Mock()
+    options = SimpleNamespace(form=None, close=Mock())
+    compiler = Mock(
+        supports_form=Mock(return_value=True),
+        create_options=Mock(return_value=options),
+    )
+    output = tmp_path / "output.mlir"
+    compiler.compile_to_file.side_effect = lambda _model, path, **_kwargs: Path(
+        path
+    ).write_bytes(b"ML\xefRcompiled")
+    target = Mock(model_compiler=Mock(return_value=compiler))
+    resolved = _ResolvedRuntimeTarget(target, "gpu")
+    stage = Mock(schema=Mock(return_value=compiled_schema))
+    builder = Mock()
+    builder.add_model_stage.return_value = stage
+    runtime = Mock()
+    runtime.load_model.side_effect = [source_model, compiled_model]
+    runtime.create_pipeline_builder.return_value = builder
+    wr = SimpleNamespace(
+        Runtime=Mock(return_value=runtime),
+        CompiledModelForm=SimpleNamespace(DEVICE_TARGETED="device-targeted"),
+    )
+    monkeypatch.setattr(
+        "winml.modelkit.session.runtime_session.import_runtime", lambda: wr
+    )
+    session = WinMLRuntimeSession(
+        tmp_path / "input.mlir", backend="cgc", device_luid=1
+    )
+    monkeypatch.setattr(session, "_resolve_target", lambda _runtime, _wr: resolved)
+
+    session.compile_to_file(output)
+
+    assert output.is_file()
+    assert options.form == "device-targeted"
+    compiler.compile_to_file.assert_called_once_with(
+        source_model, str(output), options=options
+    )
+    compiled_schema.close.assert_called_once_with()
     with pytest.raises(click.ClickException):
         _numpy_dtype_for(SimpleNamespace(name="BFLOAT16"))
 
@@ -523,8 +585,8 @@ def test_prepare_inputs_preserves_shape(
         session.close()
 
 
-def test_mlir_session_requires_ep_device() -> None:
-    with pytest.raises(ValueError, match="ep_device is required"):
+def test_mlir_session_requires_target_device() -> None:
+    with pytest.raises(ValueError, match="ep_device or device_luid is required"):
         WinMLRuntimeSession("model.mlir", backend="cgc")
 
 

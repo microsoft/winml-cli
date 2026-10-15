@@ -144,6 +144,21 @@ winml export -m .\model.onnx --target cgir -o .\model.mlir
 
 The model must already be compatible with the CGC converter.
 
+### CGIR to device-targeted CG Output IR
+
+To retain a compiled artifact from existing CGIR, use the explicit
+[CGIR compile mode](../commands/compile.md#cgir-to-cg-output-ir):
+
+```powershell
+winml compile -m .\model.mlir --compiler cgc --device gpu -o .\model-output.mlir
+```
+
+For `.mlir` and `.mlirbc` input, `--compiler cgc` is optional.
+
+The artifact is bytecode, not textual MLIR. This is a separate compilation stage,
+without an EP, optimization or quantization. Default validation reloads/builds
+the artifact and checks I/O; it does not run inference or performance tests.
+
 ## Tutorials and samples
 
 - [ResNet-50 - PyTorch to CGIR (experimental)](../samples/resnet50-cgir.md) walks through
