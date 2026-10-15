@@ -186,8 +186,8 @@ def test_cgc_constant_folding_pad_parameters(opset, shared, has_shape):
 @pytest.mark.parametrize("spatial,output_hw", [
     ((4, 7), (5, 6)), ((1, 5), (3, 1)), ((5, 1), (1, 4)), ((1, 1), (2, 3)),
 ])
-def test_gridsample_to_gather(opset, align, fp16, dynamic, spatial, output_hw):
-    import onnxruntime as ort
+def test_cgc_preserves_native_gridsample(opset, align, fp16, dynamic, spatial, output_hw):
+    from winml.modelkit.optim import WinMLOptimizationConfig
 
     dtype = TensorProto.FLOAT16 if fp16 else TensorProto.FLOAT
     batch_dim = "batch" if dynamic else 2
@@ -201,41 +201,20 @@ def test_gridsample_to_gather(opset, align, fp16, dynamic, spatial, output_hw):
     ], [helper.make_tensor_value_info("Y", dtype, [batch_dim, 3, *output_hw])]),
         opset_imports=[helper.make_opsetid("", opset)], ir_version=10)
     original = model.SerializeToString()
-    result = Optimizer().optimize(model, gridsample_to_gather=True)
+    config = WinMLOptimizationConfig.for_cgc()
+    assert "gridsample_to_gather" not in config
+    assert "gridsample-to-gather" not in CGIRRewritePipe.capabilities
+    result = CGIRRewritePipe().process(model, CGIRRewritePipe.build_config(**config))
     checker.check_model(result, full_check=True)
     assert model.SerializeToString() == original
-    assert not any(node.op_type == "GridSample" for node in result.graph.node)
-    assert sum(node.op_type == "GatherND" for node in result.graph.node) == 4
-    ranks = {value.name: len(value.type.tensor_type.shape.dim)
-             for value in result.graph.value_info}
-    if dynamic:
-        assert sum(node.op_type == "Range" for node in result.graph.node) == 1
-    for node in result.graph.node:
-        if node.op_type == "GatherND":
-            assert {attr.name: helper.get_attribute_value(attr)
-                    for attr in node.attribute}["batch_dims"] == 0
-            assert all(ranks[name] == 3 for name in [*node.input, *node.output])
-    rng = np.random.default_rng(42)
-    options = ort.SessionOptions()
-    options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
-    reference = ort.InferenceSession(original, options, providers=["CPUExecutionProvider"])
-    candidate = ort.InferenceSession(
-        result.SerializeToString(), options, providers=["CPUExecutionProvider"],
-    )
-    for batch in ([1, 2, 3] if dynamic else [2]):
-        feeds = {"X": rng.normal(size=(batch, 3, *spatial)).astype(
-                     np.float16 if fp16 else np.float32),
-                 "grid": rng.uniform(-3, 3, size=(batch, *output_hw, 2)).astype(
-                     np.float16 if fp16 else np.float32)}
-        feeds["grid"].reshape(-1, 2)[:3] = np.linspace(-1, 1, 3)[:, None]
-        expected = reference.run(None, feeds)
-        actual = candidate.run(None, feeds)
-        np.testing.assert_allclose(actual[0], expected[0], atol=2e-3 if fp16 else 2e-6, rtol=2e-3)
+    assert result.SerializeToString() == original
 
 
 @pytest.mark.parametrize("mode,padding", [("nearest", "zeros"), ("linear", "border"),
                                          ("cubic", "reflection")])
-def test_gridsample_to_gather_preserves_unsupported_modes(mode, padding):
+def test_cgc_preserves_other_gridsample_modes(mode, padding):
+    from winml.modelkit.optim import WinMLOptimizationConfig
+
     model = helper.make_model(helper.make_graph([
         helper.make_node("GridSample", ["X", "grid"], ["Y"], mode=mode, padding_mode=padding),
     ], "sampling", [
@@ -244,7 +223,7 @@ def test_gridsample_to_gather_preserves_unsupported_modes(mode, padding):
     ], [helper.make_tensor_value_info("Y", TensorProto.FLOAT, [1, 3, 5, 6])]),
         opset_imports=[helper.make_opsetid("", 20)], ir_version=10)
     result = CGIRRewritePipe().process(
-        model, CGIRRewritePipe.build_config(gridsample_to_gather=True),
+        model, CGIRRewritePipe.build_config(**WinMLOptimizationConfig.for_cgc()),
     )
     assert result is model
 

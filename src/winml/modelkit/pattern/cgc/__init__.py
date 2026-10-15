@@ -8,7 +8,6 @@ from .cgc_constant_folding import cgc_constant_folding
 from .dft_patterns import DFTWithStaticParametersPattern, MatMulDFTPattern
 from .dq_rewrites import normalize_int32_dq
 from .gathernd_patterns import GatherNDWithIdentityIndicesPattern, ReshapedGatherNDPattern
-from .gridsample_patterns import GatherLinearGridSamplePattern, LinearGridSamplePattern
 from .opset_rewrites import deduplicate_opset_imports
 from .prelu_patterns import ExpandedPReluPattern, PReluWithFiniteSlopePattern
 from .resize_patterns import (
@@ -24,9 +23,7 @@ from .resize_patterns import (
 __all__ = [
     "DFTWithStaticParametersPattern",
     "ExpandedPReluPattern",
-    "GatherLinearGridSamplePattern",
     "GatherNDWithIdentityIndicesPattern",
-    "LinearGridSamplePattern",
     "MatMulDFTPattern",
     "PReluWithFiniteSlopePattern",
     "ReshapedGatherNDPattern",
