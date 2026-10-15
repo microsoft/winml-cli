@@ -72,7 +72,7 @@ def _is_epcontext_compiler(value: str) -> TypeGuard[CompilerName]:
 @cli_utils.model_path_option(
     required=False,
     multiple=True,
-    help_text="Input model file (ONNX by default; CGIR input is also supported). "
+    help_text="Input ONNX model file. "
     "Repeat -m to compile multiple ONNX models with a shared "
     "EP context (weight sharing). Required unless --list.",
 )
@@ -92,7 +92,8 @@ def _is_epcontext_compiler(value: str) -> TypeGuard[CompilerName]:
     help="Target device (default: deduced from --ep, or 'npu' if neither given)",
 )
 @cli_utils.device_luid_option(
-    optional_message="Only supported for CGIR to CG Output IR compilation."
+    optional_message="Only supported for CGIR to CG Output IR compilation.",
+    hidden=True,
 )
 @click.option(
     "--ep",
@@ -108,16 +109,15 @@ def _is_epcontext_compiler(value: str) -> TypeGuard[CompilerName]:
 @click.option(
     "--validate/--no-validate",
     default=True,
-    help="Validate compiled model. EPContext: inference; CG Output IR: reload, pipeline "
-    "build and I/O schema (no inference).",
+    help="Validate compiled model with inference.",
 )
 @click.option(
     "--compiler",
     type=click.Choice([*COMPILER_NAMES, "cgc"]),
+    metavar=f"[{'|'.join(COMPILER_NAMES)}]",
     default="ort",
     help="Compiler backend (default: ort). 'ort_session' compiles via "
-    "ort.InferenceSession (ep.context_enable) — required for shared-context multi-model. "
-    "'cgc' compiles CGIR through Windows ML Runtime and is inferred for .mlir/.mlirbc input.",
+    "ort.InferenceSession (ep.context_enable) — required for shared-context multi-model.",
 )
 @click.option(
     "--qnn-sdk-root",
@@ -161,7 +161,7 @@ def compile(
     list_compilers_flag: bool,
     config_file: Path | None,
 ) -> None:
-    r"""Compile ONNX to EPContext, or CGIR to CG Output IR.
+    r"""Compile ONNX to EPContext.
 
     This command compiles an ONNX model to an EP-specific format (e.g., QNN
     EPContext).
@@ -179,9 +179,6 @@ def compile(
 
         # Compile using QAIRT SDK
         winml compile -m model.onnx --compiler qairt --qnn-sdk-root /path/to/sdk
-
-        # Compile CGIR to device-targeted bytecode CG Output IR
-        winml compile -m input.mlir --compiler cgc --device gpu -o output.mlir
     """
     # Merge top-level -v/-q with subcommand-level flags so either position works.
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)

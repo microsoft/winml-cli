@@ -425,6 +425,7 @@ class TestCGCHelpVisibility:
             ("eval", "--backend", "cgc", "backend"),
             ("export", "--target", "cgir", "target"),
             ("export", "--options", "external-weights=true", "target_options"),
+            ("compile", "--device-luid", "0x00000000_0x00000001", "device_luid"),
         ],
     )
     def test_hidden_options_still_parse(
@@ -448,7 +449,7 @@ class TestCGCHelpVisibility:
         for option in command.params:
             if (
                 not isinstance(option, click.Option)
-                or option.name not in ("ep", "reference_ep", "runtime")
+                or option.name not in ("ep", "reference_ep", "runtime", "compiler")
                 or not isinstance(option.type, click.Choice)
             ):
                 continue
@@ -456,7 +457,7 @@ class TestCGCHelpVisibility:
                 visible_choices = [
                     value
                     for value in option.type.choices
-                    if value not in ("winmlcg", "WinMLCGExecutionProvider", "winml-runtime")
+                    if value not in ("winmlcg", "WinMLCGExecutionProvider", "winml-runtime", "cgc")
                 ]
                 assert option.make_metavar(help_ctx) == f"[{'|'.join(visible_choices)}]"
                 help_record = option.get_help_record(help_ctx)
