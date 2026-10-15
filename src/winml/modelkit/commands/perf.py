@@ -565,7 +565,6 @@ class BenchmarkConfig:
     model_id: str
     runtime: RuntimeName = "winml-ort"
     backend: RuntimeBackend | None = None
-    reusable_runtime_io: bool = False
     task: str | None = None
     submodel: str | None = None
     device: str = "auto"
@@ -671,8 +670,6 @@ class BenchmarkResult:
             "schema_version": 2,
             "benchmark_info": {
                 "runtime": self.config.runtime,
-                "io_binding_policy": ("reused_cpu_buffers" if self.config.reusable_runtime_io
-                                      else "per_call"),
                 "backend": resolve_runtime_api_backend(
                     self.config.runtime, self.config.model_id, self.config.backend
                 ),
@@ -1530,10 +1527,6 @@ class PerfBenchmark:
         wrap ``session.perf()``, so the simple no-monitor path cannot fulfill
         it; routing both flags through the same code path guarantees parity.
         """
-        if self.config.runtime == "winml-runtime" and self._runtime_backend == "cgc":
-            assert self._inputs is not None
-            self._single._session.prepare_reusable_io(self._inputs)
-            self.config.reusable_runtime_io = True
         if self.config.monitor or self.config.op_tracing:
             return self._run_benchmark_monitored()
         return self._run_benchmark_simple()
