@@ -666,6 +666,8 @@ _DEVICE_LUID_PATTERN = re.compile(
 def device_luid_option(
     option_name: str = "--device-luid",
     optional_message: str | None = None,
+    *,
+    hidden: bool = False,
 ) -> Callable[[F], F]:
     """Add a LUID-based adapter-selection option."""
     help_text = (
@@ -695,6 +697,7 @@ def device_luid_option(
         default=None,
         callback=validate,
         help=help_text,
+        hidden=hidden,
     )
 
 
