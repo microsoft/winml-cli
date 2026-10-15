@@ -6,7 +6,7 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 
 ## WinML CLI v0.4.0
 
-This cycle adds CGIR and Windows ML Runtime workflows, native PyTorch evaluation, physical-adapter selection, and broader operator profiling. It improves pattern-aware analysis, targeted optimization, model-loading memory measurements, and release evaluation. The release also carries forward the fixes already published in v0.3.1. See the behavior changes below.
+This cycle adds native PyTorch evaluation, physical-adapter selection, broader operator profiling, OpenVINO GenAI support, and a static CLI help banner. It improves pattern-aware analysis, targeted optimization, model-loading memory measurements, and release evaluation. The release also carries forward the fixes already published in v0.3.1. See the behavior changes below.
 
 ### ⚠️ Behavior changes
 
@@ -17,10 +17,11 @@ This cycle adds CGIR and Windows ML Runtime workflows, native PyTorch evaluation
 - **Memory reports** - classic `memory_measurement.schema_version` is now `3`, with revised baseline/delta boundaries; the outer report remains schema version `2`, and load-only measurements use `load_memory.version = 1` (#1429).
 - **Operator tracing** - measured tracing runs default to 10 iterations; explicit iteration overrides remain available (#1406).
 - **Evaluation recipe labels** - recipes previously labelled FP16 without an actual quantization/conversion step are labelled FP32; historical result paths and reference labels are preserved rather than rewritten (#1411).
+- **Public CLI surface** - experimental compiler options are hidden from public help and documentation while explicit arguments remain accepted; runtime behavior and defaults are unchanged (#1469).
 
 ### ✨ Improvements
 
-- **CGIR workflows** - `export`, `config`, `build`, `compile`, `perf`, and `eval` integrate standalone MLIR, Windows ML Runtime with CGC compilation, and ONNX through the WinMLCG EP, using the required preview Runtime/EP packages (#1426).
+- `winml --help` - renders a static gradient capsule banner with the current version and adapts its layout to terminal width without cursor rewriting (#1458).
 - `winml eval --runtime pytorch` - evaluates Hugging Face models natively on CPU or CUDA and accepts existing PyTorch models through the evaluation API, preserving checkpoint dtype and reporting the selected runtime (#1282).
 - `winml eval` - adds independent `--reference-device` and `--reference-ep` controls for ONNX comparison and integrates the shared device-selection path (#1324, #1412).
 - `winml perf --device-luid` - selects the physical adapter reported by `winml sys`, keeps inference and monitoring on that adapter, and distinguishes identical GPUs; the option does not apply to `ort-genai` (#1398).
@@ -31,11 +32,11 @@ This cycle adds CGIR and Windows ML Runtime workflows, native PyTorch evaluation
 - `winml analyze` - evaluates matched subgraphs with pattern-level runtime rules before operator-level fallback, reports pattern coverage, and includes optimization findings in JSON output (#1218, #1285).
 - `winml optimize` - adds EP/device targeting, displays custom operator domains, and accelerates capability checks (#1256, #1306, #1298).
 - **Graph optimization** - adds routed affine and positive-Exp scale folding while preserving fast QNN grouped-convolution regions (#1301, #1317).
-- **Qwen3 GenAI bundles** - shares decoder context/iterator weights through a common EP context and adds VitisAI support for the transformer stages (#1305).
+- **Qwen3 GenAI bundles** - shares decoder context/iterator weights through a common EP context and adds VitisAI and OpenVINO NPU/GPU support for the transformer stages; OpenVINO settings participate in cache identity, explicit provider options override matching defaults, and generated responses appear in perf reports and JSON (#1305, #1461).
 - **Model caches** - unifies cache/rebuild controls across build, eval, and perf; evaluation enables model-cache reuse by default and reports controls that do not apply to prebuilt inputs (#1269, #1270, #1271).
 - `winml export --batch-size` - supports validated static batch sizes and carries them through input specifications and export metadata (#1315).
 - **Model adapters** - adds the Unlimited-OCR vision tower for feature extraction and audeering Wav2Vec2 dimensional-emotion speech regression (#1018, #1084).
-- **Vision recipes** - adds CPU configurations for RT-DETR, ViTPose, and OWLv2 zero-shot detection, plus QNN NPU LayoutLM document-QA configurations (#1190, #1189, #1196, #1296, #1369).
+- **Vision recipes** - adds CPU configurations for RT-DETR, ViTPose, and OWLv2 zero-shot detection, plus QNN NPU LayoutLM document-QA and FP32 ViTPose keypoint-detection configurations (#1190, #1189, #1196, #1296, #1369, #1419).
 - **Language recipes** - adds mMARCO MiniLM, NLI MiniLM, multilingual E5, and Spanish BERT configurations (#1191, #1192, #1210, #1185).
 - **Audio recipes** - adds Wav2Vec2 deepfake classification, MMS-1B-all CPU configurations, and a QNN NPU W8A16 configuration for dimensional-emotion regression (#1194, #1177, #1318).
 
@@ -48,6 +49,10 @@ This cycle adds CGIR and Windows ML Runtime workflows, native PyTorch evaluation
 - **ViTPose export** - derives dummy inputs from the model configuration (#1299).
 - **Compiled-model caches** - keys EPContext reuse by compile identity and handles multiple QNN EP context partitions in perf (#1295, #1361).
 - **GenAI perf** - honors the selected device and EP during automatic builds and aligns performance metric schemas (#1404, #1307).
+- `winml build` - honors CLI optimization bypass for Hugging Face and direct-ONNX builds, including composite-model components, while preserving configured quantization, compilation, and finalization (#1401).
+- `winml config` - displays the effective FP16 mode rather than integer weight/activation defaults in configuration summaries (#1444).
+- `winml perf` - uses a format-neutral artifact label in model summaries (#1443).
+- **Installed packages** - bundles the provider validity mapping in both wheel and source distributions so installed CLI builds can resolve valid EP/device pairs (#1436, #1452).
 - **Performance monitoring** - corrects multi-GPU monitoring, preserves memory baselines, and distinguishes unavailable measurements from real samples (#1313, #1414).
 - **Runtime initialization** - includes CPU in vendor compatibility, lazily loads session backends and monitors, and removes the manual ONNX Runtime DLL preload path (#1303, #1382, #1380).
 - `winml analyze` - repairs schema fallback for runtime-specific operators (#1304).
@@ -61,10 +66,11 @@ This cycle adds CGIR and Windows ML Runtime workflows, native PyTorch evaluation
 - **LLM evaluation** - adds a schema-normalized evaluation runner (#1277).
 - **E2E stability** - isolates native EP CLI invocations in subprocesses, improves shared-RDP GPU coverage, and updates memory assertions to the current RAM label (#1416, #1418, #1430).
 - **GitHub releases** - uses the GitHub App service connection and preserves UTF-8 release notes, including BOM-aware output for release tasks (#1292, #1293).
-- **CI supply chain** - pins GitHub Actions, updates action dependencies, and introduces a seven-day Dependabot cooldown (#1408, #1409).
+- **CI supply chain** - pins GitHub Actions, updates action dependencies, and introduces a seven-day Dependabot cooldown (#1408, #1409, #1455, #1460).
 - **Dependency maintenance** - updates aiohttp, cryptography, Jupyter dependencies, and the Windows ML ONNX Runtime compatibility range; removes unused Jupyter server packages from the development dependency set (#1278, #1279, #1216, #1386, #1423).
 - **Runtime dispatch** - centralizes perf runtime names in shared constants (#1345).
-- **Contributor workflows** - adds skills for model-support contributions and correctness-gated auto-optimization (#1415, #1428).
+- **Contributor workflows** - adds skills and guides for model-support contributions and correctness-gated auto-optimization, with evidence-bound delivery requirements (#1415, #1428, #1445, #1446, #1457).
+- **Experimental compiler integration** - updates internal export/runtime workflows and toolbox compatibility, binds concrete input shapes before compilation, removes obsolete compatibility rewrites, and retains an opt-in topological-sort override (#1426, #1435, #1437, #1438, #1465).
 - **Release-line synchronization** - carries the v0.3.0 and v0.3.1 release changes back to main, including the dataset-ID and native-warning-spooling fixes already shipped through earlier release cherry-picks (#1291, #1397, #1262, #1266).
 
 ### 📦 Assets
