@@ -87,7 +87,7 @@ def _resolve_runtime(runtime: RuntimeName, model: str) -> RuntimeName:
     model_path = Path(model)
     if model_path.is_dir() and (model_path / "genai_config.json").is_file():
         return "ort-genai"
-    if model_path.suffix.lower() == ".mlir":
+    if model_path.suffix.lower() in (".mlir", ".gguf"):
         return "winml-runtime"
     return "winml-ort"
 
@@ -2337,7 +2337,7 @@ def generate_output_path(
     polluting CWD (see #551). The timestamp is generated at call time using
     local time, format ``YYYYMMDD-HHMMSS``.
 
-    For ONNX inputs, the file stem is used as the slug
+    For ONNX, MLIR, and GGUF inputs, the file stem is used as the slug
     (e.g., ``model.onnx`` -> ``model``). For HF model IDs, ``/`` and ``\``
     are replaced with ``_`` (e.g., ``microsoft/resnet-50`` ->
     ``microsoft_resnet-50``). A ``submodel`` (composite sub-component) is nested
@@ -2346,7 +2346,7 @@ def generate_output_path(
     p = Path(model_id)
     slug = (
         p.stem
-        if p.suffix.lower() in {".onnx", ".mlir"}
+        if p.suffix.lower() in {".onnx", ".mlir", ".gguf"}
         else model_id.replace("/", "_").replace("\\", "_")
     )
 
@@ -2733,6 +2733,26 @@ def _autobuild_genai_bundle(
     return bundle_dir, True
 
 
+def _resolve_prompt(ctx: click.Context) -> str:
+    """Return the generation prompt from ``--prompt`` or ``--prompt-file``.
+
+    Shared by the generation runtimes (``ort-genai`` and GGUF).
+    """
+    p = ctx.params
+    prompt: str = p["prompt"]
+    prompt_file: Path | None = p.get("prompt_file")
+    if prompt_file is not None:
+        if cli_utils.is_cli_provided(ctx, "prompt"):
+            raise click.UsageError("--prompt and --prompt-file are mutually exclusive.")
+        try:
+            prompt = prompt_file.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            raise click.ClickException(
+                f"Could not read prompt file '{prompt_file}': {exc}"
+            ) from exc
+    return prompt
+
+
 def _run_genai_runtime(
     ctx: click.Context, *, model: str, console: Console, json_mode: bool
 ) -> None:
@@ -2831,17 +2851,7 @@ def _run_genai_runtime(
             output = genai_output_path(bundle_dir)
         cli_utils.guard_output(output, p["overwrite"])
 
-        prompt = p["prompt"]
-        prompt_file: Path | None = p.get("prompt_file")
-        if prompt_file is not None:
-            if cli_utils.is_cli_provided(ctx, "prompt"):
-                raise click.UsageError("--prompt and --prompt-file are mutually exclusive.")
-            try:
-                prompt = prompt_file.read_text(encoding="utf-8")
-            except (OSError, UnicodeError) as exc:
-                raise click.ClickException(
-                    f"Could not read prompt file '{prompt_file}': {exc}"
-                ) from exc
+        prompt = _resolve_prompt(ctx)
 
         config = GenaiPerfConfig(
             bundle_dir=bundle_dir,
@@ -2861,6 +2871,109 @@ def _run_genai_runtime(
             output_path=output,
         )
         run_genai_perf(config, console=console, json_mode=json_mode)
+
+
+# perf() param names that select a benchmark target a GGUF file cannot honor
+# (an ONNX EP, ONNX-only inputs, or model-graph surgery), mapped to the flag.
+# They are rejected rather than ignored so a run never silently measures
+# something other than what was asked for.
+_GGUF_REJECTED_FLAGS: dict[str, str] = {
+    "backend": "--backend",
+    "ep": "--ep",
+    "ep_options": "--ep-options",
+    "device_luid": "--device-luid",
+    "input_data": "--input-data",
+    "module_class": "--module",
+    "submodel": "--submodel",
+}
+
+# WinML build and ONNX-only options a prebuilt GGUF file ignores, warned like a
+# prebuilt genai bundle does.
+_GGUF_IGNORED_FLAGS: dict[str, str] = {
+    **_GENAI_IGNORED_FLAGS,
+    "no_compile": "--compile/--no-compile",
+    "compile_timeout": "--compile-timeout",
+    "monitor": "--monitor/--no-monitor",
+    "top_k": "--top-k",
+    "compare_devices": "--compare-devices",
+    "config_file": "--config",
+}
+
+
+def _run_gguf_runtime(
+    ctx: click.Context,
+    *,
+    model: str,
+    runtime: RuntimeName,
+    console: Console,
+    json_mode: bool,
+) -> None:
+    """Validate a ``.gguf`` input and dispatch to the experimental llama.cpp benchmark.
+
+    GGUF files use Windows ML Tasks over the Runtime llama.cpp backend, which
+    ships only in optional preview packages. The GGUF imports are
+    function-local so ``winml perf --help`` and the other runtimes never load
+    them.
+    """
+    from ._perf_gguf import GGUFPerfConfig, run_gguf_perf
+
+    if runtime != "winml-runtime":
+        raise click.UsageError(
+            "GGUF models run on the Windows ML Runtime llama.cpp backend; --runtime "
+            f"{runtime} cannot load '{model}'. Use --runtime winml-runtime or auto."
+        )
+    rejected = [
+        flag
+        for param, flag in _GGUF_REJECTED_FLAGS.items()
+        if cli_utils.is_cli_provided(ctx, param)
+    ]
+    if rejected:
+        raise click.UsageError(
+            f"{', '.join(rejected)} cannot be used with a GGUF model: llama.cpp runs the "
+            "whole model as one decoder stage and selects its own CPU or GPU backend."
+        )
+    p = ctx.params
+    requested_device = str(p["device"]).lower()
+    if requested_device not in ("auto", "cpu", "gpu"):
+        raise click.UsageError(
+            f"--device {requested_device} is not supported for GGUF models. Use --device cpu, "
+            "or --device gpu with a llama.cpp GPU backend installed."
+        )
+    model_path = Path(model)
+    if not model_path.is_file():
+        raise click.UsageError(f"GGUF file not found: {model}")
+
+    ignored = [
+        flag for param, flag in _GGUF_IGNORED_FLAGS.items() if cli_utils.is_cli_provided(ctx, param)
+    ]
+    if ignored:
+        console.print(
+            "[yellow]Warning:[/yellow] the following options are ignored for GGUF models: "
+            f"{', '.join(sorted(ignored))}"
+        )
+
+    # A full generation is far costlier than one session.run(): default to
+    # fewer iterations/warmup unless the user set them explicitly (as ort-genai).
+    iterations = p["iterations"] if cli_utils.is_cli_provided(ctx, "iterations") else 10
+    warmup = p["warmup"] if cli_utils.is_cli_provided(ctx, "warmup") else 2
+    output = p.get("output") or generate_output_path(str(model_path))
+    cli_utils.guard_output(output, p["overwrite"])
+    prompt = _resolve_prompt(ctx)
+
+    config = GGUFPerfConfig(
+        model_path=model_path,
+        # The CPU backend always ships with the llama.cpp payload; GPU is opt-in.
+        device="cpu" if requested_device == "auto" else requested_device,
+        requested_device=requested_device,
+        prompt=prompt,
+        apply_template=p["apply_template"],
+        max_new_tokens=p["max_new_tokens"],
+        iterations=iterations,
+        warmup=warmup,
+        memory=bool(p.get("memory")),
+        output_path=output,
+    )
+    run_gguf_perf(config, console=console, json_mode=json_mode)
 
 
 def _resolve_composite_components_for_perf(model: str, task: str | None) -> dict[str, str] | None:
@@ -2907,7 +3020,13 @@ def _validate_duration(
 
 
 @click.command("perf")
-@cli_utils.model_option(required=False)
+@cli_utils.model_option(
+    required=False,
+    optional_message=(
+        "A .gguf file runs on llama.cpp through Windows ML Tasks "
+        "(experimental; requires preview Windows ML packages)"
+    ),
+)
 @click.option(
     "--runtime",
     type=click.Choice(list(RUNTIME_NAMES)),
@@ -2915,7 +3034,8 @@ def _validate_duration(
     show_default=True,
     metavar=f"[{'|'.join(name for name in RUNTIME_NAMES if name != 'winml-runtime')}]",
     help="'auto' selects ort-genai for folders containing genai_config.json, "
-    "otherwise winml-ort. "
+    "Windows ML Tasks on llama.cpp for .gguf files (experimental; requires preview "
+    "Windows ML packages), otherwise winml-ort. "
     "'winml-ort' benchmarks single-shot ONNX inference; "
     "'ort-genai' benchmarks an onnxruntime-genai bundle folder "
     "(LLM generation: TTFT + decode tokens/sec).",
@@ -2933,21 +3053,21 @@ def _validate_duration(
     type=str,
     default="Explain the theory of relativity in simple terms.",
     show_default=True,
-    help="[ort-genai] Prompt text to generate from. By default it is wrapped in "
-    "the bundle's chat template; pass --no-apply-template to benchmark it verbatim.",
+    help="[ort-genai, GGUF] Prompt text to generate from. By default it is wrapped in "
+    "the model's chat template; pass --no-apply-template to benchmark it verbatim.",
 )
 @click.option(
     "--prompt-file",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     default=None,
-    help="[ort-genai] Read the prompt from a UTF-8 text file. Mutually exclusive "
+    help="[ort-genai, GGUF] Read the prompt from a UTF-8 text file. Mutually exclusive "
     "with an explicit --prompt; avoids command-line length limits for long contexts.",
 )
 @click.option(
     "--apply-template/--no-apply-template",
     default=True,
     show_default=True,
-    help="[ort-genai] Wrap --prompt in the bundle's chat template before timing. "
+    help="[ort-genai, GGUF] Wrap --prompt in the model's chat template before timing. "
     "Use --no-apply-template to benchmark a prompt that is already formatted.",
 )
 @click.option(
@@ -2955,7 +3075,7 @@ def _validate_duration(
     type=click.IntRange(min=1),
     default=128,
     show_default=True,
-    help="[ort-genai] Number of new tokens to generate per iteration.",
+    help="[ort-genai, GGUF] Number of new tokens to generate per iteration.",
 )
 @click.option(
     "--compile-timeout",
@@ -3215,6 +3335,9 @@ def perf(
 
         # Operator-level profiling (QNN NPU)
         winml perf -m model.onnx --op-tracing basic
+
+        # GGUF language model on llama.cpp (experimental; preview packages)
+        winml perf -m qwen2.5-0.5b-instruct-q4_k_m.gguf --device cpu
     """
     if not model:
         raise click.UsageError("A model is required via -m/--model.")
@@ -3248,6 +3371,7 @@ def perf(
         raise click.ClickException(f"Failed to resolve Hub-hosted ONNX path {model!r}: {e}") from e
     model = hf_model
     runtime = _resolve_runtime(runtime, model)
+    is_gguf = Path(model).suffix.lower() == ".gguf"
     try:
         effective_backend = resolve_runtime_api_backend(runtime, model, backend)
     except ValueError as error:
@@ -3292,12 +3416,19 @@ def perf(
             elif "execution_provider" in cc:
                 ep = (cc["execution_provider"], None)
 
-    if runtime == "winml-runtime" and ep_provider_options:
+    if runtime == "winml-runtime" and ep_provider_options and not is_gguf:
         logger.warning("--ep-options are ignored with --runtime winml-runtime.")
         ep_provider_options = None
 
     json_mode = output_format == "json"
     console = SafeConsole(stderr=True) if json_mode else SafeConsole()
+
+    # =========================================================================
+    # GGUF (experimental): Windows ML Tasks over a Runtime llama.cpp pipeline
+    # =========================================================================
+    if is_gguf:
+        _run_gguf_runtime(ctx, model=model, runtime=runtime, console=console, json_mode=json_mode)
+        return
 
     # =========================================================================
     # GENAI RUNTIME: benchmark an onnxruntime-genai bundle folder

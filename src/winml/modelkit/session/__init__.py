@@ -50,6 +50,15 @@ if TYPE_CHECKING:
         GenerationConfig,
         GenerationTiming,
     )
+    from .llama_session import (
+        LlamaGenerationTiming,
+        LlamaLoadError,
+        LlamaNotInstalledError,
+        LlamaPayload,
+        LlamaSessionError,
+        WinMLLlamaSession,
+        llama_package_versions,
+    )
     from .monitor import NvTensorRTRTXMonitor
     from .monitor.ep_monitor import EPMonitor, NullEPMonitor, WinMLEPMonitor
     from .monitor.hw_monitor import HWMonitor
@@ -105,6 +114,13 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "GenaiSessionError": (".genai_session", "GenaiSessionError"),
     "GenerationConfig": (".genai_session", "GenerationConfig"),
     "GenerationTiming": (".genai_session", "GenerationTiming"),
+    "LlamaGenerationTiming": (".llama_session", "LlamaGenerationTiming"),
+    "LlamaLoadError": (".llama_session", "LlamaLoadError"),
+    "LlamaNotInstalledError": (".llama_session", "LlamaNotInstalledError"),
+    "LlamaPayload": (".llama_session", "LlamaPayload"),
+    "LlamaSessionError": (".llama_session", "LlamaSessionError"),
+    "WinMLLlamaSession": (".llama_session", "WinMLLlamaSession"),
+    "llama_package_versions": (".llama_session", "llama_package_versions"),
     "EPMonitor": (".monitor.ep_monitor", "EPMonitor"),
     "NullEPMonitor": (".monitor.ep_monitor", "NullEPMonitor"),
     "WinMLEPMonitor": (".monitor.ep_monitor", "WinMLEPMonitor"),
@@ -146,6 +162,11 @@ __all__ = [
     "GenerationTiming",
     "HWMonitor",
     "InferenceError",
+    "LlamaGenerationTiming",
+    "LlamaLoadError",
+    "LlamaNotInstalledError",
+    "LlamaPayload",
+    "LlamaSessionError",
     "NullEPMonitor",
     "NvTensorRTRTXMonitor",
     "OpenVinoMonitor",
@@ -163,6 +184,7 @@ __all__ = [
     "WinMLEPNotDiscovered",
     "WinMLEPRegistrationFailed",
     "WinMLEPRegistry",
+    "WinMLLlamaSession",
     "WinMLQairtSession",
     "WinMLRuntimeSession",
     "WinMLSession",
@@ -177,6 +199,7 @@ __all__ = [
     "expand_ep_name",
     "import_runtime",
     "known_ep_short_names",
+    "llama_package_versions",
     "lookup_device_spec",
     "resolve_device",
     "short_ep_name",
