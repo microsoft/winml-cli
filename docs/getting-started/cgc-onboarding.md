@@ -144,6 +144,58 @@ winml export -m .\model.onnx --target cgir -o .\model.mlir
 
 The model must already be compatible with the CGC converter.
 
+### Fix dynamic input dimensions
+
+CGIR export automatically freezes a symbolic input dimension named `batch_size`
+to 1 unless explicitly overridden, and prints a warning. If other named input
+dimensions remain dynamic, conversion stops with the input names, axis indices,
+missing dimensions, and a `freeze-dims` option template. Substitute your
+deployment dimensions; freezing specializes the artifact, not the input images.
+
+Use the same repeatable `--cgc-options KEY=VALUE` syntax for export, config, and build.
+For example, for a model whose input symbols are `dynamic_height` and
+`dynamic_width`:
+
+```powershell
+winml export -m .\model.onnx --target cgir -o .\model.mlir `
+  --cgc-options "freeze-dims=dynamic_height=720,dynamic_width=1280"
+
+winml config -m .\model.onnx --backend cgc -o .\build.json `
+  --cgc-options "freeze-dims=dynamic_height=720,dynamic_width=1280"
+winml build -m .\model.onnx -c .\build.json -o .\model-cgir
+
+winml build -m .\model.onnx --backend cgc -o .\model-cgir-direct `
+  --cgc-options "freeze-dims=dynamic_height=720,dynamic_width=1280"
+```
+
+Config generation stores these values in `convert.options`, for example:
+
+```json
+{
+  "convert": {
+    "target": "cgir",
+    "options": {
+      "freeze-dims": "dynamic_height=720,dynamic_width=1280"
+    }
+  }
+}
+```
+
+This is a config fragment. CLI options override config values per option key:
+supplying `freeze-dims` replaces the entire configured dimension list, not
+individual dimensions. Include all required explicit overrides in that list.
+Other option keys are preserved. Options are only accepted for CGIR conversion.
+
+Config generation checks the `KEY=VALUE` format and stores the options without
+inspecting dynamic inputs. Option names, types, and dimension assignments are
+validated by the existing CGIR exporter when conversion runs.
+Build checks input dimensions at its existing CGIR conversion stage, after
+optimization and quantization. The source ONNX file is not modified by freezing.
+Unnamed dynamic axes or unknown input rank cannot be resolved by `freeze-dims`;
+their handling and diagnostics are left to the compiler.
+Fixing input dimensions does not guarantee support for data-dependent shapes
+or all operators.
+
 ### CGIR to device-targeted CG Output IR
 
 To retain a compiled artifact from existing CGIR, use the explicit
