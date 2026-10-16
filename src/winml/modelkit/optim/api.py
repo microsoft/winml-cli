@@ -182,6 +182,8 @@ def optimize_onnx(
         **capabilities: Individual capability overrides using snake_case names.
             e.g., gelu_fusion=True, layer_norm_fusion=True.
             These have the highest precedence over config values.
+            cgc_freezedim supplies NAME=SIZE pairs for CGC constant folding
+            without enabling it; use the same dimensions during conversion.
 
     Returns:
         Optimized ModelProto.
@@ -251,6 +253,8 @@ def optimize_onnx(
 
     # Step 8: Convert to kwargs format for Optimizer
     optimizer_kwargs = _convert_to_kwargs(resolved_config, all_caps)
+    if "cgc_freezedim" in capabilities:
+        optimizer_kwargs["cgc_freezedim"] = capabilities["cgc_freezedim"]
 
     # Step 9: Run optimization
     logger.info("Starting optimization pipeline...")

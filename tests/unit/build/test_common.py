@@ -113,3 +113,29 @@ class TestAllowUnsupportedNodesGate:
         # No raise; loop returns its 5-tuple and logs a warning.
         assert result[0] == optimized
         assert "Unsupported nodes persist" in caplog.text
+
+
+@pytest.mark.parametrize("key", ["freeze-dims", "freeze_dims"])
+def test_cgc_freezedim_reaches_initial_and_autoconf_optimization(tmp_path: Path, key: str) -> None:
+    from winml.modelkit.export.config import WinMLExportConfig
+    from winml.modelkit.optim import WinMLOptimizationConfig
+
+    config = _config()
+    options = {key: "h=3,w=5", "external-weights": True}
+    config.convert = WinMLExportConfig(target="cgir", options=options)
+    first = _errored_analysis()
+    first.optimization_config = WinMLOptimizationConfig(cgc_constant_folding=True)
+    p_opt, p_analyze, p_copy = _patched_loop(tmp_path)
+    with p_opt as optimize, p_analyze as analyze, p_copy:
+        analyze.side_effect = [first, _errored_analysis()]
+        run_optimize_analyze_loop(
+            tmp_path / "in.onnx", tmp_path / "out.onnx", config,
+            max_optim_iterations=1, allow_unsupported_nodes=True,
+        )
+    assert optimize.call_count == 2
+    for call in optimize.call_args_list:
+        assert call.kwargs["cgc_freezedim"] == "h=3,w=5"
+        assert "options" not in call.kwargs
+        assert "external_weights" not in call.kwargs
+        assert "external-weights" not in call.kwargs
+    assert config.convert.options == options

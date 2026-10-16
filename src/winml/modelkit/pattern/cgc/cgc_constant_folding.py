@@ -18,6 +18,8 @@ from typing import cast
 
 import numpy as np
 from onnx import (
+    AttributeProto,
+    GraphProto,
     ModelProto,
     TensorProto,
     ValueInfoProto,
@@ -34,7 +36,7 @@ _MAX_NODES = 128
 _MAX_CACHED_ELEMENTS = 1048576
 _OPERATORS = {"ConstantOfShape", "Concat", "Reshape", "Slice", "Transpose", "Cast"}
 _SHAPE_OPERATORS = _OPERATORS | {
-    "Mod", "Add", "Sub", "Mul", "Div", "Squeeze", "Unsqueeze", "Gather", "Equal", "Where",
+    "Mod", "Neg", "Add", "Sub", "Mul", "Div", "Squeeze", "Unsqueeze", "Gather", "Equal", "Where",
 }
 _BROADCAST_OPERATORS = {"Mod", "Add", "Sub", "Mul", "Div", "Equal", "Where"}
 _INTEGER_TYPES = {
@@ -168,13 +170,59 @@ class _ConstantParameters:
             active.remove(name)
 
 
-def cgc_constant_folding(model: ModelProto) -> ModelProto:
+def _dimension_overrides(value: str) -> dict[str, int]:
+    if not isinstance(value, str):
+        raise TypeError("freeze-dims must be a comma-separated NAME=SIZE string")
+    overrides: dict[str, int] = {}
+    for assignment in value.split(",") if value.strip() else []:
+        name, separator, raw_size = assignment.partition("=")
+        name = name.strip()
+        if not separator or not name or name in overrides:
+            raise ValueError(f"Invalid or duplicate freeze-dims assignment: {assignment!r}")
+        try:
+            size = int(raw_size)
+        except ValueError as error:
+            raise ValueError(f"Invalid freeze-dims size: {assignment!r}") from error
+        if size <= 0:
+            raise ValueError(f"freeze-dims size must be positive: {assignment!r}")
+        overrides[name] = size
+    return overrides
+
+
+def _infer_for_folding(model: ModelProto, overrides: dict[str, int]) -> ModelProto:
+    if overrides:
+        inferred = ModelProto()
+        inferred.CopyFrom(model)
+
+        def apply(graph: GraphProto) -> None:
+            for value in [*graph.input, *graph.value_info, *graph.output]:
+                if value.type.HasField("tensor_type"):
+                    for dimension in value.type.tensor_type.shape.dim:
+                        if dimension.dim_param in overrides:
+                            dimension.dim_value = overrides[dimension.dim_param]
+            for node in graph.node:
+                for attr in node.attribute:
+                    if attr.type == AttributeProto.GRAPH:
+                        apply(attr.g)
+                    elif attr.type == AttributeProto.GRAPHS:
+                        for subgraph in attr.graphs:
+                            apply(subgraph)
+
+        apply(inferred.graph)
+        model = inferred
+    return shape_inference.infer_shapes(model, strict_mode=True, data_prop=True)
+
+
+def cgc_constant_folding(
+    model: ModelProto, *, cgc_freezedim: str = "",
+) -> ModelProto:
     """Fill FoundryToolbox constant-folding gaps for static Shape chains.
 
     Only the main graph is changed. Graphs containing Shape fold bounded integer/boolean chains
-    to a fixed point with shape inference. This never freezes symbolic input
-    dimensions: callers must specialize inputs explicitly before this rule when
-    required. Casts of runtime data, including floating-point outputs, remain.
+    to a fixed point with shape inference. Explicit freeze-dims are used only in
+    an inference copy; input dimension declarations are not frozen here. The
+    folded graph requires the same overrides at conversion time. Casts of runtime
+    data, including floating-point outputs, remain.
     """
     if not any(node.op_type == "Shape" and node.domain in {"", "ai.onnx"}
                for node in model.graph.node):
@@ -182,14 +230,17 @@ def cgc_constant_folding(model: ModelProto) -> ModelProto:
     versions = {item.version for item in model.opset_import if item.domain in {"", "ai.onnx"}}
     if len(versions) != 1 or next(iter(versions)) < 11:
         return model
+    overrides = _dimension_overrides(cgc_freezedim)
     rewritten = ModelProto()
     rewritten.CopyFrom(model)
     changed = False
     for _iteration in range(32):
         for value_info in rewritten.graph.value_info:
             value_info.type.tensor_type.ClearField("shape")
-        rewritten = shape_inference.infer_shapes(rewritten, strict_mode=True, data_prop=True)
-        evaluator = _ConstantParameters(rewritten, static_shapes=True)
+        inferred = _infer_for_folding(rewritten, overrides)
+        if not overrides:
+            rewritten = inferred
+        evaluator = _ConstantParameters(inferred, static_shapes=True)
         folded = 0
         for node in rewritten.graph.node:
             if node.op_type == "Constant" or len(node.output) != 1:
