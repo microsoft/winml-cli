@@ -33,7 +33,6 @@ import hashlib
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -43,6 +42,7 @@ import pytest
 from click.testing import CliRunner
 from onnx import TensorProto, helper
 
+from scripts.e2e_eval.winml_cli import cli_command
 from tests.e2e.require_ep import require_ep, require_not_ep
 from winml.modelkit.commands.compile import compile as compile_cmd
 from winml.modelkit.onnx import is_compiled_onnx
@@ -74,7 +74,7 @@ def _run_winml_cli_subprocess(
 ) -> subprocess.CompletedProcess[str]:
     """Run the real winml CLI entry point in a fresh Python process."""
     return subprocess.run(  # noqa: S603 -- trusted args from the test body
-        [sys.executable, "-m", "winml.modelkit", *args],
+        [*cli_command(), *args],
         capture_output=True,
         encoding="utf-8",
         errors="replace",

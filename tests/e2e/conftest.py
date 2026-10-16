@@ -28,6 +28,8 @@ import pytest
 from onnx import TensorProto, helper
 from PIL import Image
 
+from scripts.e2e_eval.winml_cli import openvino_gpu_allocators
+
 
 if TYPE_CHECKING:
     from click.testing import CliRunner
@@ -42,6 +44,13 @@ def pytest_configure(config: pytest.Config) -> None:
     it never affects the shipped CLI outside the test harness.
     """
     os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "60")
+
+
+@pytest.fixture(autouse=True)
+def _openvino_gpu_allocator_workaround():
+    """Apply the same E2E options to in-process CliRunner/API tests."""
+    with openvino_gpu_allocators():
+        yield
 
 
 # ---------------------------------------------------------------------------
