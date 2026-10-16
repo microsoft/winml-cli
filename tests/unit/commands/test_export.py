@@ -106,7 +106,7 @@ class TestExportCLIInterface:
                     str(output),
                     "--target",
                     "cgir",
-                    "--options",
+                    "--cgc-options",
                     "external-weights=true",
                 ],
             )
@@ -147,7 +147,7 @@ class TestExportCLIInterface:
             args += ["--target", settings["target"]]
             if not override:
                 for key, value in settings["options"].items():
-                    args += ["--options", f"{key}={value}"]
+                    args += ["--cgc-options", f"{key}={value}"]
         elif config_flag == "both":
             build_path = tmp_path / "build.json"
             build_path.write_text(json.dumps({"export": settings}))
@@ -156,7 +156,10 @@ class TestExportCLIInterface:
         else:
             args += [config_flag, str(config_path)]
         if override:
-            args += ["--options", "external-weights=true", "--options", "external-weights=false"]
+            args += [
+                "--cgc-options", "external-weights=true",
+                "--cgc-options", "external-weights=false",
+            ]
         method = "export_onnx" if onnx_input else "export_pytorch"
         with (
             patch.object(CGCExporter, method, autospec=True) as backend,
@@ -1566,7 +1569,7 @@ class TestExportCGC:
                     str(output_path),
                     "--target",
                     "cgir",
-                    "--options",
+                    "--cgc-options",
                     "external-weights=true",
                 ],
                 obj={"debug": False},

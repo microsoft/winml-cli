@@ -106,18 +106,7 @@ def _warn_partial_composite(completed: list[Path]) -> None:
     hidden=True,
     help="Export target.",
 )
-@click.option(
-    "--options",
-    "target_options",
-    multiple=True,
-    metavar="KEY=VALUE",
-    hidden=True,
-    help=(
-        "Additional target options (repeatable). CGIR supports external-weights, "
-        "update-opset, topo-sort-nodes, and freeze-dims "
-        "(for example freeze-dims=batch=1,seq=128)."
-    ),
-)
+@cli_utils.cgc_options_option()
 @click.option(
     "--batch-size",
     type=click.IntRange(min=1),
@@ -198,7 +187,7 @@ def export(
     output: Path,
     overwrite: bool,
     target: ExportTarget,
-    target_options: tuple[str, ...],
+    cgc_options: tuple[str, ...],
     batch_size: int,
     verbose: int,
     quiet: bool,
@@ -343,10 +332,10 @@ def export(
     for settings in (_build_export_dict, export_config_dict):
         if not cli_utils.is_cli_provided(ctx, "target") and "target" in settings:
             target = settings["target"]
-        if not cli_utils.is_cli_provided(ctx, "target_options") and "options" in settings:
-            target_options = tuple(f"{key}={value}" for key, value in settings["options"].items())
+        if not cli_utils.is_cli_provided(ctx, "cgc_options") and "options" in settings:
+            cgc_options = tuple(f"{key}={value}" for key, value in settings["options"].items())
 
-    exporter = _get_exporter(target, target_options)
+    exporter = _get_exporter(target, cgc_options)
 
     if model_input is not None and model_input.kind is ModelInputKind.ONNX_FILE:
         if exporter is None:
@@ -678,7 +667,7 @@ def export(
 
 def _get_exporter(
     target: ExportTarget,
-    target_options: tuple[str, ...],
+    cgc_options: tuple[str, ...],
 ) -> CGCExporter | None:
     """Create the optional exporter for a non-default target."""
     from ..export.cgc import CGCExporter
@@ -691,15 +680,15 @@ def _get_exporter(
     }
     exporter_type = exporter_types.get(target)
     if exporter_type is None:
-        if target_options:
-            raise click.UsageError("--options requires --target cgir")
+        if cgc_options:
+            raise click.UsageError("--cgc-options requires --target cgir")
         return None
 
     try:
         options = cli_utils.parse_options(
-            target_options,
+            cgc_options,
             exporter_type.options_type,
-            param_hint="--options",
+            param_hint="--cgc-options",
         )
         return exporter_type(options)
     except click.ClickException:

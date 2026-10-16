@@ -19,8 +19,60 @@ from unittest.mock import MagicMock, patch
 if TYPE_CHECKING:
     from pathlib import Path
 
+import click
 import pytest
 from click.testing import CliRunner, Result
+
+from winml.modelkit.commands.config import _apply_cgc_options
+from winml.modelkit.utils.cli import parse_options
+
+
+@pytest.mark.parametrize("key", ["freeze_dims", "freeze-dims"])
+def test_cgc_options_replace_whole_value_and_preserve_other_keys(key):
+    from winml.modelkit.config import WinMLBuildConfig
+    from winml.modelkit.export import WinMLExportConfig
+    from winml.modelkit.export.cgc import CGCExporter, CGCOptions
+
+    config = WinMLBuildConfig(convert=WinMLExportConfig(
+        target="cgir", options={key: "height=3,width=4", "external_weights": True},
+    ))
+    value = "height=7"
+    _apply_cgc_options(config, (f" {key} = {value} ", "update-opset=false"))
+    assert config.convert.options == {
+        "freeze-dims": value, "external-weights": True, "update-opset": "false",
+    }
+    restored = WinMLBuildConfig.from_dict(json.loads(json.dumps(config.to_dict())))
+    parsed = parse_options(
+        tuple(f"{name}={value}" for name, value in restored.convert.options.items()),
+        CGCOptions,
+    )
+    assert parsed.freeze_dims == value
+    assert parsed.external_weights is True
+    assert parsed.update_opset is False
+    assert CGCExporter(parsed)._freeze_dims == {"height": int(value.partition("=")[2])}
+
+
+@pytest.mark.parametrize("option", ["freeze-dims", "=value", " =value"])
+def test_cgc_option_format_errors_do_not_mutate_config(option):
+    from winml.modelkit.config import WinMLBuildConfig
+    from winml.modelkit.export import WinMLExportConfig
+
+    config = WinMLBuildConfig(convert=WinMLExportConfig(target="cgir"))
+    original = config.to_dict()
+    with pytest.raises(click.BadParameter, match="KEY=VALUE"):
+        _apply_cgc_options(config, ("update-opset=false", option))
+    assert config.to_dict() == original
+
+
+def test_cgc_options_reject_non_cgir_config_but_empty_options_are_noop():
+    from winml.modelkit.config import WinMLBuildConfig
+
+    config = WinMLBuildConfig()
+    original = config.to_dict()
+    _apply_cgc_options(config, ())
+    assert config.to_dict() == original
+    with pytest.raises(click.UsageError, match="requires CGIR conversion"):
+        _apply_cgc_options(config, ("freeze-dims=height=5",))
 
 
 @pytest.fixture(autouse=True)
@@ -169,6 +221,24 @@ def test_backend_stage_settings(
             assert data["quant"]["mode"] == "fp16"
     else:
         assert data == original
+
+
+def test_cgc_cgc_options_are_stored_without_loading_compiler(runner, tmp_path, onnx_model_path):
+    import sys
+
+    from winml.modelkit.commands.config import config
+
+    output = tmp_path / "cgc.json"
+    value = "height=5,width=7"
+    with patch.dict(sys.modules, {"_foundry": None}):
+        result = runner.invoke(config, [
+            "-m", str(onnx_model_path), "--backend", "cgc", "-o", str(output),
+            "--cgc-options", f"freeze-dims={value}", "--cgc-options", "update-opset=false",
+        ])
+    assert result.exit_code == 0, result.output
+    data = json.loads(output.read_text(encoding="utf-8"))
+    assert data["export"] is None
+    assert data["convert"]["options"] == {"freeze-dims": value, "update-opset": "false"}
 
 
 @pytest.mark.parametrize(

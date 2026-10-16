@@ -424,7 +424,9 @@ class TestCGCHelpVisibility:
             ("perf", "--backend", "cgc", "backend"),
             ("eval", "--backend", "cgc", "backend"),
             ("export", "--target", "cgir", "target"),
-            ("export", "--options", "external-weights=true", "target_options"),
+            ("export", "--cgc-options", "external-weights=true", "cgc_options"),
+            ("config", "--cgc-options", "freeze-dims=height=720", "cgc_options"),
+            ("build", "--cgc-options", "freeze-dims=height=720", "cgc_options"),
             ("compile", "--device-luid", "0x00000000_0x00000001", "device_luid"),
         ],
     )
