@@ -227,7 +227,7 @@ stages:
       - template: templates/e2e-test-jobs.yml
         parameters:
           agentName: ${{ parameters.ovAgentName }}
-          agentSuffix: ov
+          agentSuffix: ov_allocator_diagnostic
           dmlPinnedAgents: ${{ parameters.dmlPinnedAgents }}
           pairNames: [ov_gpu]
           models:
