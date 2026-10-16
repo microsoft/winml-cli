@@ -246,6 +246,10 @@ jobs:
 
                       & uv @uvArgs
                       $code = $LASTEXITCODE
+                      Get-ChildItem "$(Build.SourcesDirectory)/temp/e2e-eval-logs" -Directory -Filter '*-perf-*' |
+                          Sort-Object LastWriteTime -Descending | Select-Object -First 1 | ForEach-Object {
+                              Get-Content (Join-Path $_.FullName 'stderr.log') | Select-String 'OV_DIAG_SELECTED|Multiple devices match'
+                          }
                       if ($code -ne 0) {
                           Write-Error "Eval FAILED: $hfModel (task='$task') on $($pair.displayName) (exit=$code)"
                       } else {

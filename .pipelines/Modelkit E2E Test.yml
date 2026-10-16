@@ -229,11 +229,15 @@ stages:
           agentName: ${{ parameters.ovAgentName }}
           agentSuffix: ov
           dmlPinnedAgents: ${{ parameters.dmlPinnedAgents }}
-          pairNames: ${{ parameters.ovPairs }}
-          models: ${{ parameters.models }}
+          pairNames: [ov_gpu]
+          models:
+            - hf_id: facebook/convnext-tiny-224
+              task: image-classification
+            - hf_id: openai/clip-vit-base-patch32
+              task: feature-extraction
           modelTimeout: ${{ parameters.modelTimeout }}
           runEval: ${{ parameters.runEval }}
-          pytestTargets: ${{ parameters.pytestTargets }}
+          pytestTargets: []
           pytestTimeout: ${{ parameters.pytestTimeout }}
 
   - stage: NPU_AMD
