@@ -64,7 +64,7 @@ def main() -> None:
                         (index, tuple(int(x) for x in shape.split(",") if x), types[int(dtype)])
                     )
             input_specs = []
-            for line in (work / "io.tsv").read_text().splitlines():
+            for line in (work / "io.tsv").read_text(encoding="utf8").splitlines():
                 kind, index, dtype, shape, _ = line.split(chr(9))
                 if kind == "input":
                     input_specs.append(
@@ -73,7 +73,7 @@ def main() -> None:
             manifest = work / "input-sequence.json"
             sequence = []
             if manifest.exists():
-                for path in json.loads(manifest.read_text()):
+                for path in json.loads(manifest.read_text(encoding="utf8")):
                     with np.load(path, allow_pickle=False) as archive:
                         sequence.append(
                             [np.array(archive[k], copy=True, order="C") for k in archive.files]

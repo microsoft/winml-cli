@@ -34,7 +34,7 @@ def main():
     p.add_argument("--warmup", type=int, default=10)
     p.add_argument("--offline-worker", action="store_true")
     a = p.parse_args()
-    paths = json.loads(a.manifest.read_text())
+    paths = json.loads(a.manifest.read_text(encoding="utf8"))
     if len(paths) < a.iterations + a.warmup:
         raise ValueError("Provide one input NPZ for every warmup and measured iteration")
     batches = []
@@ -168,7 +168,7 @@ def main():
                 with (work / "samples.csv").open() as stream:
                     samples = [float(r["host_ms"]) for r in csv.DictReader(stream)]
             else:
-                samples = json.loads((work / "perf.json").read_text())["raw_samples_ms"]
+                samples = json.loads((work / "perf.json").read_text(encoding="utf8"))["raw_samples_ms"]
             if len(samples) != a.iterations:
                 raise ValueError("Incomplete measurements")
             summary.append({"round": repeat, "mode": mode, "p50_ms": statistics.median(samples)})
@@ -178,7 +178,7 @@ def main():
         work = a.output / f"{repeat}-raw"
         specs = [
             line.split(chr(9))
-            for line in (work / "io.tsv").read_text().splitlines()
+            for line in (work / "io.tsv").read_text(encoding="utf8").splitlines()
             if line.startswith("output")
         ]
         with np.load(a.output / f"{repeat}-offline" / "outputs.npz") as reference:

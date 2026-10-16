@@ -7,6 +7,7 @@
 import csv
 import ctypes
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -24,8 +25,20 @@ class Function:
 
 
 @pytest.mark.parametrize("failure", [False, True])
-def test_python_driver_excludes_warmups_and_propagates_native_error(tmp_path, monkeypatch, failure):
-    (tmp_path / "io.tsv").write_text("input\t0\t15\t2,\tx\noutput\t0\t15\t2,\ty\n")
+@pytest.mark.parametrize("legacy_locale", [False, True])
+def test_python_driver_excludes_warmups_and_propagates_native_error(
+    tmp_path, monkeypatch, failure, legacy_locale
+):
+    (tmp_path / "io.tsv").write_text(
+        "input\t0\t15\t2,\t依\noutput\t0\t15\t2,\t結果\n", encoding="utf8"
+    )
+    if legacy_locale:
+        original_read = Path.read_text
+
+        def locale_read(self, encoding=None, errors=None):
+            return original_read(self, encoding=encoding or "cp1252", errors=errors)
+
+        monkeypatch.setattr(Path, "read_text", locale_read)
     sequence = []
     for i in range(5):
         path = tmp_path / f"input-{i}.npz"
