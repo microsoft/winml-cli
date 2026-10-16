@@ -56,6 +56,126 @@ def test_initializer_shape_without_value_info():
     np.testing.assert_array_equal(actual, expected)
 
 
+def _dynamic_pad_model():
+    nodes = [
+        helper.make_node("Shape", ["x"], ["shape"]),
+        helper.make_node("Gather", ["shape", "axes"], ["hw"], axis=0),
+        helper.make_node("Neg", ["hw"], ["negative"]),
+        helper.make_node("Mod", ["negative", "two"], ["padding"], fmod=0),
+        helper.make_node("Concat", ["zeros", "padding"], ["pads"], axis=0),
+        helper.make_node("Pad", ["x", "pads"], ["y"], mode="reflect"),
+    ]
+    return helper.make_model(
+        helper.make_graph(
+            nodes, "dynamic_pad",
+            [helper.make_tensor_value_info("x", TensorProto.FLOAT, ["batch_size", 1, "h", "w"])],
+            [helper.make_tensor_value_info("y", TensorProto.FLOAT, ["batch_size", 1, None, None])],
+            [
+                numpy_helper.from_array(np.array([2, 3], dtype=np.int64), "axes"),
+                numpy_helper.from_array(np.array([2, 2], dtype=np.int64), "two"),
+                numpy_helper.from_array(np.zeros(6, dtype=np.int64), "zeros"),
+            ],
+        ),
+        opset_imports=[helper.make_opsetid("", 18)], ir_version=10,
+    )
+
+
+@pytest.mark.parametrize("height,width", [(3, 5), (4, 6)])
+@pytest.mark.parametrize("entry_point", ["api", "optimizer"])
+def test_cgc_freezedim_supplies_dimensions_for_folding(height, width, entry_point):
+    from winml.modelkit.optim import optimize_onnx
+
+    model = _dynamic_pad_model()
+    original = model.SerializeToString()
+    optimize = optimize_onnx if entry_point == "api" else Optimizer().optimize
+    result = optimize(
+        model, cgc_freezedim=f"batch_size=1,h={height},w={width}", cgc_constant_folding=True,
+    )
+    checker.check_model(result)
+    assert model.SerializeToString() == original
+    assert result.graph.input[0].type == model.graph.input[0].type
+    assert not any(node.op_type in {"Shape", "Gather", "Neg", "Mod"} for node in result.graph.node)
+    x = np.random.default_rng(42).normal(size=(1, 1, height, width)).astype(np.float32)
+    np.testing.assert_array_equal(
+        ReferenceEvaluator(result).run(None, {"x": x})[0],
+        ReferenceEvaluator(model).run(None, {"x": x})[0],
+    )
+
+
+def test_cgc_freezedim_does_not_enable_folding():
+    model = _dynamic_pad_model()
+    config = CGIRRewritePipe.build_config(cgc_freezedim="h=3,w=5")
+    assert not config.rules
+    assert CGIRRewritePipe().process(model, config) is model
+
+
+def test_cgc_folding_preserves_unresolved_dimensions():
+    model = _dynamic_pad_model()
+    config = CGIRRewritePipe.build_config(cgc_constant_folding=True)
+    result = CGIRRewritePipe().process(model, config)
+    assert result.graph.input[0].type == model.graph.input[0].type
+    assert any(node.op_type == "Neg" for node in result.graph.node)
+    assert any(node.op_type == "Mod" for node in result.graph.node)
+
+
+@pytest.mark.parametrize("value", ["h=0,w=5", "h=3,h=5", "h=bad", "h", None])
+def test_cgc_folding_rejects_invalid_freeze_dimensions(value):
+    config = CGIRRewritePipe.build_config(
+        cgc_freezedim=value, cgc_constant_folding=True,
+    )
+    with pytest.raises(OptimizationError, match="freeze-dims"):
+        CGIRRewritePipe().process(_dynamic_pad_model(), config)
+
+
+def test_cgc_freezing_only_uses_explicit_dimensions():
+    from winml.modelkit.pattern.cgc.cgc_constant_folding import (
+        _dimension_overrides,
+        _infer_for_folding,
+    )
+
+    model = _dynamic_pad_model()
+    assert _dimension_overrides("") == {}
+    overrides = _dimension_overrides("h=3,w=5")
+    result = _infer_for_folding(model, overrides)
+    shape = result.graph.input[0].type.tensor_type.shape
+    assert shape.dim[0].dim_param == "batch_size"
+    assert [dim.dim_value for dim in shape.dim[2:]] == [3, 5]
+
+
+def test_cgc_freezing_updates_subgraph_shapes():
+    from winml.modelkit.pattern.cgc.cgc_constant_folding import _infer_for_folding
+
+    model = _dynamic_pad_model()
+    branch = helper.make_graph(
+        [helper.make_node("Identity", ["x"], ["captured"])], "branch", [],
+        [helper.make_tensor_value_info("captured", TensorProto.FLOAT, ["batch_size", 1, "h", "w"])],
+    )
+    model.graph.node.append(helper.make_node(
+        "If", ["condition"], ["selected"], then_branch=branch, else_branch=branch,
+    ))
+    model.graph.initializer.append(numpy_helper.from_array(np.array(True), "condition"))
+    checker.check_model(model)
+    result = _infer_for_folding(model, {"batch_size": 2, "h": 3, "w": 5})
+    checker.check_model(result)
+    for attr in result.graph.node[-1].attribute:
+        assert [dim.dim_value for dim in attr.g.output[0].type.tensor_type.shape.dim] == [
+            2, 1, 3, 5,
+        ]
+    original_shape = model.graph.node[-1].attribute[0].g.output[0].type.tensor_type.shape
+    assert original_shape.dim[2].dim_param == "h"
+
+
+def test_cgc_freezedim_does_not_change_folding_entry_conditions():
+    from winml.modelkit.pattern.cgc import cgc_constant_folding
+
+    model = helper.make_model(helper.make_graph(
+        [helper.make_node("Identity", ["x"], ["y"])], "no_shape",
+        [helper.make_tensor_value_info("x", TensorProto.FLOAT, ["h"])],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, ["h"])],
+    ), opset_imports=[helper.make_opsetid("", 18)], ir_version=10)
+    assert cgc_constant_folding(model, cgc_freezedim="h=3") is model
+
+
 @pytest.mark.parametrize("domain", ["", "com.microsoft"])
 @pytest.mark.parametrize("scale_shape", [(), (1,)])
 @pytest.mark.parametrize("zero_mode", ["scalar", "vector", "omitted", "empty"])

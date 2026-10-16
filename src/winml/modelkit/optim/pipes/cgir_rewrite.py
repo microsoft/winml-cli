@@ -14,8 +14,10 @@ from onnx import AttributeProto, version_converter
 
 from ...onnx import ONNXDomain, check_onnx_model, get_captured_tensor_names
 from ...pattern import PatternMatcher, PatternRewriter
+from ...pattern.cgc import cgc_constant_folding
 from .base import BasePipe, OptimizationError, PipeConfig
 from .cgir_rewrite_rules import (
+    CGC_CONSTANT_FOLDING,
     CGIR_REWRITE_CAPABILITIES,
     CGIR_REWRITE_RULES,
     CGIRModelRewriteRule,
@@ -65,6 +67,7 @@ class CGIRRewritePipeConfig(PipeConfig):
     """Configuration for target-specific CGIR rewrites."""
 
     rules: list[CGIRRewriteRule | CGIRModelRewriteRule] = field(default_factory=list)
+    cgc_freezedim: str = ""
 
 
 class CGIRRewritePipe(BasePipe[CGIRRewritePipeConfig]):
@@ -89,7 +92,10 @@ class CGIRRewritePipe(BasePipe[CGIRRewritePipeConfig]):
                 for capability in (rule.capability, *rule.aliases)
             )
         ]
-        return CGIRRewritePipeConfig(rules=rules)
+        return CGIRRewritePipeConfig(
+            rules=rules,
+            cgc_freezedim=kwargs.get("cgc_freezedim", ""),
+        )
 
     @classmethod
     def should_process(cls, config: CGIRRewritePipeConfig) -> bool:
@@ -115,7 +121,12 @@ class CGIRRewritePipe(BasePipe[CGIRRewritePipeConfig]):
                         for entry in rewritten_model.opset_import
                     ):
                         continue
-                    prepared_model = rule.transform(rewritten_model)
+                    if rule.capability == CGC_CONSTANT_FOLDING:
+                        prepared_model = cgc_constant_folding(
+                            rewritten_model, cgc_freezedim=config.cgc_freezedim,
+                        )
+                    else:
+                        prepared_model = rule.transform(rewritten_model)
                     if prepared_model is not rewritten_model:
                         logger.info(
                             "CGIR compatibility: %s applied model rewrite",

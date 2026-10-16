@@ -323,6 +323,11 @@ def run_optimize_analyze_loop(
 
     t0 = time.monotonic()
 
+    if config.convert is not None and config.convert.target == "cgir":
+        onnx_kwargs["cgc_freezedim"] = config.convert.options.get(
+            "freeze-dims", config.convert.options.get("freeze_dims", ""),
+        )
+
     # 1. Optimize
     if skip_optimize:
         if model_path.resolve() != optimized_path.resolve():
