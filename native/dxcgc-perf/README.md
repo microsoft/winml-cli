@@ -1,5 +1,23 @@
 # Native DXCGC perf host (experimental)
 
+### Fixed-shape replay and changing inputs
+
+ABI 3 supplies CPU input pointers and byte sizes on every call. The worker
+validates all sequence shapes and dtypes before timing. GPU resources and
+bindings remain fixed for the session. The first invocation records the upload,
+inference and readback commands; subsequent invocations resubmit the closed
+list only after the preceding fence completed. Each call refreshes upload bytes
+and returns independently owned outputs. Failure aborts the session; this is
+not a concurrent or dynamic-binding execution API.
+
+Use compare_sequence.py with --manifest (JSON list of absolute NPZ paths),
+--model, --host, --dll-dir, --output and --luid for three alternating Raw/Offline
+rounds. Supply one fixed-shape input per warmup and measured call, in schema
+order. Generate model-valid data beforehand. The driver changes only input
+delivery outside the Offline measurement window; production Offline code is
+unchanged. Compare outputs separately from timing. Historical measurements
+must retain their old protocol. The first record is included if warmup is zero.
+
 `winml perf --runtime dxcgc` compiles local MLIR with dxcgc.dll and executes
 through D3D12 in a native host, without the Windows ML Runtime API.
 
@@ -17,19 +35,18 @@ winml perf -m model.mlir --runtime dxcgc --dxcgc-host temp/dxcgc-build/Release/w
 
 Host timing always includes CPU input copy, upload, command recording, GPU
 submission/completion, readback and caller-owned CPU output copy on every
-iteration. Compilation and disk I/O are excluded. GPU timestamps separately
-measure only execution. There is no resident-only timing option.
+iteration. Compilation and disk I/O are excluded. GPU timestamps are disabled
+by default to avoid instrumenting only one side of the comparison. Use
+--dxcgc-gpu-timing for a separate diagnostic run; uncollected GPU times are null.
 
-Each measured iteration creates owned CPU input copies and rebinds executable
-arguments, then uploads inputs and returns owned CPU output copies. GPU and
-staging buffers remain pooled/reused; the Runtime's internal allocation policy
-is unknown, so this does not force fresh committed GPU allocations. Results
-record `io_binding_policy=per_call_cpu_ownership_and_binding`, acknowledged by
-the native executable (older hosts must be rebuilt). The Offline CLI path is
-restored to its original per-call behavior. Python projection and scheduling
-policies
-can still differ; the gap describes the complete execution paths rather than
-an isolated native API-call cost.
+Inputs copy directly into reusable upload buffers on every call. Executable
+arguments remain bound to the same resources; redundant intermediate CPU
+copies and rebinding are removed. Each call still uploads inputs, executes,
+waits for completion, and returns independently owned CPU outputs. Results
+record io_binding_policy=bound_buffers_replay_v3; rebuild both native
+binaries. The Runtime Offline implementation is unchanged. Internal allocation
+and scheduling can differ, so this measures complete path latency, not isolated
+API-call overhead. Historical results retain their original protocol.
 
 Inputs are NPZ arrays in logical input order; shapes, dtypes and byte counts
 are validated using native reflection. Final CPU outputs are saved next to
@@ -65,14 +82,11 @@ winml-dxcgc-python.dll beside --dxcgc-host and drives one in-process ctypes
 call per iteration; no per-inference process launch or IPC is timed. Compilation
 and setup precede the Python measurement loop.
 
-Each sample includes Python-owned NumPy output allocation, ctypes argument
-marshalling, native CPU input ownership/copy, argument rebinding, GPU upload,
-execution, fence completion and direct readback into the owned NumPy outputs.
-Native input temporaries are released before the call returns. Output arrays
-survive the call; writing outputs and timing CSV is outside the measured loop.
-GPU/staging resources remain reusable; the original Offline path is unchanged.
-This aligns the Python call boundary but does not claim ctypes and Runtime COM
-projections, internal allocators or scheduling are identical.
+Each sample includes Python-owned NumPy output allocation, ctypes marshalling,
+direct input copy into upload buffers, GPU upload/execution, fence completion
+and readback into owned NumPy outputs. Buffers and bindings are reused. Writing
+outputs and timing CSV happens outside the measured loop. This aligns the
+Python call boundary without claiming identical ctypes and COM projections.
 
 Rebuild both the EXE and winml-dxcgc-python.dll. Results include
 call_driver=python_ctypes_per_call plus the worker/DLL hashes; old results must
@@ -82,7 +96,7 @@ not be relabeled as this protocol.
 
 Requires Visual Studio 2022 C++ tools, Windows SDK 10.0.26100 or newer
 (including DirectXPackedVector.h), CMake 3.24+, and compatible DXCGC headers.
-The Python worker requires native host ABI version 2; older DLLs are rejected
+The Python worker requires native host ABI version 3; older DLLs are rejected
 before callbacks. Native calls validate output byte sizes before copying into
 Python-owned arrays.
 

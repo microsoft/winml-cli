@@ -22,7 +22,7 @@ using Microsoft::WRL::ComPtr;
 namespace fs = std::filesystem;
 using Clock = std::chrono::steady_clock;
 using PythonStep = int(__cdecl *)(void *, double *, void **, const size_t *,
-                                  size_t);
+                                  size_t, const void *const *, const size_t *, size_t);
 using PythonDriver = int(__cdecl *)(PythonStep, void *, int, int);
 static thread_local PythonDriver pythonDriver = nullptr;
 static thread_local std::string pythonStepError;
@@ -93,8 +93,8 @@ struct Host {
     check(allocator->Reset());
     check(list->Reset(allocator.Get(), nullptr));
   }
-  void submit() {
-    check(list->Close());
+  void submit(bool close = true) {
+    if (close) check(list->Close());
     ID3D12CommandList *lists[] = {list.Get()};
     queue->ExecuteCommandLists(1, lists);
     check(queue->Signal(fence.Get(), ++serial));
@@ -321,14 +321,16 @@ static Buffer view(IDXCGCModule *m, DXCGC_MODULE_TENSOR_ID id, Executable &e,
 }
 int wmain(int argc, wchar_t **argv) {
   try {
-    if (argc != 9 && argc != 10)
+    if (argc < 9 || argc > 11)
       throw std::runtime_error("Expected: model dll-dir sdk-dir sdk-version "
                                "adapter-index iterations warmup data-dir "
                                "[--disable-d3d-mlir-programs]");
-    const bool disableD3dMlir = argc == 10;
-    if (disableD3dMlir &&
-        std::wstring(argv[9]) != L"--disable-d3d-mlir-programs")
-      throw std::runtime_error("Unknown native host option");
+    bool disableD3dMlir = false, gpuTiming = false;
+    for (int i = 9; i < argc; ++i) {
+      if (std::wstring(argv[i]) == L"--disable-d3d-mlir-programs") disableD3dMlir = true;
+      else if (std::wstring(argv[i]) == L"--gpu-timing") gpuTiming = true;
+      else throw std::runtime_error("Unknown native host option");
+    }
     fs::path model = argv[1], dll = argv[2], sdk = argv[3], data = argv[8];
     int iterations = std::stoi(argv[6]), warmup = std::stoi(argv[7]);
     if (iterations < 1 || warmup < 0)
@@ -488,15 +490,27 @@ int wmain(int argc, wchar_t **argv) {
     metadata.close();
     ComPtr<ID3D12QueryHeap> queries;
     D3D12_QUERY_HEAP_DESC q = {D3D12_QUERY_HEAP_TYPE_TIMESTAMP, 2, 0};
-    check(h.device->CreateQueryHeap(&q, IID_PPV_ARGS(&queries)));
-    auto times = h.buffer(16, D3D12_HEAP_TYPE_READBACK);
-    UINT64 frequency;
-    check(h.queue->GetTimestampFrequency(&frequency));
+    Buffer times;
+    UINT64 frequency = 0;
+    if (gpuTiming) {
+      check(h.device->CreateQueryHeap(&q, IID_PPV_ARGS(&queries)));
+      times = h.buffer(16, D3D12_HEAP_TYPE_READBACK);
+      check(h.queue->GetTimestampFrequency(&frequency));
+    }
     std::ofstream perf(data / "samples.csv");
     perf << "gpu_ms,host_ms\n";
     perf.precision(12);
+    bool replayReady = false;
     auto runOnce = [&](void **callerOutputs, const size_t *outputSizes,
-                       size_t outputCount) -> double {
+                       size_t outputCount, const void *const *callerInputs,
+                       const size_t *inputSizes, size_t inputCount) -> double {
+      if (callerInputs) {
+        if (!inputSizes || inputCount != inputBytes.size())
+          throw std::runtime_error("Caller input count mismatch");
+        for (size_t j = 0; j < inputCount; ++j)
+          if (!callerInputs[j] || inputSizes[j] != inputBytes[j].size())
+            throw std::runtime_error("Caller input size mismatch");
+      }
       if (callerOutputs) {
         if (!outputSizes || outputCount != readbacks.size())
           throw std::runtime_error("Caller output count mismatch");
@@ -505,48 +519,50 @@ int wmain(int argc, wchar_t **argv) {
             throw std::runtime_error("Caller output byte size mismatch");
       }
       auto begin = Clock::now();
-      // Match per-call feed ownership without forcing costly committed-resource
-      // allocation that the Runtime may satisfy from its own memory pools.
-      auto ownedInputs = inputBytes;
-      std::vector<Buffer> boundArguments = e.args;
-      for (SIZE_T j = 0; j < boundArguments.size(); ++j) {
-        check(e.state->BindResource(
-            {DXCGC_EXECUTABLE_RESOURCE_TYPE_ARGUMENT, j},
-            boundArguments[j].resource.Get(), boundArguments[j].offset));
+      // Arguments remain bound to the same resources. Refresh tensor bytes on
+      // every call without an intermediate owned-input copy or redundant binds.
+      // The preceding submission completed before returning. These resources
+      // and bindings stay owned and fixed for the lifetime of this session.
+      for (size_t j = 0; j < inputViews.size(); ++j) {
+        void *mapped;
+        check(uploads[j].resource->Map(0, nullptr, &mapped));
+        memcpy(mapped, callerInputs ? callerInputs[j] : inputBytes[j].data(), inputBytes[j].size());
+        uploads[j].resource->Unmap(0, nullptr);
       }
-      h.begin();
-      {
-        for (size_t j = 0; j < inputViews.size(); ++j) {
-          void *mapped;
-          check(uploads[j].resource->Map(0, nullptr, &mapped));
-          memcpy(mapped, ownedInputs[j].data(), ownedInputs[j].size());
-          uploads[j].resource->Unmap(0, nullptr);
-          h.transition(inputViews[j], D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-                       D3D12_RESOURCE_STATE_COPY_DEST);
-          h.list->CopyBufferRegion(
-              inputViews[j].resource.Get(), inputViews[j].offset,
-              uploads[j].resource.Get(), 0, inputViews[j].size);
-          h.transition(inputViews[j], D3D12_RESOURCE_STATE_COPY_DEST,
-                       D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+      if (!replayReady) {
+        h.begin();
+        {
+          for (size_t j = 0; j < inputViews.size(); ++j) {
+            h.transition(inputViews[j], D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                         D3D12_RESOURCE_STATE_COPY_DEST);
+            h.list->CopyBufferRegion(
+                inputViews[j].resource.Get(), inputViews[j].offset,
+                uploads[j].resource.Get(), 0, inputViews[j].size);
+            h.transition(inputViews[j], D3D12_RESOURCE_STATE_COPY_DEST,
+                         D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+          }
+        }
+        if (gpuTiming) h.list->EndQuery(queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0);
+        record(h, e);
+        if (gpuTiming) {
+          h.list->EndQuery(queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 1);
+          h.list->ResolveQueryData(queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0, 2,
+                                  times.resource.Get(), 0);
+        }
+        {
+          for (size_t j = 0; j < outputViews.size(); ++j) {
+            h.transition(outputViews[j], D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                         D3D12_RESOURCE_STATE_COPY_SOURCE);
+            h.list->CopyBufferRegion(readbacks[j].resource.Get(), 0,
+                                     outputViews[j].resource.Get(),
+                                     outputViews[j].offset, outputViews[j].size);
+            h.transition(outputViews[j], D3D12_RESOURCE_STATE_COPY_SOURCE,
+                         D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+          }
         }
       }
-      h.list->EndQuery(queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0);
-      record(h, e);
-      h.list->EndQuery(queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 1);
-      h.list->ResolveQueryData(queries.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0, 2,
-                               times.resource.Get(), 0);
-      {
-        for (size_t j = 0; j < outputViews.size(); ++j) {
-          h.transition(outputViews[j], D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-                       D3D12_RESOURCE_STATE_COPY_SOURCE);
-          h.list->CopyBufferRegion(readbacks[j].resource.Get(), 0,
-                                   outputViews[j].resource.Get(),
-                                   outputViews[j].offset, outputViews[j].size);
-          h.transition(outputViews[j], D3D12_RESOURCE_STATE_COPY_SOURCE,
-                       D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-        }
-      }
-      h.submit();
+      h.submit(!replayReady);
+      replayReady = true;
       {
         outputBytes.clear();
         size_t outputIndex = 0;
@@ -566,19 +582,23 @@ int wmain(int argc, wchar_t **argv) {
       double host =
           std::chrono::duration<double, std::milli>(Clock::now() - begin)
               .count();
-      UINT64 *ticks;
-      check(times.resource->Map(0, nullptr, (void **)&ticks));
-      double gpu = (ticks[1] - ticks[0]) * 1000.0 / frequency;
-      times.resource->Unmap(0, nullptr);
+      double gpu = -1; // Unmeasured, never a zero-duration inference.
+      if (gpuTiming) {
+        UINT64 *ticks;
+        check(times.resource->Map(0, nullptr, (void **)&ticks));
+        gpu = (ticks[1] - ticks[0]) * 1000.0 / frequency;
+        times.resource->Unmap(0, nullptr);
+      }
       (void)host;
       return gpu;
     };
     if (pythonDriver) {
       PythonStep step = [](void *context, double *gpu, void **outputs,
-                           const size_t *sizes, size_t count) -> int {
+                           const size_t *sizes, size_t count, const void *const *inputs,
+                           const size_t *inputSizes, size_t inputCount) -> int {
         try {
           *gpu = (*static_cast<decltype(runOnce) *>(context))(outputs, sizes,
-                                                              count);
+                                                              count, inputs, inputSizes, inputCount);
           return 0;
         } catch (const std::exception &error) {
           pythonStepError = error.what();
@@ -594,7 +614,7 @@ int wmain(int argc, wchar_t **argv) {
     } else {
       for (int i = 0; i < warmup + iterations; ++i) {
         auto begin = Clock::now();
-        double gpu = runOnce(nullptr, nullptr, 0);
+        double gpu = runOnce(nullptr, nullptr, 0, nullptr, nullptr, 0);
         double host =
             std::chrono::duration<double, std::milli>(Clock::now() - begin)
                 .count();
@@ -612,7 +632,7 @@ int wmain(int argc, wchar_t **argv) {
          << compileMs << std::endl
          << ad.AdapterLuid.HighPart << ':' << ad.AdapterLuid.LowPart
          << std::endl;
-    const std::string ioPolicy = "per_call_cpu_ownership_and_binding";
+    const std::string ioPolicy = "bound_buffers_replay_v3";
     write(data / "io-policy.txt", ioPolicy.data(), ioPolicy.size());
     check(device->UnregisterMessageCallback(cookie));
     return 0;
@@ -637,5 +657,5 @@ extern "C"
 }
 
 extern "C" __declspec(dllexport) unsigned __cdecl DxcgcPythonHostAbiVersion() {
-  return 2;
+  return 3;
 }

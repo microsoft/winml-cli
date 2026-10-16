@@ -37,13 +37,20 @@ _TYPES = {
 }
 
 
-def _samples(path: Path, iterations: int) -> dict[str, list[float]]:
+def _samples(path: Path, iterations: int) -> dict[str, list[Any]]:
     with path.open(encoding="utf-8") as stream:
         rows = list(csv.DictReader(stream))
     if len(rows) != iterations:
         raise ValueError(f"Expected {iterations} measurements, received {len(rows)}")
-    result = {key: [float(row[key]) for row in rows] for key in ("gpu_ms", "host_ms")}
-    if any(not math.isfinite(v) or v <= 0 for values in result.values() for v in values):
+    result = {
+        key: [None if key == "gpu_ms" and row[key] == "" else float(row[key]) for row in rows]
+        for key in ("gpu_ms", "host_ms")
+    }
+    if any(
+        v is not None and (not math.isfinite(v) or v <= 0)
+        for values in result.values()
+        for v in values
+    ):
         raise ValueError("Native host returned invalid timings")
     return result
 
@@ -54,7 +61,7 @@ def _io_policy(work: Path) -> str:
     if not path.is_file():
         raise ValueError("Native host has no I/O policy acknowledgement; rebuild the native host")
     policy = path.read_text(encoding="utf-8").strip()
-    if policy != "per_call_cpu_ownership_and_binding":
+    if policy != "bound_buffers_replay_v3":
         raise ValueError("Native host I/O policy mismatch; rebuild the native host")
     return policy
 
@@ -71,6 +78,7 @@ def run_dxcgc(ctx: click.Context) -> None:
         "dxcgc_sdk_version",
         "dxcgc_adapter",
         "disable_d3d_mlir_programs",
+        "dxcgc_gpu_timing",
         "iterations",
         "warmup",
         "input_data",
@@ -145,6 +153,8 @@ def run_dxcgc(ctx: click.Context) -> None:
             ]
             if p["disable_d3d_mlir_programs"]:
                 command.append("--disable-d3d-mlir-programs")
+            if p["dxcgc_gpu_timing"]:
+                command.append("--gpu-timing")
             command = [sys.executable, str(Path(__file__).with_name("_dxcgc_worker.py")), *command]
             process = subprocess.run(  # noqa: S603 - explicit local executable; no shell
                 command,
@@ -188,17 +198,27 @@ def run_dxcgc(ctx: click.Context) -> None:
                 "warmup": p["warmup"],
                 "io_mode": "cpu-roundtrip",
                 "io_binding_policy": policy,
+                "command_replay": True,
                 "call_driver": "python_ctypes_per_call",
                 "measurement": {
-                    "gpu_ms": "D3D12 timestamps around Record, excluding upload/readback",
+                    "gpu_ms": (
+                        "D3D12 timestamps around Record"
+                        if p["dxcgc_gpu_timing"]
+                        else "Not collected; run separately with --dxcgc-gpu-timing"
+                    ),
                     "host_ms": (
-                        "Per-call CPU input ownership/copy, argument rebinding, upload, "
-                        "command recording, submission, "
+                        "Python output allocation, direct input upload into prebound buffers, "
+                        "first-call command recording, replay submission, "
                         "GPU fence completion, readback and caller-owned CPU output copy"
                     ),
                 },
                 "samples": samples,
-                "mean_gpu_ms": float(np.mean(samples["gpu_ms"])),
+                "mean_gpu_ms": (
+                    float(np.mean(samples["gpu_ms"]))
+                    if all(v is not None for v in samples["gpu_ms"])
+                    else None
+                ),
+                "gpu_timing_enabled": p["dxcgc_gpu_timing"],
                 "mean_host_ms": float(np.mean(samples["host_ms"])),
                 "outputs_finite": True,
                 "provenance": {
@@ -219,9 +239,11 @@ def run_dxcgc(ctx: click.Context) -> None:
             }
             np.savez(output_arrays, **outputs)
             output.write_text(json.dumps(report, indent=2), encoding="utf-8")
-            click.echo(
-                f"DXCGC GPU: {report['mean_gpu_ms']:.4f} ms; "
-                f"host: {report['mean_host_ms']:.4f} ms; {output}"
+            gpu_label = (
+                f"{report['mean_gpu_ms']:.4f} ms"
+                if report["mean_gpu_ms"] is not None
+                else "not collected"
             )
+            click.echo(f"DXCGC GPU: {gpu_label}; host: {report['mean_host_ms']:.4f} ms; {output}")
     except (OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
         raise click.ClickException(str(error)) from error

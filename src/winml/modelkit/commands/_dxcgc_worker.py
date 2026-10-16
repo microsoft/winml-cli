@@ -6,6 +6,7 @@
 
 import csv
 import ctypes
+import json
 import sys
 import time
 from pathlib import Path
@@ -21,12 +22,15 @@ def main() -> None:
     abi = library.DxcgcPythonHostAbiVersion
     abi.argtypes = []
     abi.restype = ctypes.c_uint
-    if abi() != 2:
+    if abi() != 3:
         raise RuntimeError("Native DXCGC host ABI mismatch; rebuild the native host")
     step_type = ctypes.CFUNCTYPE(
         ctypes.c_int,
         ctypes.c_void_p,
         ctypes.POINTER(ctypes.c_double),
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.POINTER(ctypes.c_size_t),
+        ctypes.c_size_t,
         ctypes.POINTER(ctypes.c_void_p),
         ctypes.POINTER(ctypes.c_size_t),
         ctypes.c_size_t,
@@ -59,19 +63,59 @@ def main() -> None:
                     specs.append(
                         (index, tuple(int(x) for x in shape.split(",") if x), types[int(dtype)])
                     )
+            input_specs = []
+            for line in (work / "io.tsv").read_text().splitlines():
+                kind, index, dtype, shape, _ = line.split(chr(9))
+                if kind == "input":
+                    input_specs.append(
+                        (index, tuple(int(x) for x in shape.split(",") if x), types[int(dtype)])
+                    )
+            manifest = work / "input-sequence.json"
+            sequence = []
+            if manifest.exists():
+                for path in json.loads(manifest.read_text()):
+                    with np.load(path, allow_pickle=False) as archive:
+                        sequence.append([np.ascontiguousarray(archive[k]) for k in archive.files])
+            else:
+                sequence = [
+                    [
+                        np.fromfile(work / f"input-{index}.bin", dtype=dtype).reshape(shape)
+                        for index, shape, dtype in input_specs
+                    ]
+                ]
+            if not sequence:
+                raise ValueError("Empty input sequence")
+            for batch in sequence:
+                if len(batch) != len(input_specs):
+                    raise ValueError("Input count mismatch")
+                for array, (_, input_shape, input_dtype) in zip(batch, input_specs, strict=True):
+                    if array.shape != input_shape or array.dtype != np.dtype(input_dtype):
+                        raise ValueError("Input shape or dtype mismatch")
             gpu = ctypes.c_double()
             last = None
             for i in range(iterations + warmup):
+                batch = sequence[i % len(sequence)]
                 start = time.perf_counter()
                 outputs = [np.empty(shape, dtype=dtype) for _, shape, dtype in specs]
                 pointers = (ctypes.c_void_p * len(outputs))(*(a.ctypes.data for a in outputs))
                 sizes = (ctypes.c_size_t * len(outputs))(*(a.nbytes for a in outputs))
-                code = step(context, ctypes.byref(gpu), pointers, sizes, len(outputs))
+                inputs = (ctypes.c_void_p * len(batch))(*(a.ctypes.data for a in batch))
+                input_sizes = (ctypes.c_size_t * len(batch))(*(a.nbytes for a in batch))
+                code = step(
+                    context,
+                    ctypes.byref(gpu),
+                    pointers,
+                    sizes,
+                    len(outputs),
+                    inputs,
+                    input_sizes,
+                    len(batch),
+                )
                 elapsed = (time.perf_counter() - start) * 1000
                 if code:
                     raise RuntimeError("Native inference failed")
                 if i >= warmup:
-                    samples.append((gpu.value, elapsed))
+                    samples.append((None if gpu.value == -1 else gpu.value, elapsed))
                 last = outputs
             if last is None:
                 raise ValueError("No inference iterations executed")

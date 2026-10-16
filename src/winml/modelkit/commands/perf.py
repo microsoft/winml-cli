@@ -2927,6 +2927,8 @@ def _validate_duration(
     help="[dxcgc] Agility SDK directory (default: installed windowsml/lib).",
 )
 @click.option("--dxcgc-sdk-version", type=click.IntRange(min=1), default=721, hidden=True)
+@click.option("--dxcgc-gpu-timing", is_flag=True, hidden=True,
+              help="[dxcgc] Collect GPU timestamps in a separate diagnostic run.")
 @click.option(
     "--disable-d3d-mlir-programs", is_flag=True, hidden=True,
     help="[dxcgc] Disable the D3D12 MLIR programs target when compiling Input IR.",
@@ -3171,6 +3173,7 @@ def perf(
     dxcgc_sdk_path: Path | None,
     dxcgc_sdk_version: int,
     dxcgc_adapter: int,
+    dxcgc_gpu_timing: bool,
     disable_d3d_mlir_programs: bool,
     backend: RuntimeBackend | None,
     prompt: str,

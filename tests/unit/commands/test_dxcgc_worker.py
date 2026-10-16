@@ -6,6 +6,7 @@
 
 import csv
 import ctypes
+import json
 from types import SimpleNamespace
 
 import numpy as np
@@ -24,7 +25,13 @@ class Function:
 
 @pytest.mark.parametrize("failure", [False, True])
 def test_python_driver_excludes_warmups_and_propagates_native_error(tmp_path, monkeypatch, failure):
-    (tmp_path / "io.tsv").write_text("output\t0\t15\t2,\ty\n")
+    (tmp_path / "io.tsv").write_text("input\t0\t15\t2,\tx\noutput\t0\t15\t2,\ty\n")
+    sequence = []
+    for i in range(5):
+        path = tmp_path / f"input-{i}.npz"
+        np.savez(path, x=np.array([i, 2], dtype=np.float32))
+        sequence.append(str(path))
+    (tmp_path / "input-sequence.json").write_text(json.dumps(sequence))
     monkeypatch.setattr(
         worker.sys,
         "argv",
@@ -47,8 +54,10 @@ def test_python_driver_excludes_warmups_and_propagates_native_error(tmp_path, mo
         step_type = driver._argtypes_[0]
 
         @step_type
-        def step(context, gpu, pointers, sizes, count):
+        def step(context, gpu, pointers, sizes, count, inputs, input_sizes, input_count):
             assert count == 1 and sizes[0] == 8
+            assert input_count == 1 and input_sizes[0] == 8
+            assert (ctypes.c_float * 2).from_address(inputs[0])[0] == len(calls)
             calls.append(count)
             if failure:
                 return 1
@@ -60,7 +69,7 @@ def test_python_driver_excludes_warmups_and_propagates_native_error(tmp_path, mo
         return driver(step, None, 3, 2)
 
     library = SimpleNamespace(
-        DxcgcPythonHostAbiVersion=Function(lambda: 2), RunPythonDriven=Function(entry)
+        DxcgcPythonHostAbiVersion=Function(lambda: 3), RunPythonDriven=Function(entry)
     )
     monkeypatch.setattr(worker.ctypes, "CDLL", lambda _: library)
     if failure:
