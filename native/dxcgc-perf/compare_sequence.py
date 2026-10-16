@@ -168,7 +168,9 @@ def main():
                 with (work / "samples.csv").open() as stream:
                     samples = [float(r["host_ms"]) for r in csv.DictReader(stream)]
             else:
-                samples = json.loads((work / "perf.json").read_text(encoding="utf8"))["raw_samples_ms"]
+                samples = json.loads((work / "perf.json").read_text(encoding="utf8"))[
+                    "raw_samples_ms"
+                ]
             if len(samples) != a.iterations:
                 raise ValueError("Incomplete measurements")
             summary.append({"round": repeat, "mode": mode, "p50_ms": statistics.median(samples)})
