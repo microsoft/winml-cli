@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 TASK_TO_WINML_CLASS: dict[str, str] = {
     # Implemented
     "image-classification": "WinMLModelForImageClassification",
+    "reranking": "WinMLModelForSequenceClassification",
     "text-classification": "WinMLModelForSequenceClassification",
     "sequence-classification": "WinMLModelForSequenceClassification",
     "next-sentence-prediction": "WinMLModelForSequenceClassification",

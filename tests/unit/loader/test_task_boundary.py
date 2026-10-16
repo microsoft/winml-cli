@@ -22,6 +22,8 @@ from winml.modelkit.loader import to_optimum_task
     [
         # Optimum collapses modality (image-feature-extraction -> feature-extraction).
         ("image-feature-extraction", "feature-extraction"),
+        # WinML canonical reranking still exports through sequence classification.
+        ("reranking", "text-classification"),
         # WinML extension: routed to its Optimum-canonical target.
         ("next-sentence-prediction", "text-classification"),
         # WinML extension preserved as-is (Optimum would mis-map it otherwise).

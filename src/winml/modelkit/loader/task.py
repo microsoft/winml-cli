@@ -65,6 +65,7 @@ _TASK_REGISTRY: dict[str, str | None] = {
     "inpainting": None,
     "text-to-image": None,
     # NLP
+    "reranking": "rerank",
     "text-classification": "txtcls",
     "token-classification": "tokcls",
     "question-answering": "qa",
@@ -236,6 +237,9 @@ def normalize_task(task: str) -> str:
     Returns:
         Canonical task name
     """
+    if task in {"text-ranking", "reranking"}:
+        return "reranking"
+
     from optimum.exporters.tasks import TasksManager
 
     return cast("str", TasksManager.map_from_synonym(task))
@@ -244,6 +248,7 @@ def normalize_task(task: str) -> str:
 # WinML task-synonym extensions — extend Optimum's ``TasksManager.map_from_synonym``
 # for tasks it does not recognize or mis-maps. Entries here take priority over Optimum.
 TASK_SYNONYM_EXTENSIONS: dict[str, str] = {
+    "reranking": "text-classification",
     # NOTE: do NOT add "image-feature-extraction" here. This set is also consulted by
     # commands.build._validate_task_supported_for_model (its "WinML extension" branch),
     # so adding it would silence the cross-modality visibility warning. Its Optimum-synonym
