@@ -44,7 +44,10 @@ inline ConstantExport resolveConstantExport(const std::string &ir,
   while (std::getline(stream, line)) {
     std::smatch match;
     if (!active) {
-      if (line.find("cgc.initializer @") != std::string::npos &&
+      // MSVC std::regex can exhaust the stack on long initializer signatures.
+      // Match the same bounded input policy as the other fallback patterns.
+      if (line.size() < 4096 &&
+          line.find("cgc.initializer @") != std::string::npos &&
           std::regex_match(line, match, header) && match[1] == initializer) {
         if (found)
           throw std::runtime_error("Duplicate initializer symbol");

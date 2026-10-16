@@ -12,6 +12,19 @@ int main() {
     auto r = resolveConstantExport(ir, "init", "alias");
     if (r.resource != "real::name" || r.bytes != 1024)
       return 1;
+    // Oversized signatures must never reach the recursive regex matcher.
+    const std::string longHeader = "cgc.initializer @oversized(" +
+                                   std::string(100000, 'x') + ") {\n}\n";
+    auto afterLongHeader = resolveConstantExport(longHeader + ir, "init", "alias");
+    if (afterLongHeader.resource != r.resource || afterLongHeader.bytes != r.bytes)
+      return 14;
+    bool oversizedRejected = false;
+    try {
+      resolveConstantExport(longHeader, "oversized", "alias");
+    } catch (const std::runtime_error &) {
+      oversizedRejected = true;
+    }
+    if (!oversizedRejected) return 15;
     auto crlf = resolveConstantExport(
         std::regex_replace(ir, std::regex("\n"), "\r\n"), "init", "alias");
     if (crlf.resource != r.resource || crlf.bytes != r.bytes)
