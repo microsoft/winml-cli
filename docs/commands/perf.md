@@ -457,3 +457,12 @@ not supported.
 - [winml build](build.md) — build the quantized artifact that `perf` benchmarks
 - [Load and export concept](../concepts/load-and-export.md) — how `--module` per-instance benchmarking works
 - [ONNX & Execution Providers](../concepts/eps-and-devices.md) — understand `--device` vs `--ep`
+
+## Direct DXCGC measurement (experimental)
+
+Use `--runtime dxcgc` with a local MLIR artifact to compile and execute through
+the DXCGC DLL in a native host, bypassing the Windows ML Runtime API.
+See [native host setup and limitations](../../native/dxcgc-perf/README.md).
+The result separates GPU timestamp latency and native host completion latency;
+host latency includes per-iteration CPU input upload and output readback.
+Compilation is excluded. DLLs default to the installed Windows ML Runtime package.
