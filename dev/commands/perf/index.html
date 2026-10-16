@@ -2173,6 +2173,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#direct-dxcgc-measurement-experimental" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Direct DXCGC measurement (experimental)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2978,6 +2989,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#direct-dxcgc-measurement-experimental" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Direct DXCGC measurement (experimental)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -3593,6 +3615,13 @@ not supported.</p>
 <li><a href="../../concepts/load-and-export/">Load and export concept</a> — how <code>--module</code> per-instance benchmarking works</li>
 <li><a href="../../concepts/eps-and-devices/">ONNX &amp; Execution Providers</a> — understand <code>--device</code> vs <code>--ep</code></li>
 </ul>
+<h2 id="direct-dxcgc-measurement-experimental">Direct DXCGC measurement (experimental)<a class="headerlink" href="#direct-dxcgc-measurement-experimental" title="Permanent link">&para;</a></h2>
+<p>Use <code>--runtime dxcgc</code> with a local MLIR artifact to compile and execute through
+the DXCGC DLL in a native host, bypassing the Windows ML Runtime API.
+See <a href="../../native/dxcgc-perf/README.md">native host setup and limitations</a>.
+The result separates GPU timestamp latency and native host completion latency;
+host latency includes per-iteration CPU input upload and output readback.
+Compilation is excluded. DLLs default to the installed Windows ML Runtime package.</p>
 
 
 
