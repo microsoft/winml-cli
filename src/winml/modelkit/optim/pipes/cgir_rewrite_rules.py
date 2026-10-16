@@ -15,9 +15,7 @@ from ...pattern import Pattern
 from ...pattern.cgc import (
     DFTWithStaticParametersPattern,
     ExpandedPReluPattern,
-    GatherLinearGridSamplePattern,
     GatherNDWithIdentityIndicesPattern,
-    LinearGridSamplePattern,
     MatMulDFTPattern,
     PReluWithFiniteSlopePattern,
     ReshapedGatherNDPattern,
@@ -128,14 +126,6 @@ DFT_TO_MATMUL = BoolCapability(
     default=False,
 )
 
-GRIDSAMPLE_TO_GATHER = BoolCapability(
-    name="gridsample-to-gather",
-    ort_name=None,
-    description="Decompose 2D linear zero-padded GridSample into GatherND and FP32 interpolation",
-    category=CapabilityCategory.REWRITE,
-    default=False,
-)
-
 NORMALIZE_INT32_DQ = BoolCapability(
     name="normalize-int32-dq",
     ort_name=None,
@@ -196,12 +186,6 @@ CGIR_REWRITE_RULES = (
         target=MatMulDFTPattern,
         minimum_opset=17,
     ),
-    CGIRRewriteRule(
-        capability=GRIDSAMPLE_TO_GATHER,
-        source=LinearGridSamplePattern,
-        target=GatherLinearGridSamplePattern,
-        minimum_opset=16,
-    ),
 )
 
 CGIR_REWRITE_CAPABILITIES = {
@@ -219,7 +203,6 @@ __all__ = [
     "DEDUPLICATE_OPSET_IMPORTS",
     "DFT_TO_MATMUL",
     "GATHERND_TO_RESHAPE",
-    "GRIDSAMPLE_TO_GATHER",
     "OMIT_EMPTY_RESIZE_INPUTS",
     "PRELU_TO_RELU",
     "RESIZE_TF_HALF_PIXEL_FOR_NN_TO_ASYMMETRIC",
