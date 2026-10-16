@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <locale>
 #include <map>
 #include <regex>
 #include <sstream>
@@ -31,13 +32,13 @@ inline ConstantExport resolveConstantExport(const std::string &ir,
       R"rx(^\s*cgc\.store_constant "([^"\\]+)", (%[A-Za-z0-9_.$-]+) : (!cgc\.memref<constant ([0-9]+x)*!cgc\.(float16|float32|float64|int8|int16|int32|int64|uint8|uint16|uint32|uint64)>)\s*$)rx");
   const std::regex scalar(
       R"rx(^\s*(%[A-Za-z0-9_.$-]+) = cgc\.constant\(#cgc\.dense_integer_elements<\[(-?[0-9]+(?:,\s*-?[0-9]+)*)\]> : (!cgc\.memref<constant (?:[0-9]+x)+!cgc\.int64>)\)\s*$)rx");
-  const std::regex halfScalar(
-      R"rx(^\s*(%[A-Za-z0-9_.$-]+) = cgc\.constant\(#cgc\.dense_float_elements<\[([+-]?[0-9]+(?:\.[0-9]*)?(?:[eE][+-]?[0-9]+)?)\]> : (!cgc\.memref<constant 1x!cgc\.float16>)\)\s*$)rx");
+  const std::regex floatScalar(
+      R"rx(^\s*(%[A-Za-z0-9_.$-]+) = cgc\.constant\(#cgc\.dense_float_elements<\[([+-]?[0-9]+(?:\.[0-9]*)?(?:[eE][+-]?[0-9]+)?)\]> : (!cgc\.memref<constant 1x!cgc\.float(?:16|32)>)\)\s*$)rx");
   std::istringstream stream(ir);
   std::string line, selectedValue, selectedType;
   std::map<std::string, std::pair<std::string, std::string>> constants;
   std::map<std::string, std::string> literals;
-  std::map<std::string, std::string> halfLiterals;
+  std::map<std::string, std::string> floatLiterals;
   std::map<std::string, std::string> definitions;
   bool active = false, found = false;
   while (std::getline(stream, line)) {
@@ -82,11 +83,11 @@ inline ConstantExport resolveConstantExport(const std::string &ir,
     } else if (line.size() < 512 &&
                line.find("cgc.constant(#cgc.dense_float_elements<") !=
                    std::string::npos &&
-               std::regex_match(line, match, halfScalar)) {
+               std::regex_match(line, match, floatScalar)) {
       if (!constants.emplace(match[1], std::make_pair(std::string(), match[3]))
                .second)
         throw std::runtime_error("Duplicate constant SSA value");
-      halfLiterals.emplace(match[1], match[2]);
+      floatLiterals.emplace(match[1], match[2]);
     } else if (line.size() < 4096 &&
                line.find("cgc.store_constant ") != std::string::npos &&
                std::regex_match(line, match, store) && match[1] == exportName) {
@@ -133,9 +134,23 @@ inline ConstantExport resolveConstantExport(const std::string &ir,
       throw std::runtime_error(
           "Constant integer element count does not match shape");
   }
-  auto halfLiteral = halfLiterals.find(selectedValue);
-  if (halfLiteral != halfLiterals.end()) {
-    float number = std::stof(halfLiteral->second);
+  auto floatLiteral = floatLiterals.find(selectedValue);
+  if (floatLiteral != floatLiterals.end()) {
+    std::istringstream numberStream(floatLiteral->second);
+    numberStream.imbue(std::locale::classic());
+    double parsed;
+    numberStream >> parsed;
+    if (!numberStream || !numberStream.eof() || !std::isfinite(parsed) ||
+        std::abs(parsed) > std::numeric_limits<float>::max())
+      throw std::runtime_error("Invalid floating constant literal");
+    float number = static_cast<float>(parsed);
+    if (!std::isfinite(number) || (parsed != 0 && number == 0))
+      throw std::runtime_error("Floating constant outside float32 range");
+    if (selectedType.find("!cgc.float32>") != std::string::npos) {
+      result.literal.resize(sizeof(number));
+      std::memcpy(result.literal.data(), &number, sizeof(number));
+      return result;
+    }
     auto bits = DirectX::PackedVector::XMConvertFloatToHalf(number);
     float restored = DirectX::PackedVector::XMConvertHalfToFloat(bits);
     if (!std::isfinite(number) || restored != number ||

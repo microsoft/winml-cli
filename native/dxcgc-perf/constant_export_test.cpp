@@ -42,6 +42,29 @@ int main() {
       if (bits != item.second || value.bytes != 2)
         return 10;
     }
+    auto floatIR = [](const std::string &number) {
+      return "cgc.initializer @init() {\n%v = cgc.constant(#cgc.dense_float_elements<[" +
+          number + "]> : !cgc.memref<constant 1x!cgc.float32>)\n"
+          "cgc.store_constant \"alias\", %v : !cgc.memref<constant 1x!cgc.float32>\n}\n";
+    };
+    for (const auto &item : std::map<std::string, uint32_t>{
+             {"0.35355338454246521", 0x3eb504f3},
+             {"-0.000000e+00", 0x80000000},
+             {"1.401298464324817e-45", 0x00000001},
+             {"1.0e+00", 0x3f800000}}) {
+      auto value = resolveConstantExport(floatIR(item.first), "init", "alias");
+      if (value.bytes != 4 || value.literal.size() != 4 || !value.resource.empty())
+        return 11;
+      uint32_t bits;
+      std::memcpy(&bits, value.literal.data(), sizeof(bits));
+      if (bits != item.second) return 12;
+    }
+    for (const auto &number : {"1e100", "1e-100", "nan", "inf", "1, 2"}) {
+      bool rejected = false;
+      try { resolveConstantExport(floatIR(number), "init", "alias"); }
+      catch (const std::exception &) { rejected = true; }
+      if (!rejected) return 13;
+    }
     for (auto bad : {std::regex_replace(scalar, std::regex("int64"), "int32"),
                      std::regex_replace(scalar, std::regex("-7"), "1, 2"),
                      std::regex_replace(scalar, std::regex("-7"),
