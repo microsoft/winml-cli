@@ -496,6 +496,118 @@ def test_run_requests_all_outputs_before_each_execution(monkeypatch, mlir_target
         session.close()
 
 
+@pytest.fixture
+def timed_runtime(monkeypatch, mlir_target):
+    stage = _Stage()
+    pipeline = _Pipeline()
+    runtime = _Runtime(stage, pipeline)
+    wr = SimpleNamespace(Runtime=lambda: runtime, NotSupportedError=_NotSupportedError)
+    monkeypatch.setattr("winml.modelkit.session.runtime_session.import_runtime", lambda: wr)
+    monkeypatch.setattr(
+        stage, "output", lambda index: _Tensor(np.negative(stage.bound[index]._value))
+    )
+    session = WinMLRuntimeSession("model.mlir", ep_device=mlir_target[0], backend="cgc")
+    clock = SimpleNamespace(value=0.0, reads=[])
+    calls = []
+    phases = {
+        "build": (runtime.builder, "build"),
+        "prepare": (session, "_prepare_inputs"),
+        "create_tensor": (runtime, "tensor_from_numpy"),
+        "bind": (stage, "bind_input"),
+        "request": (stage, "request_output"),
+        "execute": (pipeline, "run"),
+        "fetch": (stage, "output"),
+        "numpy": (_Tensor, "to_numpy"),
+    }
+    durations = dict(
+        zip(phases, np.random.default_rng(0).uniform(0.001, 0.02, len(phases)), strict=True)
+    )
+
+    def wrap(function, phase):
+        def invoke(*args, **kwargs):
+            calls.append(phase)
+            clock.value += durations[phase]
+            return function(*args, **kwargs)
+
+        return invoke
+
+    for phase, (owner, method) in phases.items():
+        monkeypatch.setattr(owner, method, wrap(getattr(owner, method), phase))
+
+    def timer():
+        clock.reads.append(clock.value)
+        return clock.value
+
+    monkeypatch.setattr(
+        "winml.modelkit.session.stats.time", SimpleNamespace(perf_counter=timer)
+    )
+    try:
+        yield session, clock, calls, durations, phases
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize("named_bindings", [False, True])
+def test_perf_times_only_pipeline_run(timed_runtime, monkeypatch, named_bindings):
+    session, clock, calls, durations, _phases = timed_runtime
+    with session.perf(warmup=1) as ctx:
+        session._has_named_bindings = named_bindings
+        stage = session._stage
+        monkeypatch.setattr(
+            stage,
+            "ort_bindings",
+            lambda: SimpleNamespace(
+                bind_input=lambda name, value: stage.bind_input(0, value),
+                output=lambda name: stage.output(0),
+            ),
+            raising=False,
+        )
+        rng = np.random.default_rng(42)
+        for _ in range(3):
+            values = rng.standard_normal((2, 3, 8, 8)).astype(np.float32)
+            actual = session.run({"input_0": values})
+            np.testing.assert_array_equal(actual["output_0"], np.negative(values))
+            assert ctx.stats.all_samples_ms[-1] == pytest.approx(durations["execute"] * 1000)
+
+    assert len(clock.reads) == 2 * ctx.stats.total_count
+    assert ctx.stats.total_count == 3
+    assert ctx.stats.count == 2
+    assert ctx.stats.mean_ms == pytest.approx(durations["execute"] * 1000)
+    assert calls.count("build") == 1
+    assert calls.count("create_tensor") == calls.count("execute")
+    assert calls.count("request") == calls.count("execute")
+    assert session.perf_stats is None
+
+
+@pytest.mark.parametrize(
+    "failure", ["prepare", "create_tensor", "bind", "request", "execute", "fetch", "numpy"]
+)
+def test_perf_records_only_successful_pipeline_calls(timed_runtime, monkeypatch, failure):
+    session, _clock, calls, _durations, phases = timed_runtime
+    values = np.random.default_rng(42).standard_normal((2, 3, 8, 8)).astype(np.float32)
+    with session.perf() as ctx:
+        owner, method = phases[failure]
+        with monkeypatch.context() as patch:
+            patch.setattr(owner, method, Mock(side_effect=RuntimeError(failure)))
+            with pytest.raises(RuntimeError, match=failure):
+                session.run({"input_0": values})
+        assert ctx.stats.total_count == calls.count("execute")
+
+        actual = session.run({"input_0": values})
+        np.testing.assert_array_equal(actual["output_0"], np.negative(values))
+        assert ctx.stats.total_count == calls.count("execute")
+
+
+def test_run_without_perf_does_not_read_clock(timed_runtime):
+    session, clock, _calls, _durations, _phases = timed_runtime
+    values = np.random.default_rng(42).standard_normal((2, 3, 8, 8)).astype(np.float32)
+
+    actual = session.run({"input_0": values})
+
+    np.testing.assert_array_equal(actual["output_0"], np.negative(values))
+    assert clock.reads == []
+
+
 def test_older_projection_materializes_outputs_without_request_api(monkeypatch, mlir_target):
     stage = _Stage()
     monkeypatch.delattr(_Stage, "request_output")
