@@ -10,7 +10,7 @@ from onnx import AttributeProto, GraphProto, ModelProto, TensorProto, numpy_help
 
 
 def normalize_int32_dq(model: ModelProto) -> ModelProto:
-    """Omit immutable zero points and scalarize singleton INT32 DQ scales.
+    """Omit immutable INT32 DQ zero points.
 
     Only local initializer-backed data and parameters are considered. Shared
     initializers remain untouched; nested graphs are handled independently.
@@ -18,20 +18,6 @@ def normalize_int32_dq(model: ModelProto) -> ModelProto:
     versions = {opset.domain: opset.version for opset in model.opset_import}
     result = ModelProto()
     result.CopyFrom(model)
-    used_names: set[str] = set()
-
-    def collect_names(graph: GraphProto) -> None:
-        used_names.update(value.name for value in graph.initializer)
-        used_names.update(value.name for value in [*graph.input, *graph.output, *graph.value_info])
-        for node in graph.node:
-            used_names.update(node.input)
-            used_names.update(node.output)
-            for attribute in node.attribute:
-                if attribute.type == AttributeProto.GRAPH:
-                    collect_names(attribute.g)
-                elif attribute.type == AttributeProto.GRAPHS:
-                    for subgraph in attribute.graphs:
-                        collect_names(subgraph)
 
     def rewrite(graph: GraphProto) -> bool:
         changed = False
@@ -64,19 +50,9 @@ def normalize_int32_dq(model: ModelProto) -> ModelProto:
                     continue
                 if list(zero.dims) not in ([], [1]) or not np.all(numpy_helper.to_array(zero) == 0):
                     continue
-            if list(scale.dims) == [1]:
-                name = scale.name + "_cgc_scalar"
-                while name in used_names:
-                    name += "_"
-                used_names.add(name)
-                scalar = numpy_helper.from_array(numpy_helper.to_array(scale).reshape(()), name)
-                graph.initializer.append(scalar)
-                node.input[1] = name
-                changed = True
             if len(node.input) == 3:
                 del node.input[2]
                 changed = True
         return changed
 
-    collect_names(result.graph)
     return result if rewrite(result.graph) else model

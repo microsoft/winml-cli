@@ -3032,20 +3032,19 @@ def _validate_duration(
     type=click.Choice(list(RUNTIME_NAMES)),
     default="auto",
     show_default=True,
+    metavar=f"[{'|'.join(name for name in RUNTIME_NAMES if name != 'winml-runtime')}]",
     help="'auto' selects ort-genai for folders containing genai_config.json, "
-    "winml-runtime for .mlir and .gguf files, otherwise winml-ort. "
+    "Windows ML Tasks on llama.cpp for .gguf files (experimental; requires preview "
+    "Windows ML packages), otherwise winml-ort. "
     "'winml-ort' benchmarks single-shot ONNX inference; "
     "'ort-genai' benchmarks an onnxruntime-genai bundle folder "
-    "(LLM generation: TTFT + decode tokens/sec); 'winml-runtime' performs "
-    "online conversion for ONNX/PyTorch inputs, loads CGC MLIR directly, or "
-    "benchmarks GGUF language models through Windows ML Tasks on llama.cpp "
-    "(experimental; requires preview "
-    "Windows ML packages).",
+    "(LLM generation: TTFT + decode tokens/sec).",
 )
 @click.option(
     "--backend",
     type=click.Choice(list(RUNTIME_BACKENDS)),
     default=None,
+    hidden=True,
     help="[winml-runtime] Execution backend for ONNX inputs (default: cgc). "
     "MLIR inputs always use cgc.",
 )

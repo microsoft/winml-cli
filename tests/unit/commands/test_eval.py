@@ -440,7 +440,8 @@ class TestEvalHelp:
 
         assert result.exit_code == 0, result.output
         assert "--model-id" in result.output
-        assert "MLIR" in result.output
+        assert "ONNX" in result.output
+        assert "MLIR" not in result.output
         assert "role=path" in result.output
 
     def test_help_mentions_input_data(self, runner: CliRunner):

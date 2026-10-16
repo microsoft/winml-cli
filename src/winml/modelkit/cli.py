@@ -361,6 +361,8 @@ class LazyGroup(ActionGroup):
         """Format command list using AST-parsed help (no module imports)."""
         commands = []
         for cmd_name in self.list_commands(ctx):
+            if cmd_name == "cgc":
+                continue
             help_text = _parse_click_help(_COMMANDS_DIR / f"{cmd_name}.py")
             commands.append((cmd_name, help_text))
 

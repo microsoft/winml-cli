@@ -468,6 +468,9 @@ def ep_option(
         default=default if not required else None,
         show_default=True,
         type=click.Choice(choices, case_sensitive=False),
+        metavar="["
+        + "|".join(name for name in choices if name not in ("winmlcg", "WinMLCGExecutionProvider"))
+        + "]",
         help=help_text,
     )
 
@@ -663,6 +666,8 @@ _DEVICE_LUID_PATTERN = re.compile(
 def device_luid_option(
     option_name: str = "--device-luid",
     optional_message: str | None = None,
+    *,
+    hidden: bool = False,
 ) -> Callable[[F], F]:
     """Add a LUID-based adapter-selection option."""
     help_text = (
@@ -692,6 +697,7 @@ def device_luid_option(
         default=None,
         callback=validate,
         help=help_text,
+        hidden=hidden,
     )
 
 

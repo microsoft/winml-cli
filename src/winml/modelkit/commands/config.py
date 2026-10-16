@@ -152,6 +152,7 @@ def _merge_export_overrides(cfg: Any, export_overrides: dict[str, Any]) -> Any:
     "--backend",
     type=click.Choice(list(RUNTIME_BACKENDS)),
     default=None,
+    hidden=True,
     help="Build backend. cgc generates FP16 and CGIR conversion without compilation; "
     "ort or omission preserves the existing configuration behavior.",
 )

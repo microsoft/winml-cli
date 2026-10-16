@@ -1913,7 +1913,9 @@ class TestCliDispatch:
     def test_runtime_help_shows_auto_default(self, runner: CliRunner, capture_run: dict) -> None:
         result = runner.invoke(perf, ["--help"])
         assert result.exit_code == 0
-        assert "[auto|winml-ort|ort-genai|winml-runtime]" in result.output
+        assert "--runtime [auto|winml-ort|ort-genai]" in result.output
+        assert "ort-genai" in result.output
+        assert "winml-runtime" not in result.output
         assert "default: auto" in result.output
         assert "config" not in capture_run
 

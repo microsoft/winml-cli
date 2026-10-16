@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- CGC Pattern Atlas: open in a browser and drop a patterns.json written by
+     `winml cgc patterns --dump`. Self-contained; the file is read locally and
+     nothing is uploaded. See docs/commands/cgc.md. -->
+<title>CGC Pattern Atlas</title>
+<style>
+/* No web fonts: the page is opened straight from disk and must not touch the network.
+   The tool runs on Windows, so Windows faces lead each stack. */
+:root{
+  --sans:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif;
+  --mono:"Cascadia Mono","Cascadia Code",Consolas,ui-monospace,"SF Mono",Menlo,monospace;
+  --ground:#F5F7FA; --surface:#FFFFFF; --surface-2:#EEF1F6;
+  --ink:#141821; --ink-2:#3D4657; --ink-3:#5D6679;
+  --line:#D9DFE9; --line-2:#C3CBDA;
+  --kernel:#2C55C4; --mark:#0D7366; --hint:#7A4FB5; --fusion:#A64A15; --rewrite:#915A12; --other:#5D6679;
+  --ochre:#8A5610; --code-bg:#F0F3F8; --drop-bg:#E7EEFB; --err:#B3261E;
+  --maxw:76rem;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --ground:#0E1116; --surface:#161B23; --surface-2:#1D242E;
+    --ink:#E6EAF1; --ink-2:#AEB8C9; --ink-3:#8692A7;
+    --line:#28303C; --line-2:#39434F;
+    --kernel:#7EA0FF; --mark:#3FBBA6; --hint:#B79BE8; --fusion:#F0925C; --rewrite:#D9A44A; --other:#8692A7;
+    --ochre:#D9A44A; --code-bg:#11161D; --drop-bg:#18233A; --err:#F2847C;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --ground:#0E1116; --surface:#161B23; --surface-2:#1D242E;
+  --ink:#E6EAF1; --ink-2:#AEB8C9; --ink-3:#8692A7;
+  --line:#28303C; --line-2:#39434F;
+  --kernel:#7EA0FF; --mark:#3FBBA6; --hint:#B79BE8; --fusion:#F0925C; --rewrite:#D9A44A; --other:#8692A7;
+  --ochre:#D9A44A; --code-bg:#11161D; --drop-bg:#18233A; --err:#F2847C;
+}
+*{box-sizing:border-box}
+/* The page is also opened as a local file, where no host injects this: without it,
+   .overlay's display:grid overrides the hidden attribute and the drop overlay
+   covers the page at rest. */
+[hidden]{display:none !important}
+body{
+  margin:0; background:var(--ground); color:var(--ink);
+  font-family:var(--sans); line-height:1.55; -webkit-font-smoothing:antialiased;
+}
+.mono{font-family:var(--mono)}
+.wrap{max-width:var(--maxw); margin:0 auto; padding-inline:16px}
+@media (min-width:640px){.wrap{padding-inline:1.5rem}}
+
+/* masthead */
+.mast{background:var(--surface); border-bottom:1px solid var(--line)}
+.mast .wrap{padding-block:2.25rem 1.5rem}
+.eyebrow{
+  font-family:var(--mono); font-size:.72rem; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--ink-3); margin:0 0 .6rem;
+}
+h1{
+  font-size:clamp(1.55rem,3.6vw,2.3rem); line-height:1.15; margin:0 0 .75rem;
+  font-weight:600; letter-spacing:-.015em; text-wrap:balance; overflow-wrap:anywhere;
+}
+.meta{display:flex; flex-wrap:wrap; gap:.35rem 1.5rem; font-family:var(--mono);
+  font-size:.78rem; color:var(--ink-3)}
+.meta b{color:var(--ink-2); font-weight:500}
+
+.stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(7.5rem,1fr)); gap:1px;
+  background:var(--line); border:1px solid var(--line); margin-top:1.5rem}
+.stat{background:var(--surface); padding:.85rem 1rem}
+.stat .n{font-family:var(--mono); font-size:1.45rem; font-weight:600;
+  font-variant-numeric:tabular-nums; display:block; line-height:1.15}
+.stat .l{display:block; margin-top:.2rem; font-size:.7rem; line-height:1.3; color:var(--ink-3); text-transform:uppercase; letter-spacing:.08em}
+
+/* drop zone */
+.drop{
+  position:relative; margin-top:1.25rem; border:1px dashed var(--line-2); background:var(--surface-2);
+  padding:.8rem 1rem; display:flex; flex-wrap:wrap; align-items:center; gap:.5rem 1rem;
+  font-size:.85rem; color:var(--ink-2);
+}
+.drop.over{border-color:var(--kernel); background:var(--drop-bg)}
+.drop .src-name{font-family:var(--mono); font-size:.78rem; color:var(--ink-3); overflow-wrap:anywhere}
+.pick{
+  font:inherit; font-family:var(--mono); font-size:.76rem; padding:.4rem .75rem;
+  border:1px solid var(--line-2); background:var(--surface); color:var(--ink); cursor:pointer; border-radius:2px;
+}
+.pick:hover{border-color:var(--ink-3)}
+/* The real file input is visually hidden but stays the tab stop. It sits right before
+   its label, so its keyboard focus is drawn on the label that stands in for it. */
+#file{position:absolute; left:0; top:0; width:1px; height:1px; opacity:0; pointer-events:none}
+#file:focus-visible + .pick,.fbtn:focus-visible,#q:focus-visible,.src summary:focus-visible{
+  outline:2px solid var(--kernel); outline-offset:2px}
+.status{width:100%; margin:0; font-size:.8rem; min-height:0}
+.status.err{color:var(--err)}
+
+/* full-page drop overlay */
+.overlay{
+  position:fixed; inset:0; z-index:50; display:grid; place-items:center;
+  background:color-mix(in srgb, var(--ground) 82%, transparent);
+  border:3px dashed var(--kernel); font-family:var(--mono); font-size:1rem; color:var(--ink);
+}
+
+/* controls */
+.controls{position:sticky; top:env(safe-area-inset-top,0px); z-index:20; background:var(--ground);
+  border-bottom:1px solid var(--line); padding-block:.75rem}
+.controls .wrap{display:flex; flex-wrap:wrap; gap:.55rem .9rem; align-items:center}
+#q{
+  flex:1 1 14rem; min-width:0; padding:.48rem .7rem; border:1px solid var(--ink-3);
+  background:var(--surface); color:var(--ink); border-radius:2px;
+  font-family:var(--mono); font-size:.84rem;
+}
+/* The browser's own placeholder grey is 3.75:1 on the dark surface; use the token. */
+#q::placeholder{color:var(--ink-3); opacity:1}
+.seg{display:flex; flex-wrap:wrap; gap:.3rem; align-items:center}
+.seg-l{font-size:.7rem; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-3); margin-right:.15rem}
+.fbtn{
+  font-family:var(--mono); font-size:.74rem; padding:.36rem .62rem;
+  border:1px solid var(--line-2); background:var(--surface); color:var(--ink-2);
+  cursor:pointer; border-radius:2px;
+}
+.fbtn[aria-pressed="true"]{background:var(--ink); color:var(--ground); border-color:var(--ink)}
+.count{font-family:var(--mono); font-size:.76rem; color:var(--ink-3);
+  font-variant-numeric:tabular-nums; margin-left:auto}
+
+/* legend */
+.legend{display:flex; flex-wrap:wrap; gap:.4rem 1.4rem; padding-block:1.4rem .25rem;
+  font-size:.8rem; color:var(--ink-2)}
+.legend span{display:inline-flex; gap:.45rem; align-items:baseline}
+.legend b{font-family:var(--mono); font-weight:600; font-size:.74rem; color:var(--k)}
+
+/* sections */
+.sect{padding-top:2rem}
+.sect-h{border-bottom:1px solid var(--line-2); padding-bottom:.5rem; margin-bottom:1rem;
+  display:flex; align-items:baseline; gap:.75rem; flex-wrap:wrap}
+.sect-h h2{margin:0; font-size:1rem; font-family:var(--mono); font-weight:600;
+  overflow-wrap:anywhere; color:var(--k, var(--ink))}
+.sect-h .range{font-family:var(--mono); font-size:.74rem; color:var(--ink-3);
+  font-variant-numeric:tabular-nums}
+.sect-h .n{font-size:.76rem; color:var(--ink-3); margin-left:auto}
+.list{display:flex; flex-direction:column; gap:.55rem}
+
+/* pattern card */
+.pat{border:1px solid var(--line); background:var(--surface); border-left:3px solid var(--k)}
+.pat-h{display:flex; align-items:center; gap:.45rem .7rem; flex-wrap:wrap; padding:.7rem .95rem}
+.idx{font-family:var(--mono); font-size:.72rem; color:var(--ink-3);
+  font-variant-numeric:tabular-nums; min-width:1.7rem}
+.pname{margin:0; font-family:var(--mono); font-size:.88rem; font-weight:600;
+  letter-spacing:-.01em; overflow-wrap:anywhere; min-width:0; flex:1 1 16rem}
+.chip{font-family:var(--mono); font-size:.66rem; text-transform:uppercase;
+  letter-spacing:.07em; padding:.12rem .42rem; border:1px solid currentColor; color:var(--k)}
+.tag{font-family:var(--mono); font-size:.72rem; white-space:nowrap}
+.kern{color:var(--kernel)}
+.rules{color:var(--ink-3)}
+.ben{color:var(--ochre); font-variant-numeric:tabular-nums}
+.srcfile{color:var(--ink-3)}
+.src{border-top:1px solid var(--line)}
+/* display:flex drops the native disclosure marker, so draw an open/closed chevron. */
+.src summary{cursor:pointer; padding:.45rem .95rem; font-family:var(--mono);
+  font-size:.74rem; color:var(--ink-3); display:flex; gap:.7rem; align-items:center; list-style:none}
+.src summary::-webkit-details-marker{display:none}
+.src summary::before{content:""; flex:none; width:.4rem; height:.4rem; margin-left:.1rem;
+  border-right:1.5px solid currentColor; border-bottom:1.5px solid currentColor;
+  transform:rotate(-45deg); transition:transform .15s ease}
+.src[open] > summary::before{transform:translateY(-.1rem) rotate(45deg)}
+.src summary:hover{color:var(--ink)}
+.lc{margin-left:auto; font-variant-numeric:tabular-nums}
+.src pre{margin:0; padding:.9rem .95rem; background:var(--code-bg); border-top:1px solid var(--line);
+  overflow-x:auto; font-size:.76rem; line-height:1.5}
+.src code{font-family:var(--mono); white-space:pre}
+
+.k-kernel{--k:var(--kernel)} .k-mark{--k:var(--mark)} .k-hint{--k:var(--hint)}
+.k-fusion{--k:var(--fusion)} .k-rewrite{--k:var(--rewrite)} .k-other{--k:var(--other)}
+
+.empty{padding:3rem 0; text-align:center; color:var(--ink-3); font-family:var(--mono); font-size:.85rem}
+
+/* Until a dataset is committed, keep the drop zone and hide everything that describes
+   data. This is the resting state, so nothing flashes before the script runs. */
+.nodata{padding-block:3.5rem; text-align:center; color:var(--ink-3); font-size:.95rem}
+.nodata code{font-family:var(--mono); color:var(--ink-2)}
+body.has-data .nodata{display:none}
+body:not(.has-data) .stats, body:not(.has-data) .controls,
+body:not(.has-data) .legend, body:not(.has-data) #sections{display:none}
+footer{border-top:1px solid var(--line); margin-top:3.5rem; padding-block:1.5rem 2.5rem;
+  font-size:.78rem; color:var(--ink-3)}
+footer code{font-family:var(--mono); color:var(--ink-2)}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none !important; transition:none !important}}
+</style>
+</head>
+<body>
+<header class="mast">
+  <div class="wrap">
+    <p class="eyebrow">CGC &middot; driver-declared patterns</p>
+    <h1 id="title">CGC Pattern Atlas</h1>
+    <div class="meta" id="meta"></div>
+    <div class="stats" id="stats"></div>
+
+    <div class="drop" id="drop">
+      <span>Drop a <b class="mono">patterns.json</b> anywhere on the page, or</span>
+      <input id="file" type="file" accept=".json,application/json">
+      <label class="pick" for="file">Choose file&hellip;</label>
+      <span class="src-name" id="srcname"></span>
+      <p class="status" id="status" role="status" aria-live="polite"></p>
+    </div>
+  </div>
+</header>
+
+<div class="controls">
+  <div class="wrap">
+    <input id="q" type="search" placeholder="Filter by name or kernel&hellip;" aria-label="Filter patterns by name or kernel"
+      autocomplete="off" spellcheck="false">
+    <div class="seg" id="kinds" role="group" aria-label="Filter by kind"></div>
+    <div class="seg" id="groupby" role="group" aria-label="Group patterns by">
+      <span class="seg-l">group</span>
+      <button class="fbtn" type="button" data-g="source" aria-pressed="true">source</button>
+      <button class="fbtn" type="button" data-g="kind" aria-pressed="false">kind</button>
+    </div>
+    <span class="count" id="count" aria-live="polite" aria-atomic="true"></span>
+  </div>
+</div>
+
+<main class="wrap">
+  <p class="nodata">No patterns loaded yet. Drop a <code>patterns.json</code> written by
+    <code>winml cgc patterns -a &lt;adapter&gt; --dump</code> anywhere on this page.</p>
+  <div class="legend" id="legend"></div>
+  <div id="sections"></div>
+  <p class="empty" id="empty" hidden>No patterns match this filter.</p>
+</main>
+
+<footer>
+  <div class="wrap">
+    Generated from a <code>patterns.json</code> written by <code>winml cgc patterns --dump</code>.
+    Kind is read from each pattern's body, never its name.
+  </div>
+</footer>
+
+<div class="overlay" id="overlay" hidden>Drop patterns.json to load</div>
+
+<script type="application/json" id="seed"></script>
+<script>
+(function () {
+  "use strict";
+
+  var KIND_ORDER = ["kernel", "fusion", "hint", "mark", "rewrite"];
+  var KIND_BLURB = Object.assign(Object.create(null), {
+    kernel: "declares a jitFunction — the only kind that claims work",
+    fusion: "collapses a marked cluster into one native op",
+    hint: "anchors a cluster and sets the order it grows in",
+    mark: "tags an op so a fusion root can absorb it later",
+    rewrite: "graph surgery, so other patterns can match"
+  });
+  var DEFAULT_TITLE = "CGC Pattern Atlas";
+
+  /* state.data is written only by commit(), so it always describes what is on screen. */
+  var state = { data: null, q: "", kind: "all", group: "source" };
+  var $ = function (id) { return document.getElementById(id); };
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+  function frag() { return document.createDocumentFragment(); }
+  function swap(node, content) { node.textContent = ""; node.appendChild(content); }
+  function kindClass(k) { return "k-" + (KIND_ORDER.indexOf(k) >= 0 ? k : "other"); }
+  function fmt(n) { return typeof n === "number" ? n.toLocaleString("en-US") : n; }
+  function why(e) { return String(e && e.message || e).replace(/\.$/, ""); }
+
+  /* Accept any JSON carrying a `patterns` array; derive everything else from it so
+     a file from a slightly different generator still renders. */
+  function normalize(d) {
+    if (!d || typeof d !== "object" || !Array.isArray(d.patterns)) {
+      throw new Error("expected a JSON object with a \"patterns\" array");
+    }
+    if (!d.patterns.length) throw new Error("the \"patterns\" array is empty");
+    var pats = d.patterns.map(function (p, i) {
+      if (!p || typeof p !== "object") throw new Error("pattern " + (i + 1) + " is not an object");
+      var name = String(p.name == null ? "" : p.name);
+      return {
+        index: typeof p.index === "number" ? p.index : i + 1,
+        name: name,
+        short: p.short_name ? String(p.short_name) : name.split(".").pop(),
+        kind: p.kind ? String(p.kind) : "rewrite",
+        benefit: typeof p.benefit === "number" ? p.benefit : null,
+        rules: typeof p.rules === "number" ? p.rules : 1,
+        source: p.source ? String(p.source) : "(unattributed)",
+        kernel: p.kernel ? String(p.kernel) : null,
+        lines: typeof p.lines === "number" ? p.lines : null,
+        mlir: p.mlir ? String(p.mlir).replace(/\r\n?/g, "\n") : ""
+      };
+    });
+    return { meta: d.meta && typeof d.meta === "object" ? d.meta : {}, patterns: pats };
+  }
+
+  function stats(pats) {
+    var kernels = pats.filter(function (p) { return p.kernel; }).map(function (p) { return p.kernel; });
+    var uniq = function (xs) { return Object.keys(xs.reduce(function (m, x) { m[x] = 1; return m; }, Object.create(null))).length; };
+    return [
+      ["patterns", pats.length],
+      ["rules", pats.reduce(function (s, p) { return s + p.rules; }, 0)],
+      ["declare a kernel", kernels.length],
+      ["distinct kernels", uniq(kernels)],
+      ["source files", uniq(pats.map(function (p) { return p.source; }))],
+      ["top benefit", pats.reduce(function (m, p) { return Math.max(m, p.benefit || 0); }, 0)]
+    ];
+  }
+
+  function card(p, group) {
+    var a = el("article", "pat " + kindClass(p.kind));
+    a.dataset.kind = p.kind;
+    a.dataset.hay = (p.short + " " + p.name + " " + (p.kernel || "")).toLowerCase();
+    var h = el("header", "pat-h");
+    h.appendChild(el("span", "idx", String(p.index)));
+    h.appendChild(el("h3", "pname", p.short));
+    h.appendChild(el("span", "chip", p.kind));
+    if (p.kernel) h.appendChild(el("span", "tag kern", p.kernel));
+    if (p.rules > 1) h.appendChild(el("span", "tag rules", p.rules + " rules"));
+    if (group === "kind") h.appendChild(el("span", "tag srcfile", p.source));
+    if (p.benefit != null) {
+      var b = el("span", "tag ben", "benefit " + p.benefit);
+      b.title = "match benefit";
+      h.appendChild(b);
+    }
+    a.appendChild(h);
+    if (p.mlir) {
+      var det = el("details", "src");
+      var sum = el("summary");
+      sum.appendChild(el("span", null, "MLIR source"));
+      var lines = p.lines != null ? p.lines : p.mlir.split("\n").length;
+      sum.appendChild(el("span", "lc", lines + " lines"));
+      det.appendChild(sum);
+      /* Filled on first open: 51 patterns of up to ~90 lines stay cheap at rest. */
+      det.addEventListener("toggle", function () {
+        if (det.open && !det.querySelector("pre")) {
+          var pre = el("pre");
+          pre.appendChild(el("code", null, p.mlir));
+          det.appendChild(pre);
+        }
+      });
+      a.appendChild(det);
+    }
+    return a;
+  }
+
+  function groups(pats, group) {
+    var order = [], by = Object.create(null);
+    var key = group === "kind" ? "kind" : "source";
+    pats.forEach(function (p) {
+      var k = p[key];
+      if (!by[k]) { by[k] = []; order.push(k); }
+      by[k].push(p);
+    });
+    if (key === "kind") {
+      order.sort(function (a, b) {
+        var ia = KIND_ORDER.indexOf(a), ib = KIND_ORDER.indexOf(b);
+        return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+      });
+      order.forEach(function (k) {
+        by[k].sort(function (x, y) { return (y.benefit || 0) - (x.benefit || 0) || x.index - y.index; });
+      });
+    }
+    return order.map(function (k) { return { key: k, items: by[k] }; });
+  }
+
+  /* Builds the sections into a detached fragment, already filtered, so the caller can
+     swap them in whole, or drop them untouched if anything throws. */
+  function buildSections(data, group, kind) {
+    var root = frag();
+    groups(data.patterns, group).forEach(function (g) {
+      var sec = el("section", "sect" + (group === "kind" ? " " + kindClass(g.key) : ""));
+      var hd = el("div", "sect-h");
+      hd.appendChild(el("h2", null, g.key));
+      if (group === "source") {
+        var idx = g.items.map(function (p) { return p.index; });
+        var lo = Math.min.apply(null, idx), hi = Math.max.apply(null, idx);
+        hd.appendChild(el("span", "range", lo === hi ? "#" + lo : "#" + lo + "–" + hi));
+      } else if (KIND_BLURB[g.key]) {
+        hd.appendChild(el("span", "range", KIND_BLURB[g.key]));
+      }
+      var n = el("span", "n");
+      n.dataset.total = g.items.length;
+      hd.appendChild(n);
+      sec.appendChild(hd);
+      var list = el("div", "list");
+      g.items.forEach(function (p) { list.appendChild(card(p, group)); });
+      sec.appendChild(list);
+      root.appendChild(sec);
+    });
+    return { node: root, shown: filterInto(root, kind, state.q) };
+  }
+
+  /* Shows or hides every card under `root` (live or detached); returns how many stay visible. */
+  function filterInto(root, kind, query) {
+    var q = query.trim().toLowerCase(), shown = 0;
+    root.querySelectorAll(".sect").forEach(function (sec) {
+      var visible = 0;
+      sec.querySelectorAll(".pat").forEach(function (c) {
+        var ok = (kind === "all" || c.dataset.kind === kind) && (!q || c.dataset.hay.indexOf(q) >= 0);
+        c.hidden = !ok;
+        if (ok) visible++;
+      });
+      sec.hidden = visible === 0;
+      var n = sec.querySelector(".sect-h .n");
+      var total = +n.dataset.total;
+      n.textContent = visible === total ? total + (total === 1 ? " pattern" : " patterns")
+                                        : visible + " of " + total;
+      shown += visible;
+    });
+    return shown;
+  }
+
+  /* #count is a polite live region. It is written only when its text changes, and while
+     typing only after a short pause, so a screen reader hears the settled count rather
+     than one announcement per keystroke. */
+  var countTimer = 0;
+  function setCount(shown, total, afterPause) {
+    var text = shown === total ? total + " shown" : shown + " of " + total + " shown";
+    var write = function () { var c = $("count"); if (c.textContent !== text) c.textContent = text; };
+    clearTimeout(countTimer);
+    if (afterPause) countTimer = setTimeout(write, 350); else write();
+    $("empty").hidden = shown !== 0;
+  }
+
+  function applyFilter(afterPause) {
+    if (!state.data) return;
+    setCount(filterInto($("sections"), state.kind, state.q), state.data.patterns.length, afterPause);
+  }
+
+  /* Everything for a new dataset is built detached from the page. Nothing on screen,
+     and nothing in `state`, changes until commit(), so a load that throws leaves the
+     page exactly as it was. */
+  function buildView(data, label) {
+    var m = data.meta, present = Object.create(null);
+    data.patterns.forEach(function (p) { present[p.kind] = (present[p.kind] || 0) + 1; });
+    var kinds = ["all"].concat(KIND_ORDER.filter(function (k) { return present[k]; }),
+      Object.keys(present).filter(function (k) { return KIND_ORDER.indexOf(k) < 0; }));
+    var kind = kinds.indexOf(state.kind) >= 0 ? state.kind : "all";
+
+    var meta = frag();
+    [["driver", m.driver_version], ["SDK", m.sdk_version], ["encoding", m.encoding],
+     ["bytes", m.bytes != null ? fmt(m.bytes) : null]].forEach(function (kv) {
+      if (kv[1] == null || kv[1] === "") return;
+      var s = el("span", null, kv[0] + " ");
+      s.appendChild(el("b", null, String(kv[1])));
+      meta.appendChild(s);
+    });
+
+    var tiles = frag();
+    stats(data.patterns).forEach(function (kv) {
+      var d = el("div", "stat");
+      d.appendChild(el("span", "n", fmt(kv[1])));
+      d.appendChild(el("span", "l", kv[0]));
+      tiles.appendChild(d);
+    });
+
+    var buttons = frag();
+    kinds.forEach(function (k) {
+      var b = el("button", "fbtn", k === "all" ? "all" : k + " " + present[k]);
+      b.type = "button";
+      b.dataset.k = k;
+      b.setAttribute("aria-pressed", String(k === kind));
+      buttons.appendChild(b);
+    });
+
+    var legend = frag();
+    KIND_ORDER.filter(function (k) { return present[k]; }).forEach(function (k) {
+      var s = el("span", kindClass(k));
+      s.appendChild(el("b", null, k));
+      s.appendChild(document.createTextNode(KIND_BLURB[k]));
+      legend.appendChild(s);
+    });
+
+    var secs = buildSections(data, state.group, kind);
+    return {
+      data: data, kind: kind,
+      title: m.adapter ? String(m.adapter) : DEFAULT_TITLE,
+      srcname: label ? "showing " + label : "",
+      meta: meta, stats: tiles, kinds: buttons, legend: legend,
+      sections: secs.node, shown: secs.shown
+    };
+  }
+
+  function commit(v) {
+    state.data = v.data;
+    state.kind = v.kind;
+    $("title").textContent = v.title;
+    swap($("meta"), v.meta);
+    swap($("stats"), v.stats);
+    swap($("kinds"), v.kinds);
+    swap($("legend"), v.legend);
+    swap($("sections"), v.sections);
+    $("srcname").textContent = v.srcname;
+    setCount(v.shown, v.data.patterns.length, false);
+    document.body.classList.add("has-data");
+  }
+
+  function load(raw, label) { commit(buildView(normalize(raw), label)); }
+
+  function setStatus(msg, isErr) {
+    var s = $("status");
+    s.textContent = msg || "";
+    s.classList.toggle("err", !!isErr);
+  }
+
+  /* Say the earlier data is kept only when there is earlier data on screen. */
+  /* An error describes the action that failed; once a later action succeeds it is
+     stale, so it is cleared. A success message is left alone. */
+  function clearError() {
+    if ($("status").classList.contains("err")) setStatus("");
+  }
+
+  function fail(msg) {
+    setStatus(msg + (state.data ? " The previous data is still shown." : ""), true);
+  }
+
+  /* Only the file chosen most recently may land: FileReader finishes in size order,
+     so a large file picked first would otherwise replace a small one picked after. */
+  var loadGen = 0;
+  function readFile(f) {
+    if (!f) return;
+    var gen = ++loadGen;
+    var r = new FileReader();
+    r.onload = function () {
+      if (gen !== loadGen) return;
+      try {
+        load(JSON.parse(r.result), f.name);
+      } catch (e) {
+        fail("Could not load " + f.name + ": " + why(e) + ".");
+        return;
+      }
+      setStatus("Loaded " + f.name + ".");
+    };
+    r.onerror = function () { if (gen === loadGen) fail("Could not read " + f.name + "."); };
+    r.readAsText(f);
+  }
+
+  /* --- wiring --------------------------------------------------------------- */
+  $("q").addEventListener("input", function (e) { state.q = e.target.value; applyFilter(true); });
+  $("kinds").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-k]");
+    if (!b) return;
+    state.kind = b.dataset.k;
+    clearError();
+    this.querySelectorAll("[data-k]").forEach(function (x) {
+      x.setAttribute("aria-pressed", String(x === b));
+    });
+    applyFilter(false);
+  });
+  $("groupby").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-g]");
+    if (!b || b.dataset.g === state.group || !state.data) return;
+    var secs;
+    try {
+      secs = buildSections(state.data, b.dataset.g, state.kind);
+    } catch (err) {
+      setStatus("Could not group by " + b.dataset.g + ": " + why(err) + ".", true);
+      return;
+    }
+    state.group = b.dataset.g;
+    swap($("sections"), secs.node);
+    clearError();
+    setCount(secs.shown, state.data.patterns.length, false);
+    this.querySelectorAll("[data-g]").forEach(function (x) {
+      x.setAttribute("aria-pressed", String(x === b));
+    });
+  });
+  $("file").addEventListener("change", function (e) { readFile(e.target.files[0]); e.target.value = ""; });
+
+  /* A counter, not a flag: dragenter/dragleave fire for every child crossed. */
+  var depth = 0, drop = $("drop"), overlay = $("overlay");
+  function isFileDrag(e) {
+    return e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types || [], "Files") >= 0;
+  }
+  window.addEventListener("dragenter", function (e) {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    if (depth++ === 0) { overlay.hidden = false; drop.classList.add("over"); }
+  });
+  window.addEventListener("dragover", function (e) { if (isFileDrag(e)) e.preventDefault(); });
+  window.addEventListener("dragleave", function (e) {
+    if (!isFileDrag(e)) return;
+    if (--depth <= 0) { depth = 0; overlay.hidden = true; drop.classList.remove("over"); }
+  });
+  window.addEventListener("drop", function (e) {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    depth = 0; overlay.hidden = true; drop.classList.remove("over");
+    readFile(e.dataTransfer.files[0]);
+  });
+
+  /* The repository copy ships with no data; a build may embed a dump here. Anything
+     that is not a JSON object (empty, or an unfilled placeholder) means "nothing yet",
+     which is the page's resting state. */
+  var seedText = $("seed").textContent.trim();
+  if (seedText.charAt(0) === "{") {
+    try {
+      var seed = JSON.parse(seedText);
+      load(seed, seed.meta && seed.meta.label ? String(seed.meta.label) : "the embedded sample");
+    } catch (e) {
+      setStatus("The embedded data could not be read: " + why(e) + ".", true);
+    }
+  }
+})();
+</script>
+</body>
+</html>

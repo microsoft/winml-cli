@@ -20,11 +20,13 @@ from winml.modelkit.loader import NativeDevice, NativeHFModel
 
 
 class TestPyTorchRuntimeCli:
-    def test_help_shows_runtime_choices(self) -> None:
+    def test_help_shows_only_public_runtime_choices(self) -> None:
         result = CliRunner().invoke(eval, ["--help"])
 
         assert result.exit_code == 0
-        assert "--runtime [winml-ort|winml-runtime|pytorch]" in result.output
+        assert "--runtime [winml-ort|pytorch]" in result.output
+        assert "pytorch" in result.output
+        assert "winml-runtime" not in result.output
 
     def test_pytorch_runtime_dispatches_pytorch(self, tmp_path) -> None:
         captured: dict[str, WinMLEvaluationConfig] = {}

@@ -119,6 +119,7 @@ def capability_options(func: F) -> F:
     """
     # Late import to speed up CLI startup
     from ..optim import BoolCapability, ChoiceCapability, IntCapability, get_all_capabilities
+    from ..optim.pipes import CGIRRewritePipe
 
     # Get all capabilities and reverse for correct Click ordering
     all_caps = list(get_all_capabilities().values())
@@ -131,6 +132,7 @@ def capability_options(func: F) -> F:
                 f"--enable-{cap.name}/--disable-{cap.name}",
                 cap.python_name,
                 default=None,  # Use None to detect explicit vs default
+                hidden=cap.name in CGIRRewritePipe.capabilities,
                 help=f"{cap.description} (Default: {default_str})",
             )(func)
         elif isinstance(cap, IntCapability):
