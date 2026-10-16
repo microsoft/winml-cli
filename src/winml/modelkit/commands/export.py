@@ -329,7 +329,7 @@ def export(
         export_config_dict = cli_utils.load_json_object(export_config, "--export-config")
         console.print(f"[dim]Loaded export config: {list(export_config_dict.keys())}[/dim]")
 
-    merged_options = {}
+    merged_options: dict[str, object] = {}
     for settings in (_build_export_dict, export_config_dict):
         if not cli_utils.is_cli_provided(ctx, "target") and "target" in settings:
             target = settings["target"]
