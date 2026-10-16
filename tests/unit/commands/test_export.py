@@ -128,7 +128,11 @@ class TestExportCLIInterface:
 
         settings = {
             "target": "cgir",
-            "options": {"external_weights": "invalid" if override else True, "update_opset": False},
+            "options": {
+                "external_weights": "invalid" if override else True,
+                "update_opset": False,
+                "freeze_dims": "height=720,width=1280",
+            },
             "dynamo": True,
         }
         config_path = tmp_path / "export.json"
@@ -151,7 +155,9 @@ class TestExportCLIInterface:
         elif config_flag == "both":
             build_path = tmp_path / "build.json"
             build_path.write_text(json.dumps({"export": settings}))
-            config_path.write_text(json.dumps({"options": {"topo_sort_nodes": True}}))
+            config_path.write_text(json.dumps({
+                "options": {"topo_sort_nodes": True, "update-opset": True},
+            }))
             args += ["-c", str(build_path), "--export-config", str(config_path)]
         else:
             args += [config_flag, str(config_path)]
@@ -179,9 +185,12 @@ class TestExportCLIInterface:
         backend.assert_called_once()
         onnx_backend.assert_not_called()
         assert backend.call_args.args[0].options == CGCOptions(
-            external_weights=not override and config_flag != "both",
-            update_opset=override or config_flag == "both",
-            topo_sort_nodes=not override and config_flag == "both",
+            external_weights=not override,
+            update_opset=config_flag == "both" or (config_flag == "cli" and override),
+            topo_sort_nodes=config_flag == "both",
+            freeze_dims=(
+                "" if config_flag == "cli" and override else settings["options"]["freeze_dims"]
+            ),
         )
         if not onnx_input:
             config = backend.call_args.kwargs["export_config"]

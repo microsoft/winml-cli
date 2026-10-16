@@ -329,11 +329,22 @@ def export(
         export_config_dict = cli_utils.load_json_object(export_config, "--export-config")
         console.print(f"[dim]Loaded export config: {list(export_config_dict.keys())}[/dim]")
 
+    merged_options = {}
     for settings in (_build_export_dict, export_config_dict):
         if not cli_utils.is_cli_provided(ctx, "target") and "target" in settings:
             target = settings["target"]
-        if not cli_utils.is_cli_provided(ctx, "cgc_options") and "options" in settings:
-            cgc_options = tuple(f"{key}={value}" for key, value in settings["options"].items())
+        if "options" in settings:
+            merged_options.update(
+                (key.replace("_", "-"), value) for key, value in settings["options"].items()
+            )
+    for item in cgc_options:
+        key, separator, value = item.partition("=")
+        if not separator or not key.strip():
+            raise click.BadParameter(
+                f"Invalid option format: {item!r}. Use KEY=VALUE.", param_hint="--cgc-options",
+            )
+        merged_options[key.strip().replace("_", "-")] = value.strip()
+    cgc_options = tuple(f"{key}={value}" for key, value in merged_options.items())
 
     exporter = _get_exporter(target, cgc_options)
 
