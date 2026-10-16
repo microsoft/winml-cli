@@ -40,7 +40,7 @@ def main():
     batches = []
     for path in paths:
         with np.load(path, allow_pickle=False) as archive:
-            batches.append([np.ascontiguousarray(archive[k]) for k in archive.files])
+            batches.append([np.array(archive[k], copy=True, order="C") for k in archive.files])
     if any(
         len(b) != len(batches[0])
         or any(x.shape != y.shape or x.dtype != y.dtype for x, y in zip(b, batches[0], strict=True))
@@ -192,12 +192,15 @@ def main():
                 )
                 if value.size != reference[key].size:
                     raise ValueError("Output size mismatch")
+                if not np.isfinite(value).all() or not np.isfinite(reference[key]).all():
+                    raise ValueError("Nonfinite output")
+                if not np.allclose(value, reference[key].ravel(), rtol=0.01, atol=0.001):
+                    raise ValueError(f"Output value mismatch: {key}")
                 actuals.append(value.astype(float).ravel())
                 expected.append(reference[key].astype(float).ravel())
             x, y = np.concatenate(actuals), np.concatenate(expected)
-            cosine = float(np.dot(x, y) / (np.linalg.norm(x) * np.linalg.norm(y)))
-            if not np.isfinite(cosine) or cosine <= 0.99:
-                raise ValueError(f"Paired output mismatch: {cosine}")
+            denominator = np.linalg.norm(x) * np.linalg.norm(y)
+            cosine = float(np.dot(x, y) / denominator) if denominator else None
             validation.append({"round": repeat, "last_input_cosine": cosine})
     (a.output / "validation.json").write_text(json.dumps(validation, indent=2))
     evidence = {

@@ -308,6 +308,9 @@ static Buffer view(IDXCGCModule *m, DXCGC_MODULE_TENSOR_ID id, Executable &e,
     return buffer;
   }
   check(hr);
+  if (id.type == DXCGC_MODULE_TENSOR_TYPE_INPUT_VIEW &&
+      source.id.type == DXCGC_MODULE_TENSOR_TYPE_NONE)
+    return {}; // Logical input survives reflection but has no physical binding.
   if (source.id.type != DXCGC_MODULE_TENSOR_TYPE_ARGUMENT ||
       source.id.index >= e.args.size())
     throw std::runtime_error("Unsupported tensor view source");
@@ -454,6 +457,22 @@ int wmain(int argc, wchar_t **argv) {
         check(module->GetTensorRank(tid, &rank));
         std::vector<INT64> dims(rank);
         check(module->GetTensorDimensions(tid, rank, dims.data()));
+        if (!b.resource) {
+          UINT width = 0;
+          switch (dtype) {
+          case DXCGC_DATA_TYPE_BOOL8: case DXCGC_DATA_TYPE_INT8: case DXCGC_DATA_TYPE_UINT8: width=1; break;
+          case DXCGC_DATA_TYPE_INT16: case DXCGC_DATA_TYPE_UINT16: case DXCGC_DATA_TYPE_FLOAT16: width=2; break;
+          case DXCGC_DATA_TYPE_INT32: case DXCGC_DATA_TYPE_UINT32: case DXCGC_DATA_TYPE_FLOAT32: width=4; break;
+          case DXCGC_DATA_TYPE_INT64: case DXCGC_DATA_TYPE_UINT64: case DXCGC_DATA_TYPE_FLOAT64: width=8; break;
+          default: throw std::runtime_error("Unsupported unused input dtype");
+          }
+          b.size = width;
+          for (auto dim : dims) {
+            if (dim < 0 || (dim && b.size > UINT64_MAX / static_cast<UINT64>(dim)))
+              throw std::runtime_error("Invalid unused input shape");
+            b.size *= dim;
+          }
+        }
         metadata << (type == DXCGC_MODULE_TENSOR_TYPE_INPUT_VIEW ? "input"
                                                                  : "output")
                  << '	' << i << '	' << (UINT)dtype << '	';
@@ -478,10 +497,10 @@ int wmain(int argc, wchar_t **argv) {
           }
           if (!spec)
             throw std::runtime_error("Invalid input metadata");
-          h.upload(b, bytes.data(), bytes.size());
+          if (b.resource) h.upload(b, bytes.data(), bytes.size());
           inputViews.push_back(b);
           inputBytes.push_back(std::move(bytes));
-          uploads.push_back(h.buffer(b.size, D3D12_HEAP_TYPE_UPLOAD));
+          uploads.push_back(b.resource ? h.buffer(b.size, D3D12_HEAP_TYPE_UPLOAD) : Buffer{});
         } else {
           outputViews.push_back(b);
           readbacks.push_back(h.buffer(b.size, D3D12_HEAP_TYPE_READBACK));
@@ -524,6 +543,7 @@ int wmain(int argc, wchar_t **argv) {
       // The preceding submission completed before returning. These resources
       // and bindings stay owned and fixed for the lifetime of this session.
       for (size_t j = 0; j < inputViews.size(); ++j) {
+        if (!inputViews[j].resource) continue;
         void *mapped;
         check(uploads[j].resource->Map(0, nullptr, &mapped));
         memcpy(mapped, callerInputs ? callerInputs[j] : inputBytes[j].data(), inputBytes[j].size());
@@ -533,6 +553,7 @@ int wmain(int argc, wchar_t **argv) {
         h.begin();
         {
           for (size_t j = 0; j < inputViews.size(); ++j) {
+            if (!inputViews[j].resource) continue;
             h.transition(inputViews[j], D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                          D3D12_RESOURCE_STATE_COPY_DEST);
             h.list->CopyBufferRegion(

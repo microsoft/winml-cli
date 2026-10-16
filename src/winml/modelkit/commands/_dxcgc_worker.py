@@ -75,7 +75,9 @@ def main() -> None:
             if manifest.exists():
                 for path in json.loads(manifest.read_text()):
                     with np.load(path, allow_pickle=False) as archive:
-                        sequence.append([np.ascontiguousarray(archive[k]) for k in archive.files])
+                        sequence.append(
+                            [np.array(archive[k], copy=True, order="C") for k in archive.files]
+                        )
             else:
                 sequence = [
                     [
@@ -122,7 +124,7 @@ def main() -> None:
             for (index, _, _), array in zip(specs, last, strict=True):
                 array.tofile(work / f"output-{index}.bin")
             return 0
-        except BaseException as error:
+        except Exception as error:
             errors.append(str(error))
             return 1
 
