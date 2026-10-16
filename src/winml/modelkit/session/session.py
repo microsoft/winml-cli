@@ -345,6 +345,18 @@ def _build_session_options(
         ep_monitor.configure_session_options(so)
 
     handle = ep_device.device._ort
+    # Temporary diagnostic branch: report the exact handle used by real perf.
+    import json
+    import sys
+
+    if handle.ep_name == "OpenVINOExecutionProvider" and handle.device.type.name == "GPU":
+        memory = handle.memory_info(ort.OrtDeviceMemoryType.HOST_ACCESSIBLE)
+        print("OV_DIAG_SELECTED " + json.dumps({
+            "ep": handle.ep_name, "hardware": dict(handle.device.metadata),
+            "ov_luid": handle.ep_metadata.get("DEVICE_LUID"),
+            "allocator_id": memory.device_id if memory else None,
+            "dll": handle.ep_metadata.get("library_path"),
+        }), file=sys.stderr, flush=True)
     options = (
         dict(provider_options)
         if provider_options is not None

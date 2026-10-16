@@ -168,6 +168,12 @@ jobs:
         workingDirectory: $(Build.SourcesDirectory)
         displayName: 'Install dependencies'
 
+      - powershell: |
+          uv run --no-sync python scripts/diagnose_ov_allocator.py --output "$(Agent.TempDirectory)/ov-allocator-diag"
+          exit $LASTEXITCODE
+        workingDirectory: $(Build.SourcesDirectory)
+        displayName: 'Diagnose OpenVINO GPU allocator routes'
+
       # ----------------------------------------------------------------------
       # Phase 1: winml perf (gated by runEval).
       # One step per (model × pair); template-time expanded for granular UI.
@@ -236,9 +242,7 @@ jobs:
                       if ($name -eq 'dml_gpu' -and $pinDml -eq 'True') {
                           $uvArgs += "--pin-single-dml-gpu"
                       }
-                      if ($isLastPair) {
-                          $uvArgs += "--clean-cache"
-                      }
+                      # Diagnostic rerun: preserve caches for the local comparison.
 
                       & uv @uvArgs
                       $code = $LASTEXITCODE
