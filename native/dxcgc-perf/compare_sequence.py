@@ -1,3 +1,7 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Paired fixed-shape Raw/Offline benchmark using caller-provided NPZ inputs.
 
 Run with the CLI venv. Manifest is a JSON list of absolute NPZ paths, in
