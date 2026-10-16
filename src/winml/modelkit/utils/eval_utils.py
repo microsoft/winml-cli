@@ -57,6 +57,30 @@ _IMAGE_CLASSIFICATION_SCHEMA = TaskSchema(
     ),
 )
 
+_AUTOMATIC_SPEECH_RECOGNITION_SCHEMA = TaskSchema(
+    columns=(
+        SchemaItem(
+            "input_column",
+            "audio bytes/path or decoded waveform with sampling rate",
+            default="audio",
+            remap_hint="<your_audio_column>",
+        ),
+        SchemaItem(
+            "label_column",
+            "reference transcript",
+            default="text",
+            remap_hint="<your_transcript_column>",
+        ),
+    ),
+    params=(
+        SchemaItem("max_audio_seconds", "per-row audio duration cap", default="30"),
+        SchemaItem("max_new_tokens", "seq2seq generation cap", default="32"),
+        SchemaItem("language", "seq2seq language prompt", default="english"),
+        SchemaItem("generation_task", "seq2seq speech task", default="transcribe"),
+    ),
+    roles=("encoder", "decoder"),
+)
+
 _TEXT_CLASSIFICATION_SCHEMA = TaskSchema(
     columns=(
         SchemaItem(
@@ -449,6 +473,7 @@ _TEXT_GENERATION_SCHEMA = TaskSchema(
 )
 
 TASK_SCHEMAS: dict[str, TaskSchema] = {
+    "automatic-speech-recognition": _AUTOMATIC_SPEECH_RECOGNITION_SCHEMA,
     "image-classification": _IMAGE_CLASSIFICATION_SCHEMA,
     "text-classification": _TEXT_CLASSIFICATION_SCHEMA,
     "sequence-classification": _TEXT_CLASSIFICATION_SCHEMA,
