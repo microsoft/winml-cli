@@ -1,0 +1,3340 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A CLI toolkit to build portable, performant, and high-quality models for Windows ML.">
+      
+      
+      
+        <link rel="canonical" href="https://microsoft.github.io/winml-cli/dev/samples/gguf-llama-perf/">
+      
+      
+        <link rel="prev" href="../qwen3-genai-bundle/">
+      
+      
+        <link rel="next" href="../../tutorials/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>GGUF — llama.cpp (Experimental) - Windows ML CLI</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#gguf-llamacpp-on-windows-ml-runtime-experimental" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Windows ML CLI" class="md-header__button md-logo" aria-label="Windows ML CLI" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Windows ML CLI
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              GGUF — llama.cpp (Experimental)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/microsoft/winml-cli" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    microsoft/winml-cli
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/installation/" class="md-tabs__link">
+          
+  
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../concepts/how-it-works/" class="md-tabs__link">
+          
+  
+  
+  Concepts
+
+        </a>
+      </li>
+    
+  
+
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../commands/overview/" class="md-tabs__link">
+          
+  
+  
+  Commands
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../bert-config-build/" class="md-tabs__link">
+          
+  
+  
+  Samples
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../tutorials/" class="md-tabs__link">
+          
+  
+  
+  Tutorials
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../troubleshooting/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Troubleshooting
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../contributing/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Contributing
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../Privacy/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Privacy
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Windows ML CLI" class="md-nav__button md-logo" aria-label="Windows ML CLI" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Windows ML CLI
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/microsoft/winml-cli" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    microsoft/winml-cli
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/ui-quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    UI Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_4" id="__nav_2_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Use with AI Agent
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Use with AI Agent
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/agent-skill/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/agent-skill/use-winml-cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Use WinML CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/agent-skill/adding-model-support/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Add model support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/agent-skill/auto-optimize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Auto Optimize
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_1" id="__nav_3_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Fundamentals
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Fundamentals
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/how-it-works/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How winml-cli works
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/graphs-and-ir/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graph and IR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/weight-and-activation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Weight and Activation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/quantization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datatype and Quantization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/eps-and-devices/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    EP and Device
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    WinML CLI
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    WinML CLI
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/load-and-export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Load and export
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/primitives-and-pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Primitives and pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/analyze-and-optimize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analyze and optimize
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/compile-and-epcontext/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compile and EPContext
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/perf-and-monitoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Perf and monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/eval-and-datasets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Eval and datasets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/config-and-build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config and build
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Commands
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Commands
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discover
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Discover
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/sys/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sys
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/inspect/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    inspect
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/catalog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configure
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configure
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_4" id="__nav_4_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Build
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    export
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/analyze/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    analyze
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/optimize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    optimize
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/quantize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    quantize
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/compile/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    compile
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    build
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_5" id="__nav_4_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Measure
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Measure
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/perf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    perf
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/eval/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    eval
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Samples
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Samples
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../bert-config-build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    BERT — Config + Build + Perf
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../clip-composite/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLIP — Composite Models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../qwen3-genai-bundle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Qwen3 — Genai Bundle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GGUF — llama.cpp (Experimental)
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GGUF — llama.cpp (Experimental)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-1-create-an-experimental-environment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1: Create an experimental environment
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-2-benchmark-the-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2: Benchmark the model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#context-capacity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context capacity
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#run-on-a-gpu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run on a GPU
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#report-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Report fields
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Limitations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See also
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tutorials
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tutorials
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/npu-convnext/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hugging Face Model to NPU
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/build-from-onnx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bring Your Own ONNX Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config Schema
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/output-layout/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Output Layout
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/supported-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Supported Models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../Privacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-1-create-an-experimental-environment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1: Create an experimental environment
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-2-benchmark-the-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2: Benchmark the model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#context-capacity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context capacity
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#run-on-a-gpu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run on a GPU
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#report-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Report fields
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Limitations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See also
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/microsoft/winml-cli/edit/main/docs/samples/gguf-llama-perf.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="gguf-llamacpp-on-windows-ml-runtime-experimental">GGUF — llama.cpp on Windows ML Runtime (Experimental)<a class="headerlink" href="#gguf-llamacpp-on-windows-ml-runtime-experimental" title="Permanent link">&para;</a></h1>
+<p><code>winml perf</code> can benchmark a GGUF language model through the Windows ML Task API
+(<code>windowsml.tasks</code>). The Task uses one decoder stage on the Runtime's llama.cpp
+backend and manages greedy generation, token streaming, and sequence state. The
+Runtime still selects llama.cpp from the <code>.gguf</code> extension. The report measures
+time to the first Task token update, intervals between token updates, and total
+generation time. These include Task processing and are distinct from the model
+phase timings reported by <code>--runtime ort-genai</code>.</p>
+<div class="admonition warning">
+<p class="admonition-title">Experimental</p>
+<p>llama.cpp support ships only in the preview <strong>Windows ML 2.7 experimental</strong>
+packages. winml-cli does not install or pin them: its own dependencies keep the
+stable <code>windowsml</code> release. Install the preview packages yourself, in a separate
+virtual environment, only when you need to benchmark GGUF models. The preview
+Runtime API can change between releases.</p>
+</div>
+<h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Windows x64 and Python 3.11 (the winml-cli requirements).</li>
+<li>winml-cli, from PyPI or from a source checkout.</li>
+<li>The preview packages below, all at the <strong>same version</strong>. Each llama.cpp
+  distribution pins the exact <code>windowsml</code> version it was built with.</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Package</th>
+<th>Version</th>
+<th>Provides</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>windowsml[with-ort]</code></td>
+<td><code>2.7.2021a0</code></td>
+<td>The Runtime and Task APIs (<code>windowsml.runtime</code>, <code>windowsml.tasks</code>) and the matching <code>onnxruntime-windowsml</code> build</td>
+</tr>
+<tr>
+<td><code>windowsml-llama-core</code></td>
+<td><code>2.7.2021a0</code></td>
+<td>The Runtime llama.cpp adapter, the llama.cpp and ggml modules, and the CPU backend</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>
+<p>A local GGUF file. For example, the Windows ML samples use
+  <code>qwen2.5-0.5b-instruct-q4_k_m.gguf</code> from the <code>Qwen/Qwen2.5-0.5B-Instruct-GGUF</code>
+  Hugging Face repository. Review the model license before you download it:</p>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">python</span> <span class="n">-c</span> <span class="s2">"from huggingface_hub import hf_hub_download; print(hf_hub_download('Qwen/Qwen2.5-0.5B-Instruct-GGUF', 'qwen2.5-0.5b-instruct-q4_k_m.gguf', local_dir='models'))"</span>
+</span></code></pre></div>
+<p>For a sharded model, keep every shard in one folder and pass the first shard.</p>
+</li>
+</ul>
+<h2 id="step-1-create-an-experimental-environment">Step 1: Create an experimental environment<a class="headerlink" href="#step-1-create-an-experimental-environment" title="Permanent link">&para;</a></h2>
+<p>The preview packages replace the <code>windowsml</code> version that winml-cli pins (and can
+replace its <code>onnxruntime-windowsml</code> version), so keep them out of your regular
+environment.</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">uv (source checkout)</label><label for="__tabbed_1_2">pip</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">uv</span> <span class="n">venv</span> <span class="p">.</span><span class="n">venv-gguf</span> <span class="p">-</span><span class="n">-python</span> <span class="n">3</span><span class="p">.</span><span class="n">11</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="p">.</span><span class="n">venv-gguf</span><span class="p">\</span><span class="n">Scripts</span><span class="p">\</span><span class="n">activate</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">uv</span> <span class="n">pip</span> <span class="n">install</span> <span class="n">-e</span> <span class="p">.</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">uv</span> <span class="n">pip</span> <span class="n">install</span> <span class="p">-</span><span class="n">-prerelease</span><span class="p">=</span><span class="n">allow</span> <span class="s2">"windowsml[with-ort]==2.7.2021a0"</span> <span class="s2">"windowsml-llama-core==2.7.2021a0"</span>
+</span></code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">py</span> <span class="p">-</span><span class="n">3</span><span class="p">.</span><span class="n">11</span> <span class="n">-m</span> <span class="n">venv</span> <span class="p">.</span><span class="n">venv-gguf</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="p">.</span><span class="n">venv-gguf</span><span class="p">\</span><span class="n">Scripts</span><span class="p">\</span><span class="n">activate</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">python</span> <span class="n">-m</span> <span class="n">pip</span> <span class="n">install</span> <span class="n">winml-cli</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="n">python</span> <span class="n">-m</span> <span class="n">pip</span> <span class="n">install</span> <span class="p">-</span><span class="n">-pre</span> <span class="s2">"windowsml[with-ort]==2.7.2021a0"</span> <span class="s2">"windowsml-llama-core==2.7.2021a0"</span>
+</span></code></pre></div>
+</div>
+</div>
+</div>
+<p><code>pip</code> (or <code>uv pip check</code>) reports that winml-cli requires different <code>windowsml</code>
+and <code>onnxruntime-windowsml</code> versions. These conflicts are expected in this
+environment: the preview's <code>with-ort</code> extra installs ONNX Runtime 1.30, above
+winml-cli's <code>&lt;1.28</code> constraint.</p>
+<div class="admonition note">
+<p class="admonition-title">Run <code>winml</code> from the activated environment</p>
+<p>Run <code>winml</code> directly in the activated environment. <code>uv run</code> and <code>uv sync</code>
+synchronize the project environment back to the pinned packages, which removes
+the preview Runtime.</p>
+</div>
+<p>Check the installation:</p>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">python</span> <span class="n">-c</span> <span class="s2">"import windowsml.runtime, windowsml.tasks; print('Windows ML Runtime and Task APIs are available')"</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">uv</span> <span class="n">pip</span> <span class="n">show</span> <span class="n">windowsml-llama-core</span>   <span class="c"># or: python -m pip show windowsml-llama-core</span>
+</span></code></pre></div>
+<h2 id="step-2-benchmark-the-model">Step 2: Benchmark the model<a class="headerlink" href="#step-2-benchmark-the-model" title="Permanent link">&para;</a></h2>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">winml</span> <span class="n">perf</span> <span class="n">-m</span> <span class="n">models</span><span class="p">\</span><span class="n">qwen2</span><span class="p">.</span><span class="n">5</span><span class="p">-</span><span class="n">0</span><span class="p">.</span><span class="n">5b-instruct-q4_k_m</span><span class="p">.</span><span class="n">gguf</span> <span class="p">-</span><span class="n">-device</span> <span class="n">cpu</span> <span class="p">`</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>  <span class="p">-</span><span class="n">-max-new-tokens</span> <span class="n">64</span> <span class="p">-</span><span class="n">-prompt</span> <span class="s2">"Name three primary colors."</span>
+</span></code></pre></div>
+<p><code>--runtime auto</code> (the default) selects <code>winml-runtime</code> for <code>.gguf</code> files, and
+<code>--device auto</code> runs GGUF models on the CPU. Without explicit values, GGUF runs use
+2 warmup and 10 timed generations, like <code>--runtime ort-genai</code>.</p>
+<p>The console report lists the runtime and backend, the device, the installed preview
+package versions, the prompt and generated token counts with the stop reason, the
+model response, startup spans, a Task TTFT table, and token-update throughput. The
+JSON report is written to <code>~/.cache/winml/perf/&lt;model-file-stem&gt;/&lt;timestamp&gt;.json</code>
+unless you pass <code>--output</code>.</p>
+<p>These options apply to GGUF models:</p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Behavior with a <code>.gguf</code> model</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--model</code> / <code>-m</code></td>
+<td>Path to a local <code>.gguf</code> file (the first shard of a sharded model).</td>
+</tr>
+<tr>
+<td><code>--runtime</code></td>
+<td><code>auto</code> or <code>winml-runtime</code>. Other runtimes are rejected.</td>
+</tr>
+<tr>
+<td><code>--device</code></td>
+<td><code>auto</code> (CPU), <code>cpu</code>, or <code>gpu</code>. <code>npu</code> is not supported.</td>
+</tr>
+<tr>
+<td><code>--prompt</code>, <code>--prompt-file</code></td>
+<td>The prompt for every generation.</td>
+</tr>
+<tr>
+<td><code>--apply-template/--no-apply-template</code></td>
+<td>Render the prompt with the chat template stored in the GGUF file. Without a template, the raw prompt is used and the report sets <code>chat_template_applied</code> to <code>false</code>.</td>
+</tr>
+<tr>
+<td><code>--max-new-tokens</code></td>
+<td>Upper bound on generated tokens per generation.</td>
+</tr>
+<tr>
+<td><code>--iterations</code>, <code>--warmup</code></td>
+<td>Timed and warmup generations (defaults <code>10</code> and <code>2</code>).</td>
+</tr>
+<tr>
+<td><code>--memory/--no-memory</code></td>
+<td>Process RAM at the load and inference checkpoints.</td>
+</tr>
+<tr>
+<td><code>--output</code>, <code>--overwrite</code>, <code>--format json</code></td>
+<td>Same as for the other runtimes.</td>
+</tr>
+</tbody>
+</table>
+<p>Options that select another benchmark target are rejected: <code>--ep</code>, <code>--ep-options</code>,
+<code>--backend</code>, <code>--device-luid</code>, <code>--input-data</code>, <code>--module</code>, and <code>--submodel</code>.
+Build-only and ONNX-only options, such as <code>--precision</code>, <code>--task</code>, <code>--compile</code>,
+<code>--op-tracing</code>, <code>--duration</code>, <code>--batch-size</code>, and <code>--monitor</code>, are ignored with a
+warning.</p>
+<h2 id="context-capacity">Context capacity<a class="headerlink" href="#context-capacity" title="Permanent link">&para;</a></h2>
+<p>winml-cli encodes the prompt first and sets the decoder's sequence capacity to the
+prompt tokens plus <code>--max-new-tokens</code> before it builds the pipeline. Without this
+hint, llama.cpp can reserve a KV cache for the model's full training context. The
+capacity the Runtime reports is saved as <code>benchmark_info.context_length</code>.</p>
+<p>A generation stops at the end-of-sequence token, at <code>--max-new-tokens</code>, or at the
+capacity. The stop reason of the first timed generation is saved as
+<code>benchmark_info.stop_reason</code>, and <code>aggregate.stop_reason_counts</code> counts all timed
+generations. The Task session is reset before every warmup and timed request, so
+each generation evaluates its prompt independently.</p>
+<h2 id="run-on-a-gpu">Run on a GPU<a class="headerlink" href="#run-on-a-gpu" title="Permanent link">&para;</a></h2>
+<p>The <code>windowsml-llama-core</code> wheel ships only the CPU backend. Windows ML does not
+publish a <code>windowsml-llama-cuda</code> wheel for this release. Build a matching GPU
+backend with the Windows ML
+<a href="https://github.com/microsoft/WindowsML/blob/v2.7.2021-experimental/Tools/llama/README.md"><code>Build-LlamaBackend.ps1</code> tool</a>,
+using the <code>v2.7.2021-experimental</code> checkout for the preview packages above. The
+backend is installed under <code>windowsml\lib\LlamaBackends\&lt;family&gt;</code> in the environment.</p>
+<p>For NVIDIA CUDA, the build requires:</p>
+<ul>
+<li>PowerShell 7, Git, CMake, and Visual Studio 2022 or 2026 with the <strong>v143</strong> C++
+  toolset (MSVC 14.30 through 14.49). A newer toolset alone does not satisfy the
+  release's build script.</li>
+<li>Windows long paths enabled (<code>LongPathsEnabled</code>), as required by the official
+  backend build guide.</li>
+<li>An installed NVIDIA CUDA Toolkit and a driver that supports that toolkit. A
+  GPU driver alone does not provide the compiler and libraries needed to build
+  the backend.</li>
+<li>The signed
+  <a href="https://www.nuget.org/packages/Microsoft.Windows.AI.MachineLearning.LibLlama.Core/0.5.0.2022-experimental"><code>Microsoft.Windows.AI.MachineLearning.LibLlama.Core</code> NuGet package, version <code>0.5.0.2022-experimental</code></a>,
+  its verified SHA-256, and a .NET SDK for the script's <code>dotnet nuget verify --all</code>
+  check. This NuGet version belongs to the same Windows ML release as the
+  <code>windowsml-llama-core==2.7.2021a0</code> wheel; the version strings differ.</li>
+</ul>
+<p>Open PowerShell 7 with the Visual Studio developer environment and v143 toolset
+active (Developer PowerShell). The script requires <code>dumpbin.exe</code> on <code>PATH</code> before
+it discovers Visual Studio; an ordinary PowerShell session is insufficient.
+Activate the experimental Python environment in that session. From the matching
+Windows ML checkout root, set the paths for the downloaded Core package and
+installed CUDA Toolkit, then run:</p>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nv">$corePackage</span> <span class="p">=</span> <span class="s1">'&lt;path to Microsoft.Windows.AI.MachineLearning.LibLlama.Core.0.5.0.2022-experimental.nupkg&gt;'</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="nv">$expectedSha256</span> <span class="p">=</span> <span class="s1">'&lt;verified 64-character SHA-256 of that package&gt;'</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="nv">$cudaToolkit</span> <span class="p">=</span> <span class="s1">'&lt;installed CUDA Toolkit directory&gt;'</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="nv">$library</span> <span class="p">=</span> <span class="n">python</span> <span class="n">-c</span> <span class="s2">"import pathlib, windowsml; print(pathlib.Path(windowsml.__file__).parent / 'lib')"</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="p">.\</span><span class="n">Tools</span><span class="p">\</span><span class="n">llama</span><span class="p">\</span><span class="n">Build-LlamaBackend</span><span class="p">.</span><span class="n">ps1</span> <span class="p">`</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>  <span class="n">-Backend</span> <span class="n">cuda</span> <span class="p">`</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>  <span class="n">-Architecture</span> <span class="n">x64</span> <span class="p">`</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>  <span class="n">-CMakeOption</span> <span class="s2">"-DCUDAToolkit_ROOT=$cudaToolkit"</span> <span class="p">`</span>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>  <span class="n">-CorePackage</span> <span class="nv">$corePackage</span> <span class="p">`</span>
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>  <span class="n">-ExpectedPackageSha256</span> <span class="nv">$expectedSha256</span> <span class="p">`</span>
+</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>  <span class="n">-OutputRoot</span> <span class="nv">$library</span> <span class="p">`</span>
+</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>  <span class="n">-WorkRoot</span> <span class="p">(</span><span class="nb">Join-Path</span> <span class="nv">$PWD</span> <span class="s1">'temp\llama-cuda'</span><span class="p">)</span>
+</span></code></pre></div>
+<p>The script checks that the environment's Core payload matches the NuGet package,
+builds the backend from the package's exact llama.cpp commit, and writes
+<code>ggml-cuda.dll</code> with its matching <code>WinMLLlamaBackendManifest.json</code>. An arbitrary
+llama.cpp CUDA DLL cannot replace this build. Copy the required NVIDIA runtime
+DLLs, including their dependencies, from the installed toolkit into
+<code>$library\LlamaBackends\cuda</code>. The script's warnings name direct dependencies;
+check their imports too. In the verified CUDA 13.4.2 build, <code>ggml-cuda.dll</code> imports
+<code>cublas64_13.dll</code>, which in turn imports <code>cublasLt64_13.dll</code>, so both are needed. Names can differ
+with the toolkit version. NVIDIA's toolkit and runtime license terms apply to
+those files.</p>
+<p>Then run the benchmark from the directory containing the <code>models</code> folder, or
+pass an absolute model path:</p>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">winml</span> <span class="n">perf</span> <span class="n">-m</span> <span class="n">models</span><span class="p">\</span><span class="n">qwen2</span><span class="p">.</span><span class="n">5</span><span class="p">-</span><span class="n">0</span><span class="p">.</span><span class="n">5b-instruct-q4_k_m</span><span class="p">.</span><span class="n">gguf</span> <span class="p">-</span><span class="n">-device</span> <span class="n">gpu</span>
+</span></code></pre></div>
+<p>Other families, such as Vulkan or OpenCL, use the same script with their backend
+name and SDK. Follow the release's GPU backend guide for those prerequisites.
+Rebuild after upgrading the Core package: the backend manifest must match its
+llama.cpp commit and runtime contract. <code>pip uninstall</code> does not remove a backend
+you built; delete its folder yourself.</p>
+<p>When only the CPU backend is installed, <code>winml perf --device gpu</code> stops before it
+loads the model. If the Runtime still finds no usable GPU backend, the load fails
+with HRESULT <code>0x80070032</code>.</p>
+<div class="admonition note">
+<p class="admonition-title">Preview CUDA dependency warning</p>
+<p>With <code>windowsml==2.7.2021a0</code>, a backend you built can trigger a warning that
+<code>WinMLLlamaCudaDependencies.json</code> is missing and suggest installing
+<code>windowsml-llama-cuda</code>. The Python loader expects a wheel-specific dependency
+record that the official backend build script does not create. This warning
+alone does not establish whether native CUDA loading failed. Confirm a
+successful generation, <code>benchmark_info.effective_device: gpu</code>, and native
+<code>ggml_cuda_init</code> output identifying the GPU. The suggested CUDA wheel is not
+published for this release; follow the build and DLL setup above.</p>
+</div>
+<h2 id="report-fields">Report fields<a class="headerlink" href="#report-fields" title="Permanent link">&para;</a></h2>
+<p>GGUF Task reports use <code>schema_version: 3</code>, retaining the <code>load</code>, <code>requests</code>,
+<code>aggregate</code>, and optional <code>memory</code> sections. Only GGUF reports use this version;
+<code>ort-genai</code> reports remain at version 2. Earlier GGUF version 2 reports measured
+individual Runtime calls and Python token selection. Version 3 measures the Task
+stream, which includes native sampling and detokenization. Do not interpret its
+TTFT or token-update intervals as the earlier model-compute phases.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>GGUF value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>benchmark_info.runtime</code> / <code>backend</code> / <code>model_format</code></td>
+<td><code>winml-runtime</code> / <code>llama.cpp</code> / <code>gguf</code></td>
+</tr>
+<tr>
+<td><code>benchmark_info.api</code> / <code>timing_source</code></td>
+<td><code>windowsml.tasks</code> / <code>task-stream</code></td>
+</tr>
+<tr>
+<td><code>benchmark_info.experimental</code></td>
+<td><code>true</code></td>
+</tr>
+<tr>
+<td><code>benchmark_info.ep</code></td>
+<td><code>null</code>. llama.cpp does not use an ONNX Runtime execution provider.</td>
+</tr>
+<tr>
+<td><code>benchmark_info.packages</code></td>
+<td>Installed versions of <code>windowsml</code> and <code>windowsml-llama-core</code>. The legacy <code>windowsml-llama-cuda</code> entry is retained in the report schema and is <code>null</code> for this release; a locally built CUDA backend does not install a Python distribution.</td>
+</tr>
+<tr>
+<td><code>benchmark_info.llama_backends</code></td>
+<td>Backend families found under <code>windowsml\lib\LlamaBackends</code>.</td>
+</tr>
+<tr>
+<td><code>load.model_create_duration_ms</code></td>
+<td><code>Runtime.load_model</code> for the GGUF file.</td>
+</tr>
+<tr>
+<td><code>load.pipeline_build_duration_ms</code></td>
+<td>Building the one-stage decoder pipeline. <code>native_load_duration_ms</code> is model load plus pipeline build.</td>
+</tr>
+<tr>
+<td><code>load.task_create_duration_ms</code></td>
+<td>Creating the Task configuration, Task, and generation session.</td>
+</tr>
+<tr>
+<td><code>load.weight_upload_*</code></td>
+<td><code>null</code> / <code>unavailable</code>. The Runtime does not expose weight-upload timing.</td>
+</tr>
+<tr>
+<td><code>requests[].tokenization_duration_ms</code></td>
+<td>Chat-template rendering and tokenization, which the Runtime performs in one call. <code>template_duration_ms</code> is <code>0</code>.</td>
+</tr>
+<tr>
+<td><code>requests[].generator_create_duration_ms</code></td>
+<td>Resetting the Task session before a new generation.</td>
+</tr>
+<tr>
+<td><code>requests[].task_stream_create_duration_ms</code></td>
+<td>The <code>generate_tokens</code> call that creates the pull stream.</td>
+</tr>
+<tr>
+<td><code>requests[].task_ttft_duration_ms</code></td>
+<td>From immediately before <code>generate_tokens</code> through the first token update; includes stream creation.</td>
+</tr>
+<tr>
+<td><code>requests[].request_ttft_duration_ms</code></td>
+<td>Tokenization plus session reset plus Task TTFT.</td>
+</tr>
+<tr>
+<td><code>requests[].decode_token_durations_ms</code></td>
+<td>Arrival intervals between consecutive token updates, including Task sampling and detokenization. There is one interval per token after the first.</td>
+</tr>
+<tr>
+<td><code>requests[].steady_state_decode_tokens_per_second</code></td>
+<td>Tokens after the first divided by the sum of token-update intervals. TPOT uses those same intervals.</td>
+</tr>
+<tr>
+<td><code>requests[].task_stream_completion_duration_ms</code></td>
+<td>From the last token update to the terminal read returning <code>None</code>; when no token is produced, from stream creation's end. Includes any final stop-token processing.</td>
+</tr>
+<tr>
+<td><code>requests[].result_fetch_duration_ms</code></td>
+<td>Fetching the terminal Task result after the stream completes.</td>
+</tr>
+<tr>
+<td><code>requests[].task_generation_duration_ms</code></td>
+<td>From immediately before <code>generate_tokens</code> through the terminal read and result fetch.</td>
+</tr>
+<tr>
+<td><code>requests[].request_duration_ms</code></td>
+<td>Tokenization plus session reset plus Task generation duration.</td>
+</tr>
+<tr>
+<td><code>memory</code></td>
+<td>RAM fields only. VRAM fields are omitted because llama.cpp does not report which adapter a GPU backend uses.</td>
+</tr>
+</tbody>
+</table>
+<p><code>aggregate</code> summarizes timed requests only; warmups remain in <code>requests</code> but do not
+contribute to its distributions. Task, request, and cold-start TTFT are <code>null</code>
+when the corresponding generation produces no token update.
+Decode throughput and TPOT are <code>null</code> when there is no interval after the first
+token. An empty text fragment still represents a token update.</p>
+<p>The Task API does not expose separate prefill, model-compute, or detokenization
+timers. The following request fields, and their aggregate counterparts where
+present, are <code>null</code> rather than estimated from stream timing:</p>
+<ul>
+<li><code>prefill_duration_ms</code> and <code>prefill_tokens_per_second</code></li>
+<li><code>first_token_duration_ms</code> and <code>detokenization_duration_ms</code></li>
+<li><code>model_ttft_duration_ms</code> and <code>model_compute_duration_ms</code></li>
+<li><code>response_eval_duration_ms</code> and <code>response_eval_tokens_per_second</code></li>
+<li><code>sequence_fetch_duration_ms</code></li>
+</ul>
+<h2 id="limitations">Limitations<a class="headerlink" href="#limitations" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Local <code>.gguf</code> files only; Hugging Face Hub references are not resolved.</li>
+<li>Greedy decoding with batch size 1; Task sampling and speculation options are
+  not exposed by this command.</li>
+<li>Task stream timings include native sampling and detokenization; separate model
+  phase timings are unavailable.</li>
+<li>No NPU target, <code>--monitor</code>, or operator tracing.</li>
+<li>Targets the Windows ML 2.7 experimental packages (<code>2.7.2021a0</code>). Later previews
+  can change the Runtime API.</li>
+</ul>
+<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Message</th>
+<th>What to do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GGUF models need the preview 'windowsml' package with the Runtime API</code></td>
+<td>Install <code>windowsml[with-ort]</code> at the preview version in the active environment.</td>
+</tr>
+<tr>
+<td><code>GGUF models need the llama.cpp backend for the Windows ML Runtime</code></td>
+<td>Install <code>windowsml-llama-core</code> at the same version as <code>windowsml</code>.</td>
+</tr>
+<tr>
+<td><code>--device gpu needs a llama.cpp GPU backend</code>, or HRESULT <code>0x80070032</code></td>
+<td>Build a matching backend and provide its vendor runtime DLLs (see <a href="#run-on-a-gpu">Run on a GPU</a>), or use <code>--device cpu</code>. For CUDA, check that the toolkit dependencies are present under <code>LlamaBackends\cuda</code> and the driver supports that toolkit.</td>
+</tr>
+<tr>
+<td><code>the prompt (...) does not fit the model sequence capacity</code></td>
+<td>The model's maximum context is smaller than the prompt plus <code>--max-new-tokens</code>. Shorten the prompt or lower <code>--max-new-tokens</code>.</td>
+</tr>
+<tr>
+<td><code>The installed 'windowsml' package does not ship the Runtime native library</code></td>
+<td>The installed <code>windowsml</code> is not a preview build with the Runtime API. Reinstall the preview version.</td>
+</tr>
+</tbody>
+</table>
+<p>To leave the experimental setup, delete the <code>.venv-gguf</code> environment. Your regular
+environment is unchanged.</p>
+<h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../../commands/perf/">winml perf</a>: full flag reference and runtime-specific metric definitions</li>
+<li><a href="../qwen3-genai-bundle/">Qwen3 — Genai Bundle</a>: the onnxruntime-genai path for decoder models</li>
+<li><a href="https://github.com/microsoft/WindowsML/blob/main/docs/Runtime/gguf-models.md">GGUF language models</a> in the Windows ML documentation</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
