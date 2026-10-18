@@ -1,5 +1,15 @@
 # Native DXCGC perf host (experimental)
 
+### Comparable host timing
+
+Runtime API perf and native DXCGC perf report CPU round-trip latency: input
+tensor creation/binding or upload, inference and completion, and independently
+owned CPU outputs. Setup, input normalization and compilation are excluded.
+Runtime reports benchmark_info.timing_scope=cpu-roundtrip; native DXCGC reports
+timing_scope=cpu-roundtrip. This includes more than Pipeline.run() alone and
+must not be compared with Run-only measurements as isolated API overhead.
+Failed output retrieval does not produce a completed round-trip sample.
+
 ### Fixed-shape replay and changing inputs
 
 ABI 3 supplies CPU input pointers and byte sizes on every call. The worker

@@ -197,6 +197,7 @@ def run_dxcgc(ctx: click.Context) -> None:
                 "iterations": p["iterations"],
                 "warmup": p["warmup"],
                 "io_mode": "cpu-roundtrip",
+                "timing_scope": "cpu-roundtrip",
                 "io_binding_policy": policy,
                 "command_replay": True,
                 "call_driver": "python_ctypes_per_call",
