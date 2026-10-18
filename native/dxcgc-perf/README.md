@@ -10,13 +10,9 @@ list only after the preceding fence completed. Each call refreshes upload bytes
 and returns independently owned outputs. Failure aborts the session; this is
 not a concurrent or dynamic-binding execution API.
 
-Use compare_sequence.py with --manifest (JSON list of absolute NPZ paths),
---model, --host, --dll-dir, --output and --luid for three alternating Raw/Offline
-rounds. Supply one fixed-shape input per warmup and measured call, in schema
-order. Generate model-valid data beforehand. The driver changes only input
-delivery outside the Offline measurement window; production Offline code is
-unchanged. Compare outputs separately from timing. Historical measurements
-must retain their old protocol. The first record is included if warmup is zero.
+Paired input scheduling, repeat-order control, comparison and report generation
+belong to the benchmark agent. WinML CLI provides per-path measurements and
+explicit timing_scope metadata; it does not orchestrate cross-path experiments.
 
 `winml perf --runtime dxcgc` compiles local MLIR with dxcgc.dll and executes
 through D3D12 in a native host, without the Windows ML Runtime API.
