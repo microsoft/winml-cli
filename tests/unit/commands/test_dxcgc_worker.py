@@ -62,13 +62,32 @@ def test_python_driver_excludes_warmups_and_propagates_native_error(
         ],
     )
     calls = []
+    clock = [0.0]
+    monkeypatch.setattr(worker.time, "perf_counter", lambda: clock[0])
 
     def entry(argc, argv, driver):
         step_type = driver._argtypes_[0]
 
         @step_type
-        def step(context, gpu, run_ms, pointers, sizes, count, inputs, input_sizes, input_count):
-            assert count == 1 and sizes[0] == 8
+        def step(
+            context,
+            gpu,
+            run_ms,
+            pointers,
+            sizes,
+            count,
+            inputs,
+            input_sizes,
+            input_count,
+            operation,
+        ):
+            if operation == 1:
+                assert count == 1 and sizes[0] == 8 and input_count == 0
+                clock[0] += 10  # Fetch must not affect the recorded Run duration.
+                output = (ctypes.c_float * 2).from_address(pointers[0])
+                output[:] = [len(calls), 2]
+                return 0
+            assert count == 0 and not pointers
             assert input_count == 1 and input_sizes[0] == 8
             assert (ctypes.c_float * 2).from_address(inputs[0])[0] == len(calls)
             calls.append(count)
@@ -76,14 +95,13 @@ def test_python_driver_excludes_warmups_and_propagates_native_error(
                 return 1
             gpu[0] = 0.25
             run_ms[0] = 1.25
-            output = (ctypes.c_float * 2).from_address(pointers[0])
-            output[:] = [len(calls), 2]
+            clock[0] += 0.002  # Includes Python-to-native call, not native telemetry.
             return 0
 
         return driver(step, None, 3, 2)
 
     library = SimpleNamespace(
-        DxcgcPythonHostAbiVersion=Function(lambda: 4), RunPythonDriven=Function(entry)
+        DxcgcPythonHostAbiVersion=Function(lambda: 5), RunPythonDriven=Function(entry)
     )
     monkeypatch.setattr(worker.ctypes, "CDLL", lambda _: library)
     if failure:
@@ -96,7 +114,7 @@ def test_python_driver_excludes_warmups_and_propagates_native_error(
         with (tmp_path / "samples.csv").open() as stream:
             rows = list(csv.DictReader(stream))
         assert len(rows) == 3
-        assert all(float(row["host_ms"]) == 1.25 for row in rows)
+        assert all(float(row["host_ms"]) == pytest.approx(2.0) for row in rows)
         assert all(float(row["gpu_ms"]) == 0.25 for row in rows)
         np.testing.assert_array_equal(np.fromfile(tmp_path / "output-0.bin", np.float32), [5, 2])
 

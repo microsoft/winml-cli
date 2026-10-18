@@ -2,7 +2,7 @@
 
 ### Fixed-shape replay and changing inputs
 
-ABI 4 supplies CPU input pointers and byte sizes on every call. The worker
+ABI 5 supplies CPU input pointers and byte sizes on every call. The worker
 validates all sequence shapes and dtypes before timing. GPU resources and
 bindings remain fixed for the session. The first invocation records the upload,
 inference and readback commands; subsequent invocations resubmit the closed
@@ -33,9 +33,9 @@ cmake --build temp/dxcgc-build --config Release
 winml perf -m model.mlir --runtime dxcgc --dxcgc-host temp/dxcgc-build/Release/winml-dxcgc-perf.exe --input-data inputs.npz --iterations 500 --warmup 50 -o perf.json
 ```
 
-Host timing measures native Run: input upload, command recording/replay, GPU
+Host timing wraps the Python-to-native Run call: input upload, command recording/replay, GPU
 submission/completion, readback and native CPU output materialization.
-Python allocation/marshalling and the final NumPy output copy are excluded.
+Python buffer preparation and separate output fetch are excluded. Run call overhead is included.
 Runtime API timing remains Pipeline.run() only. Compilation and disk I/O are excluded. GPU timestamps are disabled
 by default to avoid instrumenting only one side of the comparison. Use
 --dxcgc-gpu-timing for a separate diagnostic run; uncollected GPU times are null.
@@ -83,7 +83,7 @@ winml-dxcgc-python.dll beside --dxcgc-host and drives one in-process ctypes
 call per iteration; no per-inference process launch or IPC is timed. Compilation
 and setup precede the Python measurement loop.
 
-Each sample uses the native-reported Run duration, not a Python stopwatch.
+Each sample uses a Python stopwatch around Run only. ABI 5 separates Run from Fetch. Fetch copies native outputs into independent NumPy arrays outside timing.
 Buffers and bindings are reused. Writing
 outputs and timing CSV happens outside the measured loop. This aligns the
 Python call boundary without claiming identical ctypes and COM projections.
@@ -96,7 +96,7 @@ not be relabeled as this protocol.
 
 Requires Visual Studio 2022 C++ tools, Windows SDK 10.0.26100 or newer
 (including DirectXPackedVector.h), CMake 3.24+, and compatible DXCGC headers.
-The Python worker requires native host ABI version 4; older DLLs are rejected
+The Python worker requires native host ABI version 5; older DLLs are rejected
 before callbacks. Native calls validate output byte sizes before copying into
 Python-owned arrays.
 

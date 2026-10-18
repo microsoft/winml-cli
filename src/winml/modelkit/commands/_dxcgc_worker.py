@@ -9,6 +9,7 @@ import ctypes
 import json
 import math
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +23,7 @@ def main() -> None:
     abi = library.DxcgcPythonHostAbiVersion
     abi.argtypes = []
     abi.restype = ctypes.c_uint
-    if abi() != 4:
+    if abi() != 5:
         raise RuntimeError("Native DXCGC host ABI mismatch; rebuild the native host")
     step_type = ctypes.CFUNCTYPE(
         ctypes.c_int,
@@ -35,6 +36,7 @@ def main() -> None:
         ctypes.POINTER(ctypes.c_void_p),
         ctypes.POINTER(ctypes.c_size_t),
         ctypes.c_size_t,
+        ctypes.c_int,
     )
     driver_type = ctypes.CFUNCTYPE(
         ctypes.c_int, step_type, ctypes.c_void_p, ctypes.c_int, ctypes.c_int
@@ -104,6 +106,25 @@ def main() -> None:
                 sizes = (ctypes.c_size_t * len(outputs))(*(a.nbytes for a in outputs))
                 inputs = (ctypes.c_void_p * len(batch))(*(a.ctypes.data for a in batch))
                 input_sizes = (ctypes.c_size_t * len(batch))(*(a.nbytes for a in batch))
+                start = time.perf_counter()
+                code = step(
+                    context,
+                    ctypes.byref(gpu),
+                    ctypes.byref(run_ms),
+                    None,
+                    None,
+                    0,
+                    inputs,
+                    input_sizes,
+                    len(batch),
+                    0,
+                )
+                elapsed = (time.perf_counter() - start) * 1000
+                if code:
+                    raise RuntimeError("Native inference failed")
+                if not math.isfinite(elapsed) or elapsed <= 0:
+                    raise RuntimeError("Invalid native run timing")
+                measured_gpu = None if gpu.value == -1 else gpu.value
                 code = step(
                     context,
                     ctypes.byref(gpu),
@@ -111,17 +132,15 @@ def main() -> None:
                     pointers,
                     sizes,
                     len(outputs),
-                    inputs,
-                    input_sizes,
-                    len(batch),
+                    None,
+                    None,
+                    0,
+                    1,
                 )
-                elapsed = run_ms.value
                 if code:
-                    raise RuntimeError("Native inference failed")
-                if not math.isfinite(elapsed) or elapsed <= 0:
-                    raise RuntimeError("Invalid native run timing")
+                    raise RuntimeError("Native output fetch failed")
                 if i >= warmup:
-                    samples.append((None if gpu.value == -1 else gpu.value, elapsed))
+                    samples.append((measured_gpu, elapsed))
                 last = outputs
             if last is None:
                 raise ValueError("No inference iterations executed")

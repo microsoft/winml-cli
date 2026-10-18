@@ -22,7 +22,7 @@ using Microsoft::WRL::ComPtr;
 namespace fs = std::filesystem;
 using Clock = std::chrono::steady_clock;
 using PythonStep = int(__cdecl *)(void *, double *, double *, void **, const size_t *,
-                                  size_t, const void *const *, const size_t *, size_t);
+                                  size_t, const void *const *, const size_t *, size_t, int);
 using PythonDriver = int(__cdecl *)(PythonStep, void *, int, int);
 static thread_local PythonDriver pythonDriver = nullptr;
 static thread_local std::string pythonStepError;
@@ -523,7 +523,21 @@ int wmain(int argc, wchar_t **argv) {
     double lastRunMs = 0;
     auto runOnce = [&](void **callerOutputs, const size_t *outputSizes,
                        size_t outputCount, const void *const *callerInputs,
-                       const size_t *inputSizes, size_t inputCount, double *runMs) -> double {
+                       const size_t *inputSizes, size_t inputCount, double *runMs,
+                       int operation) -> double {
+      if (operation != 0 && operation != 1)
+        throw std::runtime_error("Unknown execution operation");
+      if (operation == 1) {
+        if (!callerOutputs || !outputSizes || outputCount != outputBytes.size() ||
+            !replayReady)
+          throw std::runtime_error("Outputs unavailable or output count mismatch");
+        for (size_t j = 0; j < outputCount; ++j)
+          if (!callerOutputs[j] || outputSizes[j] != outputBytes[j].size())
+            throw std::runtime_error("Caller output size mismatch");
+        for (size_t j = 0; j < outputCount; ++j)
+          memcpy(callerOutputs[j], outputBytes[j].data(), outputBytes[j].size());
+        return -1;
+      }
       if (callerInputs) {
         if (!inputSizes || inputCount != inputBytes.size())
           throw std::runtime_error("Caller input count mismatch");
@@ -620,10 +634,10 @@ int wmain(int argc, wchar_t **argv) {
     if (pythonDriver) {
       PythonStep step = [](void *context, double *gpu, double *runMs, void **outputs,
                            const size_t *sizes, size_t count, const void *const *inputs,
-                           const size_t *inputSizes, size_t inputCount) -> int {
+                           const size_t *inputSizes, size_t inputCount, int operation) -> int {
         try {
           *gpu = (*static_cast<decltype(runOnce) *>(context))(outputs, sizes,
-                                                              count, inputs, inputSizes, inputCount, runMs);
+                                                              count, inputs, inputSizes, inputCount, runMs, operation);
           return 0;
         } catch (const std::exception &error) {
           pythonStepError = error.what();
@@ -638,7 +652,7 @@ int wmain(int argc, wchar_t **argv) {
                                  pythonStepError);
     } else {
       for (int i = 0; i < warmup + iterations; ++i) {
-        double gpu = runOnce(nullptr, nullptr, 0, nullptr, nullptr, 0, nullptr);
+        double gpu = runOnce(nullptr, nullptr, 0, nullptr, nullptr, 0, nullptr, 0);
         double host = lastRunMs;
         if (i >= warmup)
           perf << gpu << ',' << host << std::endl;
@@ -679,5 +693,5 @@ extern "C"
 }
 
 extern "C" __declspec(dllexport) unsigned __cdecl DxcgcPythonHostAbiVersion() {
-  return 4;
+  return 5;
 }
