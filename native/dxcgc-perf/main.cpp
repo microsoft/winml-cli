@@ -21,7 +21,7 @@
 using Microsoft::WRL::ComPtr;
 namespace fs = std::filesystem;
 using Clock = std::chrono::steady_clock;
-using PythonStep = int(__cdecl *)(void *, double *, void **, const size_t *,
+using PythonStep = int(__cdecl *)(void *, double *, double *, void **, const size_t *,
                                   size_t, const void *const *, const size_t *, size_t);
 using PythonDriver = int(__cdecl *)(PythonStep, void *, int, int);
 static thread_local PythonDriver pythonDriver = nullptr;
@@ -520,9 +520,10 @@ int wmain(int argc, wchar_t **argv) {
     perf << "gpu_ms,host_ms\n";
     perf.precision(12);
     bool replayReady = false;
+    double lastRunMs = 0;
     auto runOnce = [&](void **callerOutputs, const size_t *outputSizes,
                        size_t outputCount, const void *const *callerInputs,
-                       const size_t *inputSizes, size_t inputCount) -> double {
+                       const size_t *inputSizes, size_t inputCount, double *runMs) -> double {
       if (callerInputs) {
         if (!inputSizes || inputCount != inputBytes.size())
           throw std::runtime_error("Caller input count mismatch");
@@ -590,12 +591,9 @@ int wmain(int argc, wchar_t **argv) {
         for (const auto &b : readbacks) {
           void *mapped;
           check(b.resource->Map(0, nullptr, &mapped));
-          if (callerOutputs) {
-            memcpy(callerOutputs[outputIndex], mapped, b.size);
-          } else {
-            outputBytes.emplace_back((const char *)mapped,
-                                     (const char *)mapped + b.size);
-          }
+          // Native CPU output materialization is part of Run, as in Runtime.
+          outputBytes.emplace_back((const char *)mapped,
+                                   (const char *)mapped + b.size);
           ++outputIndex;
           b.resource->Unmap(0, nullptr);
         }
@@ -603,6 +601,11 @@ int wmain(int argc, wchar_t **argv) {
       double host =
           std::chrono::duration<double, std::milli>(Clock::now() - begin)
               .count();
+      // Copy to Python-owned arrays after the Run interval, analogous to to_numpy().
+      if (callerOutputs) {
+        for (size_t j = 0; j < outputBytes.size(); ++j)
+          memcpy(callerOutputs[j], outputBytes[j].data(), outputBytes[j].size());
+      }
       double gpu = -1; // Unmeasured, never a zero-duration inference.
       if (gpuTiming) {
         UINT64 *ticks;
@@ -610,16 +613,17 @@ int wmain(int argc, wchar_t **argv) {
         gpu = (ticks[1] - ticks[0]) * 1000.0 / frequency;
         times.resource->Unmap(0, nullptr);
       }
-      (void)host;
+      lastRunMs = host;
+      if (runMs) *runMs = host;
       return gpu;
     };
     if (pythonDriver) {
-      PythonStep step = [](void *context, double *gpu, void **outputs,
+      PythonStep step = [](void *context, double *gpu, double *runMs, void **outputs,
                            const size_t *sizes, size_t count, const void *const *inputs,
                            const size_t *inputSizes, size_t inputCount) -> int {
         try {
           *gpu = (*static_cast<decltype(runOnce) *>(context))(outputs, sizes,
-                                                              count, inputs, inputSizes, inputCount);
+                                                              count, inputs, inputSizes, inputCount, runMs);
           return 0;
         } catch (const std::exception &error) {
           pythonStepError = error.what();
@@ -634,11 +638,8 @@ int wmain(int argc, wchar_t **argv) {
                                  pythonStepError);
     } else {
       for (int i = 0; i < warmup + iterations; ++i) {
-        auto begin = Clock::now();
-        double gpu = runOnce(nullptr, nullptr, 0, nullptr, nullptr, 0);
-        double host =
-            std::chrono::duration<double, std::milli>(Clock::now() - begin)
-                .count();
+        double gpu = runOnce(nullptr, nullptr, 0, nullptr, nullptr, 0, nullptr);
+        double host = lastRunMs;
         if (i >= warmup)
           perf << gpu << ',' << host << std::endl;
       }
@@ -678,5 +679,5 @@ extern "C"
 }
 
 extern "C" __declspec(dllexport) unsigned __cdecl DxcgcPythonHostAbiVersion() {
-  return 3;
+  return 4;
 }

@@ -671,7 +671,7 @@ class BenchmarkResult:
             "benchmark_info": {
                 "runtime": self.config.runtime,
                 "timing_scope": (
-                    "cpu-roundtrip" if self.config.runtime == "winml-runtime" else "session-run"
+                    "pipeline-run" if self.config.runtime == "winml-runtime" else "session-run"
                 ),
                 "backend": resolve_runtime_api_backend(
                     self.config.runtime, self.config.model_id, self.config.backend

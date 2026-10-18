@@ -272,7 +272,9 @@ def test_stage_schema_falls_back_to_projection_interface() -> None:
 
     assert _stage_schema(wr, stage) is wrapped
     stage.interface.QueryInterface.assert_called_once_with(interface)
-    wr.ModelSchema.assert_called_once_with(stage.interface.QueryInterface.return_value, stage)
+    wr.ModelSchema.assert_called_once_with(
+        stage.interface.QueryInterface.return_value, stage
+    )
 
 
 def test_persistent_compile_normalizes_dynamic_schema_dimensions(tmp_path, monkeypatch) -> None:
@@ -290,9 +292,9 @@ def test_persistent_compile_normalizes_dynamic_schema_dimensions(tmp_path, monke
         create_options=Mock(return_value=options),
     )
     output = tmp_path / "output.mlir"
-    compiler.compile_to_file.side_effect = lambda _model, path, **_kwargs: Path(path).write_bytes(
-        b"ML\xefRcompiled"
-    )
+    compiler.compile_to_file.side_effect = lambda _model, path, **_kwargs: Path(
+        path
+    ).write_bytes(b"ML\xefRcompiled")
     target = Mock(model_compiler=Mock(return_value=compiler))
     resolved = _ResolvedRuntimeTarget(target, "gpu")
     stage = Mock(schema=Mock(return_value=compiled_schema))
@@ -305,15 +307,21 @@ def test_persistent_compile_normalizes_dynamic_schema_dimensions(tmp_path, monke
         Runtime=Mock(return_value=runtime),
         CompiledModelForm=SimpleNamespace(DEVICE_TARGETED="device-targeted"),
     )
-    monkeypatch.setattr("winml.modelkit.session.runtime_session.import_runtime", lambda: wr)
-    session = WinMLRuntimeSession(tmp_path / "input.mlir", backend="cgc", device_luid=1)
+    monkeypatch.setattr(
+        "winml.modelkit.session.runtime_session.import_runtime", lambda: wr
+    )
+    session = WinMLRuntimeSession(
+        tmp_path / "input.mlir", backend="cgc", device_luid=1
+    )
     monkeypatch.setattr(session, "_resolve_target", lambda _runtime, _wr: resolved)
 
     session.compile_to_file(output)
 
     assert output.is_file()
     assert options.form == "device-targeted"
-    compiler.compile_to_file.assert_called_once_with(source_model, str(output), options=options)
+    compiler.compile_to_file.assert_called_once_with(
+        source_model, str(output), options=options
+    )
     compiled_schema.close.assert_called_once_with()
     with pytest.raises(click.ClickException):
         _numpy_dtype_for(SimpleNamespace(name="BFLOAT16"))
@@ -530,7 +538,9 @@ def timed_runtime(monkeypatch, mlir_target):
         clock.reads.append(clock.value)
         return clock.value
 
-    monkeypatch.setattr("winml.modelkit.session.stats.time", SimpleNamespace(perf_counter=timer))
+    monkeypatch.setattr(
+        "winml.modelkit.session.stats.time", SimpleNamespace(perf_counter=timer)
+    )
     try:
         yield session, clock, calls, durations, phases
     finally:
@@ -538,7 +548,7 @@ def timed_runtime(monkeypatch, mlir_target):
 
 
 @pytest.mark.parametrize("named_bindings", [False, True])
-def test_perf_times_cpu_roundtrip(timed_runtime, monkeypatch, named_bindings):
+def test_perf_times_only_pipeline_run(timed_runtime, monkeypatch, named_bindings):
     session, clock, calls, durations, _phases = timed_runtime
     with session.perf(warmup=1) as ctx:
         session._has_named_bindings = named_bindings
@@ -557,16 +567,12 @@ def test_perf_times_cpu_roundtrip(timed_runtime, monkeypatch, named_bindings):
             values = rng.standard_normal((2, 3, 8, 8)).astype(np.float32)
             actual = session.run({"input_0": values})
             np.testing.assert_array_equal(actual["output_0"], np.negative(values))
-            assert ctx.stats.all_samples_ms[-1] == pytest.approx(
-                sum(v for k, v in durations.items() if k not in ("build", "prepare")) * 1000
-            )
+            assert ctx.stats.all_samples_ms[-1] == pytest.approx(durations["execute"] * 1000)
 
     assert len(clock.reads) == 2 * ctx.stats.total_count
     assert ctx.stats.total_count == 3
     assert ctx.stats.count == 2
-    assert ctx.stats.mean_ms == pytest.approx(
-        sum(v for k, v in durations.items() if k not in ("build", "prepare")) * 1000
-    )
+    assert ctx.stats.mean_ms == pytest.approx(durations["execute"] * 1000)
     assert calls.count("build") == 1
     assert calls.count("create_tensor") == calls.count("execute")
     assert calls.count("request") == calls.count("execute")
@@ -576,8 +582,8 @@ def test_perf_times_cpu_roundtrip(timed_runtime, monkeypatch, named_bindings):
 @pytest.mark.parametrize(
     "failure", ["prepare", "create_tensor", "bind", "request", "execute", "fetch", "numpy"]
 )
-def test_perf_records_only_successful_roundtrips(timed_runtime, monkeypatch, failure):
-    session, _clock, _calls, _durations, phases = timed_runtime
+def test_perf_records_only_successful_pipeline_calls(timed_runtime, monkeypatch, failure):
+    session, _clock, calls, _durations, phases = timed_runtime
     values = np.random.default_rng(42).standard_normal((2, 3, 8, 8)).astype(np.float32)
     with session.perf() as ctx:
         owner, method = phases[failure]
@@ -585,11 +591,11 @@ def test_perf_records_only_successful_roundtrips(timed_runtime, monkeypatch, fai
             patch.setattr(owner, method, Mock(side_effect=RuntimeError(failure)))
             with pytest.raises(RuntimeError, match=failure):
                 session.run({"input_0": values})
-        assert ctx.stats.total_count == 0
+        assert ctx.stats.total_count == calls.count("execute")
 
         actual = session.run({"input_0": values})
         np.testing.assert_array_equal(actual["output_0"], np.negative(values))
-        assert ctx.stats.total_count == 1
+        assert ctx.stats.total_count == calls.count("execute")
 
 
 def test_run_without_perf_does_not_read_clock(timed_runtime):

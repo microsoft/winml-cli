@@ -197,7 +197,8 @@ def run_dxcgc(ctx: click.Context) -> None:
                 "iterations": p["iterations"],
                 "warmup": p["warmup"],
                 "io_mode": "cpu-roundtrip",
-                "timing_scope": "cpu-roundtrip",
+                "timing_scope": "native-run",
+                "host_abi": 4,
                 "io_binding_policy": policy,
                 "command_replay": True,
                 "call_driver": "python_ctypes_per_call",
@@ -208,9 +209,10 @@ def run_dxcgc(ctx: click.Context) -> None:
                         else "Not collected; run separately with --dxcgc-gpu-timing"
                     ),
                     "host_ms": (
-                        "Python output allocation, direct input upload into prebound buffers, "
+                        "Native input upload into prebound buffers, "
                         "first-call command recording, replay submission, "
-                        "GPU fence completion, readback and caller-owned CPU output copy"
+                        "GPU fence completion, readback and native CPU output materialization; "
+                        "excludes Python allocation/marshalling and copy to NumPy outputs"
                     ),
                 },
                 "samples": samples,

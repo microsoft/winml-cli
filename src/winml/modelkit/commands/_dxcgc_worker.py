@@ -8,7 +8,7 @@ import csv
 import ctypes
 import json
 import sys
-import time
+import math
 from pathlib import Path
 from typing import Any
 
@@ -22,11 +22,12 @@ def main() -> None:
     abi = library.DxcgcPythonHostAbiVersion
     abi.argtypes = []
     abi.restype = ctypes.c_uint
-    if abi() != 3:
+    if abi() != 4:
         raise RuntimeError("Native DXCGC host ABI mismatch; rebuild the native host")
     step_type = ctypes.CFUNCTYPE(
         ctypes.c_int,
         ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_double),
         ctypes.POINTER(ctypes.c_double),
         ctypes.POINTER(ctypes.c_void_p),
         ctypes.POINTER(ctypes.c_size_t),
@@ -94,10 +95,10 @@ def main() -> None:
                     if array.shape != input_shape or array.dtype != np.dtype(input_dtype):
                         raise ValueError("Input shape or dtype mismatch")
             gpu = ctypes.c_double()
+            run_ms = ctypes.c_double()
             last = None
             for i in range(iterations + warmup):
                 batch = sequence[i % len(sequence)]
-                start = time.perf_counter()
                 outputs = [np.empty(shape, dtype=dtype) for _, shape, dtype in specs]
                 pointers = (ctypes.c_void_p * len(outputs))(*(a.ctypes.data for a in outputs))
                 sizes = (ctypes.c_size_t * len(outputs))(*(a.nbytes for a in outputs))
@@ -106,6 +107,7 @@ def main() -> None:
                 code = step(
                     context,
                     ctypes.byref(gpu),
+                    ctypes.byref(run_ms),
                     pointers,
                     sizes,
                     len(outputs),
@@ -113,9 +115,11 @@ def main() -> None:
                     input_sizes,
                     len(batch),
                 )
-                elapsed = (time.perf_counter() - start) * 1000
+                elapsed = run_ms.value
                 if code:
                     raise RuntimeError("Native inference failed")
+                if not math.isfinite(elapsed) or elapsed <= 0:
+                    raise RuntimeError("Invalid native run timing")
                 if i >= warmup:
                     samples.append((None if gpu.value == -1 else gpu.value, elapsed))
                 last = outputs

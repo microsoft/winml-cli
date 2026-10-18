@@ -67,7 +67,7 @@ def test_python_driver_excludes_warmups_and_propagates_native_error(
         step_type = driver._argtypes_[0]
 
         @step_type
-        def step(context, gpu, pointers, sizes, count, inputs, input_sizes, input_count):
+        def step(context, gpu, run_ms, pointers, sizes, count, inputs, input_sizes, input_count):
             assert count == 1 and sizes[0] == 8
             assert input_count == 1 and input_sizes[0] == 8
             assert (ctypes.c_float * 2).from_address(inputs[0])[0] == len(calls)
@@ -75,6 +75,7 @@ def test_python_driver_excludes_warmups_and_propagates_native_error(
             if failure:
                 return 1
             gpu[0] = 0.25
+            run_ms[0] = 1.25
             output = (ctypes.c_float * 2).from_address(pointers[0])
             output[:] = [len(calls), 2]
             return 0
@@ -82,7 +83,7 @@ def test_python_driver_excludes_warmups_and_propagates_native_error(
         return driver(step, None, 3, 2)
 
     library = SimpleNamespace(
-        DxcgcPythonHostAbiVersion=Function(lambda: 3), RunPythonDriven=Function(entry)
+        DxcgcPythonHostAbiVersion=Function(lambda: 4), RunPythonDriven=Function(entry)
     )
     monkeypatch.setattr(worker.ctypes, "CDLL", lambda _: library)
     if failure:
@@ -95,6 +96,7 @@ def test_python_driver_excludes_warmups_and_propagates_native_error(
         with (tmp_path / "samples.csv").open() as stream:
             rows = list(csv.DictReader(stream))
         assert len(rows) == 3
+        assert all(float(row["host_ms"]) == 1.25 for row in rows)
         assert all(float(row["gpu_ms"]) == 0.25 for row in rows)
         np.testing.assert_array_equal(np.fromfile(tmp_path / "output-0.bin", np.float32), [5, 2])
 
