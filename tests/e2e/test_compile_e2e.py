@@ -42,7 +42,7 @@ import pytest
 from click.testing import CliRunner
 from onnx import TensorProto, helper
 
-from scripts.e2e_eval.winml_cli import cli_command
+from tests.e2e.cli import cli_command
 from tests.e2e.require_ep import require_ep, require_not_ep
 from winml.modelkit.commands.compile import compile as compile_cmd
 from winml.modelkit.onnx import is_compiled_onnx

@@ -11,7 +11,7 @@ import numpy as np
 import onnxruntime as ort
 import pytest
 
-from scripts.e2e_eval.winml_cli import cli_command
+from tests.e2e.cli import cli_command
 from tests.e2e.require_ep import require_ep
 from winml.modelkit.compiler import EPConfig
 from winml.modelkit.session import EPDeviceTarget, WinMLEPDevice, WinMLEPRegistry, WinMLSession

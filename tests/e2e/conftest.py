@@ -28,7 +28,7 @@ import pytest
 from onnx import TensorProto, helper
 from PIL import Image
 
-from scripts.e2e_eval.winml_cli import openvino_gpu_allocators
+from tests.e2e.cli import openvino_gpu_allocators
 
 
 if TYPE_CHECKING:

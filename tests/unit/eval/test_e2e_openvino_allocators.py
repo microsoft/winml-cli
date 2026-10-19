@@ -10,7 +10,7 @@ from unittest.mock import Mock
 import onnxruntime as ort
 import pytest
 
-from scripts.e2e_eval.winml_cli import openvino_gpu_allocators
+from tests.e2e.cli import openvino_gpu_allocators
 from winml.modelkit.session import session as session_module
 
 

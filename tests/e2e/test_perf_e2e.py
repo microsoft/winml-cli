@@ -40,7 +40,7 @@ import onnx
 import pytest
 from click.testing import CliRunner
 
-from scripts.e2e_eval.winml_cli import cli_command
+from tests.e2e.cli import cli_command
 from tests.e2e.dml_adapter import perf_test_luid, physical_dml_test_luid
 from tests.e2e.require_ep import require_device, require_ep
 from winml.modelkit.commands.perf import perf
