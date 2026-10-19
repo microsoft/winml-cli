@@ -1,0 +1,232 @@
+{
+  "model_id": "apple/mobilevit-small",
+  "task": "image-classification",
+  "model_type": "mobilevit",
+  "timestamp": "2026-06-18T15:29:58",
+  "ep": "cpu",
+  "device": "cpu",
+  "hypotheses": {
+    "h0": {
+      "status": "OK",
+      "label": "baseline (opset 17, autoconf defaults)",
+      "opset": 17,
+      "extra_optim": null,
+      "screen_p50_ms": 66.804,
+      "screen_cv": 3.1693311777737856,
+      "full_p50s_ms": [
+        73.166,
+        72.1,
+        80.234
+      ],
+      "median_p50_ms": 73.166,
+      "verdict": "BASELINE"
+    },
+    "h1": {
+      "status": "OK",
+      "label": "opset 17 explicit",
+      "opset": 17,
+      "extra_optim": null,
+      "screen_p50_ms": 69.007,
+      "screen_cv": 3.623472981001927,
+      "full_p50s_ms": [
+        87.48,
+        89.858,
+        57.036
+      ],
+      "median_p50_ms": 87.48,
+      "gain_vs_baseline_pct": -19.56,
+      "verdict": "DISCARD"
+    },
+    "h2": {
+      "status": "OK",
+      "label": "opset 19 (cpu-001 risk — transformer test)",
+      "opset": 19,
+      "extra_optim": null,
+      "screen_p50_ms": 78.369,
+      "screen_cv": 3.1204047518789317,
+      "full_p50s_ms": [
+        74.505,
+        86.262,
+        79.826
+      ],
+      "median_p50_ms": 79.826,
+      "gain_vs_baseline_pct": -9.1,
+      "verdict": "DISCARD"
+    },
+    "h3": {
+      "status": "OK",
+      "label": "opset 21 (cpu-001 risk — transformer test)",
+      "opset": 21,
+      "extra_optim": null,
+      "screen_p50_ms": 41.225,
+      "screen_cv": 5.67767131594906,
+      "full_p50s_ms": [
+        67.43,
+        84.267,
+        78.586
+      ],
+      "median_p50_ms": 78.586,
+      "gain_vs_baseline_pct": -7.41,
+      "verdict": "DISCARD"
+    },
+    "h4": {
+      "status": "OK",
+      "label": "opset 17 + attention_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "attention_fusion": true
+      },
+      "screen_p50_ms": 57.061,
+      "screen_cv": 4.881863269133033,
+      "full_p50s_ms": [
+        83.444,
+        70.192,
+        77.772
+      ],
+      "median_p50_ms": 77.772,
+      "gain_vs_baseline_pct": -6.3,
+      "verdict": "DISCARD"
+    },
+    "h5": {
+      "status": "OK",
+      "label": "opset 17 + skip_layer_norm_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "skip_layer_norm_fusion": true
+      },
+      "screen_p50_ms": 72.701,
+      "screen_cv": 3.3349472496939523,
+      "full_p50s_ms": [
+        80.514,
+        60.097,
+        785.991
+      ],
+      "median_p50_ms": 80.514,
+      "gain_vs_baseline_pct": -10.04,
+      "verdict": "DISCARD"
+    },
+    "h6": {
+      "status": "OK",
+      "label": "opset 17 + layer_norm_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "layer_norm_fusion": true
+      },
+      "screen_p50_ms": 759.837,
+      "screen_cv": 0.4795699603994014,
+      "full_p50s_ms": [
+        817.624,
+        803.217,
+        184.944
+      ],
+      "median_p50_ms": 803.217,
+      "gain_vs_baseline_pct": -997.8,
+      "verdict": "DISCARD"
+    },
+    "h7": {
+      "status": "OK",
+      "label": "opset 17 + bias_softmax_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "bias_softmax_fusion": true
+      },
+      "screen_p50_ms": 52.703,
+      "screen_cv": 0.4295580896723146,
+      "full_p50s_ms": [
+        60.637,
+        64.137,
+        119.521
+      ],
+      "median_p50_ms": 64.137,
+      "gain_vs_baseline_pct": 12.34,
+      "verdict": "MARGINAL_UNCONFIRMED",
+      "confirm_p50s_ms": [
+        239.249,
+        279.325
+      ],
+      "all_p50s_ms": [
+        60.637,
+        64.137,
+        119.521,
+        239.249,
+        279.325
+      ],
+      "overall_median_p50_ms": 119.521,
+      "overall_gain_pct": -63.36,
+      "sessions_above_threshold": 2,
+      "total_sessions": 5
+    },
+    "h8": {
+      "status": "SKIPPED_CPU002",
+      "label": "opset 17 + matmul_add_fusion (cpu-002 guarded)",
+      "opset": 17,
+      "reason": "cpu-002: model already has Gemm — matmul_add_fusion skipped"
+    },
+    "h9": {
+      "status": "OK",
+      "label": "opset 17 + matmul_transpose_fusion",
+      "opset": 17,
+      "extra_optim": {
+        "matmul_transpose_fusion": true
+      },
+      "screen_p50_ms": 153.131,
+      "screen_cv": 1.1719312222868001,
+      "full_p50s_ms": [
+        194.194,
+        175.965,
+        203.405
+      ],
+      "median_p50_ms": 194.194,
+      "gain_vs_baseline_pct": -165.42,
+      "verdict": "DISCARD"
+    },
+    "h10": {
+      "status": "OK",
+      "label": "opset 17 + attention + skip_layer_norm + layer_norm",
+      "opset": 17,
+      "extra_optim": {
+        "attention_fusion": true,
+        "skip_layer_norm_fusion": true,
+        "layer_norm_fusion": true
+      },
+      "screen_p50_ms": 202.155,
+      "screen_cv": 1.1776211322994732,
+      "full_p50s_ms": [
+        261.236,
+        189.739,
+        193.641
+      ],
+      "median_p50_ms": 193.641,
+      "gain_vs_baseline_pct": -164.66,
+      "verdict": "DISCARD"
+    },
+    "h11": {
+      "status": "BUILD_FAIL",
+      "label": "opset 17 + nchwc_transformer (Conv-heavy models)",
+      "opset": 17,
+      "build_error": "     device                                            \n⏳ Optimize  Optimizing ONNX graph...\n   Analyzing 395 nodes  (iter 1/3)\n   Patterns\n     Matmul Add  → matmul_add_fusion\n   Optimizing  (applying autoconf)\n     {'matmul_add_fusion': True}Error: Build failed: [Errno 28] No space left on device\n"
+    },
+    "h12": {
+      "status": "BUILD_FAIL",
+      "label": "opset 17 + transpose_optimizer",
+      "opset": 17,
+      "build_error": "pple--mobilevit-small\\h12\\export.onnx\n(21.6 MB)\n[06/18/26 16:34:49] ERROR    ✗ ort_graph failed: [Errno 28] No space left on   \n                             device                                            \n⏳ Optimize  Optimizing ONNX graph...Error: Build failed: [Errno 28] No space left on device\n"
+    },
+    "h13": {
+      "status": "BUILD_FAIL",
+      "label": "opset 17 + gelu_fusion explicit",
+      "opset": 17,
+      "build_error": "📂 Output:    \nC:\\tmp\\autoconfig-demo\\catalog-cpu-sweep\\apple--mobilevit-small\\h13\n\n════════════════════════════════════════════════════════════\n🎯 Stages\n════════════════════════════════════════════════════════════\n⏳ Export  Exporting to ONNX...Error: Build failed: [Errno 28] No space left on device\n"
+    }
+  },
+  "baseline_p50_ms": 73.166,
+  "best_p50_ms": 64.137,
+  "best_hypothesis": "h7",
+  "best_gain_pct": 12.34,
+  "errors": [
+    "h11: BUILD_FAIL",
+    "h12: BUILD_FAIL",
+    "h13: BUILD_FAIL"
+  ],
+  "baseline_opset": 17
+}
