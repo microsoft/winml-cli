@@ -101,6 +101,7 @@ from utils.reporter import (
     load_result_json,
     write_result_json,
 )
+from winml_cli import cli_command
 
 
 logger = logging.getLogger(__name__)
@@ -109,7 +110,7 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-WINML_CLI = [sys.executable, "-m", "winml.modelkit.cli"]
+WINML_CLI = cli_command()
 BASELINE_SCRIPT = Path(__file__).parent / "run_pytorch_baseline.py"
 BASELINE_CACHE_PATH = Path(__file__).parent / "cache" / "baseline_cache.json"
 _RELEASE_MANIFEST = Path(__file__).parent / "testsets" / "models_release_validation.json"
@@ -882,7 +883,9 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
     last_output_progress = start
     last_output_sizes = (0, 0)
     stage = Path(args[0]).name
-    if len(args) > 3 and args[1:3] == ["-m", "winml.modelkit.cli"]:
+    if len(args) > len(WINML_CLI) and args[: len(WINML_CLI)] == WINML_CLI:
+        stage = args[len(WINML_CLI)]
+    elif len(args) > 3 and args[1:3] == ["-m", "winml.modelkit.cli"]:
         stage = args[3]
     elif len(args) > 1 and str(args[1]).endswith(".py"):
         stage = Path(args[1]).name

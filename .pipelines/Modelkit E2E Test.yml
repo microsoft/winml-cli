@@ -147,6 +147,7 @@ parameters:
       - inspect
       - build
       - compile
+      - openvino_allocators
       - config
       - export
       - optimize
