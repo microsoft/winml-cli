@@ -61,6 +61,14 @@ class TestPreparePipeline:
 class TestEvaluationConfig:
     """Tests for config and result dataclasses."""
 
+    def test_dataset_config_preserves_existing_positional_arguments(self):
+        columns_mapping = {"input_column": "audio"}
+
+        config = DatasetConfig(None, None, "test", 10, False, 7, columns_mapping)
+
+        assert config.columns_mapping is columns_mapping
+        assert config.audio_input_length is None
+
     def test_config_roundtrip(self):
         config = WinMLEvaluationConfig(
             model_id="test/model",
