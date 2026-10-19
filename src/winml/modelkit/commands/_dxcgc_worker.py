@@ -7,6 +7,7 @@
 import csv
 import ctypes
 import json
+import math
 import sys
 import time
 from pathlib import Path
@@ -22,11 +23,12 @@ def main() -> None:
     abi = library.DxcgcPythonHostAbiVersion
     abi.argtypes = []
     abi.restype = ctypes.c_uint
-    if abi() != 3:
+    if abi() != 5:
         raise RuntimeError("Native DXCGC host ABI mismatch; rebuild the native host")
     step_type = ctypes.CFUNCTYPE(
         ctypes.c_int,
         ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_double),
         ctypes.POINTER(ctypes.c_double),
         ctypes.POINTER(ctypes.c_void_p),
         ctypes.POINTER(ctypes.c_size_t),
@@ -34,6 +36,7 @@ def main() -> None:
         ctypes.POINTER(ctypes.c_void_p),
         ctypes.POINTER(ctypes.c_size_t),
         ctypes.c_size_t,
+        ctypes.c_int,
     )
     driver_type = ctypes.CFUNCTYPE(
         ctypes.c_int, step_type, ctypes.c_void_p, ctypes.c_int, ctypes.c_int
@@ -94,30 +97,50 @@ def main() -> None:
                     if array.shape != input_shape or array.dtype != np.dtype(input_dtype):
                         raise ValueError("Input shape or dtype mismatch")
             gpu = ctypes.c_double()
+            run_ms = ctypes.c_double()
             last = None
             for i in range(iterations + warmup):
                 batch = sequence[i % len(sequence)]
-                start = time.perf_counter()
                 outputs = [np.empty(shape, dtype=dtype) for _, shape, dtype in specs]
                 pointers = (ctypes.c_void_p * len(outputs))(*(a.ctypes.data for a in outputs))
                 sizes = (ctypes.c_size_t * len(outputs))(*(a.nbytes for a in outputs))
                 inputs = (ctypes.c_void_p * len(batch))(*(a.ctypes.data for a in batch))
                 input_sizes = (ctypes.c_size_t * len(batch))(*(a.nbytes for a in batch))
+                start = time.perf_counter()
                 code = step(
                     context,
                     ctypes.byref(gpu),
-                    pointers,
-                    sizes,
-                    len(outputs),
+                    ctypes.byref(run_ms),
+                    None,
+                    None,
+                    0,
                     inputs,
                     input_sizes,
                     len(batch),
+                    0,
                 )
                 elapsed = (time.perf_counter() - start) * 1000
                 if code:
                     raise RuntimeError("Native inference failed")
+                if not math.isfinite(elapsed) or elapsed <= 0:
+                    raise RuntimeError("Invalid native run timing")
+                measured_gpu = None if gpu.value == -1 else gpu.value
+                code = step(
+                    context,
+                    ctypes.byref(gpu),
+                    ctypes.byref(run_ms),
+                    pointers,
+                    sizes,
+                    len(outputs),
+                    None,
+                    None,
+                    0,
+                    1,
+                )
+                if code:
+                    raise RuntimeError("Native output fetch failed")
                 if i >= warmup:
-                    samples.append((None if gpu.value == -1 else gpu.value, elapsed))
+                    samples.append((measured_gpu, elapsed))
                 last = outputs
             if last is None:
                 raise ValueError("No inference iterations executed")
