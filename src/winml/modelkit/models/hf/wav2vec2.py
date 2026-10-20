@@ -77,7 +77,7 @@ _EMOTION_NORMALIZED_CONFIG = NormalizedConfig.with_args(
 class Wav2Vec2EmotionRegressionIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for raw waveform -> hidden_states, logits."""
 
-    NORMALIZED_CONFIG_CLASS = _EMOTION_NORMALIZED_CONFIG
+    NORMALIZED_CONFIG_CLASS = staticmethod(_EMOTION_NORMALIZED_CONFIG)
     DUMMY_INPUT_GENERATOR_CLASSES = (DummyAudioInputGenerator,)
 
     @property

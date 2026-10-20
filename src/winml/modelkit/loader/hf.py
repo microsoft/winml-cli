@@ -31,6 +31,8 @@ from typing import TYPE_CHECKING, Any, cast
 
 from transformers import AutoConfig
 
+from .config import _get_model_config_class
+
 
 if TYPE_CHECKING:
     import torch.nn as nn
@@ -279,7 +281,7 @@ def load_hf_model(
     # so go through an Any-typed alias rather than a static attribute access.
     loader_cls: Any = resolved_class
     model_config = hf_config
-    expected_config_class = getattr(loader_cls, "config_class", None)
+    expected_config_class = _get_model_config_class(resolved_class)
     if isinstance(expected_config_class, type) and not isinstance(hf_config, expected_config_class):
         matching_subconfigs = [
             value for value in vars(hf_config).values() if isinstance(value, expected_config_class)

@@ -18,6 +18,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        python-version: ["3.11", "3.14"]
+        group: [analyze, models, optim, commands, remaining]
         include:
           - group: analyze
             paths: tests/unit/analyze
@@ -28,6 +30,7 @@ jobs:
           - group: optim
             paths: >-
               tests/unit/optim tests/unit/test_quant_passes.py tests/unit/test_quantizer.py
+              tests/unit/pattern
           - group: commands
             paths: >-
               tests/unit/commands tests/unit/config tests/unit/build
@@ -37,9 +40,10 @@ jobs:
               tests/unit/core tests/unit/onnx tests/unit/cache
               tests/unit/utils tests/unit/test_helpers tests/unit/sysinfo tests/unit/inspect
               tests/unit/optracing tests/unit/serve tests/unit/packaging tests/regression tests/cli
+              tests/unit/ep_path
               skills/adding-model-support/tests skills/auto-optimize/tests
 
-    name: test (${{ matrix.group }})
+    name: test (${{ matrix.group }}, Python ${{ matrix.python-version }})
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -51,7 +55,7 @@ jobs:
           cache-dependency-glob: pyproject.toml
 
       - name: Set up Python
-        run: uv python install 3.11
+        run: uv python install ${{ matrix.python-version }}
 
       - name: Set up Node.js
         if: matrix.group == 'remaining'
@@ -60,10 +64,10 @@ jobs:
           node-version: 22
 
       - name: Install dependencies
-        run: uv sync --all-extras
+        run: uv sync --python ${{ matrix.python-version }} --all-extras
 
       - name: Run tests (${{ matrix.group }})
         shell: pwsh
         run: |
-          uv run pytest ${{ matrix.paths }} --tb=short --no-cov `
+          uv run --no-sync python -m pytest ${{ matrix.paths }} --tb=short --no-cov `
             -m "not e2e and not npu and not gpu"

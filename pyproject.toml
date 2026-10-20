@@ -10,7 +10,7 @@ readme = "README.md"
 keywords = [ "onnx", "winml" ]
 license = { text = "MIT" }
 authors = [ { name = "WinML Team" } ]
-requires-python = ">=3.11,<3.12"
+requires-python = ">=3.11,<3.15"
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
@@ -43,15 +43,21 @@ dependencies = [
   "jsonschema>=4.23",
   "mcp>=0.1.0",
   "ml-dtypes>=0.5.3",
-  "numpy>=2.2,<2.3",
-  "onnx==1.18",
+  # Preserve the existing stack on older interpreters. These are the first
+  # release lines with Windows x64 wheels for CPython 3.14.
+  "numpy>=2.2,<2.3 ; python_version < '3.14'",
+  "numpy>=2.3.2,<2.4 ; python_version >= '3.14'",
+  "onnx==1.18 ; python_version < '3.14'",
+  "onnx==1.20.0 ; python_version >= '3.14'",
   "onnx-ir>=0.1",
   "onnxruntime-genai-winml==0.14.1 ; sys_platform == 'win32'",
   # Range, not an exact pin: the exact build `1.24.5.202604171637` is the PyPI
   # form of what WinML's wasdk metadata pins as `1.24.5.post202604171637` (PEP 440
   # normalized) — an exact `==` can't reconcile the two. Allow newer releases
   # through 1.27 for OpenVINO operator profiling.
-  "onnxruntime-windowsml>=1.24.5,<1.28 ; sys_platform == 'win32'",
+  "onnxruntime-windowsml>=1.24.5,<1.28 ; sys_platform == 'win32' and python_version < '3.14'",
+  # Older runtime builds have no CPython 3.14 Windows wheels.
+  "onnxruntime-windowsml>=1.27.1,<1.28 ; sys_platform == 'win32' and python_version >= '3.14'",
   "onnxscript>=0.2",
   "opentelemetry-sdk>=1.39.1",
   "optimum>=2",
@@ -71,7 +77,8 @@ dependencies = [
   "requests>=2.32.5",
   "rich>=14",
   "scikit-learn>=1.7",
-  "scipy>=1.15,<1.16",
+  "scipy>=1.15,<1.16 ; python_version < '3.14'",
+  "scipy>=1.16.1,<1.17 ; python_version >= '3.14'",
   "sentencepiece>=0.2.1",
   "seqeval>=1.2.2",
   "snakemd>=2",
@@ -112,14 +119,14 @@ scripts.winml = "winml.modelkit.cli:main"
 # winml-cli is a Windows-only tool and its dependencies (PyTorch, the Windows ML
 # runtime packages, etc.) publish only x64/AMD64 wheels -- there are no
 # win_arm64 wheels. Restricting resolution to these environments keeps the
-# lockfile x64-only and makes `uv sync` fail fast with a clear
-# "unsupported environment" error on native Arm64 Python instead of an opaque
-# missing-wheel error. The linux/x86_64 entry is required for the docs CI job
-# that runs on ubuntu-latest.
+# lockfile restricted to deployment platforms. Python 3.14 reports the native
+# ARM64 host even from an emulated x64 interpreter, so that marker must also be
+# accepted. Native Arm64 Python is still unsupported: PyTorch has no wheel.
+# The linux/x86_64 entry is required for the docs CI job on ubuntu-latest.
 [tool.uv]
 environments = [
   "sys_platform == 'linux' and platform_machine == 'x86_64'",
-  "sys_platform == 'win32' and platform_machine == 'AMD64'",
+  "sys_platform == 'win32' and (platform_machine == 'AMD64' or (platform_machine == 'ARM64' and python_version >= '3.14'))",
 ]
 
 [[tool.uv.index]]

@@ -32,6 +32,7 @@ Example:
 from __future__ import annotations
 
 import logging
+from functools import partial
 from typing import TYPE_CHECKING, Any, cast
 
 from optimum.exporters.tasks import TasksManager
@@ -45,6 +46,8 @@ from .value_range import intercept_value_ranges
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     import torch
     from optimum.exporters.onnx import OnnxConfig
     from optimum.utils import NormalizedTextConfig
@@ -108,9 +111,11 @@ class MaxLengthTextInputGenerator(DummyTextInputGenerator):  # type: ignore[misc
 
     Usage in OnnxConfig:
         class BertIOConfig(BertOnnxConfig):
-            NORMALIZED_CONFIG_CLASS = NormalizedTextConfig.with_args(
-                sequence_length="max_position_embeddings",
-                allow_new=True,
+            NORMALIZED_CONFIG_CLASS = staticmethod(
+                NormalizedTextConfig.with_args(
+                    sequence_length="max_position_embeddings",
+                    allow_new=True,
+                )
             )
             DUMMY_INPUT_GENERATOR_CLASSES = (MaxLengthTextInputGenerator,)
     """
@@ -143,6 +148,31 @@ class MaxLengthTextInputGenerator(DummyTextInputGenerator):  # type: ignore[misc
             sequence_length=sequence_length,
             **kwargs,
         )
+
+
+def instantiate_onnx_config(
+    constructor: Callable[..., OnnxConfig], *args: Any, **kwargs: Any
+) -> OnnxConfig:
+    """Instantiate Optimum configs without Python 3.14 partial method binding."""
+    config_class = constructor.func if isinstance(constructor, partial) else constructor
+    factory = getattr(config_class, "NORMALIZED_CONFIG_CLASS", None)
+    if (
+        isinstance(config_class, type)
+        and isinstance(factory, partial)
+        and hasattr(factory, "__get__")
+    ):
+        # Upstream factories are class attributes, not methods. Adapt locally;
+        # never mutate Optimum's classes or its process-global registry.
+        compatible_class = type(
+            f"{config_class.__name__}Python314",
+            (config_class,),
+            {"NORMALIZED_CONFIG_CLASS": staticmethod(factory)},
+        )
+        if isinstance(constructor, partial):
+            constructor = partial(compatible_class, *constructor.args, **constructor.keywords)
+        else:
+            constructor = compatible_class
+    return constructor(*args, **kwargs)
 
 
 def _get_onnx_config(
@@ -204,7 +234,7 @@ def _get_onnx_config(
             f"Original error: {e}"
         ) from e
 
-    return config_constructor(hf_config, task=normalized_task)
+    return instantiate_onnx_config(config_constructor, hf_config, task=normalized_task)
 
 
 def _populate_image_size_from_preprocessor(
@@ -491,9 +521,7 @@ def resolve_io_specs(
     input_dtypes = [str(t.dtype).replace("torch.", "") for t in dummy_inputs.values()]
 
     # Build value_range dict: {name: (min, max)} from intercepted data
-    value_range_tuples = {
-        name: (info["min"], info["max"]) for name, info in value_ranges.items()
-    }
+    value_range_tuples = {name: (info["min"], info["max"]) for name, info in value_ranges.items()}
 
     return {
         "inputs": onnx_config.inputs,

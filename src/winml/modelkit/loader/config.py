@@ -12,7 +12,9 @@ This module provides:
 from __future__ import annotations
 
 import logging
+import sys
 from dataclasses import dataclass
+from inspect import get_annotations
 from typing import TYPE_CHECKING, Any, cast
 
 
@@ -287,7 +289,7 @@ def _create_hf_config_from_model_class(model_class: type) -> PretrainedConfig:
     Raises:
         TypeError: If model_class lacks config_class or it's not callable.
     """
-    config_cls = getattr(model_class, "config_class", None)
+    config_cls = _get_model_config_class(model_class)
     if config_cls is None or not callable(config_cls):
         raise TypeError(
             f"'{getattr(model_class, '__name__', model_class)}' does not have a "
@@ -296,6 +298,23 @@ def _create_hf_config_from_model_class(model_class: type) -> PretrainedConfig:
     hf_config = config_cls()
     hf_config.architectures = [model_class.__name__]
     return cast("PretrainedConfig", hf_config)
+
+
+def _get_model_config_class(model_class: type) -> Any:
+    """Resolve Transformers config classes despite deferred class annotations."""
+    config_cls = getattr(model_class, "config_class", None)
+    if (
+        sys.version_info >= (3, 14)
+        and isinstance(model_class, type)
+        and model_class.__module__.startswith("transformers.")
+        and config_cls is getattr(super(model_class, model_class), "config_class", None)
+    ):
+        # Transformers 4.x reads __dict__["__annotations__"] before Python 3.14
+        # evaluates it, incorrectly retaining the parent model's config class.
+        annotated_config = get_annotations(model_class, eval_str=True).get("config")
+        if isinstance(annotated_config, type):
+            return annotated_config
+    return config_cls
 
 
 def _resolve_hf_config_for_class(
@@ -324,7 +343,7 @@ def _resolve_hf_config_for_class(
     Returns:
         Tuple of (resolved_hf_config, resolved_model_type).
     """
-    config_cls = getattr(resolved_class, "config_class", None)
+    config_cls = _get_model_config_class(resolved_class)
     base_key = getattr(config_cls, "base_config_key", "") if config_cls else ""
 
     if isinstance(base_key, str) and base_key and hasattr(hf_config, base_key):

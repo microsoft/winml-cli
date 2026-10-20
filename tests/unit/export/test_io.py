@@ -13,6 +13,8 @@ Tests the model-centric I/O utilities that fully leverage Optimum:
 
 from __future__ import annotations
 
+import inspect
+from functools import partial
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -32,12 +34,37 @@ from transformers import (
 # Import models package to trigger ONNX config registration with TasksManager
 # This is required for BERT/CLIP to use max_position_embeddings as sequence_length
 import winml.modelkit.models  # noqa: F401
-from winml.modelkit.export import generate_dummy_inputs, resolve_io_specs
+from winml.modelkit.export import generate_dummy_inputs, instantiate_onnx_config, resolve_io_specs
 from winml.modelkit.export.io import (  # Testing internal implementation
     _get_onnx_config,
     _populate_image_size_from_preprocessor,
 )
 from winml.modelkit.models.winml.kv_cache import PastKeyValueInputGenerator
+
+
+@pytest.mark.parametrize("partial_constructor", [False, True])
+def test_normalized_config_partial_remains_a_static_factory(partial_constructor: bool) -> None:
+    def factory(config, *, allow_new):
+        return config, allow_new
+
+    normalized_factory = partial(factory, allow_new=True)
+
+    class ExportConfig:
+        NORMALIZED_CONFIG_CLASS = normalized_factory
+
+        def __init__(self, config, *, task):
+            self.normalized = self.NORMALIZED_CONFIG_CLASS(config)
+            self.task = task
+
+    if partial_constructor:
+        constructor = partial(ExportConfig, "config", task="task")
+        result = instantiate_onnx_config(constructor)
+    else:
+        result = instantiate_onnx_config(ExportConfig, "config", task="task")
+    assert isinstance(result, ExportConfig)
+    assert result.normalized == ("config", True)
+    assert result.task == "task"
+    assert inspect.getattr_static(ExportConfig, "NORMALIZED_CONFIG_CLASS") is normalized_factory
 
 
 # =============================================================================

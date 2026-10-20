@@ -6,6 +6,7 @@ import hashlib
 import importlib.metadata
 import platform
 import re
+import sysconfig
 from enum import Enum
 from pathlib import Path
 
@@ -92,7 +93,11 @@ class PythonRuntime:
         """Initialize Python runtime information."""
         self._version = platform.python_version()
         self._implementation = platform.python_implementation()
-        self._architecture = platform.machine()
+        self._architecture = {
+            "win-amd64": "AMD64",
+            "win-arm64": "ARM64",
+            "win32": "x86",
+        }.get(sysconfig.get_platform(), platform.machine())
         self._compiler = platform.python_compiler()
         build_info = platform.python_build()
         self._build_number = build_info[1] if len(build_info) > 1 else "Unknown"

@@ -406,6 +406,52 @@ class TestModelArchitectureOverrideFast:
         assert task == "feature-extraction"
 
 
+@pytest.mark.parametrize(
+    ("class_name", "task", "config_key"),
+    [
+        ("CLIPTextModelWithProjection", "feature-extraction", "text_config"),
+        ("CLIPVisionModelWithProjection", "image-feature-extraction", "vision_config"),
+    ],
+)
+def test_deferred_model_config_annotation_selects_subconfig(
+    monkeypatch, class_name, task, config_key
+):
+    from types import SimpleNamespace
+
+    import transformers
+    from transformers import CLIPConfig
+
+    from winml.modelkit.loader.config import (
+        _create_hf_config_from_model_class,
+        _resolve_hf_config_for_class,
+    )
+
+    parent_config = CLIPConfig()
+    model_class = getattr(transformers, class_name)
+    original_config_class = model_class.config_class
+    expected = getattr(parent_config, config_key)
+    captured = {}
+
+    def _from_pretrained(_cls, _model_id, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(eval=lambda: None, parameters=list)
+
+    monkeypatch.setattr(model_class, "from_pretrained", classmethod(_from_pretrained))
+    _model, returned_config, returned_task = load_hf_model(
+        "unit-composite-model", task=task, hf_config=parent_config
+    )
+
+    assert captured["config"] is expected
+    assert returned_config is parent_config
+    assert returned_task == task
+    assert _resolve_hf_config_for_class(parent_config, model_class) == (
+        expected,
+        expected.model_type,
+    )
+    assert type(_create_hf_config_from_model_class(model_class)) is type(expected)
+    assert model_class.config_class is original_config_class
+
+
 class TestTasksManagerIntegration:
     """Tests for TasksManager integration with specific tasks.
 

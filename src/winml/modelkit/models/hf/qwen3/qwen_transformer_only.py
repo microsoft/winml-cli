@@ -279,7 +279,7 @@ def _transformer_only_outputs(
 class QwenTransformerOnlyPrefillIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """Prefill (seq=64) — transformer-only I/O."""
 
-    NORMALIZED_CONFIG_CLASS = _QWEN_TRANSFORMER_ONLY_NORMALIZED
+    NORMALIZED_CONFIG_CLASS = staticmethod(_QWEN_TRANSFORMER_ONLY_NORMALIZED)
     DUMMY_INPUT_GENERATOR_CLASSES = (
         _TransformerOnlyKvCacheGenerator,
         _TransformerOnlyHiddenStatePrefillGenerator,
@@ -303,7 +303,7 @@ class QwenTransformerOnlyPrefillIOConfig(OnnxConfig):  # type: ignore[misc]  # o
 class QwenTransformerOnlyGenIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """Generation (seq=1) — transformer-only I/O."""
 
-    NORMALIZED_CONFIG_CLASS = _QWEN_TRANSFORMER_ONLY_NORMALIZED
+    NORMALIZED_CONFIG_CLASS = staticmethod(_QWEN_TRANSFORMER_ONLY_NORMALIZED)
     DUMMY_INPUT_GENERATOR_CLASSES = (
         _TransformerOnlyKvCacheGenerator,
         _TransformerOnlyHiddenStateGenerator,

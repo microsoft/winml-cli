@@ -6,7 +6,7 @@
 |---|---|
 | Windows | Windows 11 24H2 or later (required for NPU support) |
 | Hardware | Device with CPU, GPU, or NPU |
-| Python | 3.11 |
+| Python | 3.11 recommended; 3.14 experimental (x64, standard GIL build) |
 | Package manager | [`uv`](https://github.com/astral-sh/uv) |
 | Version control | `git` |
 
@@ -40,6 +40,60 @@ uv pip install winml-cli
     cd winml-cli
     uv sync
     ```
+
+### Experimental Python 3.14
+
+Python 3.11 remains the recommended production interpreter. Python 3.14 is an
+experimental source-build target; passing CPU tests does not certify every
+GPU/NPU provider or model. Python 3.12 and 3.13 are accepted by package metadata
+but have not been validated in this upgrade. Free-threaded builds and native
+Arm64 Python are not supported.
+
+From a source checkout, use a separate environment:
+
+```powershell
+uv python install cpython-3.14-windows-x86_64-none
+$env:UV_PROJECT_ENVIRONMENT = "temp\python314"
+uv sync --python cpython-3.14-windows-x86_64-none --all-extras
+uv run --no-sync python -m winml.modelkit.cli --help
+Remove-Item Env:UV_PROJECT_ENVIRONMENT
+```
+
+The explicit x64 interpreter is required on Windows on Arm too. Python 3.14
+reports the Arm64 host from an emulated x64 process; provider DLL selection must
+use the interpreter's architecture, not just `platform.machine()`.
+
+Python 3.14 selects newer NumPy, SciPy, ONNX, and Windows ML runtime versions;
+older interpreters retain their existing dependency constraints. PyArrow and
+pandas remain exactly pinned to preserve the Parquet writer and metadata
+format. This does not guarantee identical regenerated ONNX model bytes:
+ONNX 1.20 changes the default IR/opset. Internal rule generators explicitly keep
+IR 11 for compatibility with the previous artifact baseline, but operator and
+shape-inference changes still require comparison of regenerated rules and models.
+Test each execution provider needed by your workload before adopting 3.14.
+
+For source validation, install development dependencies and run the suite:
+
+```powershell
+$env:UV_PROJECT_ENVIRONMENT = "temp\python314"
+$env:WINML_CACHE_DIR = (Join-Path $PWD "temp\python314-cache")
+uv sync --python cpython-3.14-windows-x86_64-none --all-extras --all-groups
+uv run --no-sync python -m pytest tests skills\adding-model-support\tests skills\auto-optimize\tests
+uv run --no-sync python -m pytest tests\e2e -m "e2e or e2e_run or e2e_serve" --no-cov
+uv run --no-sync python -m pytest tests\e2e -m "not e2e and not e2e_run and not e2e_serve" --no-cov
+Remove-Item Env:UV_PROJECT_ENVIRONMENT
+Remove-Item Env:WINML_CACHE_DIR
+```
+
+The second pytest command explicitly enables marked end-to-end tests, including
+the normally disabled run/serve groups; the third covers unmarked tests in that
+directory without the directory's default E2E skip. Some require model downloads,
+additional fixtures, or compatible
+hardware/provider packages; skips and environment failures are not passes.
+If a native provider terminates pytest, rerun the affected files in separate
+processes to preserve results for the rest of the suite.
+Use a different `WINML_CACHE_DIR` when testing another interpreter concurrently:
+simultaneous exports must not write the same cached model artifacts.
 
 ## Verify
 

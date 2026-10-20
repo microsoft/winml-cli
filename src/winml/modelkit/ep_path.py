@@ -46,8 +46,8 @@ import dataclasses
 import functools
 import logging
 import os
-import platform
 import sys
+import sysconfig
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextvars import ContextVar
@@ -297,15 +297,14 @@ def _resolve_arch_key() -> str:
     versions and run ~1000x slower on others, even though session creation
     succeeds either way.
 
-    Process-own architecture uses ``platform.machine()`` directly — unlike
-    host detection, it's correct for this: it only misreports the *host*
-    under emulation, not itself.
+    Process architecture uses ``sysconfig.get_platform()``. Python 3.14's
+    ``platform.machine()`` reports the native host even under x64 emulation.
 
     Cached (``lru_cache(maxsize=1)``): the host CPU cannot change within a
     process's lifetime, and this is called on every ``PyPISource.resolve()``
     with an ``arch_folder_map``; ``CPU.get_all()`` shells out to PowerShell
     per call, so repeating it per resolve would be wasteful. Tests that
-    monkeypatch ``CPU.get_all``/``platform.machine`` to simulate different
+    monkeypatch ``CPU.get_all``/``sysconfig.get_platform`` to simulate different
     hosts must call ``_resolve_arch_key.cache_clear()`` first, or they'll
     observe a stale result from an earlier test.
     """
@@ -320,7 +319,7 @@ def _resolve_arch_key() -> str:
 
     if not host_is_arm64:
         return "x64_native"
-    is_process_arm64 = platform.machine().lower() in ("arm64", "aarch64")
+    is_process_arm64 = sysconfig.get_platform() == "win-arm64"
     return "arm64_native" if is_process_arm64 else "x64_on_arm64"
 
 

@@ -165,8 +165,8 @@ def _query_native_machine_via_win32() -> int | None:
 def _get_windows_native_machine() -> str | None:
     """Return the host architecture name, or None when unavailable.
 
-    platform.machine() returns the *process* arch (PROCESSOR_ARCHITECTURE),
-    so an x64 Python running under ARM64 emulation reports "AMD64". This
+    Before Python 3.14, platform.machine() returns the *process* arch, so
+    an x64 Python running under ARM64 emulation reports "AMD64". This
     consults IsWow64Process2 for the real host machine type, which is what
     the user expects to see in `winml sys`. PROCESSOR_ARCHITEW6432 is
     unreliable on ARM64 (Prism emulation does not set it on Snapdragon X).
