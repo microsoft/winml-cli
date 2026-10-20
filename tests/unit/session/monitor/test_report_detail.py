@@ -51,9 +51,8 @@ def test_detail_header_renamed():
 
 def test_detail_ten_columns_present():
     out = _render(_make_detail_result())
-    expected = ["#", "Node", "Type", "Avg", "Total", "% Tot", "Cum %", "p90", "DRAM(R)", "VTCM Hit"]
-    header_line = next(line for line in out.splitlines() if all(c in line for c in expected))
-    assert header_line is not None
+    expected = ["#", "Node", "Type", "Avg", "Total", "% Tot", "Cum %", "p90", "DRAM(R)", "VTCM hit"]
+    assert any(all(column in line for column in expected) for line in out.splitlines()), out
 
 
 def test_detail_cumulative_percent_monotonic():
@@ -117,7 +116,7 @@ def test_detail_vtcm_hit_em_dash_when_none():
         num_samples=1,
     )
     out = _render(result)
-    assert "—" in out  # em-dash for VTCM Hit when None
+    assert "—" in out  # em-dash for VTCM hit when None
 
 
 def test_detail_long_node_path_left_truncated():

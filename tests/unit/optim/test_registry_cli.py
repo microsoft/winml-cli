@@ -301,9 +301,9 @@ class TestListCapabilitiesCommand:
         runner = CliRunner()
         result = runner.invoke(optimize, ["--list-capabilities", "--verbose"])
 
-        # Verbose mode shows uppercase category headers
-        assert "GELU" in result.output
-        assert "ATTENTION" in result.output
+        assert result.exit_code == 0
+        for category in (CapabilityCategory.GELU, CapabilityCategory.ATTENTION):
+            assert f"\n{category.value} (" in result.output
 
     def test_list_capabilities_verbose_shows_defaults(self) -> None:
         """--list-capabilities --verbose shows default values."""
