@@ -973,8 +973,10 @@ class WinMLRuntimeSession:
     def run(self, inputs: dict[str, Any]) -> dict[str, np.ndarray]:
         """Run one inference and return ``{output_name: ndarray}``.
 
-        Inside a :meth:`perf` window, only ``Pipeline.run`` is timed;
-        input preparation/binding and output read-back are outside the timer.
+        Inputs are normalized before timing. Inside a :meth:`perf` window,
+        tensor creation, binding, output requests, ``Pipeline.run`` and NumPy
+        output retrieval are timed together, matching the feed/infer/fetch
+        scope of the ORT backend's ``session.run``.
         """
         with self._lock:
             return self._run_locked(inputs)
@@ -988,27 +990,28 @@ class WinMLRuntimeSession:
         input_names = self._io_config["input_names"]
         output_count = len(self._io_config["output_names"])
 
-        named = _bind_inputs(
-            self._runtime,
-            self._wr,
-            self._stage,
-            input_names,
-            prepared,
-            use_named_bindings=self._has_named_bindings,
-        )
-        with _translate_native_errors("run"):
-            # Older projections (including 2.7.9) materialize outputs automatically.
-            # Newer projections require an explicit request on every execution.
-            request_output = getattr(self._stage, "request_output", None)
-            if callable(request_output):
-                for index in range(output_count):
-                    request_output(index)
-            if self._perf_stats is not None:
-                self._perf_stats.record(self._pipeline.run)
-            else:
+        def _do() -> dict[str, np.ndarray]:
+            named = _bind_inputs(
+                self._runtime,
+                self._wr,
+                self._stage,
+                input_names,
+                prepared,
+                use_named_bindings=self._has_named_bindings,
+            )
+            with _translate_native_errors("run"):
+                # Older projections materialize outputs automatically.
+                # Newer projections require a request on every execution.
+                request_output = getattr(self._stage, "request_output", None)
+                if callable(request_output):
+                    for index in range(output_count):
+                        request_output(index)
                 self._pipeline.run()
+            return self._read_outputs(named)
 
-        return self._read_outputs(named)
+        if self._perf_stats is not None:
+            return self._perf_stats.record(_do)
+        return _do()
 
     def compile(self) -> None:
         """Build the Runtime pipeline if it has not already been built."""

@@ -548,8 +548,10 @@ def timed_runtime(monkeypatch, mlir_target):
 
 
 @pytest.mark.parametrize("named_bindings", [False, True])
-def test_perf_times_only_pipeline_run(timed_runtime, monkeypatch, named_bindings):
+def test_perf_times_feed_infer_fetch(timed_runtime, monkeypatch, named_bindings):
     session, clock, calls, durations, _phases = timed_runtime
+    timed_phases = ("create_tensor", "bind", "request", "execute", "fetch", "numpy")
+    expected_ms = sum(durations[phase] for phase in timed_phases) * 1000
     with session.perf(warmup=1) as ctx:
         session._has_named_bindings = named_bindings
         stage = session._stage
@@ -567,12 +569,12 @@ def test_perf_times_only_pipeline_run(timed_runtime, monkeypatch, named_bindings
             values = rng.standard_normal((2, 3, 8, 8)).astype(np.float32)
             actual = session.run({"input_0": values})
             np.testing.assert_array_equal(actual["output_0"], np.negative(values))
-            assert ctx.stats.all_samples_ms[-1] == pytest.approx(durations["execute"] * 1000)
+            assert ctx.stats.all_samples_ms[-1] == pytest.approx(expected_ms)
 
     assert len(clock.reads) == 2 * ctx.stats.total_count
     assert ctx.stats.total_count == 3
     assert ctx.stats.count == 2
-    assert ctx.stats.mean_ms == pytest.approx(durations["execute"] * 1000)
+    assert ctx.stats.mean_ms == pytest.approx(expected_ms)
     assert calls.count("build") == 1
     assert calls.count("create_tensor") == calls.count("execute")
     assert calls.count("request") == calls.count("execute")
@@ -582,7 +584,7 @@ def test_perf_times_only_pipeline_run(timed_runtime, monkeypatch, named_bindings
 @pytest.mark.parametrize(
     "failure", ["prepare", "create_tensor", "bind", "request", "execute", "fetch", "numpy"]
 )
-def test_perf_records_only_successful_pipeline_calls(timed_runtime, monkeypatch, failure):
+def test_perf_records_only_successful_feed_infer_fetch_calls(timed_runtime, monkeypatch, failure):
     session, _clock, calls, _durations, phases = timed_runtime
     values = np.random.default_rng(42).standard_normal((2, 3, 8, 8)).astype(np.float32)
     with session.perf() as ctx:
@@ -591,11 +593,11 @@ def test_perf_records_only_successful_pipeline_calls(timed_runtime, monkeypatch,
             patch.setattr(owner, method, Mock(side_effect=RuntimeError(failure)))
             with pytest.raises(RuntimeError, match=failure):
                 session.run({"input_0": values})
-        assert ctx.stats.total_count == calls.count("execute")
+        assert ctx.stats.total_count == 0
 
         actual = session.run({"input_0": values})
         np.testing.assert_array_equal(actual["output_0"], np.negative(values))
-        assert ctx.stats.total_count == calls.count("execute")
+        assert ctx.stats.total_count == 1
 
 
 def test_run_without_perf_does_not_read_clock(timed_runtime):
