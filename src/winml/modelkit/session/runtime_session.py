@@ -973,10 +973,10 @@ class WinMLRuntimeSession:
     def run(self, inputs: dict[str, Any]) -> dict[str, np.ndarray]:
         """Run one inference and return ``{output_name: ndarray}``.
 
-        Inputs are normalized before timing. Inside a :meth:`perf` window,
-        tensor creation, binding, output requests, ``Pipeline.run`` and NumPy
-        output retrieval are timed together, matching the feed/infer/fetch
-        scope of the ORT backend's ``session.run``.
+        Inputs are prepared (torch->numpy, dtype-cast) outside the timed region;
+        binding, ``Pipeline.run`` and output read-back are timed when inside a
+        :meth:`perf` window, keeping the measured cost comparable to the ORT
+        backend's ``session.run`` (feed + infer + fetch).
         """
         with self._lock:
             return self._run_locked(inputs)
@@ -1000,8 +1000,8 @@ class WinMLRuntimeSession:
                 use_named_bindings=self._has_named_bindings,
             )
             with _translate_native_errors("run"):
-                # Older projections materialize outputs automatically.
-                # Newer projections require a request on every execution.
+                # Older projections (including 2.7.9) materialize outputs automatically.
+                # Newer projections require an explicit request on every execution.
                 request_output = getattr(self._stage, "request_output", None)
                 if callable(request_output):
                     for index in range(output_count):

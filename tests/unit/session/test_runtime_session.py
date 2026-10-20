@@ -585,7 +585,7 @@ def test_perf_times_feed_infer_fetch(timed_runtime, monkeypatch, named_bindings)
     "failure", ["prepare", "create_tensor", "bind", "request", "execute", "fetch", "numpy"]
 )
 def test_perf_records_only_successful_feed_infer_fetch_calls(timed_runtime, monkeypatch, failure):
-    session, _clock, calls, _durations, phases = timed_runtime
+    session, _clock, _calls, _durations, phases = timed_runtime
     values = np.random.default_rng(42).standard_normal((2, 3, 8, 8)).astype(np.float32)
     with session.perf() as ctx:
         owner, method = phases[failure]
@@ -1100,3 +1100,4 @@ def test_perf_rejects_monitor_without_loading_runtime() -> None:
     session = WinMLRuntimeSession("model.mlir", ep_device=_mlir_ep_device(), backend="cgc")
     with pytest.raises(click.ClickException, match="monitor"), session.perf(monitor=object()):
         pass
+
