@@ -146,18 +146,55 @@ The model must already be compatible with the CGC converter.
 
 ### CGIR to device-targeted CG Output IR
 
-To retain a compiled artifact from existing CGIR, use the explicit
-[CGIR compile mode](../commands/compile.md#cgir-to-cg-output-ir):
+To retain a compiled artifact from existing CGIR, use the explicit compile mode.
+This experimental mode remains callable but is not advertised in public command
+help or the public command reference.
 
 ```powershell
 winml compile -m .\model.mlir --compiler cgc --device gpu -o .\model-output.mlir
 ```
 
-For `.mlir` and `.mlirbc` input, `--compiler cgc` is optional.
+`--compiler cgc` is optional for `.mlir` and `.mlirbc` input. Specify it when
+the CGIR file uses another suffix or when you want to make the backend explicit.
 
-The artifact is bytecode, not textual MLIR. This is a separate compilation stage,
-without an EP, optimization or quantization. Default validation reloads/builds
-the artifact and checks I/O; it does not run inference or performance tests.
+The command loads CGIR through Windows ML Runtime, without an ONNX Runtime EP.
+Both textual and bytecode CGIR are accepted; invalid or unsupported input is
+reported by the Runtime. Supply a complete executable model with its weights,
+not a graph-only report projection.
+
+Compilation calls the selected GPU target's Runtime
+`ModelCompiler.compile_to_file()` with `CompiledModelForm.DEVICE_TARGETED`.
+The saved artifact is **MLIR bytecode**, even when named `.mlir`; text dumping
+is not provided by this command. `.mlirbc` is also accepted as an output suffix.
+No optimization or quantization pipeline runs.
+
+This first version supports GPU only (the default in explicit IR mode). A single
+GPU is selected automatically; multiple GPUs require `--device-luid`. GPU
+discovery uses DXCore, not EP discovery or provider installation.
+
+Default `--validate` reloads the compiled artifact, builds a Runtime pipeline and
+checks that its I/O schema matches the input. Unlike the EPContext validation
+path, this does not execute inference or certify accuracy. `--no-validate` skips
+that reload/build check; genuine Input IR parsing and compilation remain required.
+Run `winml perf` separately for performance.
+
+The command publishes the artifact and any Runtime-produced resource companions
+only after successful compilation and requested validation. It preserves an
+existing input's `<stem>_metadata.json` I/O bindings as output metadata and writes
+`<output-stem>_compile.json` with input/artifact hashes, output encoding, GPU LUID
+and validation status. Metadata and resource collisions also require
+`--overwrite`; the input and its metadata are never replaced. Without `-o`, the
+default is `<input-stem>_output.mlir` in `--output-dir` or beside the input.
+
+`--ep`, `--ep-options`, `--embed`/`--no-embed`, `--qnn-sdk-root`, `--list`,
+`--config` and multiple `-m` inputs are rejected in this mode. Use the existing
+ONNX-to-EPContext mode for EP compilation. Omitting the new selectors preserves
+the original command behavior.
+
+The preview `windowsml` payload must include Runtime APIs compatible with the
+active CLI. If preview wheels override stable project pins, invoke the
+environment directly or use `uv run --no-sync` to avoid restoring stable
+packages.
 
 ## Tutorials and samples
 

@@ -1,6 +1,6 @@
 # winml compile
 
-> Compile ONNX to an EP-specific format, or explicitly compile CGIR to device-targeted CG Output IR.
+> Compile ONNX to an EP-specific format.
 
 ## When to use this
 
@@ -18,15 +18,15 @@ $ winml compile [options]
 
 | Flag | Short | Type | Default | Description |
 |---|---|---|---|---|
-| `--model` | `-m` | path | *(required unless `--list`)* | Input ONNX model, or complete CGIR in explicit IR mode. |
+| `--model` | `-m` | path | *(required unless `--list`)* | Input ONNX model. |
 | `--output` | `-o` | path | — | Output file path (e.g., `model_compiled.onnx`). Takes precedence over `--output-dir`. |
 | `--output-dir` | | path | same dir as input | Directory to write compiled output artifacts. |
 | `--device` | `-d` | choice | `auto` | Target device: `auto`, `npu`, `gpu`, or `cpu`. |
-| `--device-luid` | | string | — | Explicit CGC IR mode only: GPU adapter LUID from `winml sys`, in `0xHHHHHHHH_0xLLLLLLLL` form. |
+| `--device-luid` | | string | — | Adapter LUID from `winml sys`, in `0xHHHHHHHH_0xLLLLLLLL` form. Only supported for experimental compiler modes. |
 | `--ep` | | `TEXT` | — | Force a specific execution provider, overriding device-to-provider mapping. Accepts full names (e.g., `QNNExecutionProvider`) or aliases (`qnn`, `dml`, `openvino`, `vitisai`, `migraphx`, `cpu`, `nvtensorrtrtx`). |
 | `--ep-options` | | `KEY=VALUE` | — | Execution-provider option for the compilation session. Repeat for multiple options; later duplicate keys win. Explicit CLI values override matching `compile.provider_options` keys from `--config`. |
-| `--validate` / `--no-validate` | | flag | `--validate` | EPContext: post-compilation inference validation. CG Output IR: reload, pipeline build and I/O schema validation, without inference. |
-| `--compiler` | | choice | `ort` | Backends: `ort`, `ort_session`, `qairt`, `cgc`. `cgc` is inferred for a single `.mlir` or `.mlirbc` input. |
+| `--validate` / `--no-validate` | | flag | `--validate` | Post-compilation inference validation. |
+| `--compiler` | | choice | `ort` | Backends: `ort`, `ort_session`, `qairt`. |
 | `--qnn-sdk-root` | | path | `None` | Path to the QNN SDK root directory. |
 | `--embed/--no-embed` | | flag | `false` | Embed the EP context blob inside the ONNX file instead of writing a separate `.bin` file. |
 | `--list` | | flag | `false` | List available compiler backends for the selected device and exit without compiling. |
@@ -48,61 +48,6 @@ If a provider option names a compiler input file, list its key in
 `compile.provider_option_file_keys` in the JSON config. The CLI canonicalizes
 that option path and fingerprints its contents for EPContext cache identity;
 other provider-option strings are always passed through unchanged.
-
-## CGIR to CG Output IR
-
-This explicit mode uses the Windows ML Runtime API directly, without an ONNX
-Runtime EP. The input and output selectors make the representation unambiguous:
-
-```powershell
-winml compile `
-  -m input.mlir `
-  --compiler cgc `
-  --device gpu `
-  -o output.mlir
-```
-
-`--compiler cgc` is optional for `.mlir` and `.mlirbc` input. Specify it when
-the CGIR file uses another suffix or when you want to make the backend explicit.
-
-The command loads CGIR through Windows ML Runtime. Both textual and bytecode
-CGIR are accepted; invalid or unsupported input is reported by the Runtime.
-Supply a complete executable model with its weights, not a graph-only report
-projection.
-
-Compilation calls the selected GPU target's Runtime
-`ModelCompiler.compile_to_file()` with `CompiledModelForm.DEVICE_TARGETED`.
-The saved artifact is **MLIR bytecode**, even when named `.mlir`; text dumping
-is not provided by this command. `.mlirbc` is also accepted as an output suffix.
-No optimization or quantization pipeline runs.
-
-This first version supports GPU only (the default in explicit IR mode). A single
-GPU is selected automatically; multiple GPUs require `--device-luid`. GPU
-discovery uses DXCore, not EP discovery or provider installation.
-
-Default `--validate` reloads the compiled artifact, builds a Runtime pipeline and
-checks that its I/O schema matches the input. Unlike the EPContext validation
-path, this does not execute inference or certify accuracy. `--no-validate` skips
-that reload/build check; genuine Input IR parsing and compilation remain required.
-Run `winml perf` separately for performance.
-
-The command publishes the artifact and any Runtime-produced resource companions
-only after successful compilation and requested validation. It preserves an
-existing input's `<stem>_metadata.json` I/O bindings as output metadata and writes
-`<output-stem>_compile.json` with input/artifact hashes, output encoding, GPU LUID
-and validation status. Metadata and resource collisions also require
-`--overwrite`; the input and its metadata are never replaced. Without `-o`, the
-default is `<input-stem>_output.mlir` in `--output-dir` or beside the input.
-
-`--ep`, `--ep-options`, `--embed`/`--no-embed`, `--qnn-sdk-root`, `--list`,
-`--config` and multiple `-m` inputs are rejected in this mode. Use the existing
-ONNX-to-EPContext mode for EP compilation. Omitting the new selectors preserves
-the original command behavior.
-
-The preview `windowsml` payload must include Runtime APIs compatible with the
-active CLI. If preview wheels override stable project pins, invoke the
-environment directly or use `uv run --no-sync` to avoid restoring stable
-packages.
 
 ## Examples
 
