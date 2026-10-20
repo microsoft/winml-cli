@@ -1100,4 +1100,3 @@ def test_perf_rejects_monitor_without_loading_runtime() -> None:
     session = WinMLRuntimeSession("model.mlir", ep_device=_mlir_ep_device(), backend="cgc")
     with pytest.raises(click.ClickException, match="monitor"), session.perf(monitor=object()):
         pass
-
