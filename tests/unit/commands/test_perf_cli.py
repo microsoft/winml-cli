@@ -1933,6 +1933,7 @@ class TestPerfUnifiedPipeline:
 
         assert d["schema_version"] == 2
         assert d["benchmark_info"]["runtime"] == "winml-ort"
+        assert d["benchmark_info"]["timing_scope"] == "ort-feed-infer-fetch"
 
     def test_to_dict_reports_configured_runtime(self) -> None:
         config = BenchmarkConfig(model_id="m.mlir", runtime="winml-runtime")
@@ -1940,6 +1941,7 @@ class TestPerfUnifiedPipeline:
 
         info = result.to_dict()["benchmark_info"]
         assert info["runtime"] == "winml-runtime"
+        assert info["timing_scope"] == "runtime-feed-infer-fetch"
 
     def test_iterations_reports_configured_count_without_duration(self) -> None:
         """Without --duration, benchmark_info.iterations is the configured value."""
