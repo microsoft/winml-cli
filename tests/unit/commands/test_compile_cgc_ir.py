@@ -161,13 +161,11 @@ def test_ir_filesystem_error_is_actionable(ir_cli):
     assert "CGC compilation failed: Disk write failed" in result.output
 
 
-def test_ir_flags_and_encoding_visible_in_help():
+def test_ir_compiler_is_hidden_but_still_parseable():
     result = CliRunner().invoke(compile, ["--help"])
     assert result.exit_code == 0
-    for value in (
-        "--compiler",
-        "cgc",
-        ".mlir",
-        "bytecode",
-    ):
-        assert value in result.output
+    assert "--compiler" in result.output
+    for value in ("cgc", "cgir", "mlir"):
+        assert value not in result.output.casefold()
+    with compile.make_context("compile", ["--compiler", "cgc"], resilient_parsing=True) as ctx:
+        assert ctx.params["compiler"] == "cgc"
