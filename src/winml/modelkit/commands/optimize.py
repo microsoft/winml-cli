@@ -437,7 +437,7 @@ def optimize(
                     name: cap for name, cap in all_caps.items() if cap.category == category
                 }
 
-                console.print(f"\n{category.value.upper()} ({len(caps_in_category)} capabilities)")
+                console.print(f"\n{category.value} ({len(caps_in_category)} capabilities)")
                 console.print("-" * 80)
 
                 for name, cap in sorted(caps_in_category.items()):

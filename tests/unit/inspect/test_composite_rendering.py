@@ -111,12 +111,12 @@ def test_composite_table_is_pipeline_led():
     assert "encoder: feature-extraction" in out
     assert "decoder: text2text-generation" in out
     # Dedicated Composite Pipeline panel is rendered
-    assert "Composite Pipeline" in out
+    assert "Composite pipeline" in out
 
 
 def test_non_composite_table_unchanged():
     out = _render(_make_result(composite=None, task="fill-mask"))
-    assert "Composite Pipeline" not in out  # no composite panel
+    assert "Composite pipeline" not in out  # no composite panel
     assert "[composite]" not in out  # no composite tag on the Task row
     assert "encoder: feature-extraction" not in out  # no Export row breakdown
     assert "fill-mask" in out  # granular task shown as-is
@@ -128,7 +128,7 @@ def test_composite_with_empty_pipeline_tasks_renders_plain_task():
     # and skip the Composite Pipeline panel — robust independent of the resolver guard.
     out = _render(_make_result(CompositeInfo([], _BART_COMPONENTS), task="text2text-generation"))
     assert "[composite]" not in out
-    assert "Composite Pipeline" not in out
+    assert "Composite pipeline" not in out
     assert "text2text-generation" in out  # plain task shown as-is
 
 
@@ -178,7 +178,7 @@ def test_seam_autodetected_bart_renders_composite():
     out = _render(_make_result(info))
     assert "summarization · table-question-answering" in out
     assert "[composite]" in out
-    assert "Composite Pipeline" in out
+    assert "Composite pipeline" in out
 
 
 def test_seam_explicit_task_pins_no_composite():
@@ -192,7 +192,7 @@ def test_seam_explicit_task_pins_no_composite():
     assert resolution.composite is None
     assert resolve_composite_info("bart", resolution.composite) is None
     out = _render(_make_result(composite=None, task="text2text-generation"))
-    assert "Composite Pipeline" not in out
+    assert "Composite pipeline" not in out
     assert "[composite]" not in out
 
 
@@ -204,5 +204,5 @@ def test_seam_explicit_composite_task_shows_composite():
     info = resolve_composite_info("bart", resolution.composite)
     assert info is not None
     out = _render(_make_result(info, task="summarization"))
-    assert "Composite Pipeline" in out
+    assert "Composite pipeline" in out
     assert "[composite]" in out

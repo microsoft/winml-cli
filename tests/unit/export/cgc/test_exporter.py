@@ -328,11 +328,11 @@ def test_export_prints_progress(capsys: pytest.CaptureFixture[str], tmp_path: Pa
         CGCExporter(CGCOptions()).export(source, output)
 
     console_output = capsys.readouterr().out
-    assert "ONNX TO CGC EXPORT PROCESS" in console_output
+    assert "ONNX to CGC export process" in console_output
     assert "Input:" in console_output
     assert "Output:" in console_output
     assert "Format: CGC MLIR" in console_output
-    assert "CGC EXPORT COMPLETE" in console_output
+    assert "Done: CGC export complete" in console_output
 
 
 @pytest.mark.parametrize(

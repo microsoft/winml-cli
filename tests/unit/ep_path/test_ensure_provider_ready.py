@@ -115,7 +115,7 @@ def test_ensure_provider_ready_warns_before_download(
     ep_path._ensure_provider_ready(provider)
 
     err = capsys.readouterr().err
-    assert "[WinML] Installing Execution Provider" in err
+    assert "[WinML] Installing execution provider" in err
     assert "FakeEP" in err
 
 
@@ -251,7 +251,7 @@ def test_ensure_provider_ready_prints_success_with_metadata(
     err = capsys.readouterr().err
     assert "OpenVINOExecutionProvider EP installed successfully." in err
     assert "- Version: 1.2.0" in err
-    assert "- Package Family Name: Microsoft.OpenVINOExecutionProvider_8wekyb3d8bbwe" in err
+    assert "- Package family name: Microsoft.OpenVINOExecutionProvider_8wekyb3d8bbwe" in err
 
 
 def test_ensure_provider_ready_falls_back_to_path_metadata_when_native_empty(
@@ -283,7 +283,7 @@ def test_ensure_provider_ready_falls_back_to_path_metadata_when_native_empty(
     err = capsys.readouterr().err
     assert "- Version: 1.8.79.0" in err
     assert (
-        "- Package Family Name: MicrosoftCorporationII.WinML.Intel.OpenVINO.EP.1.8_8wekyb3d8bbwe"
+        "- Package family name: MicrosoftCorporationII.WinML.Intel.OpenVINO.EP.1.8_8wekyb3d8bbwe"
         in err
     )
 
@@ -313,7 +313,7 @@ def test_ensure_provider_ready_skips_metadata_lines_when_unavailable(
     err = capsys.readouterr().err
     assert "MysteryEP EP installed successfully." in err
     assert "- Version:" not in err
-    assert "- Package Family Name:" not in err
+    assert "- Package family name:" not in err
 
 
 def test_ensure_provider_ready_prints_failure_message_on_timeout(

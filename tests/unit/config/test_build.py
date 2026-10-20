@@ -1805,6 +1805,15 @@ class TestBuildSubmoduleConfig:
 class TestFindSubmodulesByClass:
     """Tests for _find_submodules_by_class branches."""
 
+    def test_missing_shapes_error_uses_sentence_case(self) -> None:
+        from torch import nn
+
+        from winml.modelkit.config.build import _find_submodules_by_class
+
+        model = nn.Identity()
+        with pytest.raises(ValueError, match="No hardcoded shapes allowed"):
+            _find_submodules_by_class(model, type(model).__name__, input_shapes=[])
+
     def test_hook_capture_uses_resolved_model_input_names(self) -> None:
         """Hook capture passes tensors under the resolved model input names."""
         import torch

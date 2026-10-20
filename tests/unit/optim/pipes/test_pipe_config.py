@@ -548,7 +548,9 @@ class TestLogBuildConfigVerbose:
         with caplog.at_level(logging.DEBUG):
             ORTGraphPipe._log_build_config_verbose(["gelu_fusion"], ["GeluFusionL2"])
 
-        assert "ORTGraphPipe BUILD_CONFIG VERBOSE OUTPUT" in caplog.text
+        assert "ORTGraphPipe build_config verbose output" in caplog.text
+        assert "[Optimization level]" in caplog.text
+        assert "[Disabled optimizers]" in caplog.text
         assert "=" * 70 in caplog.text
 
     def test_build_config_verbose_enabled_capabilities(
@@ -559,7 +561,7 @@ class TestLogBuildConfigVerbose:
         with caplog.at_level(logging.DEBUG):
             ORTGraphPipe._log_build_config_verbose(enabled, [])
 
-        assert "[Enabled Capabilities] (2)" in caplog.text
+        assert "[Enabled capabilities] (2)" in caplog.text
         assert "[enabled] gelu_fusion" in caplog.text
         assert "[enabled] matmul_add_fusion" in caplog.text
 
@@ -569,7 +571,7 @@ class TestLogBuildConfigVerbose:
         with caplog.at_level(logging.DEBUG):
             ORTGraphPipe._log_build_config_verbose(enabled, [])
 
-        assert "[Enabled Capabilities] (15)" in caplog.text
+        assert "[Enabled capabilities] (15)" in caplog.text
         assert "[enabled] cap_0" in caplog.text
         assert "[enabled] cap_9" in caplog.text
         assert "... and 5 more" in caplog.text
@@ -579,7 +581,7 @@ class TestLogBuildConfigVerbose:
         with caplog.at_level(logging.DEBUG):
             ORTGraphPipe._log_build_config_verbose([], [])
 
-        assert "[Enabled Capabilities] (0)" in caplog.text
+        assert "[Enabled capabilities] (0)" in caplog.text
         assert "(none)" in caplog.text
 
     def test_build_config_verbose_disabled_grouping(self, caplog: pytest.LogCaptureFixture) -> None:
@@ -643,7 +645,7 @@ class TestLogProcessVerbose:
         with caplog.at_level(logging.DEBUG):
             pipe._log_process_verbose(config, model, input_file, output_file, "")
 
-        assert "ORTGraphPipe PROCESS VERBOSE OUTPUT - ORT SESSION OPTIONS" in caplog.text
+        assert "ORTGraphPipe process verbose output - ORT session options" in caplog.text
         assert "=" * 70 in caplog.text
 
     def test_process_verbose_model_info(
@@ -666,7 +668,7 @@ class TestLogProcessVerbose:
         with caplog.at_level(logging.DEBUG):
             pipe._log_process_verbose(config, model, input_file, output_file, "")
 
-        assert "[Input Model]" in caplog.text
+        assert "[Input model]" in caplog.text
         assert "Nodes: 1" in caplog.text
         assert "Inputs: 1" in caplog.text
         assert "Outputs: 1" in caplog.text
@@ -716,7 +718,7 @@ class TestLogProcessVerbose:
         with caplog.at_level(logging.DEBUG):
             pipe._log_process_verbose(config, model, input_file, output_file, disable_list)
 
-        assert "[Session Config Entries]" in caplog.text
+        assert "[Session config entries]" in caplog.text
         assert "optimization.disable_specified_optimizers:" in caplog.text
         assert "- GeluFusion" in caplog.text
         assert "- SkipLayerNormFusion" in caplog.text
@@ -790,5 +792,5 @@ class TestLogProcessVerbose:
         with caplog.at_level(logging.DEBUG):
             pipe._log_process_verbose(config, model, input_file, output_file, "")
 
-        assert "[ORT Runtime]" in caplog.text
+        assert "[ORT runtime]" in caplog.text
         assert "Version:" in caplog.text

@@ -75,10 +75,10 @@ def _output_processor_table(console: Console, result: InspectResult) -> None:
         processor_table.add_row("Tokenizer", f"{processor.tokenizer_class}{src}")
     if processor.image_processor_class:
         src = _src_tag(processor.image_processor_source)
-        processor_table.add_row("Image Processor", f"{processor.image_processor_class}{src}")
+        processor_table.add_row("Image processor", f"{processor.image_processor_class}{src}")
     if processor.feature_extractor_class:
         src = _src_tag(processor.feature_extractor_source)
-        processor_table.add_row("Feature Extractor", f"{processor.feature_extractor_class}{src}")
+        processor_table.add_row("Feature extractor", f"{processor.feature_extractor_class}{src}")
 
     # Only show panel if we have at least one processor class
     if any(
@@ -89,7 +89,7 @@ def _output_processor_table(console: Console, result: InspectResult) -> None:
             processor.feature_extractor_class,
         ]
     ):
-        console.print(Panel(processor_table, title="Data Processing", border_style="dim"))
+        console.print(Panel(processor_table, title="Data processing", border_style="dim"))
 
 
 def _output_io_config_table(console: Console, result: InspectResult) -> None:
@@ -112,10 +112,10 @@ def _output_io_config_table(console: Console, result: InspectResult) -> None:
 
     # Text-related config
     if io_config.max_position_embeddings is not None:
-        io_table.add_row("Max Sequence Length", str(io_config.max_position_embeddings))
+        io_table.add_row("Max sequence length", str(io_config.max_position_embeddings))
         has_content = True
     if io_config.vocab_size is not None:
-        io_table.add_row("Vocab Size", f"{io_config.vocab_size:,}")
+        io_table.add_row("Vocab size", f"{io_config.vocab_size:,}")
         has_content = True
 
     # Vision-related config
@@ -124,10 +124,10 @@ def _output_io_config_table(console: Console, result: InspectResult) -> None:
             img_size_str = f"{io_config.image_size[0]} x {io_config.image_size[1]}"
         else:
             img_size_str = f"{io_config.image_size} x {io_config.image_size}"
-        io_table.add_row("Image Size", img_size_str)
+        io_table.add_row("Image size", img_size_str)
         has_content = True
     if io_config.patch_size is not None:
-        io_table.add_row("Patch Size", str(io_config.patch_size))
+        io_table.add_row("Patch size", str(io_config.patch_size))
         has_content = True
     if io_config.num_channels is not None:
         io_table.add_row("Channels", str(io_config.num_channels))
@@ -135,16 +135,16 @@ def _output_io_config_table(console: Console, result: InspectResult) -> None:
 
     # Audio-related config
     if io_config.sampling_rate is not None:
-        io_table.add_row("Sampling Rate", f"{io_config.sampling_rate:,} Hz")
+        io_table.add_row("Sampling rate", f"{io_config.sampling_rate:,} Hz")
         has_content = True
 
     # General config
     if io_config.hidden_size is not None:
-        io_table.add_row("Hidden Size", str(io_config.hidden_size))
+        io_table.add_row("Hidden size", str(io_config.hidden_size))
         has_content = True
     if io_config.hidden_sizes is not None:
         sizes_str = " → ".join(str(s) for s in io_config.hidden_sizes)
-        io_table.add_row("Hidden Sizes", sizes_str)
+        io_table.add_row("Hidden sizes", sizes_str)
         has_content = True
 
     # Extra attrs discovered dynamically from OnnxConfig
@@ -156,7 +156,7 @@ def _output_io_config_table(console: Console, result: InspectResult) -> None:
 
     # Only show panel if we have content
     if has_content:
-        console.print(Panel(io_table, title="IO Configuration", border_style="dim"))
+        console.print(Panel(io_table, title="IO configuration", border_style="dim"))
 
 
 def _output_cache_table(console: Console, result: InspectResult) -> None:
@@ -179,13 +179,13 @@ def _output_cache_table(console: Console, result: InspectResult) -> None:
     if cache.total_cached > 0:
         status = f"[green]{cache.total_cached}/{len(cache.stages)} stages cached[/green]"
         cache_table.add_row("Status", status)
-        cache_table.add_row("Total Size", f"{cache.total_size_mb} MB")
+        cache_table.add_row("Total size", f"{cache.total_size_mb} MB")
     else:
         cache_table.add_row("Status", "[dim]No cached artifacts[/dim]")
 
     # Individual stages
     cache_table.add_row("", "")  # Spacer
-    cache_table.add_row("[bold]Pipeline Stages[/bold]", "")
+    cache_table.add_row("[bold]Pipeline stages[/bold]", "")
 
     for stage in cache.stages:
         if stage.cached:
@@ -196,7 +196,7 @@ def _output_cache_table(console: Console, result: InspectResult) -> None:
             info = "[dim]not cached[/dim]"
         cache_table.add_row(f"  {icon} {stage.stage}", info)
 
-    console.print(Panel(cache_table, title="Cache Status", border_style="dim"))
+    console.print(Panel(cache_table, title="Cache status", border_style="dim"))
 
 
 def _output_composite_panel(console: Console, result: InspectResult) -> None:
@@ -218,7 +218,7 @@ def _output_composite_panel(console: Console, result: InspectResult) -> None:
 
     comp_table = Table(show_header=True, box=None, padding=(0, 2), header_style="bold")
     comp_table.add_column("Component", style="cyan")
-    comp_table.add_column("Export Task")
+    comp_table.add_column("Export task")
     for name, task in composite.components.items():
         comp_table.add_row(name, task)
 
@@ -231,7 +231,7 @@ def _output_composite_panel(console: Console, result: InspectResult) -> None:
     console.print(
         Panel(
             Group(intro, "", comp_table, "", footer),
-            title="Composite Pipeline",
+            title="Composite pipeline",
             border_style="dim",
         )
     )
@@ -259,7 +259,7 @@ def output_table(console: Console, result: InspectResult, verbose: bool = False)
     model_table.add_column("Field", style="cyan")
     model_table.add_column("Value")
 
-    model_table.add_row("Model Type", result.model_type)
+    model_table.add_row("Model type", result.model_type)
     # Guard on pipeline_tasks too: output_table is public, so a directly-constructed
     # InspectResult with an empty-pipeline_tasks CompositeInfo must not render a
     # bare " [composite]" Task row — fall back to the plain task in that case.
@@ -277,9 +277,9 @@ def output_table(console: Console, result: InspectResult, verbose: bool = False)
         model_table.add_row("Task", f"{result.task} [dim](via {result.task_source})[/dim]")
     archs = ", ".join(result.architectures) if result.architectures else "-"
     model_table.add_row("Architectures", archs)
-    model_table.add_row("Overall Support", STATUS_LABELS[result.overall_support])
+    model_table.add_row("Overall support", STATUS_LABELS[result.overall_support])
 
-    console.print(Panel(model_table, title="Model Information", border_style="dim"))
+    console.print(Panel(model_table, title="Model information", border_style="dim"))
 
     # Composite Pipeline panel (only for composite model_types with pipeline tasks)
     if result.composite and result.composite.pipeline_tasks:
@@ -290,26 +290,26 @@ def output_table(console: Console, result: InspectResult, verbose: bool = False)
     loader_table.add_column("Field", style="cyan")
     loader_table.add_column("Value")
 
-    loader_table.add_row("HF Model Class", result.loader.hf_model_class)
+    loader_table.add_row("HF model class", result.loader.hf_model_class)
     loader_table.add_row("Source", result.loader.hf_model_class_source)
     loader_table.add_row("Status", STATUS_LABELS[result.loader.support_level])
 
-    console.print(Panel(loader_table, title="Loader Configuration", border_style="dim"))
+    console.print(Panel(loader_table, title="Loader configuration", border_style="dim"))
 
     # Exporter Configuration table
     exporter_table = Table(show_header=False, box=None, padding=(0, 2))
     exporter_table.add_column("Field", style="cyan")
     exporter_table.add_column("Value")
 
-    exporter_table.add_row("ONNX Config", result.exporter.onnx_config_class or "-")
+    exporter_table.add_row("ONNX config", result.exporter.onnx_config_class or "-")
     exporter_table.add_row("Source", result.exporter.onnx_config_source)
     exporter_table.add_row("Status", STATUS_LABELS[result.exporter.support_level])
-    exporter_table.add_row("OPSET Version", str(result.exporter.opset_version))
+    exporter_table.add_row("Opset version", str(result.exporter.opset_version))
 
     # Input tensors
     if result.exporter.input_tensors:
         exporter_table.add_row("", "")  # Spacer
-        exporter_table.add_row("[bold]Input Tensors[/bold]", "")
+        exporter_table.add_row("[bold]Input tensors[/bold]", "")
         for tensor in result.exporter.input_tensors:
             # Prefer shape_desc (dynamic), fall back to shape (concrete)
             if tensor.shape_desc:
@@ -327,7 +327,7 @@ def output_table(console: Console, result: InspectResult, verbose: bool = False)
     # Output tensors
     if result.exporter.output_tensors:
         exporter_table.add_row("", "")  # Spacer
-        exporter_table.add_row("[bold]Output Tensors[/bold]", "")
+        exporter_table.add_row("[bold]Output tensors[/bold]", "")
         for tensor in result.exporter.output_tensors:
             if tensor.shape_desc:
                 shape_str = tensor.shape_desc
@@ -337,7 +337,7 @@ def output_table(console: Console, result: InspectResult, verbose: bool = False)
                 shape_str = "-"
             exporter_table.add_row(f"  {tensor.name}", shape_str)
 
-    console.print(Panel(exporter_table, title="Exporter Configuration", border_style="dim"))
+    console.print(Panel(exporter_table, title="Exporter configuration", border_style="dim"))
 
     # WinML Inference Class table
     winml_table = Table(show_header=False, box=None, padding=(0, 2))
@@ -348,7 +348,7 @@ def output_table(console: Console, result: InspectResult, verbose: bool = False)
     winml_table.add_row("Source", result.winml.winml_class_source)
     winml_table.add_row("Status", STATUS_LABELS[result.winml.support_level])
 
-    console.print(Panel(winml_table, title="WinML Inference Class", border_style="dim"))
+    console.print(Panel(winml_table, title="WinML inference class", border_style="dim"))
 
     # Processor Information table
     if result.processor:
@@ -380,7 +380,7 @@ def output_table(console: Console, result: InspectResult, verbose: bool = False)
                     config_str = str(config)
                 config_table.add_row(section, config_str)
 
-        console.print(Panel(config_table, title="Full Build Configuration", border_style="dim"))
+        console.print(Panel(config_table, title="Full build configuration", border_style="dim"))
 
     # Support notes
     if result.support_notes:
@@ -405,18 +405,18 @@ def _output_hierarchy_table(console: Console, result: InspectResult) -> None:
     summary_table.add_column("Field", style="cyan")
     summary_table.add_column("Value")
 
-    summary_table.add_row("Root Class", hierarchy.root_class)
-    summary_table.add_row("Total Parameters", _format_params(hierarchy.total_parameters))
-    summary_table.add_row("HF Modules", str(hierarchy.hf_module_count))
-    summary_table.add_row("NN Modules", f"{hierarchy.nn_module_count} [dim](filtered)[/dim]")
+    summary_table.add_row("Root class", hierarchy.root_class)
+    summary_table.add_row("Total parameters", _format_params(hierarchy.total_parameters))
+    summary_table.add_row("HF modules", str(hierarchy.hf_module_count))
+    summary_table.add_row("NN modules", f"{hierarchy.nn_module_count} [dim](filtered)[/dim]")
 
-    console.print(Panel(summary_table, title="HF Module Hierarchy", border_style="dim"))
+    console.print(Panel(summary_table, title="HF module hierarchy", border_style="dim"))
 
     # Tree view
     if hierarchy.hf_modules:
         tree = Tree(f"[bold]{hierarchy.root_class}[/bold]")
         _build_tree(tree, hierarchy.hf_modules)
-        console.print(Panel(tree, title="Module Tree (HF modules only)", border_style="dim"))
+        console.print(Panel(tree, title="Module tree (HF modules only)", border_style="dim"))
 
 
 def _build_tree(parent: Tree, modules: list[ModuleInfo]) -> None:

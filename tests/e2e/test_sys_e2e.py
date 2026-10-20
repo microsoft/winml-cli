@@ -127,7 +127,7 @@ class TestSysTorchContract:
         """Default text output drops the ``PyTorch Details`` panel."""
         exit_code, output = _run_sys()
         assert exit_code == 0, output
-        assert "PyTorch Details" not in output, (
+        assert "PyTorch details" not in output, (
             "Default text output should not render the PyTorch Details panel "
             "(PR #595 removed it to avoid `import torch`)."
         )
@@ -138,7 +138,7 @@ class TestSysTorchContract:
             pytest.skip("torch not installed")
         exit_code, output = _run_sys("--verbose")
         assert exit_code == 0, output
-        assert "PyTorch Details" in output, "--verbose should restore the PyTorch Details panel"
+        assert "PyTorch details" in output, "--verbose should restore the PyTorch details panel"
 
 
 # ---------------------------------------------------------------------------

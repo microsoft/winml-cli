@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 from rich.console import Console, Group, RenderableType
 from rich.live import Live
+from rich.markup import escape
 from rich.text import Text
 
 
@@ -41,11 +42,11 @@ HEAVY_SEP = "\u2550" * 60  # ═
 LIGHT_SEP = "\u2500" * 60  # ─
 MAX_BAR_WIDTH = 36
 
-# Stage status icons
-ICON_RUNNING = "\u23f3"  # ⏳
-ICON_DONE = "\u2705"  # ✅
-ICON_SKIP = "\u23f8\ufe0f "  # ⏸️
-ICON_ERROR = "\u274c"  # ❌
+# Stage status labels
+ICON_RUNNING = "[In progress]"
+ICON_DONE = "[Done]"
+ICON_SKIP = "[Skipped]"
+ICON_ERROR = "[Failed]"
 
 
 def get_console() -> Console:
@@ -114,8 +115,8 @@ def print_kv(
 
 
 def print_success(console: Console, message: str) -> None:
-    """Print a green success line with check icon."""
-    console.print(f"   [green]{ICON_DONE} {message}[/green]")
+    """Print a green success line with a text status."""
+    console.print(f"   [green]{escape(ICON_DONE)} {message}[/green]")
 
 
 def print_error(
@@ -124,9 +125,9 @@ def print_error(
     hint: str | None = None,
 ) -> None:
     """Print a red error line with optional hint."""
-    console.print(f"   [red]{ICON_ERROR} {message}[/red]")
+    console.print(f"   [red]{escape(ICON_ERROR)} {message}[/red]")
     if hint:
-        console.print(f"   [dim]\U0001f4a1 {hint}[/dim]")
+        console.print(f"   [dim]Hint: {hint}[/dim]")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -158,7 +159,7 @@ def print_io_specs_detail(
 def print_io_specs_na(console: Console, reason: str = "") -> None:
     """Print I/O specs not-available line (e.g., ONNX mode)."""
     msg = reason or "inferred from ONNX graph at build time"
-    console.print(f"   \U0001f4d0 [bold]I/O specs:[/bold]    [dim]N/A \u2014 {msg}[/dim]")
+    console.print(f"   [bold]I/O specs:[/bold]    [dim]N/A \u2014 {msg}[/dim]")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -175,24 +176,24 @@ def print_setup(
     source: str = "HuggingFace",
     auto: bool = True,
 ) -> None:
-    """Print the 🔧 Setup section header."""
+    """Print the Setup section header."""
     console.print()
     console.print(HEAVY_SEP)
-    console.print(f"[bold]\U0001f527 Setup \u2014 {source}[/bold]")
+    console.print(f"[bold]Setup \u2014 {source}[/bold]")
     console.print(HEAVY_SEP)
-    console.print(f"   \U0001f4e6 [bold]{'Model:':<10}[/bold] [cyan]{model}[/cyan]")
+    console.print(f"   [bold]{'Model:':<10}[/bold] [cyan]{model}[/cyan]")
     config_suffix = "  [dim](autoconf off)[/dim]" if not auto else "  [dim](autoconf on)[/dim]"
     console.print(
-        f"   \U0001f4c1 [bold]{'Config:':<10}[/bold] [cyan]{config}[/cyan]{config_suffix}"
+        f"   [bold]{'Config:':<10}[/bold] [cyan]{config}[/cyan]{config_suffix}"
     )
-    console.print(f"   \U0001f4c2 [bold]{'Output:':<10}[/bold] [cyan]{output}[/cyan]")
+    console.print(f"   [bold]{'Output:':<10}[/bold] [cyan]{output}[/cyan]")
     console.print()
 
 
 def print_stages_header(console: Console) -> None:
-    """Print the 🎯 Stages section header."""
+    """Print the Stages section header."""
     console.print(HEAVY_SEP)
-    console.print("[bold]\U0001f3af Stages[/bold]")
+    console.print("[bold]Stages[/bold]")
     console.print(HEAVY_SEP)
 
 
@@ -203,7 +204,7 @@ def print_final(
     stage_timings: list[tuple[str, float | None]] | None = None,
     config: str | None = None,
 ) -> None:
-    """Print the 📊 Summary section with stage timing breakdown.
+    """Print the Summary section with stage timing breakdown.
 
     Args:
         stage_timings: list of (stage_name, elapsed_seconds | None for skipped)
@@ -211,18 +212,18 @@ def print_final(
     """
     console.print()
     console.print(HEAVY_SEP)
-    console.print("[bold]\U0001f4ca Summary[/bold]")
+    console.print("[bold]Summary[/bold]")
     console.print(HEAVY_SEP)
-    console.print(f"{ICON_DONE} [bold green]Build complete in {elapsed:.1f}s[/bold green]")
+    console.print(f"{escape(ICON_DONE)} [bold green]Build complete in {elapsed:.1f}s[/bold green]")
     if stage_timings:
         for name, t in stage_timings:
             if t is not None:
                 console.print(f"   {name:<12} [green]{t:.1f}s[/green]")
             else:
                 console.print(f"   {name:<12} [dim]skipped[/dim]")
-    console.print(f"\U0001f4e6 Final artifact: [bold]{artifact}[/bold]")
+    console.print(f"Final artifact: [bold]{artifact}[/bold]")
     if config is not None:
-        console.print(f"\U0001f4c4 Build config:   [bold]{config}[/bold]")
+        console.print(f"Build config:   [bold]{config}[/bold]")
     console.print()
 
 
@@ -468,7 +469,7 @@ class StageLive:
 
     def artifact(self, path: str, size_bytes: int | float) -> None:
         """Add artifact line (always last in stage)."""
-        label = "\U0001f4e6 Artifact:"
+        label = "Artifact:"
         self._lines.append(
             Text.from_markup(f"   {label:<14}[dim]{path}[/dim]  ({fmt_size(size_bytes)})")
         )
@@ -538,7 +539,6 @@ class StageLive:
         line = Text()
         line.append("   - ")
         line.append(f"{ep_name:<28}", style="cyan")
-        line.append_text(_spu_text(s, p, u))
         line.append("  ")
         # Scale bar proportional to total (not analyzed count)
         analyzed = s + p + u
@@ -551,6 +551,8 @@ class StageLive:
                 round(remaining / anchor * MAX_BAR_WIDTH),
             )
             line.append("\u2591" * rem_w, style="dim")
+        line.append("\n     ")
+        line.append_text(_spu_text(s, p, u))
         self._lines[idx] = line
         self._update()
 
@@ -596,13 +598,13 @@ def _build_bar_scaled(s: int, p: int, u: int, anchor: int) -> Text:
 
 
 def _spu_text(s: int, p: int, u: int) -> Text:
-    """Build 'S/P/U' colored count text."""
+    """Build labeled support counts with supplementary colors."""
     t = Text()
-    t.append(str(s), style="bold green")
-    t.append("/", style="dim")
-    t.append(str(p), style="bold yellow" if p > 0 else "dim")
-    t.append("/", style="dim")
-    t.append(str(u), style="bold red" if u > 0 else "dim")
+    t.append(f"Supported: {s}", style="bold green")
+    t.append(" / ", style="dim")
+    t.append(f"Partial: {p}", style="bold yellow" if p > 0 else "dim")
+    t.append(" / ", style="dim")
+    t.append(f"Unsupported: {u}", style="bold red" if u > 0 else "dim")
     return t
 
 

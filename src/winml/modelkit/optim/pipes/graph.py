@@ -397,15 +397,15 @@ class ORTGraphPipe(BasePipe[ORTGraphPipeConfig]):
     ) -> None:
         """Log verbose build_config output."""
         logger.debug("=" * 70)
-        logger.debug("ORTGraphPipe BUILD_CONFIG VERBOSE OUTPUT")
+        logger.debug("ORTGraphPipe build_config verbose output")
         logger.debug("=" * 70)
 
         # Optimization level
-        logger.debug("[Optimization Level]")
+        logger.debug("[Optimization level]")
         logger.debug("  Level: 2 (ORT_ENABLE_EXTENDED) - Finalized")
 
         # Enabled capabilities
-        logger.debug("[Enabled Capabilities] (%d)", len(enabled))
+        logger.debug("[Enabled capabilities] (%d)", len(enabled))
         if enabled:
             for name in enabled[:10]:
                 logger.debug("  [enabled] %s", name)
@@ -416,7 +416,7 @@ class ORTGraphPipe(BasePipe[ORTGraphPipeConfig]):
 
         # Disabled optimizers
         total_caps = len([c for c in cls.capabilities.values() if hasattr(c, "ort_name")])
-        logger.debug("[Disabled Optimizers] (%d/%d capabilities)", len(disabled), total_caps)
+        logger.debug("[Disabled optimizers] (%d/%d capabilities)", len(disabled), total_caps)
         if disabled:
             # Group by priority
             fusions = [n for n in disabled if "fusion" in n.lower()]
@@ -460,11 +460,11 @@ class ORTGraphPipe(BasePipe[ORTGraphPipeConfig]):
         import onnxruntime as ort
 
         logger.debug("=" * 70)
-        logger.debug("ORTGraphPipe PROCESS VERBOSE OUTPUT - ORT SESSION OPTIONS")
+        logger.debug("ORTGraphPipe process verbose output - ORT session options")
         logger.debug("=" * 70)
 
         # Model info
-        logger.debug("[Input Model]")
+        logger.debug("[Input model]")
         logger.debug("  Nodes: %d", len(model.graph.node))
         logger.debug("  Inputs: %d", len(model.graph.input))
         logger.debug("  Outputs: %d", len(model.graph.output))
@@ -484,7 +484,7 @@ class ORTGraphPipe(BasePipe[ORTGraphPipeConfig]):
         logger.debug("  provider: %s", provider)
 
         # Session config entries
-        logger.debug("[Session Config Entries]")
+        logger.debug("[Session config entries]")
         if disable_list:
             logger.debug("  optimization.disable_specified_optimizers:")
             items = disable_list.split(";")
@@ -496,7 +496,7 @@ class ORTGraphPipe(BasePipe[ORTGraphPipeConfig]):
             logger.debug("  (no disabled optimizers)")
 
         # ORT version
-        logger.debug("[ORT Runtime]")
+        logger.debug("[ORT runtime]")
         logger.debug("  Version: %s", ort.__version__)
 
         logger.debug("=" * 70)

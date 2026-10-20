@@ -102,7 +102,7 @@ class Optimizer:
         logger.info("Running shape inference (pre-stage)...")
         start_time = time.time()
         model = infer_shapes(model)
-        logger.info("✓ Shape inference (pre-stage) completed in %.2fs", time.time() - start_time)
+        logger.info("Shape inference (pre-stage) completed in %.2fs", time.time() - start_time)
 
         # CAPABILITY-DRIVEN: Optimization pipes
         logger.info("Starting optimization pipeline (%d pipes)...", len(self.pipes))
@@ -118,17 +118,17 @@ class Optimizer:
             # Check if pipe should process (using getattr with callable check)
             should_process = getattr(pipe, "should_process", None)
             if callable(should_process) and not should_process(config):
-                logger.info("⊘ Skipping %s (no capabilities enabled)", pipe_name)
+                logger.info("Skipping %s (no capabilities enabled)", pipe_name)
                 continue
 
             # Process model with timing
             start_time = time.time()
             try:
-                logger.info("⚙ Executing %s...", pipe_name)
+                logger.info("Executing %s...", pipe_name)
                 model = pipe.process(model, config)
-                logger.info("✓ %s completed in %.2fs", pipe_name, time.time() - start_time)
+                logger.info("%s completed in %.2fs", pipe_name, time.time() - start_time)
             except Exception as e:
-                logger.error("✗ %s failed: %s", pipe_name, e)
+                logger.error("%s failed: %s", pipe_name, e)
                 raise
 
         # MANDATORY POST-STAGE: Shape inference
@@ -136,7 +136,7 @@ class Optimizer:
         logger.info("Running shape inference...")
         start_time = time.time()
         model = infer_shapes(model)
-        logger.info("✓ Shape inference completed in %.2fs", time.time() - start_time)
+        logger.info("Shape inference completed in %.2fs", time.time() - start_time)
 
         # Note: Post-optimization validation removed. Validation happens at:
         # - load_onnx(validate=True) on input (path-based, safe for any size)
@@ -144,7 +144,7 @@ class Optimizer:
         # In-memory check_model fails on >2GiB models and models with custom
         # domains (com.microsoft from ORT), making it unreliable here.
 
-        logger.info("✓ Optimization pipeline completed successfully")
+        logger.info("Optimization pipeline completed successfully")
         return model
 
     def _resolve_dependencies(self, kwargs: dict[str, Any]) -> dict[str, Any]:

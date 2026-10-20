@@ -53,6 +53,20 @@ Investigate root cause and fix the underlying issue. Never use `pytest.mark.skip
 - Always ask clarifying questions before planning if requirements are ambiguous
 - Critically evaluate proposals — challenge design decisions when warranted
 
+## CLI output style
+
+- Do not use emojis. For example, use "Done" or "In progress" instead of
+  emojis to show progress.
+- Do not use only color or bolding to differentiate words or show progress.
+  For example, if green denotes completion, also write "Done" next to it;
+  likewise, pair yellow with "In progress" and red with "Blocked".
+- If using color to show important information in a dense line, consider
+  adding a line break for accessibility.
+- Only use all caps for acronyms and where required by official names.
+- Use visual sections to break up information.
+- Use sentence case for titles, such as the device-list and
+  execution-provider-list titles.
+
 ## Git
 
 - Never add `Co-Authored-By` when doing git commit
