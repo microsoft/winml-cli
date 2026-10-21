@@ -108,6 +108,7 @@ These options apply to GGUF models:
 | `--iterations`, `--warmup` | Timed and warmup generations (defaults `10` and `2`). |
 | `--memory/--no-memory` | Process RAM at the load and inference checkpoints. |
 | `--output`, `--overwrite`, `--format json` | Same as for the other runtimes. |
+| `--gguf-prefill-trace` | Fresh JSONL path for an externally instrumented native prefill writer. This option does not add timing support to stock Runtime/Task binaries. See [Native prefill trace](#native-prefill-trace). |
 
 Options that select another benchmark target are rejected: `--ep`, `--ep-options`,
 `--backend`, `--device-luid`, `--input-data`, `--module`, and `--submodel`.
@@ -254,9 +255,10 @@ when the corresponding generation produces no token update.
 Decode throughput and TPOT are `null` when there is no interval after the first
 token. An empty text fragment still represents a token update.
 
-The Task API does not expose separate prefill, model-compute, or detokenization
-timers. The following request fields, and their aggregate counterparts where
-present, are `null` rather than estimated from stream timing:
+The stock Task API does not expose separate prefill, model-compute, or
+detokenization timers. Without an instrumented native writer, the following
+request fields and their aggregate counterparts remain `null`, rather than
+estimated from stream timing:
 
 - `prefill_duration_ms` and `prefill_tokens_per_second`
 - `first_token_duration_ms` and `detokenization_duration_ms`
@@ -264,13 +266,88 @@ present, are `null` rather than estimated from stream timing:
 - `response_eval_duration_ms` and `response_eval_tokens_per_second`
 - `sequence_fetch_duration_ms`
 
+### Native prefill trace
+
+`--gguf-prefill-trace` adds **CLI ingestion and reporting**, not native backend
+instrumentation. The stock Windows ML packages described above do not emit this
+protocol. Enabling the option with those binaries still produces null prefill
+metrics and the reason `native_prefill_event_unavailable`. A Runtime/backend
+change is required to supply the events.
+
+An instrumented writer must measure prompt computation through synchronized
+backend completion **before the first sampling operation**. Tokenization,
+session reset, sampling and Task output delivery are outside that native span.
+Timing `generate_tokens` or the first stream update instead is not prefill.
+Existing llama.cpp `prompt_ms` must not be relabeled when it includes sampling.
+
+With a compatible instrumented build, select a fresh trace path:
+
+```powershell
+winml perf -m models\model.gguf --device gpu --warmup 10 --iterations 25 `
+  --gguf-prefill-trace .\capture\prefill.jsonl --output .\capture\perf.json
+```
+
+The trace and its sibling `prefill.jsonl.context.json` must not already exist;
+`--overwrite` applies to the report and does not authorize reusing trace files.
+The option is available only for GGUF on `winml-runtime`. Model, prompt, report,
+trace and context paths must not overlap.
+
+Before the session is created, the CLI publishes the context path through
+`WINMLCLI_GGUF_PREFILL_CONTEXT`. Before each generation, outside the recorded
+Task timer, the context identifies an active request with a unique run/request
+ID, process ID, entry-point model-file SHA-256, prompt-ID SHA-256, token count, warmup/timed
+kind and index. The native writer snapshots that identity before prompt
+execution and appends one completed JSON object per line to `trace_path`. It
+must finish writing before the corresponding Task request returns.
+
+The writer protocol is `winml-gguf-prefill-event-1`. Each event must copy the
+active context's `run_id`, `pid`, `model_sha256` and request fields
+(`request_id`, `kind`, `index`, `prompt_sha256`, `prompt_tokens`), and supply:
+
+| Field | Required value |
+|---|---|
+| `phase` | `prefill` |
+| `boundary` | `backend_prompt_start_to_synchronized_completion_before_sampling` |
+| `synchronized` / `before_first_sampling` | Both `true`, established by the native implementation |
+| `duration_ns` | Positive integer duration from one native clock domain |
+| `clock_monotonic` | `true`; the measured native duration uses a monotonic clock |
+| `source` / `backend_build` / `clock_domain` | Nonempty native instrumentation, build and clock identifiers; consistent within the run |
+
+These declarations are an interface contract, not proof that a stock backend
+implements that boundary. Native instrumentation must be reviewed and validated
+separately. Host and native timestamps are never subtracted from one another.
+For sharded GGUF, the model hash identifies only the entry-point file; it does
+not establish the other shards' identity. Hashing that file before model load
+can warm the file cache, so trace-enabled load timing is not a cold-cache
+measurement. The metadata records both limitations.
+
+The CLI rejects malformed or duplicate events, identity/count mismatches,
+unqualified boundaries and durations longer than the containing Task generation.
+It preserves the trace bytes and their SHA-256 for inspection.
+
+For valid events, `requests[].prefill_duration_ms` is the native duration, and
+`requests[].prefill_tokens_per_second` is the actual input-token count divided
+by that duration in seconds. `requests[].native_prefill` retains the unrounded
+nanoseconds and timing provenance. Missing events stay null with
+`prefill_missing_reason`; no value is filled from TTFT.
+
+The matching aggregate fields summarize **per-request** values, excluding
+warmups and unavailable observations. Prefill P50/P95 use nearest-rank
+`ceil(percentile * valid_count / 100)`, with explicit
+`prefill_valid_request_count` and `prefill_missing_request_count`. This native
+prefill definition does not change existing Task/GenAI percentile behavior.
+`benchmark_info.prefill_measurement` records the instrumented protocol, boundary,
+run identity, trace/context paths and trace hash. Task timings collected in this
+mode include any native trace-writing overhead and must retain that label.
+
 ## Limitations
 
 - Local `.gguf` files only; Hugging Face Hub references are not resolved.
 - Greedy decoding with batch size 1; Task sampling and speculation options are
   not exposed by this command.
-- Task stream timings include native sampling and detokenization; separate model
-  phase timings are unavailable.
+- Task stream timings include native sampling and detokenization. Native prefill
+  is available only with the opt-in trace and an independently instrumented
+  backend; other model phases remain unavailable.
 - No NPU target, `--monitor`, or operator tracing.
 - Targets the Windows ML 2.7 experimental packages (`2.7.2021a0`). Later previews
   can change the Runtime API.

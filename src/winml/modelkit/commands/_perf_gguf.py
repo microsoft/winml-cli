@@ -23,8 +23,10 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 from collections import Counter
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,6 +36,7 @@ import click
 from rich.markup import escape
 
 from ..session import LlamaSessionError, WinMLLlamaSession, llama_package_versions
+from ._gguf_prefill import NativePrefillObservation, NativePrefillTrace, PrefillTraceError
 from ._perf_genai import (
     _DEFAULT_PROMPT,
     _GenaiMemoryTracker,
@@ -61,8 +64,6 @@ BACKEND_NAME = "llama.cpp"
 MODEL_FORMAT = "gguf"
 GGUF_SUFFIX = ".gguf"
 _UNAVAILABLE_MODEL_METRICS = (
-    "prefill_duration_ms",
-    "prefill_tokens_per_second",
     "first_token_duration_ms",
     "detokenization_duration_ms",
     "model_ttft_duration_ms",
@@ -71,6 +72,8 @@ _UNAVAILABLE_MODEL_METRICS = (
     "response_eval_tokens_per_second",
     "sequence_fetch_duration_ms",
 )
+_NATIVE_PREFILL_METRICS = ("prefill_duration_ms", "prefill_tokens_per_second")
+_PREFILL_UNAVAILABLE = "native_prefill_trace_not_enabled"
 _MEASURED_REQUEST_METRICS = (
     "template_duration_ms",
     "tokenization_duration_ms",
@@ -104,6 +107,15 @@ def gguf_output_path(model_path: str | Path) -> Path:
     return generate_output_path(str(model_path))
 
 
+def _native_prefill_stats(values: list[float]) -> dict[str, float]:
+    """Summarize native request samples with the nearest-rank definition."""
+    result = _stats(values)
+    ordered = sorted(values)
+    for percentile in (50, 90, 95, 99):
+        result[f"p{percentile}"] = ordered[math.ceil(len(ordered) * percentile / 100) - 1]
+    return result
+
+
 # =============================================================================
 # Data classes
 # =============================================================================
@@ -124,6 +136,7 @@ class GGUFPerfConfig:
         warmup: Warmup requests excluded from statistics.
         memory: Record process RAM at the load and inference checkpoints.
         output_path: JSON report path (default: :func:`gguf_output_path`).
+        prefill_trace_path: Fresh JSONL path for an instrumented native prefill writer.
     """
 
     model_path: Path
@@ -136,6 +149,7 @@ class GGUFPerfConfig:
     warmup: int = 2
     memory: bool = False
     output_path: Path | None = None
+    prefill_trace_path: Path | None = None
 
 
 @dataclass
@@ -156,6 +170,20 @@ class _GGUFRequestSample:
     result_fetch_duration_ms: float
     decode_token_durations_ms: list[float]
     response_text: str = ""
+    prefill: NativePrefillObservation | None = None
+    prefill_missing_reason: str | None = _PREFILL_UNAVAILABLE
+
+    @property
+    def prefill_duration_ms(self) -> float | None:
+        """Synchronized backend prefill duration, ending before first sampling."""
+        return self.prefill.duration_ns / 1_000_000 if self.prefill is not None else None
+
+    @property
+    def prefill_tokens_per_second(self) -> float | None:
+        """Actual input IDs divided by this request's native prefill duration."""
+        if self.prefill is None:
+            return None
+        return self.prefill.input_tokens * 1_000_000_000 / self.prefill.duration_ns
 
     @property
     def request_ttft_duration_ms(self) -> float | None:
@@ -203,8 +231,10 @@ class _GGUFRequestSample:
                 round(value, 3) for value in self.decode_token_durations_ms
             ],
             **dict.fromkeys(_UNAVAILABLE_MODEL_METRICS),
+            "native_prefill": self.prefill.to_dict() if self.prefill is not None else None,
+            "prefill_missing_reason": self.prefill_missing_reason,
         }
-        for metric in _MEASURED_REQUEST_METRICS:
+        for metric in (*_MEASURED_REQUEST_METRICS, *_NATIVE_PREFILL_METRICS):
             value = getattr(self, metric)
             precision = 2 if metric == "steady_state_decode_tokens_per_second" else 3
             result[metric] = round(value, precision) if value is not None else None
@@ -230,6 +260,7 @@ class GGUFBenchmarkResult:
     requests: list[_GGUFRequestSample] = field(default_factory=list)
     aggregate: dict[str, Any] = field(default_factory=dict)
     memory_profile: dict[str, float | None] | None = None
+    prefill_measurement: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to a JSON-serializable Task timing report."""
@@ -261,6 +292,7 @@ class GGUFBenchmarkResult:
                 "packages": dict(self.packages),
                 "llama_backends": list(self.llama_backends),
                 "timestamp": self.timestamp,
+                "prefill_measurement": dict(self.prefill_measurement),
             },
             "load": {
                 key: round(value, 3) if isinstance(value, float) else value
@@ -319,19 +351,28 @@ class GGUFPerfBenchmark:
         self._owns_session = session is None
         self._clock = clock
         self._stop_reasons: list[tuple[str, str]] = []
+        self._prefill_trace: NativePrefillTrace | None = None
 
     def run(self) -> GGUFBenchmarkResult:
         """Execute the benchmark and return aggregated metrics."""
-        if self._session is None:
-            self._session = WinMLLlamaSession(
-                self._config.model_path,
-                device=self._config.device,
-            )
-        try:
-            return self._run_benchmark_body(self._session)
-        finally:
-            if self._owns_session:
-                self._session.close()
+        trace_context = (
+            NativePrefillTrace(self._config.prefill_trace_path, self._config.model_path)
+            if self._config.prefill_trace_path is not None
+            else nullcontext()
+        )
+        with trace_context as trace:
+            self._prefill_trace = trace
+            try:
+                if self._session is None:
+                    self._session = WinMLLlamaSession(
+                        self._config.model_path,
+                        device=self._config.device,
+                    )
+                return self._run_benchmark_body(self._session)
+            finally:
+                if self._owns_session and self._session is not None:
+                    self._session.close()
+                self._prefill_trace = None
 
     def _run_benchmark_body(self, session: WinMLLlamaSession) -> GGUFBenchmarkResult:
         config = self._config
@@ -369,6 +410,29 @@ class GGUFPerfBenchmark:
             )
             for index in range(total_runs)
         ]
+        if self._prefill_trace is not None:
+            observations = self._prefill_trace.read_observations()
+            expected = {(sample.kind, sample.index) for sample in samples}
+            if set(observations) - expected:
+                raise PrefillTraceError(
+                    "Native prefill trace contains an unknown benchmark request"
+                )
+            for sample in samples:
+                observation = observations.get((sample.kind, sample.index))
+                if observation is not None and observation.input_tokens != sample.prompt_tokens:
+                    raise PrefillTraceError(
+                        "Native prefill token count differs from the completed Task result"
+                    )
+                if observation is not None and (
+                    observation.duration_ns / 1_000_000 > sample.task_generation_duration_ms + 1e-6
+                ):
+                    raise PrefillTraceError(
+                        "Native prefill duration exceeds its containing Task generation span"
+                    )
+                sample.prefill = observation
+                sample.prefill_missing_reason = (
+                    None if observation is not None else "native_prefill_event_unavailable"
+                )
         result = self._aggregate(samples, session_load_ms=session_load_ms)
 
         if memory_tracker is not None:
@@ -394,11 +458,17 @@ class GGUFPerfBenchmark:
         tokenize_start = self._clock()
         prompt_ids = session.encode_prompt(config.prompt, apply_template=config.apply_template)
         tokenize_end = self._clock()
-        timing = session.generate_timed(
-            prompt_ids,
-            max_new_tokens=config.max_new_tokens,
-            clock=self._clock,
-        )
+        if self._prefill_trace is not None:
+            self._prefill_trace.prepare_request(kind, index, prompt_ids)
+        try:
+            timing = session.generate_timed(
+                prompt_ids,
+                max_new_tokens=config.max_new_tokens,
+                clock=self._clock,
+            )
+        finally:
+            if self._prefill_trace is not None:
+                self._prefill_trace.finish_request()
         self._stop_reasons.append((kind, timing.stop_reason))
         if index == 0:
             logger.info("Model response (iteration 1): %s", timing.response_text)
@@ -445,6 +515,15 @@ class GGUFPerfBenchmark:
         for metric in _MEASURED_REQUEST_METRICS:
             values = [value for sample in timed if (value := getattr(sample, metric)) is not None]
             aggregate[metric] = _stats(values) if values else None
+        for metric in _NATIVE_PREFILL_METRICS:
+            values = [value for sample in timed if (value := getattr(sample, metric)) is not None]
+            aggregate[metric] = _native_prefill_stats(values) if values else None
+        valid_prefill = sum(sample.prefill is not None for sample in timed)
+        aggregate.update(
+            prefill_valid_request_count=valid_prefill,
+            prefill_missing_request_count=len(timed) - valid_prefill,
+            prefill_percentile_method="nearest-rank: ceil(percentile * sample_count / 100)",
+        )
         timed_stops = [reason for kind, reason in self._stop_reasons if kind == "timed"]
         aggregate["stop_reason_counts"] = dict(sorted(Counter(timed_stops).items()))
         first_timed = timed[0] if timed else None
@@ -464,6 +543,15 @@ class GGUFPerfBenchmark:
             load=self._load_metrics(session_load_ms),
             requests=samples,
             aggregate=aggregate,
+            prefill_measurement=(
+                self._prefill_trace.metadata()
+                if self._prefill_trace is not None
+                else {
+                    "enabled": False,
+                    "external_native_writer_required": True,
+                    "missing_reason": _PREFILL_UNAVAILABLE,
+                }
+            ),
         )
 
     def _load_metrics(self, session_load_ms: float) -> dict[str, float | str | None]:
@@ -554,7 +642,24 @@ def display_gguf_report(result: GGUFBenchmarkResult, console: Console) -> None:
     tpot = aggregate.get("steady_state_tpot_ms") or {}
     request_duration = aggregate.get("request_duration_ms") or {}
     console.print()
-    console.print("[bold]Pure prefill:[/bold] unavailable (not exposed by Tasks)")
+    prefill = aggregate.get("prefill_tokens_per_second")
+    if prefill:
+        console.print(
+            "[bold]Native prefill (tokens/sec):[/bold] "
+            f"P50 {format_metric(prefill.get('p50'))}  |  "
+            f"P95 {format_metric(prefill.get('p95'))}  |  "
+            f"{aggregate['prefill_valid_request_count']} valid / "
+            f"{aggregate['prefill_missing_request_count']} missing timed requests"
+        )
+        console.print(
+            "  [dim]Synchronized backend completion before first sampling; "
+            "native tracing enabled.[/dim]"
+        )
+    else:
+        console.print(
+            "[bold]Pure prefill:[/bold] unavailable "
+            "(requires instrumented native prefill events; no TTFT estimate)"
+        )
     console.print(
         "[bold]Decode (Task stream):[/bold] "
         f"{format_metric(decode_tps.get('mean'))} tokens/sec  |  "
@@ -614,7 +719,7 @@ def run_gguf_perf(
     benchmark = GGUFPerfBenchmark(config)
     try:
         result = benchmark.run()
-    except (LlamaSessionError, FileNotFoundError) as exc:  # incl. not-installed and load errors
+    except (LlamaSessionError, FileNotFoundError, PrefillTraceError) as exc:
         raise click.ClickException(str(exc)) from exc
 
     if json_mode:

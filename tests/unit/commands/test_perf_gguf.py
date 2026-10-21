@@ -12,11 +12,13 @@ makes aggregation deterministic without importing Windows ML Tasks. The session 
 from __future__ import annotations
 
 import json
+import os
 from io import StringIO
 from itertools import accumulate, count, pairwise
 from pathlib import Path
 from random import Random
 from statistics import fmean
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -26,6 +28,7 @@ from click.testing import CliRunner
 from rich.console import Console
 
 from winml.modelkit.commands import _perf_gguf as perf_gguf
+from winml.modelkit.commands._gguf_prefill import PrefillTraceError
 from winml.modelkit.commands._perf_gguf import (
     GGUFBenchmarkResult,
     GGUFPerfBenchmark,
@@ -278,6 +281,11 @@ class TestBenchmark:
 
         assert report["aggregate"][metric] is None
         assert all(sample[metric] is None for sample in report["requests"])
+        assert report["aggregate"]["prefill_valid_request_count"] == 0
+        assert report["aggregate"]["prefill_missing_request_count"] == 2
+        assert report["requests"][0]["prefill_missing_reason"] == (
+            "native_prefill_trace_not_enabled"
+        )
 
     @pytest.mark.parametrize("generated_tokens", range(2))
     def test_no_decode_intervals_leave_decode_metrics_null(
@@ -342,6 +350,278 @@ class TestBenchmark:
         assert result.memory_profile is not None
         assert result.memory_profile["rss_model_load_delta_mb"] == 300.0
         assert not any(key.startswith("vram") for key in result.memory_profile)
+
+
+class TestNativePrefill:
+    def test_correlated_native_writer_events_reach_the_json_report(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        model = _gguf(tmp_path, "tiny.gguf")
+        trace_path = tmp_path / "native.jsonl"
+        generated_durations: list[int] = []
+        random = Random(3)
+
+        class NativeWriterSession(_FakeLlamaSession):
+            def generate_timed(self, prompt_token_ids: list[int], **kwargs: Any) -> Any:
+                context_path = Path(os.environ["WINMLCLI_GGUF_PREFILL_CONTEXT"])
+                context = json.loads(context_path.read_text(encoding="utf-8"))
+                assert context["active"] is True
+                assert context["request"]["prompt_tokens"] == len(prompt_token_ids)
+                native_start = random.randrange(1, 10_000_000)
+                native_end = native_start + random.randrange(1_000_000, 100_000_000)
+                duration = native_end - native_start
+                generated_durations.append(duration)
+                event = {
+                    **{key: context[key] for key in ("run_id", "pid", "model_sha256")},
+                    **context["request"],
+                    "schema_version": "winml-gguf-prefill-event-1",
+                    "phase": "prefill",
+                    "boundary": "backend_prompt_start_to_synchronized_completion_before_sampling",
+                    "synchronized": True,
+                    "before_first_sampling": True,
+                    "duration_ns": duration,
+                    "source": "generated_native_events",
+                    "backend_build": "generated-test-build",
+                    "clock_domain": "backend-only-clock",
+                    "clock_monotonic": True,
+                }
+                with Path(context["trace_path"]).open("a", encoding="utf-8") as stream:
+                    stream.write(json.dumps(event) + "\n")
+                return super().generate_timed(prompt_token_ids, **kwargs)
+
+        previous = os.environ.get("WINMLCLI_GGUF_PREFILL_CONTEXT")
+        session = NativeWriterSession([_timing(scale=100.0)] * 3)
+        config = _config(tmp_path, model_path=model, prefill_trace_path=trace_path)
+        result = GGUFPerfBenchmark(config, session=session).run()
+        assert os.environ.get("WINMLCLI_GGUF_PREFILL_CONTEXT") == previous
+        assert (
+            json.loads(trace_path.with_name(trace_path.name + ".context.json").read_text())[
+                "active"
+            ]
+            is False
+        )
+        report = result.to_dict()
+        assert report["requests"][0]["kind"] == "warmup"
+        assert [sample["native_prefill"]["duration_ns"] for sample in report["requests"]] == (
+            generated_durations
+        )
+        measured_tps = sorted(4e9 / duration for duration in generated_durations[1:])
+        assert result.aggregate["prefill_tokens_per_second"]["p50"] == measured_tps[0]
+        assert result.aggregate["prefill_tokens_per_second"]["p95"] == measured_tps[-1]
+        assert report["benchmark_info"]["prefill_measurement"]["trace_sha256"]
+        assert report["benchmark_info"]["prefill_measurement"]["instrumented"] is True
+
+    def test_opt_in_without_a_native_writer_keeps_prefill_null(self, tmp_path: Path) -> None:
+        model = _gguf(tmp_path, "tiny.gguf")
+        result, _session = _run_fake(
+            tmp_path,
+            [_timing()] * 3,
+            model_path=model,
+            prefill_trace_path=tmp_path / "empty-native.jsonl",
+        )
+        assert result.aggregate["prefill_tokens_per_second"] is None
+        assert result.aggregate["prefill_valid_request_count"] == 0
+        assert result.aggregate["prefill_missing_request_count"] == 2
+        assert all(
+            sample.prefill_missing_reason == "native_prefill_event_unavailable"
+            for sample in result.requests
+        )
+
+    @staticmethod
+    def _observation(duration_ns: int, input_tokens: int) -> Any:
+        values = {
+            "duration_ns": duration_ns,
+            "input_tokens": input_tokens,
+            "source": "generated_backend_events",
+            "backend_build": "generated-test-build",
+            "clock_domain": "generated_native_clock",
+        }
+        return SimpleNamespace(**values, to_dict=lambda: dict(values))
+
+    def _trace(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        timings: list[LlamaGenerationTiming],
+        *,
+        missing: set[int] | None = None,
+        mismatch_count: bool = False,
+        oversized_duration: bool = False,
+    ) -> Any:
+        """Generate observations while asserting the writer's request context."""
+        owner = self
+        omitted = missing or set()
+        random = Random(len(timings))
+        durations = [
+            int(timing.generation_s * random.uniform(0.01, 0.8) * 1e9) for timing in timings
+        ]
+
+        class Trace:
+            def __init__(self, path: Path, model_path: Path) -> None:
+                self.path, self.model_path = path, model_path
+                self.active: tuple[str, int] | None = None
+                self.closed = False
+                self.observations: dict[tuple[str, int], Any] = {}
+
+            def __enter__(self) -> Any:
+                return self
+
+            def __exit__(self, *_args: Any) -> None:
+                self.closed = True
+                assert self.active is None
+
+            def prepare_request(self, kind: str, index: int, prompt_ids: list[int]) -> None:
+                assert self.active is None
+                assert len(prompt_ids) == timings[index].input_tokens
+                self.active = kind, index
+
+            def finish_request(self) -> None:
+                assert self.active is not None
+                kind, index = self.active
+                if index not in omitted:
+                    self.observations[kind, index] = owner._observation(
+                        int(timings[index].generation_s * 2e9)
+                        if oversized_duration
+                        else durations[index],
+                        timings[index].input_tokens + int(mismatch_count),
+                    )
+                self.active = None
+
+            def read_observations(self) -> dict[tuple[str, int], Any]:
+                assert self.active is None
+                return self.observations
+
+            def metadata(self) -> dict[str, Any]:
+                return {"enabled": True, "boundary": "synchronized_before_sampling"}
+
+        trace = Trace(Path("generated.jsonl"), Path("generated.gguf"))
+        monkeypatch.setattr(perf_gguf, "NativePrefillTrace", lambda *_args: trace)
+        return trace
+
+    @pytest.mark.parametrize("iterations", [2, 20, 25])
+    def test_native_rates_use_per_request_values_and_nearest_rank(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        iterations: int,
+    ) -> None:
+        timings = [_timing(scale=1000.0)] + [
+            _timing(scale=float(index + 1)) for index in range(iterations)
+        ]
+        trace = self._trace(monkeypatch, timings)
+        result, _session = _run_fake(
+            tmp_path,
+            timings,
+            warmup=1,
+            iterations=iterations,
+            prefill_trace_path=tmp_path / "native.jsonl",
+        )
+        measured = [row for (kind, _), row in trace.observations.items() if kind == "timed"]
+        expected = sorted(row.input_tokens * 1e9 / row.duration_ns for row in measured)
+        aggregate = result.aggregate["prefill_tokens_per_second"]
+        for percentile in (50, 95):
+            rank = (iterations * percentile + 99) // 100
+            assert aggregate[f"p{percentile}"] == expected[rank - 1]
+        assert aggregate["mean"] == pytest.approx(fmean(expected))
+        assert result.aggregate["prefill_valid_request_count"] == iterations
+        assert result.aggregate["prefill_missing_request_count"] == 0
+        report = result.to_dict()
+        assert report["benchmark_info"]["prefill_measurement"]["enabled"]
+        sample = report["requests"][-1]
+        assert sample["prefill_duration_ms"] == pytest.approx(
+            round(measured[-1].duration_ns / 1e6, 3)
+        )
+        assert sample["native_prefill"]["duration_ns"] == measured[-1].duration_ns
+        assert sample["prefill_missing_reason"] is None
+        assert trace.closed
+
+    def test_missing_native_events_stay_null_without_using_task_ttft(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        timings = [_timing(scale=float(index + 1)) for index in range(3)]
+        trace = self._trace(monkeypatch, timings, missing={1})
+        result, _session = _run_fake(
+            tmp_path,
+            timings,
+            prefill_trace_path=tmp_path / "native.jsonl",
+        )
+        sample = result.requests[1]
+        assert sample.task_ttft_duration_ms is not None
+        assert sample.prefill_tokens_per_second is None
+        assert sample.prefill_missing_reason == "native_prefill_event_unavailable"
+        observation = trace.observations["timed", 2]
+        assert result.aggregate["prefill_tokens_per_second"]["mean"] == (
+            observation.input_tokens * 1e9 / observation.duration_ns
+        )
+        assert result.aggregate["prefill_valid_request_count"] == 1
+        assert result.aggregate["prefill_missing_request_count"] == 1
+
+    def test_trace_input_count_must_match_task_result(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        timings = [_timing() for _ in range(3)]
+        trace = self._trace(monkeypatch, timings, mismatch_count=True)
+        with pytest.raises(PrefillTraceError, match="token count"):
+            _run_fake(tmp_path, timings, prefill_trace_path=tmp_path / "native.jsonl")
+        assert trace.closed
+
+    def test_generation_failure_deactivates_request_context(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        timings = [_timing()]
+        trace = self._trace(monkeypatch, timings)
+
+        def fail(_self: Any, *_args: Any, **_kwargs: Any) -> Any:
+            assert trace.active == ("warmup", 0)
+            raise LlamaSessionError("generation failed")
+
+        monkeypatch.setattr(_FakeLlamaSession, "generate_timed", fail)
+        with pytest.raises(LlamaSessionError, match="generation failed"):
+            _run_fake(
+                tmp_path,
+                timings,
+                warmup=1,
+                iterations=0,
+                prefill_trace_path=tmp_path / "native.jsonl",
+            )
+        assert trace.active is None
+        assert trace.closed
+
+    def test_native_duration_cannot_exceed_containing_task_generation(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        timings = [_timing() for _ in range(3)]
+        self._trace(monkeypatch, timings, oversized_duration=True)
+        with pytest.raises(PrefillTraceError, match="containing Task generation"):
+            _run_fake(tmp_path, timings, prefill_trace_path=tmp_path / "native.jsonl")
+
+    def test_console_reports_native_prefill_percentiles(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        timings = [_timing() for _ in range(3)]
+        self._trace(monkeypatch, timings)
+        result, _session = _run_fake(
+            tmp_path,
+            timings,
+            prefill_trace_path=tmp_path / "native.jsonl",
+        )
+        buffer = StringIO()
+        display_gguf_report(result, Console(file=buffer, width=200, color_system=None))
+        output = buffer.getvalue()
+        assert "Native prefill (tokens/sec):" in output
+        assert "P50" in output and "P95" in output
+        assert "2 valid / 0 missing timed requests" in output
+        assert "Pure prefill: unavailable" not in output
 
 
 class TestResultToDict:
@@ -436,7 +716,13 @@ class TestReporting:
 class TestRunGGUFPerf:
     @pytest.mark.parametrize(
         "error",
-        (LlamaNotInstalledError, LlamaLoadError, LlamaSessionError, FileNotFoundError),
+        (
+            LlamaNotInstalledError,
+            LlamaLoadError,
+            LlamaSessionError,
+            FileNotFoundError,
+            PrefillTraceError,
+        ),
     )
     def test_session_failures_become_click_errors(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: type[Exception]
@@ -543,6 +829,18 @@ class TestCliDispatch:
         assert config.memory is False
         assert config.output_path == output
         assert capture_run["json_mode"] is True
+
+    def test_native_prefill_trace_option_is_forwarded(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        capture_run: dict,
+    ) -> None:
+        model = _gguf(tmp_path)
+        trace = tmp_path / "native.jsonl"
+        result = runner.invoke(perf, ["-m", str(model), "--gguf-prefill-trace", str(trace)])
+        assert result.exit_code == 0, result.output
+        assert capture_run["config"].prefill_trace_path == trace
 
     @pytest.mark.parametrize("runtime", ["winml-ort", "ort-genai"])
     def test_rejects_non_runtime_api_runtimes(
