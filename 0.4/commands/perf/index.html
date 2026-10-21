@@ -1,0 +1,3575 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A CLI toolkit to build portable, performant, and high-quality models for Windows ML.">
+      
+      
+      
+        <link rel="canonical" href="https://microsoft.github.io/winml-cli/0.4/commands/perf/">
+      
+      
+        <link rel="prev" href="../build/">
+      
+      
+        <link rel="next" href="../eval/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>perf - Windows ML CLI</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#winml-perf" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Windows ML CLI" class="md-header__button md-logo" aria-label="Windows ML CLI" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Windows ML CLI
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              perf
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/microsoft/winml-cli" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    microsoft/winml-cli
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/installation/" class="md-tabs__link">
+          
+  
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../concepts/how-it-works/" class="md-tabs__link">
+          
+  
+  
+  Concepts
+
+        </a>
+      </li>
+    
+  
+
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../overview/" class="md-tabs__link">
+          
+  
+  
+  Commands
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../samples/bert-config-build/" class="md-tabs__link">
+          
+  
+  
+  Samples
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../tutorials/" class="md-tabs__link">
+          
+  
+  
+  Tutorials
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../troubleshooting/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Troubleshooting
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../contributing/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Contributing
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../Privacy/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Privacy
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Windows ML CLI" class="md-nav__button md-logo" aria-label="Windows ML CLI" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Windows ML CLI
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/microsoft/winml-cli" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    microsoft/winml-cli
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/ui-quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    UI Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_2_4" id="__nav_2_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Use with AI Agent
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Use with AI Agent
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/agent-skill/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/agent-skill/use-winml-cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Use WinML CLI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/agent-skill/adding-model-support/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Add model support
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/agent-skill/auto-optimize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Auto Optimize
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_1" id="__nav_3_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Fundamentals
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Fundamentals
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/how-it-works/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How winml-cli works
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/graphs-and-ir/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Graph and IR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/weight-and-activation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Weight and Activation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/quantization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datatype and Quantization
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/eps-and-devices/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    EP and Device
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_2" id="__nav_3_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    WinML CLI
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    WinML CLI
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/load-and-export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Load and export
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/primitives-and-pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Primitives and pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/analyze-and-optimize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Analyze and optimize
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/compile-and-epcontext/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Compile and EPContext
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/perf-and-monitoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Perf and monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/eval-and-datasets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Eval and datasets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/config-and-build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config and build
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Commands
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Commands
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../overview/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discover
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Discover
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sys/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sys
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../inspect/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    inspect
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../catalog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    catalog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configure
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configure
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_4" id="__nav_4_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Build
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Build
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    export
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../analyze/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    analyze
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../optimize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    optimize
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quantize/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    quantize
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../compile/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    compile
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    build
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4_5" id="__nav_4_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Measure
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Measure
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    perf
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    perf
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#when-to-use-this" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When to use this
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#synopsis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Synopsis
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flags
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How it works
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How it works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#classic-memory-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Classic memory lifecycle
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Classic memory lifecycle">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#model-loading-from-a-users-perspective" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model loading from a user's perspective
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#genai-metric-definitions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GenAI metric definitions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#memory-measurement-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory measurement contract
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tensorrt-rtx-operator-tracing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TensorRT RTX operator tracing
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-pitfalls" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Common pitfalls
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See also
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../eval/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    eval
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Samples
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Samples
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../samples/bert-config-build/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    BERT — Config + Build + Perf
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../samples/clip-composite/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLIP — Composite Models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../samples/qwen3-genai-bundle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Qwen3 — Genai Bundle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tutorials
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tutorials
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/npu-convnext/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hugging Face Model to NPU
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../tutorials/build-from-onnx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bring Your Own ONNX Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Config Schema
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/output-layout/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Output Layout
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/supported-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Supported Models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../Privacy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#when-to-use-this" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When to use this
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#synopsis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Synopsis
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flags
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How it works
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How it works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#classic-memory-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Classic memory lifecycle
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Classic memory lifecycle">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#model-loading-from-a-users-perspective" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model loading from a user's perspective
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#genai-metric-definitions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GenAI metric definitions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#memory-measurement-contract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory measurement contract
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tensorrt-rtx-operator-tracing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TensorRT RTX operator tracing
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-pitfalls" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Common pitfalls
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See also
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/microsoft/winml-cli/edit/main/docs/commands/perf.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="winml-perf">winml perf<a class="headerlink" href="#winml-perf" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>Benchmark a model's latency and throughput on a target device.</p>
+</blockquote>
+<h2 id="when-to-use-this">When to use this<a class="headerlink" href="#when-to-use-this" title="Permanent link">&para;</a></h2>
+<p>Use <code>winml perf</code> when you want a quantitative latency and throughput baseline for a model on a specific device, or when you need to compare the performance impact of different precision settings, execution providers, or batch sizes.</p>
+<h2 id="synopsis">Synopsis<a class="headerlink" href="#synopsis" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span><span class="o">[</span>options<span class="o">]</span>
+</span></code></pre></div>
+<h2 id="flags">Flags<a class="headerlink" href="#flags" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Short</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--model</code></td>
+<td><code>-m</code></td>
+<td><code>TEXT</code></td>
+<td>—</td>
+<td>HuggingFace model ID or path to a local <code>.onnx</code> file. Required. With <code>--runtime ort-genai</code>, also accepts a prebuilt genai <strong>bundle directory</strong>, or a HuggingFace model ID that is auto-built into a bundle on demand.</td>
+</tr>
+<tr>
+<td><code>--runtime</code></td>
+<td></td>
+<td><code>auto\|winml-ort\|ort-genai</code></td>
+<td><code>auto</code></td>
+<td>Inference runtime. <code>auto</code> selects <code>ort-genai</code> for local folders containing <code>genai_config.json</code>, otherwise <code>winml-ort</code>; <code>winml-ort</code> benchmarks single-shot ONNX inference; <code>ort-genai</code> benchmarks an onnxruntime-genai bundle (LLM generation: time-to-first-token + decode tokens/sec). With <code>ort-genai</code>, a model ID that is not a bundle directory is auto-built into one before benchmarking. An explicit <code>--ep</code> or <code>--device</code> selects both the transformer build and runtime target; without an override, the auto-build defaults to QNN/NPU. Bundles are cached under <code>~/.cache/winml/</code>, separately for each explicit EP/device target. GenAI cache controls are tracked in issue #1275.</td>
+</tr>
+<tr>
+<td><code>--task</code></td>
+<td></td>
+<td><code>TEXT</code></td>
+<td>auto-detected</td>
+<td>Explicit task override (e.g., <code>image-classification</code>). Inferred from the model if omitted.</td>
+</tr>
+<tr>
+<td><code>--iterations</code></td>
+<td></td>
+<td><code>INTEGER</code></td>
+<td><code>100</code> (<code>10</code> with <code>--op-tracing</code>)</td>
+<td>Number of timed inference iterations used to compute statistics. Explicit values override the op-tracing default.</td>
+</tr>
+<tr>
+<td><code>--warmup</code></td>
+<td></td>
+<td><code>INTEGER</code></td>
+<td><code>10</code></td>
+<td>Number of warm-up iterations run before timing begins; excluded from statistics.</td>
+</tr>
+<tr>
+<td><code>--device</code></td>
+<td><code>-d</code></td>
+<td><code>auto\|cpu\|gpu\|npu</code></td>
+<td><code>auto</code></td>
+<td>Device to run the benchmark on. <code>auto</code> selects the highest-priority available device.</td>
+</tr>
+<tr>
+<td><code>--device-luid</code></td>
+<td></td>
+<td><code>TEXT</code></td>
+<td>—</td>
+<td>Pin a physical adapter within the resolved EP/device pair using its LUID from <code>winml sys</code> (<code>0xHHHHHHHH_0xLLLLLLLL</code>, case-insensitive). Requires the EP to expose that adapter's LUID. Not supported with <code>--runtime ort-genai</code>.</td>
+</tr>
+<tr>
+<td><code>--precision</code></td>
+<td></td>
+<td><code>TEXT</code></td>
+<td><code>auto</code></td>
+<td>Precision mode applied during model build: <code>auto</code>, <code>fp32</code>, <code>fp16</code>, <code>int8</code>, <code>int16</code>, or compound forms such as <code>w8a16</code>.</td>
+</tr>
+<tr>
+<td><code>--ep</code></td>
+<td></td>
+<td><code>TEXT</code></td>
+<td>—</td>
+<td>Force a specific execution provider (e.g., <code>qnn</code>, <code>dml</code>, <code>vitisai</code>, <code>openvino</code>, <code>cpu</code>). Overrides the device-to-provider mapping.</td>
+</tr>
+<tr>
+<td><code>--ep-options</code></td>
+<td></td>
+<td><code>KEY=VALUE</code> (multiple)</td>
+<td>—</td>
+<td>Runtime EP provider option forwarded to the inference session (e.g., <code>--ep-options htp_performance_mode=burst</code>). Repeatable. Applies to both HuggingFace model IDs and ONNX file inputs. When detail op-tracing automatically compiles a raw ONNX model, these options are also applied to that compilation.</td>
+</tr>
+<tr>
+<td><code>--output</code></td>
+<td><code>-o</code></td>
+<td><code>PATH</code></td>
+<td><code>~/.cache/winml/perf/&lt;slug&gt;/&lt;timestamp&gt;.json</code></td>
+<td>Output JSON file path for the benchmark report.</td>
+</tr>
+<tr>
+<td><code>--batch-size</code></td>
+<td></td>
+<td><code>INTEGER</code></td>
+<td><code>1</code></td>
+<td>Batch size used when generating synthetic input tensors. Ignored when <code>--input-data</code> is set.</td>
+</tr>
+<tr>
+<td><code>--input-data</code></td>
+<td></td>
+<td><code>PATH</code></td>
+<td>—</td>
+<td>Path to a <code>.npz</code> file of real input tensors to benchmark with instead of randomly generated inputs. The archive's keys must match the model's inputs exactly; dtypes are cast to the model's expected dtype (with a warning) to mirror normal inference. Not supported with <code>--module</code>, <code>--runtime ort-genai</code>, or composite (dual-encoder) models.</td>
+</tr>
+<tr>
+<td><code>--shape-config</code></td>
+<td></td>
+<td><code>PATH</code></td>
+<td>—</td>
+<td>Path to a JSON file containing shape overrides (e.g., <code>{"height": 480, "width": 480}</code>). Used for Hugging Face export and random input generation; ignored in <code>--module</code> mode and when <code>--input-data</code> is set.</td>
+</tr>
+<tr>
+<td><code>--input-specs</code></td>
+<td></td>
+<td><code>PATH</code></td>
+<td>—</td>
+<td>JSON input tensor specs to merge into the Hugging Face export config before benchmarking. Symbolic string dimensions infer dynamic axes. Ignored for pre-exported ONNX files and in <code>--module</code> mode.</td>
+</tr>
+<tr>
+<td><code>--export-config</code></td>
+<td></td>
+<td><code>PATH</code></td>
+<td>—</td>
+<td>JSON ONNX export config overrides to apply when <code>perf</code> builds a Hugging Face model before benchmarking. Ignored for pre-exported ONNX files and in <code>--module</code> mode.</td>
+</tr>
+<tr>
+<td><code>--dynamic-axes</code></td>
+<td></td>
+<td><code>PATH</code></td>
+<td>—</td>
+<td>JSON dynamic axes mapping for Hugging Face ONNX export, for example <code>{"input_ids": {"0": "batch", "1": "sequence"}}</code>. Ignored for pre-exported ONNX files and in <code>--module</code> mode.</td>
+</tr>
+<tr>
+<td><code>--quantize/--no-quantize</code></td>
+<td></td>
+<td>flag</td>
+<td><code>true</code></td>
+<td>Run quantization during model build (use <code>--no-quantize</code> to skip it). Useful for measuring the fp32 baseline.</td>
+</tr>
+<tr>
+<td><code>--use-cache/--no-use-cache</code></td>
+<td></td>
+<td>flag</td>
+<td><code>true</code></td>
+<td>Reuse persistent model build artifacts. <code>--no-use-cache</code> performs a fresh build in a temporary folder and discards it after benchmarking.</td>
+</tr>
+<tr>
+<td><code>--rebuild/--no-rebuild</code></td>
+<td></td>
+<td>flag</td>
+<td><code>false</code></td>
+<td>Force model rebuild even if a cached artifact already exists.</td>
+</tr>
+<tr>
+<td><code>--module</code></td>
+<td></td>
+<td><code>TEXT</code></td>
+<td>—</td>
+<td>PyTorch module class name for per-module benchmarking (e.g., <code>BertAttention</code>). Builds and times each matching instance separately. See <a href="../../concepts/load-and-export/">Load and export</a>.</td>
+</tr>
+<tr>
+<td><code>--monitor/--no-monitor</code></td>
+<td></td>
+<td>flag</td>
+<td><code>false</code></td>
+<td>Show a live NPU/CPU utilization chart while the benchmark runs and include hardware metrics in the JSON report. With <code>--runtime ort-genai</code>, the monitor wraps the genai load + generation benchmark.</td>
+</tr>
+<tr>
+<td><code>--op-tracing</code></td>
+<td></td>
+<td><code>basic\|detail</code></td>
+<td>—</td>
+<td>Enable operator-level profiling. QNN detail tracing requires an EPContext model; a raw ONNX input is detected and compiled automatically with the required profiling options.</td>
+</tr>
+<tr>
+<td><code>--compile</code> / <code>--no-compile</code></td>
+<td></td>
+<td>flag</td>
+<td><code>false</code></td>
+<td>Compile the model to EPContext binaries during build. QNN detail op-tracing enables this automatically for a raw ONNX input unless <code>--no-compile</code> or <code>--skip-build</code> was explicitly specified. For <code>--runtime ort-genai</code> on the NPU, <code>--compile</code> pre-compiles each QNN stage (in an isolated subprocess) before generation.</td>
+</tr>
+<tr>
+<td><code>--compile-timeout</code></td>
+<td></td>
+<td><code>INTEGER</code></td>
+<td><code>300</code></td>
+<td><em>(ort-genai)</em> Max seconds to compile each EPContext stage before falling back to the original ONNX. Requires <code>--compile</code>.</td>
+</tr>
+<tr>
+<td><code>--prompt</code></td>
+<td></td>
+<td><code>TEXT</code></td>
+<td><code>Explain the theory of relativity in simple terms.</code></td>
+<td><em>(ort-genai)</em> Prompt text to generate from. Wrapped in the bundle's chat template unless <code>--no-apply-template</code>.</td>
+</tr>
+<tr>
+<td><code>--apply-template/--no-apply-template</code></td>
+<td></td>
+<td>flag</td>
+<td><code>true</code></td>
+<td><em>(ort-genai)</em> Wrap <code>--prompt</code> in the bundle's chat template before timing.</td>
+</tr>
+<tr>
+<td><code>--max-new-tokens</code></td>
+<td></td>
+<td><code>INTEGER</code></td>
+<td><code>128</code></td>
+<td><em>(ort-genai)</em> Number of new tokens to generate per iteration.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
+<p><code>winml perf</code> loads the model through <code>WinMLAutoModel</code> — accepting both HuggingFace IDs and local ONNX files — then generates random input tensors from the model's I/O configuration. It runs the specified number of warm-up iterations (excluded from statistics) followed by the timed iterations, collecting per-sample latency. The final report includes mean, min, max, P50, P90, P95, P99, standard deviation, and throughput in samples per second. When <code>--monitor</code> is active, a hardware polling loop runs in parallel and records NPU / GPU utilization, CPU usage, and device memory alongside the timing data.</p>
+<p>Both runtime reports include <code>schema_version: 2</code> and a <code>benchmark_info.runtime</code> discriminator (<code>winml-ort</code> or <code>ort-genai</code>). Shared metadata such as <code>model_id</code>, <code>running_model_path</code>, <code>device</code>, <code>ep</code>, <code>iterations</code>, <code>warmup</code>, and <code>timestamp</code> uses the same field names where the concepts overlap; GenAI also keeps <code>bundle_dir</code> because the runnable artifact is a bundle directory.</p>
+<p>When <code>--memory</code> is enabled, both <code>winml-ort</code> and <code>ort-genai</code> reports use the same <code>memory</code> field names for shared concepts: RSS baseline, after-compile/load, after-inference, peak, model-load delta, inference/generation delta, and total delta; VRAM local/shared baseline, after-compile/load, after-inference, peak, model-load delta, inference/generation delta, and total delta.</p>
+<h3 id="classic-memory-lifecycle">Classic memory lifecycle<a class="headerlink" href="#classic-memory-lifecycle" title="Permanent link">&para;</a></h3>
+<h4 id="model-loading-from-a-users-perspective">Model loading from a user's perspective<a class="headerlink" href="#model-loading-from-a-users-perspective" title="Permanent link">&para;</a></h4>
+<p><code>load_memory</code> is the load-only view (block <code>version: 1</code>). It answers how much
+additional memory was observed while this artifact became ready in this
+runtime, and how much remained at readiness. Runtime/EP setup precedes its
+baseline; its endpoint is after session compilation but before allocating
+benchmark inputs, warmup or inference. If the selected path requires online
+compilation, that temporary cost is included because the user must get through
+it to load the model. A precompiled artifact is a different configuration.</p>
+<p>Each RSS/local/shared block records baseline, absolute peak, absolute ready
+value, <code>peak_extra_mb</code> and <code>ready_extra_mb</code>, plus the peak method and availability.
+RSS uses the Windows high-water when a <strong>new</strong> process high-water occurs inside
+the load window; otherwise only observed load samples/endpoints can be used.
+GPU peaks are sampled. No inference peak or larger pre-existing process peak
+is substituted into this view. Unknown baselines produce null increments.</p>
+<p>This is an <strong>observed load footprint</strong>, not a certified minimum device-memory
+capacity: RSS is resident memory, allocator caches can remain, sampling may
+miss short GPU allocations, and unified RAM/GPU counters may overlap. Report
+the load peak and ready increment separately; do not reduce this to parameter
+file size or sum local/shared GPU counters. Already-loaded composite children
+cannot provide this window and return an explicit unavailable status.</p>
+<p>The enclosing perf document still uses schema version 2; the optional
+<code>load_memory</code> block is explicitly versioned. Consumers must support nullable
+memory values and use the recorded scope rather than comparing older deltas
+as if they covered the same interval.</p>
+<p>For <code>winml-ort</code>, RSS baseline is captured <strong>before model
+loading</strong>, including eager session construction.
+GPU baseline is captured after resolving the bound EP/adapter but before
+constructing the model. Adapter discovery must not read lazy model properties.
+The added <code>*_after_load_mb</code> checkpoint separates loading from the explicit
+compile step. Input generation follows compilation/readiness. <code>*_after_compile_mb</code> and <code>*_after_inference_mb</code>
+retain their existing names.</p>
+<p><code>memory_measurement</code> records PID, adapter LUID, lifecycle scope, units and
+per-checkpoint missing reasons. Fields with the legacy <code>_mb</code> suffix use MiB
+(bytes / 1,048,576). Deltas are signed process changes, not model-only allocation;
+negative values can reflect released buffers or working-set changes. Library
+imports, build caches and input preparation can contribute to the measured span.</p>
+<p><code>process_memory</code> separately records sampled RSS/local/shared peaks, actual
+sample counts, interval and duration over loading, compilation and inference.
+These are sampled peaks, not an exact continuous maximum. The configured
+polling delay is not a sampling frequency: <code>configured_poll_delay_sec</code> records
+the wait after each observation. <code>observed_mean_interval_sec</code> and
+<code>observed_max_interval_sec</code> record elapsed time between completed observations
+(null with fewer than two observations). GPU discovery/retries also delay RSS
+sampling; these intervals include that overhead and scheduling delays. The legacy
+<code>*_checkpoint_peak_mb</code> remains the maximum of the three original checkpoints,
+and is <code>null</code> if any required checkpoint is unavailable.</p>
+<p>On Windows, <code>process_memory.os_rss_peak_before_mb</code> and
+<code>os_rss_peak_after_mb</code> also record the OS working-set high-water marks. These
+catch short allocations missed by polling, including native code holding the
+Python GIL. They cover the <strong>process lifetime</strong>, cannot be reset at baseline,
+and do not replace the benchmark-scoped sampled peak. On unsupported systems
+they are <code>null</code> with an explicit reason.</p>
+<p>Missing GPU counters produce <code>null</code>, not zero; deltas with missing endpoints
+also remain <code>null</code>. A GPU process-memory instance may not exist before model
+allocation, so valid later absolute readings do not establish a zero baseline.
+Local/shared counters can overlap on unified-memory devices and must not be
+summed. GenAI's shared GPU-memory consumer also preserves unavailable values.</p>
+<p>Composite components are already loaded when measured. Their explicit scope
+is <code>already_loaded_component_through_inference</code>; their values include the
+shared process and do not claim an independent component-load footprint.
+<code>--no-memory</code> disables this collector. Background sampling adds overhead and
+is separate from the native inference timer.</p>
+<p>With <code>--runtime ort-genai</code>, <code>winml perf</code> benchmarks the onnxruntime-genai decoder pipeline rather than a single <code>session.run()</code>. The JSON report uses a phase-based schema: <code>load</code> contains startup spans, <code>requests</code> contains one warmup or timed generation sample per request, <code>aggregate</code> summarizes timed requests only, <code>memory</code> contains optional RAM/VRAM deltas, and <code>hw_monitor</code> contains optional monitor output. The optional <code>memory</code> and <code>hw_monitor</code> top-level names match the classic <code>winml-ort</code> perf report; GenAI keeps <code>load</code>/<code>requests</code>/<code>aggregate</code> instead of classic <code>latency_ms</code>/<code>throughput</code> because generation has distinct prompt, first-token, and decode phases.</p>
+<p>For model-ID auto-builds, the selected EP/device must be supported by the model's
+bundle recipe; unsupported targets fail before export. <code>--device auto</code> retains
+the concrete device selected by hardware detection. Prebuilt bundle directories
+keep their existing runtime-override behavior and do not pass through this build
+target validation.</p>
+<h3 id="genai-metric-definitions">GenAI metric definitions<a class="headerlink" href="#genai-metric-definitions" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Core metric</th>
+<th>JSON field(s)</th>
+<th>Definition</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Model Load Time</td>
+<td><code>load.session_load_duration_ms</code>, <code>load.native_load_duration_ms</code></td>
+<td><code>session_load_duration_ms</code> is the outer <code>GenaiSession.load()</code> wall-clock span. <code>native_load_duration_ms</code> is the onnxruntime-genai <code>og.Config</code> + <code>og.Model</code> + <code>og.Tokenizer</code> span.</td>
+</tr>
+<tr>
+<td>Weight Upload Time</td>
+<td><code>load.weight_upload_duration_ms</code>, <code>load.weight_upload_estimate_duration_ms</code></td>
+<td>Exact upload telemetry is <code>null</code> today because onnxruntime-genai does not expose it. The estimate is <code>model_create_duration_ms</code> and is labeled by <code>weight_upload_estimate_source</code>.</td>
+</tr>
+<tr>
+<td>Cold Start Time</td>
+<td><code>aggregate.cold_start_ttft_duration_ms</code>, <code>aggregate.cold_start_total_duration_ms</code></td>
+<td>Load plus the first request's TTFT, or load plus the first request's total request duration.</td>
+</tr>
+<tr>
+<td>Warm Start Time / Latency</td>
+<td><code>aggregate.request_duration_ms</code></td>
+<td>Timed-request full duration after warmups: template + tokenization + generator creation + model compute + sequence fetch + detokenization.</td>
+</tr>
+<tr>
+<td>TTFT</td>
+<td><code>requests[].model_ttft_duration_ms</code>, <code>requests[].request_ttft_duration_ms</code>, <code>aggregate.*ttft*</code></td>
+<td>Model TTFT is prefill + first-token compute. Request TTFT also includes template, tokenization, and generator creation.</td>
+</tr>
+<tr>
+<td>Prefill TPS</td>
+<td><code>requests[].prefill_tokens_per_second</code>, <code>aggregate.prefill_tokens_per_second</code></td>
+<td>Prompt tokens divided by <code>prefill_duration_ms</code>.</td>
+</tr>
+<tr>
+<td>Decode TPS</td>
+<td><code>requests[].steady_state_decode_tokens_per_second</code>, <code>aggregate.steady_state_decode_tokens_per_second</code></td>
+<td>Tokens after the first divided by the sum of per-token decode durations after the first.</td>
+</tr>
+<tr>
+<td>RAM Usage</td>
+<td><code>memory.rss_*</code></td>
+<td>Classic-compatible RSS fields such as <code>rss_baseline_mb</code>, <code>rss_after_compile_mb</code>, <code>rss_after_inference_mb</code>, <code>rss_model_load_delta_mb</code>, <code>rss_inference_delta_mb</code>, and <code>rss_total_delta_mb</code>. <code>rss_checkpoint_peak_mb</code> is the maximum of the sampled checkpoints, not a continuously sampled peak. Requires <code>--memory</code>.</td>
+</tr>
+<tr>
+<td>VRAM Usage</td>
+<td><code>memory.vram_*</code></td>
+<td>Adapter memory fields are emitted only when the effective GenAI route proves a specific accelerator adapter. Fields include baseline, after-compile, after-inference, load/inference/total deltas, and <code>vram_*_checkpoint_peak_mb</code> checkpoint maxima. Requires <code>--memory</code>.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h2>
+<h3 id="memory-measurement-contract">Memory measurement contract<a class="headerlink" href="#memory-measurement-contract" title="Permanent link">&para;</a></h3>
+<p>With <code>--memory</code>, classic runs use the lifecycle boundaries described
+above: process RSS starts before model construction, while the load-only window
+starts after runtime/device setup and ends before benchmark input allocation.
+Preloaded composite components cannot claim a load baseline; their <code>load_memory</code>
+block is unavailable and their process scope explicitly starts after loading.</p>
+<p>The outer result remains <code>schema_version: 2</code>; <code>load_memory.version</code> is 1.
+Classic <code>memory_measurement.schema_version</code> is now 3 (replacing the version 2
+byte-checkpoint structure). It describes PID, selected LUID, lifecycle scope and missing
+counter reasons. The old after-factory baseline and its additive
+<code>*_before_model_load_mb</code> fields are superseded by these explicit blocks.
+Signed deltas can be negative. Missing readings and dependent deltas stay null.
+Performance success does not certify memory requirements.</p>
+<p>GPU memory uses main's effective EP-device binding, including --device-luid and
+provider selectors resolved through the advertised device options. Unresolved
+selectors are reported unavailable rather than matched to the first GPU.
+PDH records are scoped to the current PID and all enumerated physical memory
+nodes for that adapter. Local/shared are driver accounting categories: UMA local
+memory can be system RAM. Do not add process RSS and GPU shared memory.</p>
+<p>GPU counter availability is classified explicitly. A successful counter value
+of zero is measured_zero; an empty successful enumeration is absent_unconfirmed,
+not proof of zero; enumeration errors and invalid readings are separate states.
+The CLI cannot certify that a process has never used the GPU merely from an
+absent PDH instance, so it never fabricates a zero baseline from that condition.</p>
+<p>For a Windows GPU target with a resolved LUID, if process memory instances are
+absent before model loading, the CLI creates a model-free D3D12 device on that
+exact adapter and retries counter discovery for up to two seconds. It creates
+no model, buffers or command queue and submits no GPU work. The device is kept
+alive through the final checkpoint and released on success or failure, so its
+setup footprint is present in both endpoints rather than appearing as model
+allocation. Load-only RAM is captured after this preparation too; process RSS
+still starts before generic runtime setup. Already valid counters,
+CPU/NPU targets, unresolved adapters and preloaded components do not create this
+device. Initialization errors never prevent the model's own provider from running.</p>
+<p>This is a prepared-device measurement, not cold GPU initialization. The
+process delta includes model/provider/input allocations and is
+not a minimum VRAM requirement. The load-only delta excludes inputs and inference.
+Legacy-named baseline and delta fields use the new boundaries documented above;
+they must not be compared directly with version 2 memory measurements. The optional
+memory_measurement.gpu_baseline_preparation block records method, timing,
+initial/prepared observations, selected adapter and failures. If the subsequent
+checkpoint remains unavailable, dependent deltas remain null. A later valid
+checkpoint never replaces a missing pre-model baseline. Historical results
+cannot be repaired without recollection.</p>
+<p>The hardware monitor refreshes PID/LUID memory instances every 200 ms, including
+when monitoring starts before model load. Counter registration is deduplicated,
+failed registrations retry, and missing/disappeared instances stay unknown.
+Checkpoint reads also retry briefly (up to 250 ms) while paused at the same phase.
+None of these retries backfill earlier missing observations.</p>
+<p>hw_monitor.device_memory.coverage records window timestamps, the first/last valid
+sample, valid/missing counts and timestamped memory observations. Mean is over
+valid samples only; peak is over observed samples only. Initial missing samples
+remain a partial-coverage warning even after the metric recovers. Discovery can
+miss sub-200-ms lifetimes; sampling does not certify the true instantaneous peak.</p>
+<p>The --monitor summary uses null/N/A when RAM or device memory has no valid
+samples. Its sampled inference-window peaks have a different time boundary from
+the three phase checkpoints. Historical collectors
+are not upgraded by this CLI change; those results require provenance
+labels or a rerun with a compatible collector.</p>
+<p>Basic benchmark on the best available device:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50
+</span></code></pre></div>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>Device:      npu
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>Precision:   auto
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>Task:        image-classification
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>Iterations:  100 (+ 10 warmup)
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>Batch Size:  1
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>Latency (ms)
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>  Avg    P50    P90    P95    P99    Min    Max    Std
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a> 2.14   2.11   2.38   2.51   2.79   1.97   3.04   0.12
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>Throughput: 467.29 samples/sec
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>Results saved to: ~/.cache/winml/perf/microsoft_resnet-50/2026-05-27T120000.json
+</span></code></pre></div>
+<p>Benchmark a pre-exported ONNX file on CPU with more iterations:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--device<span class="w"> </span>cpu<span class="w"> </span>--iterations<span class="w"> </span><span class="m">500</span>
+</span></code></pre></div>
+<p>Benchmark a text model with an explicit task, targeting the NPU:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>--task<span class="w"> </span>text-classification<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--precision<span class="w"> </span>w8a16
+</span></code></pre></div>
+<p>Benchmark with live hardware monitoring enabled:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--monitor
+</span></code></pre></div>
+<p>Select one of multiple GPUs supported by the same EP:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>$<span class="w"> </span>winml<span class="w"> </span>sys
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--ep<span class="w"> </span>dml<span class="w"> </span>--device<span class="w"> </span>gpu<span class="w"> </span>--device-luid<span class="w"> </span>0x00000000_0x00012C8B<span class="w"> </span>--monitor
+</span></code></pre></div>
+<p>Replace the example LUID with the adapter's value from <code>winml sys</code>. LUIDs are
+local to the current Windows boot, not portable hardware IDs. The flag narrows
+the resolved EP/device pair (and optional <code>--ep name@source</code>); it does not change
+the EP/device auto-selection policy. It applies to ONNX, HuggingFace,
+composite, and per-module runtime inference, including memory and hardware
+monitoring. It does not pin the separate model-build compilation stage.</p>
+<p><code>--device-luid</code> cannot be combined with <code>--ep-options device_id=...</code>, even if
+both identify the same adapter. This is rejected as a CLI usage error before
+model or device resolution. Other provider options, such as performance tuning,
+can still be used with <code>--device-luid</code>.</p>
+<p>If multiple adapters match and <code>--device-luid</code> is omitted, perf warns and uses
+the default ORT device unless <code>--ep-options</code> uniquely selects a concrete adapter.
+This explicit selection suppresses the warning even when that adapter has no
+LUID metadata. Non-selector options, or options whose adapter
+binding cannot be established, do not suppress the warning.
+When provider options resolve to another adapter of the same kind, that adapter
+is used for the runtime binding, device identity, and monitoring. Options that
+select a different device kind (for example, <code>--device npu --ep qnn</code> with
+<code>--ep-options backend_type=gpu</code>) are rejected before the build; use the matching
+<code>--device</code> instead so build and runtime agree.</p>
+<p>If the bound adapter has no LUID, perf uses CPU/RAM monitoring mode rather
+than guessing another GPU/NPU. Adapter-specific utilization and VRAM sampling
+are disabled in that case. Separately labelled aggregate GPU telemetry may
+remain available; it is not attributed to the selected adapter.</p>
+<p>The default GPU is selected by numeric <code>DxgiHighPerformanceIndex</code> from ORT
+hardware metadata (0 first), then by LUID to break ties. Missing or invalid
+indices sort after ranked GPUs, in LUID order. This is the same ordering used
+by <code>winml sys</code>, restricted to the selected EP source's exposed devices rather
+than all installed GPUs; it does not depend on ORT enumeration order.</p>
+<p>An unavailable LUID fails instead of falling back to another adapter. Provider
+options that redirect the binding away from the pinned adapter are rejected.
+The requested pin is saved in
+<code>benchmark_info.device_luid</code> in the single-model report.</p>
+<p>Pass runtime EP provider options to tune the session (repeatable):</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">    </span>--ep-options<span class="w"> </span><span class="nv">htp_performance_mode</span><span class="o">=</span>burst<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span>--ep-options<span class="w"> </span><span class="nv">htp_graph_finalization_optimization_mode</span><span class="o">=</span><span class="m">3</span>
+</span></code></pre></div>
+<p>Per-module benchmarking to find latency hot-spots across all attention blocks:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>--module<span class="w"> </span>BertAttention<span class="w"> </span>--iterations<span class="w"> </span><span class="m">200</span>
+</span></code></pre></div>
+<p>Benchmark with real inputs from a <code>.npz</code> file instead of random data:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--input-data<span class="w"> </span>inputs.npz
+</span></code></pre></div>
+<p>Benchmark a Hugging Face model with dynamic export axes before measuring:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>--dynamic-axes<span class="w"> </span>dynamic_axes.json
+</span></code></pre></div>
+<p>The archive must contain one array per model input, keyed by the input name —
+for example:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="n">np</span><span class="o">.</span><span class="n">savez</span><span class="p">(</span><span class="s2">"inputs.npz"</span><span class="p">,</span> <span class="n">pixel_values</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="mi">4</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">224</span><span class="p">,</span> <span class="mi">224</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">))</span>
+</span></code></pre></div>
+<p>Array dtypes are cast to the model's expected dtype (with a warning) if they
+differ, so <code>.npz</code> files saved with default integer/float widths still work.</p>
+<p>When <code>--op-tracing</code> is combined with <code>--input-data</code>, the op trace runs on the
+same real tensors as the latency benchmark (not on fresh random inputs). If the
+traced graph's inputs don't match the provided data — for example a compiled
+context model with different input names — the trace falls back to random inputs
+and logs a warning.</p>
+<p>Op-tracing results are included in the main benchmark JSON under
+<code>hw_monitor.ep_proof</code>. The EP's profiling CSV or JSON remains available as the raw trace
+artifact; no separate <code>_op_trace.json</code> file is written.</p>
+<p>For all EPs and tracing levels, <code>--op-tracing</code> defaults to <strong>10 measured
+iterations</strong> when <code>--iterations</code> is omitted, reducing timing variability.
+<code>--warmup</code> remains 10 by default and is excluded from reported statistics, so
+the default tracing run performs 20 inferences in total. Explicit <code>--iterations</code>
+and <code>--warmup</code> values are honored.</p>
+<h3 id="tensorrt-rtx-operator-tracing">TensorRT RTX operator tracing<a class="headerlink" href="#tensorrt-rtx-operator-tracing" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--device<span class="w"> </span>gpu<span class="w"> </span>--ep<span class="w"> </span>nv_tensorrt_rtx<span class="w"> </span>--op-tracing<span class="w"> </span>basic
+</span></code></pre></div>
+<p>TensorRT RTX supports <code>basic</code> tracing on GPU with EP
+<a href="https://dev.azure.com/WSSI/COMPUTE/_artifacts/feed/WCR/UPack/nvtensorrtrtx2-ep-msix/overview/2.30.49">2.30.49</a>
+or newer, with support for
+<code>nv_enable_profiling</code> and <code>nv_profiling_output_file</code>. The monitor enables these
+options and reads the EP's JSON after session teardown. The raw trace is retained
+at the path reported in <code>hw_monitor.ep_proof.artifacts.profile</code>.</p>
+<p>Operator paths preserve native TensorRT RTX layer names, including fused and
+EP-added layers; they do not need to map back to ORT nodes. A layer referencing
+multiple ONNX nodes is labeled <code>Fused</code>; a single-node mapping displays its exact
+ONNX type. Without source metadata, an exact native-name match can still resolve
+the type. Unresolved or ambiguous types are labeled <code>Unknown</code>.</p>
+<p>Each operator's optional <code>onnx_nodes</code> JSON array lists the contributing nodes as
+<code>{"name": "...", "op_type": "..."}</code> entries, preserving source order and removing
+duplicates. Unresolved node types are <code>null</code>; operators without known source
+nodes omit the array. Fused layers do not claim a single <code>onnx_op_type</code>, and their
+timings remain attached to the native layer rather than being divided among or
+assigned to one of the source nodes.</p>
+<p>Each <code>tid</code> identifies a subgraph invocation, not necessarily a whole inference.
+For each EP context (<code>pid</code>), the invocation count must be a positive integer
+multiple of the total completed model runs (warmup plus measured). The monitor
+assumes a constant number of consecutive invocations per inference, groups them
+in first-seen order, and excludes whole warmup groups. For example, 20 invocations
+over 10 total model runs are grouped in pairs. Non-divisible counts are rejected
+instead of truncating the trace.</p>
+<p>Grouping multiple invocations emits a warning: divisibility does not prove
+inference boundaries, so variable-length control-flow loops can still produce
+incorrect per-inference attribution even when counts divide evenly.
+Repeated native layer names are summed per measured
+iteration, including matching names across contexts. Percentages reflect traced
+GPU layer time, not wall-clock latency or CPU fallback work. <code>detail</code> tracing is
+not supported.</p>
+<h2 id="common-pitfalls">Common pitfalls<a class="headerlink" href="#common-pitfalls" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Warm-up too low on NPU.</strong> The first several inferences on an NPU EP can be significantly slower due to kernel compilation and caching. The default of 10 warm-up iterations is usually enough for vision models, but transformer models with many operators may need <code>--warmup 30</code> or higher to reach steady-state latency.</li>
+<li><strong>Hidden third-party diagnostics.</strong> Normal <code>winml perf</code> output suppresses noisy native warning-level diagnostics and Hugging Face download/progress chatter so benchmark results stay readable. Use <code>-v</code>/<code>-vv</code> or set <code>WINMLCLI_SHOW_ALL_WARNINGS=1</code> to show those warnings when debugging provider or Hub issues.</li>
+<li><strong><code>--input-data</code> keys must match; dtypes are cast.</strong> The <code>.npz</code> keys must equal the model's input names — a missing or unexpected key is a hard error (typo protection). Array dtypes are cast to the model's expected dtype with a warning (matching normal inference), so you don't have to hand-match widths. <code>.npy</code> files are not supported — save named arrays as <code>.npz</code>. When <code>--input-data</code> is set, <code>--batch-size</code> and <code>--shape-config</code> are ignored (the tensors define their own shapes). It is also rejected for <code>--module</code> mode, <code>--runtime ort-genai</code>, and composite (dual-encoder) models such as CLIP/SigLIP, where each sub-model has its own inputs that a single <code>.npz</code> cannot address.</li>
+<li><strong>Real data only binds if the export kept axes dynamic.</strong> When <code>-m</code> is a HuggingFace model ID, <code>perf</code> exports it with default shapes (because <code>--shape-config</code>/<code>--batch-size</code> are ignored under <code>--input-data</code>). If that export baked in static shapes, ORT will reject differently-shaped <code>--input-data</code>. Use <code>--dynamic-axes</code>/symbolic <code>--input-specs</code> for the Hugging Face build, or point <code>-m</code> at an ONNX file that already has dynamic axes.</li>
+<li><strong><code>--shape-config</code> is ignored when real or module inputs own the shape.</strong> It is ignored in <code>--module</code> mode and when <code>--input-data</code> is set. The command prints a warning in both situations.</li>
+<li><strong>Random inputs do not represent real data distributions.</strong> Latency numbers are accurate, but memory access patterns may differ from production because the generated tensors are uniform random values. For memory-bandwidth-sensitive models this can understate real-world latency.</li>
+<li><strong>Cross-device comparison.</strong> To compare performance across devices, run <code>winml perf</code> separately with different <code>--device</code> values and compare the resulting JSON reports.</li>
+</ul>
+<h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../eval/">winml eval</a> — measure accuracy after benchmarking</li>
+<li><a href="../build/">winml build</a> — build the quantized artifact that <code>perf</code> benchmarks</li>
+<li><a href="../../concepts/load-and-export/">Load and export concept</a> — how <code>--module</code> per-instance benchmarking works</li>
+<li><a href="../../concepts/eps-and-devices/">ONNX &amp; Execution Providers</a> — understand <code>--device</code> vs <code>--ep</code></li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "toc.follow", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
