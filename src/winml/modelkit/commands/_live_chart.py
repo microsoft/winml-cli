@@ -228,7 +228,7 @@ class LiveMonitorDisplay:
 
             panel = Panel(
                 Group(chart_renderable, Text.from_markup(status_line)),
-                title=f"[bold]HW Monitor[/bold] - {self._model_id}",
+                title=f"[bold]HW monitor[/bold] - {self._model_id}",
                 border_style="blue",
             )
             self._last_panel = panel

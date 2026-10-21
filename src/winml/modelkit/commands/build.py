@@ -777,7 +777,7 @@ def _maybe_build_genai_bundle(
         force_rebuild=rebuild,
     )
     console.print(
-        f"\n[green]\u2713[/green] genai bundle ready: {bundle_dir} ([dim]{config_path.name}[/dim])"
+        f"\n[green]Done:[/green] genai bundle ready: {bundle_dir} ([dim]{config_path.name}[/dim])"
     )
     return True
 
@@ -1282,7 +1282,7 @@ def build(
                 source="HuggingFace",
             )
             print_stages_header(console)
-            console.print(f"   \U0001f9e9 [bold]Modules:[/bold] {len(configs)}")
+            console.print(f"   [bold]Modules:[/bold] {len(configs)}")
             console.print()
 
             results = _build_modules(
@@ -1594,7 +1594,7 @@ def _run_single_build(
     else:
         model_label = f"{model_id}  [dim](pretrained)[/dim]"
 
-    # ── 🔧 Setup section ────────────────────────────────────────
+    # ── Setup section ────────────────────────────────────────
     print_setup(
         console,
         model=model_label,
@@ -1677,9 +1677,9 @@ def _print_reused(artifact_path: Path) -> None:
     """Print reused artifact message."""
     console.print()
     console.print(
-        f"   \u267b\ufe0f  [bold cyan]Existing artifact found:[/bold cyan] {artifact_path}"
+        f"   [bold cyan]Existing artifact found:[/bold cyan] {artifact_path}"
     )
-    console.print("   \U0001f4a1 [dim]Use --rebuild to force rebuild.[/dim]")
+    console.print("   [dim]Use --rebuild to force rebuild.[/dim]")
     console.print()
 
 

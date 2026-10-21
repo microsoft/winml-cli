@@ -109,16 +109,6 @@ def _print_banner(
             line.append(char, style=f"bold rgb({r},{g},{b})")
         return line
 
-    def footer(tagline: str, *, include_version: bool = True) -> list[Text]:
-        lines = [
-            Text(),
-            Text.from_markup(f"{margin}[bold rgb(160,100,255)]Windows ML[/]  ·  {tagline}"),
-        ]
-        if include_version:
-            lines.append(Text.from_markup(f"{margin}v{version}  ·  CPU · GPU · NPU"))
-        lines.append(Text())
-        return lines
-
     def wordmark() -> list[Text]:
         lines = []
         patterns = compact_rows
@@ -155,11 +145,6 @@ def _print_banner(
 
     def capsule() -> Group:
         logo_lines = wordmark()
-        version_text = Text.from_markup(f"v{version}  ·  CPU · GPU · NPU")
-        version_line = Text(" " * ((compact_width - len(version_text)) // 2))
-        version_line.append_text(version_text)
-        version_line.append(" " * (compact_width - len(version_line)))
-        logo_lines.extend([Text(" " * compact_width), version_line])
         mark_lines = mark() if show_mark else []
         content_width = compact_width + (mark_width + 3 if show_mark else 0)
         frame_margin = margin if show_mark else ""
@@ -176,7 +161,7 @@ def _print_banner(
 
         lines = [
             Text(),
-            Text.from_markup(f"{margin}Windows ML CLI"),
+            Text(f"{margin}Windows ML CLI | Version {version}"),
             gradient_line(f"{frame_margin}┏{'━' * (content_width + 4)}┓"),
             framed_line(),
         ]
@@ -194,7 +179,6 @@ def _print_banner(
             [
                 framed_line(),
                 gradient_line(f"{frame_margin}┗{'━' * (content_width + 4)}┛"),
-                *footer("Model conversion & optimization", include_version=False),
             ]
         )
         return Group(*lines)
@@ -353,9 +337,13 @@ class LazyGroup(ActionGroup):
         return super().resolve_command(ctx, args)
 
     def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
-        """Emit banner to stderr, then delegate to normal help formatting."""
+        """Emit the banner, then show the introduction before usage and options."""
         _print_banner(__version__)
-        super().format_help(ctx, formatter)
+        self.format_help_text(ctx, formatter)
+        formatter.write_paragraph()
+        self.format_usage(ctx, formatter)
+        self.format_options(ctx, formatter)
+        self.format_epilog(ctx, formatter)
 
     def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         """Format command list using AST-parsed help (no module imports)."""
@@ -399,9 +387,9 @@ def main(
     quiet: bool,
     debug: bool,
 ) -> None:
-    """WinML CLI - Accelerate Model Deployment on WinML.
+    """Export ONNX models for Windows ML execution providers.
 
-    Universal ONNX export with various WinML execution providers support.
+    Learn more at aka.ms/winmlcli.
     """
     # --debug is a backward-compat alias for -vv
     if debug:

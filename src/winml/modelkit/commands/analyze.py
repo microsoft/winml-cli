@@ -80,7 +80,7 @@ _SKIP_TABLE_MIN_WIDTH = 80
 
 def _skip_table_width(section_name: str, ep_device_pair_display_name: str | None) -> int:
     """Return a stable width for skip tables based on rendered title length."""
-    title = f"📊 {section_name}"
+    title = section_name
     if ep_device_pair_display_name:
         title += f" — {ep_device_pair_display_name}"
     title += _SKIP_NO_RULE_DATA_SUFFIX
@@ -105,19 +105,19 @@ def _display_name(pattern_id: str) -> str:
     return _TRAILING_PAREN_RE.sub("", name)
 
 
-_LEVEL_ICONS = [
-    ("unsupported", "🔴"),
-    ("partial", "🟡"),
-    ("unknown", "🔵"),
+_LEVEL_LABELS = [
+    ("unsupported", "Unsupported"),
+    ("partial", "Partial"),
+    ("unknown", "Unknown"),
 ]
 
 
-def _worst_level_icon(counts: dict[str, int]) -> str:
-    """Return icon for the worst support level present (lower bound)."""
-    for level, icon in _LEVEL_ICONS:
+def _worst_level_label(counts: dict[str, int]) -> str:
+    """Return text for the worst support level present (lower bound)."""
+    for level, label in _LEVEL_LABELS:
         if counts.get(level, 0) > 0:
-            return icon
-    return "🟢"
+            return label
+    return "Supported"
 
 
 def _build_stacked_bar(counts: dict[str, int], max_count: int) -> Text:
@@ -231,13 +231,13 @@ def _build_analysis_table(
         all_ops: All op types with total counts (for showing pending rows)
         op_check_skipped: If True, render a title-only table (no rows/columns)
     """
-    title = "📊 OP CHECK"
+    title = "Op check"
     if ep_device_pair_display_name:
         title += f" — [bold cyan]{ep_device_pair_display_name}[/bold cyan]"
 
     if op_check_skipped:
         title += _SKIP_NO_RULE_DATA_SUFFIX
-        skip_width = _skip_table_width("OP CHECK", ep_device_pair_display_name)
+        skip_width = _skip_table_width("Op check", ep_device_pair_display_name)
         table = Table(
             title=title,
             show_header=False,
@@ -252,7 +252,7 @@ def _build_analysis_table(
         table.add_column("")
         return table
     if complete:
-        title += "  [bold green]✅ Complete[/bold green]"
+        title += "  [bold green]Done[/bold green]"
 
     # Build display order: all_ops sorted by count, or just data if no all_ops
     if all_ops:
@@ -278,7 +278,7 @@ def _build_analysis_table(
         expand=False,
     )
 
-    table.add_column("Op Type", width=28, no_wrap=True)
+    table.add_column("Op type", width=28, no_wrap=True)
     table.add_column("S/P/U/Unk", width=20, no_wrap=True)
     table.add_column("", no_wrap=False)
 
@@ -307,14 +307,13 @@ def _build_analysis_table(
             for level in agg:
                 agg[level] += counts.get(level, 0)
 
-            icon = _worst_level_icon(counts)
             op_label = Text()
-            op_label.append(f"{icon} ")
             op_label.append(op_type, style="cyan")
             if analyzed_for_op < total:
                 op_label.append(f" ({analyzed_for_op}/{total})", style="dim")
             else:
                 op_label.append(f" ({total})", style="dim")
+            op_label.append(f"\n{_worst_level_label(counts)}")
 
             # Build bar: colored portion (analyzed) + dim portion (remaining)
             bar = _build_stacked_bar(counts, max_count)
@@ -334,7 +333,7 @@ def _build_analysis_table(
     )
     analyzed_count = sum(agg.get(level, 0) for level in _SUPPORT_LEVEL_KEYS)
     total_label = Text()
-    total_label.append("TOTAL", style="bold")
+    total_label.append("Total", style="bold")
     if analyzed_count < total_ops:
         total_label.append(f" ({analyzed_count}/{total_ops})", style="dim")
     else:
@@ -364,12 +363,12 @@ def _build_pattern_query_table(
     pattern_check_skipped: bool = False,
 ) -> Table:
     """Build pattern query progress table with S/P/U/Unk counts."""
-    title = "📊 PATTERN CHECK"
+    title = "Pattern check"
     if ep_device_pair_display_name:
         title += f" — [bold cyan]{ep_device_pair_display_name}[/bold cyan]"
     if pattern_check_skipped:
         title += _SKIP_NO_RULE_DATA_SUFFIX
-        skip_width = _skip_table_width("PATTERN CHECK", ep_device_pair_display_name)
+        skip_width = _skip_table_width("Pattern check", ep_device_pair_display_name)
         table = Table(
             title=title,
             show_header=True,
@@ -391,7 +390,7 @@ def _build_pattern_query_table(
         return table
 
     if complete:
-        title += "  [bold green]✅ Complete[/bold green]"
+        title += "  [bold green]Done[/bold green]"
 
     if all_patterns:
         display_order = sorted(all_patterns, key=lambda x: all_patterns[x], reverse=True)
@@ -444,14 +443,13 @@ def _build_pattern_query_table(
         for level in agg:
             agg[level] += counts.get(level, 0)
 
-        icon = _worst_level_icon(counts)
         pattern_label = Text()
-        pattern_label.append(f"{icon} ")
         pattern_label.append(pattern_id, style="cyan")
         if analyzed_for_pattern < total:
             pattern_label.append(f" ({analyzed_for_pattern}/{total})", style="dim")
         else:
             pattern_label.append(f" ({total})", style="dim")
+        pattern_label.append(f"\n{_worst_level_label(counts)}")
 
         bar = _build_stacked_bar(counts, max_count)
         remaining = total - analyzed_for_pattern
@@ -470,7 +468,7 @@ def _build_pattern_query_table(
     analyzed_count = sum(agg.get(level, 0) for level in _SUPPORT_LEVEL_KEYS)
 
     total_label = Text()
-    total_label.append("TOTAL", style="bold")
+    total_label.append("Total", style="bold")
     if analyzed_count < total_patterns:
         total_label.append(f" ({analyzed_count}/{total_patterns})", style="dim")
     else:
@@ -492,14 +490,6 @@ def _build_pattern_query_table(
     )
 
     return table
-
-
-_PATTERN_STATUS_ICONS = {
-    "supported": "🟢",
-    "partial": "🟡",
-    "unsupported": "🔴",
-    "unknown": "🔵",
-}
 
 
 def _pattern_status_view_for_summary(
@@ -561,7 +551,7 @@ def _render_analysis_summary(
     from ..analyze.models.support_level import SupportLevel
 
     console.print("═" * 80)
-    summary_title = "\U0001f4c8 [bold]ANALYSIS SUMMARY[/bold]"
+    summary_title = "[bold]Analysis summary[/bold]"
     if analyze_elapsed_ms is not None:
         if ep is not None and device:
             ep_display = _ep_name_device_display_name(str(ep), str(device))
@@ -630,15 +620,14 @@ def _render_analysis_summary(
         # Always render at least a header so the EP is visible in the summary.
         if no_data_eps and ep_device_pair in no_data_eps and not has_instance_data:
             patterns = pattern_status_view.get(ep_name, {})
-            console.print(f"   🔵 [bold bright_black]{ep_label}[/bold bright_black]:")
+            console.print(f"   [bold bright_black]{ep_label}[/bold bright_black]:")
             if patterns:
                 console.print("      [dim]Op check skipped — no rule data[/dim]")
                 for pid, p in sorted(patterns.items(), key=lambda x: x[1]["count"], reverse=True):
                     status = p["status"]
-                    icon_p = _PATTERN_STATUS_ICONS.get(status, "❓")
                     label = status
                     console.print(
-                        f"      {icon_p} [dim]{pid}[/dim] ({p['count']} instances, {label})"
+                        f"      [dim]{pid}[/dim] ({p['count']} instances, {label})"
                     )
             else:
                 console.print("      [dim]Op check skipped — no rule data, no patterns[/dim]")
@@ -655,7 +644,7 @@ def _render_analysis_summary(
             for level in agg:
                 agg[level] += counts.get(level, 0)
 
-        icon = _worst_level_icon(agg)
+        label = _worst_level_label(agg)
 
         # EP name style based on worst level
         if agg.get("unsupported", 0) > 0:
@@ -671,15 +660,15 @@ def _render_analysis_summary(
             ep_style = "bold green"
 
         analyzed = _build_support_text(agg)
-        console.print(f"   {icon} [{ep_style}]{ep_label}[/{ep_style}]: ", end="")
+        console.print(f"   {label} [{ep_style}]{ep_label}[/{ep_style}]: ", end="")
         console.print(analyzed)
 
         # List ops by non-white support level (skip when op check was skipped \u2014
         # the classification would be all-unknown with no useful detail).
         _issue_sections = [
-            (SupportLevel.UNSUPPORTED, "red", "\u26d4 Unsupported"),
-            (SupportLevel.PARTIAL, "yellow", "\u26a0\ufe0f  Partial"),
-            (SupportLevel.UNKNOWN, "bright_black", "\u2753 Unknown"),
+            (SupportLevel.UNSUPPORTED, "red", "Unsupported"),
+            (SupportLevel.PARTIAL, "yellow", "Partial"),
+            (SupportLevel.UNKNOWN, "bright_black", "Unknown"),
         ]
         classification = ep_support.classification
         visible_op_names = set(ep_data)
@@ -702,10 +691,9 @@ def _render_analysis_summary(
             console.print("      [dim]Patterns:[/dim]")
             for pid, p in sorted(bad_patterns.items(), key=lambda x: x[1]["count"], reverse=True):
                 status = p["status"]
-                icon_p = _PATTERN_STATUS_ICONS.get(status, "\u2753")
                 label = status
                 console.print(
-                    f"         {icon_p} [dim]{pid}[/dim] ({p['count']} instances, {label})"
+                    f"         [dim]{pid}[/dim] ({p['count']} instances, {label})"
                 )
 
         # "Ready to deploy" requires actual op-check data; suppress when skipped.
@@ -746,7 +734,7 @@ def _render_optim_output_support(
         verbose: When True, always show the per-operator reason string.
     """
     console.print("\u2550" * 80)
-    console.print(f"\U0001f9e9 [bold]OPTIMIZATION OUTPUT SUPPORT[/bold] \u2014 {target_label}")
+    console.print(f"[bold]Optimization output support[/bold] \u2014 {target_label}")
     console.print("\u2550" * 80)
 
     from ..analyze.models.support_level import SupportLevel
@@ -1448,9 +1436,9 @@ def analyze(
         if not quiet:
             console.print()
             console.print("═" * 80)
-            console.print("📊 [bold]ANALYSIS PROGRESS[/bold]")
+            console.print("[bold]Analysis progress[/bold]")
             console.print("═" * 80)
-            console.print(f"   📦 Model: [bold cyan]{model.name}[/bold cyan]")
+            console.print(f"   Model: [bold cyan]{model.name}[/bold cyan]")
 
             # Load model metadata for header
             try:
@@ -1464,10 +1452,11 @@ def analyze(
                 _total_ops = len(_proto.graph.node)
                 _unique_ops = len({n.op_type for n in _proto.graph.node})
                 console.print(
-                    f"   🔧 Opset: [green]{_opset}[/green]  Producer: [green]{_producer}[/green]"
+                    f"   Opset: [green]{_opset}[/green]\n"
+                    f"   Producer: [green]{_producer}[/green]"
                 )
                 console.print(
-                    f"   📋 Operators: [cyan]{_total_ops}[/cyan] total, "
+                    f"   Operators: [cyan]{_total_ops}[/cyan] total, "
                     f"[cyan]{_unique_ops}[/cyan] unique types"
                 )
                 if len(execution_pairs) > 1:
@@ -1475,7 +1464,7 @@ def analyze(
                         _ep_name_device_display_name(target_ep, target_device)
                         for target_ep, target_device in execution_pairs
                     )
-                    console.print(f"   🎯 Analysis targets: [cyan]{execution_labels}[/cyan]")
+                    console.print(f"   Analysis targets: [cyan]{execution_labels}[/cyan]")
                 console.print()
                 del _proto  # free memory
             except Exception:
@@ -1666,7 +1655,7 @@ def analyze(
             ep_counter += 1
             console.print("─" * 80)
             console.print(
-                f"💻 [bold]EP {ep_counter}[/bold]: [bold cyan]{ep_name}[/bold cyan] "
+                f"[bold]EP {ep_counter}[/bold]: [bold cyan]{ep_name}[/bold cyan] "
                 f"on [bold]{current_device}[/bold]"
             )
             console.print("─" * 80)
@@ -1736,7 +1725,7 @@ def analyze(
                 ep_counter += 1
                 console.print("─" * 80)
                 console.print(
-                    f"💻 [bold]EP {ep_counter}[/bold]: [bold cyan]{ep_name}[/bold cyan] "
+                    f"[bold]EP {ep_counter}[/bold]: [bold cyan]{ep_name}[/bold cyan] "
                     f"on [bold]{current_device}[/bold]"
                 )
                 console.print("─" * 80)

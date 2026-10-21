@@ -286,7 +286,7 @@ def config(
     # Validate: at least one of -m, --model-type, or --model-class is required
     if hf_model is None and model_type is None and model_class is None:
         # Show header even for errors
-        print_command_header(console, "\U0001f4cb CONFIG GENERATION")
+        print_command_header(console, "Config generation")
         print_error(
             console,
             "Missing required input",
@@ -520,18 +520,18 @@ def config(
 
         # ── Rich console output ──────────────────────────────────────
         subtitle = "ONNX mode" if _is_onnx_mode else ("module mode" if module else None)
-        print_command_header(console, "\U0001f4cb CONFIG GENERATION", subtitle)
+        print_command_header(console, "Config generation", subtitle)
 
         # Model identity
         model_label = hf_model or model_type or model_class or "?"
-        print_kv(console, "Model:", model_label, icon="\U0001f4e6")
+        print_kv(console, "Model:", model_label)
 
         if _is_onnx_mode:
-            print_kv(console, "Mode:", "Direct ONNX", note="export=None", icon="\U0001f527")
+            print_kv(console, "Mode:", "Direct ONNX", note="export=None")
         else:
             # Fix #1: Model class before Task
             if module:
-                print_kv(console, "Module:", module, icon="\U0001f9e9")
+                print_kv(console, "Module:", module)
             elif _resolved_model_class:
                 mc_note = None if model_class else "auto-detected"
                 print_kv(
@@ -539,9 +539,7 @@ def config(
                     "Model class:",
                     _resolved_model_class,
                     note=mc_note,
-                    icon="\U0001f9e9",
                 )
-            # Fix #2: no trailing space after 🏷️
             if _resolved_task:
                 task_note = None if task else "auto-detected"
                 print_kv(
@@ -549,33 +547,32 @@ def config(
                     "Task:",
                     _resolved_task,
                     note=task_note,
-                    icon="\U0001f3f7\ufe0f",
                 )
 
         # Override files
         if config_file:
             console.print(
-                f"   \U0001f4c1 [bold]Overrides:[/bold]    {_override_file}  [green]\u2713[/green]"
+                f"   [bold]Overrides:[/bold]    {_override_file}  [green]Loaded[/green]"
             )
         if shape_config_file:
             console.print(
-                f"   \U0001f4c1 [bold]Shape config:[/bold] "
-                f"{_shape_config_file}  [green]\u2713[/green]"
+                f"   [bold]Shape config:[/bold] "
+                f"{_shape_config_file}  [green]Loaded[/green]"
             )
         if input_specs:
             console.print(
-                f"   \U0001f4c1 [bold]Input specs:[/bold]  "
-                f"{input_specs.name}  [green]\u2713[/green]"
+                f"   [bold]Input specs:[/bold]  "
+                f"{input_specs.name}  [green]Loaded[/green]"
             )
         if export_config:
             console.print(
-                f"   \U0001f4c1 [bold]Export config:[/bold] "
-                f"{export_config.name}  [green]\u2713[/green]"
+                f"   [bold]Export config:[/bold] "
+                f"{export_config.name}  [green]Loaded[/green]"
             )
         if dynamic_axes:
             console.print(
-                f"   \U0001f4c1 [bold]Dynamic axes:[/bold] "
-                f"{dynamic_axes.name}  [green]\u2713[/green]"
+                f"   [bold]Dynamic axes:[/bold] "
+                f"{dynamic_axes.name}  [green]Loaded[/green]"
             )
 
         console.print()
@@ -594,7 +591,7 @@ def config(
         if _ref_config is not None:
             _quant = _ref_config.quant
 
-            console.print("   \u2699\ufe0f  [bold]Resolution:[/bold]")
+            console.print("   [bold]Resolution:[/bold]")
 
             # Device from auto_detect_device, which validates that a local EP
             # actually exposes the selected device class.
@@ -626,7 +623,7 @@ def config(
         if module and not _is_onnx_mode and _n_modules > 0:
             console.print()
             console.print(
-                f"   \U0001f9e9 [bold]Submodules:[/bold] "
+                f"   [bold]Submodules:[/bold] "
                 f"[green]{_n_modules}[/green] matching '{module}'"
             )
 

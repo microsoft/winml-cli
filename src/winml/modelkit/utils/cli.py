@@ -793,13 +793,13 @@ def verbosity_options() -> Callable[[F], F]:
             "-q",
             is_flag=True,
             default=False,
-            help="Quiet mode - errors only to stderr",
+            help="Quiet mode - errors only to stderr.",
         )(f)
         return click.option(
             "--verbose",
             "-v",
             count=True,
-            help="Increase verbosity (-v=INFO, -vv=DEBUG)",
+            help="Increase verbosity (-v=INFO, -vv=DEBUG).",
         )(f)
 
     return decorator

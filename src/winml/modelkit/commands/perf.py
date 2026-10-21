@@ -2058,7 +2058,7 @@ def _perf_modules(
                     result_entry["hw_monitor"] = hw_metrics
                 all_results.append(result_entry)
             except Exception as e:
-                console.print(f"[red]  {label}: FAILED ({e})[/red]")
+                console.print(f"[red]  {label}: Failed ({e})[/red]")
                 all_results.append(
                     {
                         "module_path": module_path,
@@ -2071,8 +2071,8 @@ def _perf_modules(
                 )
 
     # Display results table
-    table = Table(title=f"Per-Module Perf: {module_class}", show_header=True)
-    table.add_column("Module Path", style="cyan")
+    table = Table(title=f"Per-module perf: {module_class}", show_header=True)
+    table.add_column("Module path", style="cyan")
     table.add_column("Mean (ms)", justify="right")
     table.add_column("P90 (ms)", justify="right")
     table.add_column("Min (ms)", justify="right")
@@ -2301,8 +2301,8 @@ def report_composite_results(
     if json_mode:
         click.echo(json.dumps(combined, indent=2))
     else:
-        table = Table(title="Per-Sub-Model Perf", show_header=True)
-        table.add_column("Sub-Model", style="cyan")
+        table = Table(title="Per-sub-model perf", show_header=True)
+        table.add_column("Sub-model", style="cyan")
         table.add_column("Task")
         table.add_column("Device")
         table.add_column("Mean (ms)", justify="right")
@@ -4075,7 +4075,7 @@ def _print_model_info(
 
     precision = io_config.get("precision")
     if precision:
-        console.print(f"[dim]Model Precision:[/dim]   {precision}")
+        console.print(f"[dim]Model precision:[/dim]   {precision}")
 
     names = io_config.get("input_names", [])
     shapes = io_config.get("input_shapes", [])

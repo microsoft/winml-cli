@@ -111,7 +111,7 @@ class CGCExporter:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         self.console.print("\n" + "=" * 80)
-        self.console.print("🚀 [bold cyan]ONNX TO CGC EXPORT PROCESS[/bold cyan]")
+        self.console.print("[bold cyan]ONNX to CGC export process[/bold cyan]")
         self.console.print("=" * 80)
         self.console.print(f"[bold blue]Input:[/bold blue] {source_path}")
         self.console.print(f"[bold blue]Output:[/bold blue] {output_path}")
@@ -144,7 +144,7 @@ class CGCExporter:
             result,
         )
 
-        self.console.print("\n[bold green]✅ CGC EXPORT COMPLETE[/bold green]")
+        self.console.print("\n[bold green]Done: CGC export complete[/bold green]")
         self.console.print(f"[dim]Total time: {time.monotonic() - export_start:.2f}s[/dim]")
         return result
 

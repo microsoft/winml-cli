@@ -232,7 +232,7 @@ class TestSysCommand:
         assert result.exit_code == 0
         assert "CPU" in result.output
         # Compact output is a single line; no Rich panel borders
-        assert "Available Devices" not in result.output
+        assert "Available devices" not in result.output
 
     def test_sys_list_ep_compact(self, runner: CliRunner) -> None:
         """--list-ep --format compact must produce compact output, not text table."""
@@ -240,7 +240,7 @@ class TestSysCommand:
         assert result.exit_code == 0
         assert "CPUExecutionProvider" in result.output
         # Compact output is a single line; no Rich panel headers
-        assert "Available Execution Providers" not in result.output
+        assert "Available execution providers" not in result.output
 
 
 class TestModuleExecution:

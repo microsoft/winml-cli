@@ -1040,7 +1040,7 @@ def _ensure_provider_ready(provider: Any) -> None:
 
     console = get_console()
     _safe_console_print(
-        console, f"[WinML] Installing Execution Provider: [bold]{provider.name}[/bold]"
+        console, f"[WinML] Installing execution provider: [bold]{provider.name}[/bold]"
     )
 
     bar = _make_progress_bar()
@@ -1081,7 +1081,7 @@ def _ensure_provider_ready(provider: Any) -> None:
             # Failure-path notice — kept in finally so it fires for every
             # non-success exit (launch failure, timeout, get_status OSError).
             # Printed after bar.close() so it appears below the bar's last frame.
-            _safe_console_print(console, f"[red]❌ Failed to download {provider.name} EP[/red]")
+            _safe_console_print(console, f"[red]Failed to download {provider.name} EP[/red]")
             _safe_console_print(console, "Try:")
             _safe_console_print(console, "  1. Check your internet connection")
             _safe_console_print(console, "  2. Troubleshoot: https://aka.ms/winmlcli/ep-errors")
@@ -1102,7 +1102,7 @@ def _ensure_provider_ready(provider: Any) -> None:
     if package_family_name:
         # soft_wrap so long package family names aren't hard-wrapped mid-string.
         _safe_console_print(
-            console, f"- Package Family Name: {package_family_name}", soft_wrap=True
+            console, f"- Package family name: {package_family_name}", soft_wrap=True
         )
 
 

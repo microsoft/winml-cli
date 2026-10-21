@@ -429,7 +429,7 @@ def _output_text(info: dict[str, Any], verbose: bool = False) -> None:
     # Title
     console.print(
         Panel.fit(
-            "[bold]WinML CLI System Information[/bold]",
+            "[bold]WinML CLI system information[/bold]",
             border_style="blue",
         )
     )
@@ -468,13 +468,13 @@ def _output_text(info: dict[str, Any], verbose: bool = False) -> None:
         status = "[green]OK[/green]" if lib_version else "[red]Not installed[/red]"
         lib_table.add_row(lib, lib_version or "-", status)
 
-    console.print("\n[bold blue]ML Libraries[/bold blue]")
+    console.print("\n[bold blue]ML libraries[/bold blue]")
     console.print(lib_table)
 
     # PyTorch details (CUDA fields only populated with --verbose)
     torch_info = info["torch"]
     if torch_info["available"] and "cuda_available" in torch_info:
-        console.print("\n[bold blue]PyTorch Details[/bold blue]")
+        console.print("\n[bold blue]PyTorch details[/bold blue]")
         torch_table = Table(show_header=False, box=None, padding=(0, 2))
         torch_table.add_column("Key", style="bold")
         torch_table.add_column("Value")
@@ -514,7 +514,7 @@ def _output_text(info: dict[str, Any], verbose: bool = False) -> None:
         console.print(backend_table)
 
         readiness = info["export_readiness"]
-        console.print("\n[bold blue]Export Readiness[/bold blue]")
+        console.print("\n[bold blue]Export readiness[/bold blue]")
         ready_table = Table(show_header=False, box=None, padding=(0, 2))
         ready_table.add_column("Capability", style="bold")
         ready_table.add_column("Status")
@@ -832,7 +832,7 @@ def _output_device_text(devices: list[dict[str, Any]]) -> None:
     uniformly here.
     """
     console = _get_console()
-    console.print("\n[bold blue]Available Devices (priority order)[/bold blue]")
+    console.print("\n[bold blue]Available devices (priority order)[/bold blue]")
     for dev in devices:
         name = escape(dev["name"])
         console.print(f"  [bold]#{dev['priority']}[/bold]  [cyan]{dev['type']:5s}[/cyan] {name}")
@@ -847,7 +847,7 @@ def _output_device_text(devices: list[dict[str, Any]]) -> None:
             ]
             if arch := details.get("architecture"):
                 parts.append(f"Architecture: {arch}")
-            console.print(f"             {' | '.join(parts)}")
+            console.print("             " + "\n             ".join(parts))
             if dev["type"] in ("NPU", "GPU"):
                 dedicated_memory = details.get("dedicated_memory_mib")
                 shared_memory = details.get("shared_memory_mib")
@@ -1198,7 +1198,7 @@ def _format_devices_from_handles(devices: list[dict[str, Any]]) -> list[str]:
 def _output_ep_text(eps: dict[str, dict[str, Any]]) -> None:
     """Display the comprehensive EP inventory in rich text format."""
     console = _get_console()
-    console.print("\n[bold blue]Available Execution Providers[/bold blue]")
+    console.print("\n[bold blue]Available execution providers[/bold blue]")
     if not eps:
         console.print("  [yellow]No execution providers found.[/yellow]")
         return

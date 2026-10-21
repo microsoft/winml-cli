@@ -280,7 +280,7 @@ def _build_list_renderable(
     table.add_column("Model", overflow="fold")
     table.add_column("Task", overflow="fold")
     table.add_column("Size", no_wrap=True, justify="right", width=5)
-    table.add_column("Model Type", overflow="fold")
+    table.add_column("Model type", overflow="fold")
     if ep_col_header is not None:
         table.add_column(ep_col_header, overflow="fold")
 
@@ -298,7 +298,7 @@ def _build_list_renderable(
 
     panel = Panel(
         table,
-        title=f"[bold]WinML CLI Catalog[/bold]  [dim]|[/dim]  "
+        title=f"[bold]WinML CLI catalog[/bold]  [dim]|[/dim]  "
         f"[bold cyan]{len(models)}[/bold cyan] validated model(s)",
         border_style="blue",
         padding=(0, 1),
