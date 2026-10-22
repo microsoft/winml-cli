@@ -1167,7 +1167,7 @@ class WinMLCatalogSource(EPSource):
             # One bad provider must not abort the others.
             try:
                 yield from self._resolve_provider(provider)
-            except Exception as e:  # noqa: PERF203
+            except Exception as e:
                 _winml_warn_once(
                     f"provider-error:{self.catalog_name}",
                     "WinMLCatalogSource(%s): provider iteration raised %s",

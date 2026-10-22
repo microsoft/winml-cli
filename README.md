@@ -35,37 +35,35 @@ Purpose-built for Windows hardware diversity, the CLI handles conversion, graph 
 | Component | Details |
 |---|---|
 | Windows | Windows 11 24H2 or later (required for NPU support; earlier versions work for CPU/GPU) |
-| Python | 3.11 recommended; 3.14 experimental (x64, standard GIL build) |
+| Python | 3.14 (x64, standard GIL build) |
 | Package manager | [uv](https://github.com/astral-sh/uv) |
 | WinML CLI | [PyPI](https://pypi.org/project/winml-cli/) |
 
 ### Installation
 
-WinML CLI recommends **Python 3.11** and is distributed as a Python wheel. **Python 3.14 is an experimental source-build target**, not a production support guarantee. Python 3.12 and 3.13 are accepted by package metadata but have not been validated in this upgrade. Free-threaded Python and native Arm64 Python are not supported. We recommend [uv](https://docs.astral.sh/uv/) for environment setup.
+This source version of WinML CLI requires **Python 3.14 or later**; Python 3.11 through 3.13 are no longer supported. Development and CI use Python 3.14. Later Python releases have not been validated. Free-threaded Python and native Arm64 Python are not supported. We recommend [uv](https://docs.astral.sh/uv/) for environment setup.
 
-To try Python 3.14 from a source checkout without changing an existing environment:
+From a source checkout, create or update the project environment:
 
 ```powershell
 uv python install cpython-3.14-windows-x86_64-none
-$env:UV_PROJECT_ENVIRONMENT = "temp\python314"
 uv sync --python cpython-3.14-windows-x86_64-none --all-extras
 uv run --no-sync python -m winml.modelkit.cli --help
-Remove-Item Env:UV_PROJECT_ENVIRONMENT
 ```
 
-The 3.14 environment uses newer NumPy, SciPy, ONNX, and Windows ML runtime versions; older interpreters retain their existing constraints. Keep PyArrow and pandas pinned: their versions affect generated Parquet bytes. Internal rule generators retain IR 11, but newer ONNX operator definitions and shape inference can still affect regenerated artifacts. Validate your execution providers, models, and generated artifacts before switching production environments.
+NumPy, SciPy, ONNX, and Windows ML runtime dependencies now use a single Python 3.14-compatible constraint set. Keep PyArrow and pandas pinned: their versions affect generated Parquet bytes. Internal rule generators retain IR 11, but newer ONNX operator definitions and shape inference can still affect regenerated artifacts. The runtime policy change does not certify every model or provider: known pipeline, cache, dataset, and QNN failures still require workload-specific validation.
 
-> **Windows on Arm:** winml-cli supports **x64 (AMD64) Python only**. On an Arm64 device, install an x64 build of Python 3.11 so `uv` resolves the `win_amd64` wheels — PyTorch and the Windows ML runtime packages publish no `win_arm64` wheels, so native Arm64 Python fails during setup. The x64 interpreter runs under Windows emulation and works normally. Create the environment with an explicit x64 interpreter:
+> **Windows on Arm:** winml-cli supports **x64 (AMD64) Python only**. On an Arm64 device, install an x64 build of Python 3.14 so `uv` resolves the `win_amd64` wheels — PyTorch and the Windows ML runtime packages publish no `win_arm64` wheels, so native Arm64 Python fails during setup. The x64 interpreter runs under Windows emulation. Create the environment with an explicit x64 interpreter:
 >
 > ```powershell
-> uv python install cpython-3.11-windows-x86_64-none
-> uv venv --python cpython-3.11-windows-x86_64-none
+> uv python install cpython-3.14-windows-x86_64-none
+> uv venv --python cpython-3.14-windows-x86_64-none
 > ```
 
 **1. Create an environment**
 
 ```bash
-uv venv --python 3.11
+uv venv --python 3.14
 ```
 
 Activate it:

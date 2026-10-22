@@ -12,7 +12,6 @@ This module provides:
 from __future__ import annotations
 
 import logging
-import sys
 from dataclasses import dataclass
 from inspect import get_annotations
 from typing import TYPE_CHECKING, Any, cast
@@ -304,8 +303,7 @@ def _get_model_config_class(model_class: type) -> Any:
     """Resolve Transformers config classes despite deferred class annotations."""
     config_cls = getattr(model_class, "config_class", None)
     if (
-        sys.version_info >= (3, 14)
-        and isinstance(model_class, type)
+        isinstance(model_class, type)
         and model_class.__module__.startswith("transformers.")
         and config_cls is getattr(super(model_class, model_class), "config_class", None)
     ):

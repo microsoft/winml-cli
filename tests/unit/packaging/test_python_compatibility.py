@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import os
 import subprocess
 import sys
 import textwrap
@@ -113,8 +112,8 @@ def _assert_native_inference(imports: str, provider: str, dtype: str) -> None:
     )
 
 
-def test_parquet_bytes_match_reference_interpreter() -> None:
-    """Set WINMLCLI_COMPAT_REFERENCE_PYTHON for cross-interpreter byte parity."""
+def test_parquet_bytes_are_deterministic() -> None:
+    """Keep the pinned writer deterministic across independent Python processes."""
     code = """
         import hashlib
         import io
@@ -142,15 +141,14 @@ def test_parquet_bytes_match_reference_interpreter() -> None:
             "sha256": hashlib.sha256(output.getvalue()).hexdigest(),
         }))
     """
-    reference = os.environ.get("WINMLCLI_COMPAT_REFERENCE_PYTHON", sys.executable)
-    expected = json.loads(_probe(reference, code))
+    expected = json.loads(_probe(sys.executable, code))
     actual = json.loads(_probe(sys.executable, code))
     assert actual == expected
 
 
 @pytest.mark.parametrize(("dtype", "annotation"), [("float32", "FLOAT"), ("float16", "FLOAT16")])
-def test_generated_rule_bytes_match_reference_interpreter(dtype: str, annotation: str) -> None:
-    """Keep representative generated model and Parquet bytes stable across runtimes."""
+def test_generated_rule_bytes_are_deterministic(dtype: str, annotation: str) -> None:
+    """Keep representative model and Parquet bytes stable across independent processes."""
     code = f"""
         import hashlib
         import io
@@ -184,8 +182,7 @@ def test_generated_rule_bytes_match_reference_interpreter(dtype: str, annotation
             "parquet_sha256": hashlib.sha256(output.getvalue()).hexdigest(),
         }}))
     """
-    reference = os.environ.get("WINMLCLI_COMPAT_REFERENCE_PYTHON", sys.executable)
-    expected = json.loads(_probe(reference, code))
+    expected = json.loads(_probe(sys.executable, code))
     actual = json.loads(_probe(sys.executable, code))
     assert actual["ir"] == 11
     assert actual == expected

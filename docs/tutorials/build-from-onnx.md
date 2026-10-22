@@ -11,7 +11,7 @@ The tutorial is split into two sections. Section A walks through the analyze →
 ## Prerequisites
 
 - **Windows 11 24H2** — required for NPU stack support
-- **Python 3.11** and **uv** installed (`pip install uv` or follow [astral.sh/uv](https://astral.sh/uv))
+- **Python 3.14** and **uv** installed (`pip install uv` or follow [astral.sh/uv](https://astral.sh/uv))
 - **winml-cli** installed — see [Installation](../getting-started/installation.md)
 - **An ONNX model file** — this tutorial uses `my_model.onnx` as a placeholder; substitute your own file
 

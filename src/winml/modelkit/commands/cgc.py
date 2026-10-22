@@ -1799,7 +1799,7 @@ def run_patterns(opts: Options) -> None:
         for adapter in targets:
             try:
                 written = report_patterns(opts, adapter, redist, sdk) or written
-            except RedistUnusable:  # noqa: PERF203 - next to a device, try costs nothing
+            except RedistUnusable:
                 raise  # no adapter can be asked through this redist
             except click.ClickException as exc:
                 # Sweeping every adapter: one driver that cannot answer must not cost
