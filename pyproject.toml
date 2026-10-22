@@ -206,6 +206,8 @@ include = [ "winml", "winml.*" ]
 
 [tool.ruff]
 target-version = "py314"
+# This standalone compiler runs under the external SDK, not the CLI interpreter.
+per-file-target-version."src/winml/modelkit/session/qairt/compile_qairt_bin.py" = "py311"
 
 line-length = 100 # Extended for modern screens
 # Indent with spaces (consistent with PEP 8)
@@ -403,6 +405,8 @@ norecursedirs = [
   "dist",
   "build",
   ".venv",
+  ".venv_old",
+  ".venv_new",
   "*.egg-info",
   "__pycache__",
   ".pytest_cache",

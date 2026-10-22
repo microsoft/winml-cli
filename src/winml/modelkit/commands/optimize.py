@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any
 
 import click
 from rich.console import Console
@@ -37,8 +37,6 @@ from ..utils.logging import configure_logging
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-
-F = TypeVar("F", bound="Callable[..., Any]")
 
 
 logger = logging.getLogger(__name__)
@@ -111,7 +109,7 @@ def _load_json(path: Path) -> dict[str, Any]:
         raise click.ClickException(f"Invalid JSON in config file: {e}") from e
 
 
-def capability_options(func: F) -> F:
+def capability_options[F: "Callable[..., Any]"](func: F) -> F:
     """Decorator that adds CLI options for all registered capabilities.
 
     This decorator auto-generates CLI options from the capability registry,
@@ -615,9 +613,7 @@ def optimize(
         if target is None:
             raise RuntimeError("Resolved optimization EP device has no target metadata.")
         optimizer_kwargs["ep_device"] = ep_device
-        console.print(
-            f"[bold blue]Target:[/bold blue] {target.ep} on {target.device.upper()}"
-        )
+        console.print(f"[bold blue]Target:[/bold blue] {target.ep} on {target.device.upper()}")
 
     try:
         console.print("\n[bold]Loading model...[/bold]")

@@ -12,8 +12,8 @@ This module provides:
 from __future__ import annotations
 
 import logging
+from annotationlib import get_annotations
 from dataclasses import dataclass
-from inspect import get_annotations
 from typing import TYPE_CHECKING, Any, cast
 
 

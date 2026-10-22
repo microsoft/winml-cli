@@ -408,9 +408,8 @@ def host_machine() -> str:
     Returns:
         ``x64``, ``x86``, ``arm64``, or ``?``.
     """
-    # The interpreter's own build, which is what decides whether this process can load
-    # the DLL. platform.machine() would answer the same on a native install, but on 3.11
-    # it runs `cmd /c ver` first, ~45 ms on every run.
+    # DLL loading follows the process build, not platform.machine()'s host
+    # architecture under Windows-on-Arm emulation.
     return {"win-amd64": "x64", "win32": "x86", "win-arm64": "arm64"}.get(
         sysconfig.get_platform(), "?"
     )

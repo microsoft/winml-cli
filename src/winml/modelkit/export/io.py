@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import logging
 from functools import partial
+from inspect import getattr_static
 from typing import TYPE_CHECKING, Any, cast
 
 from optimum.exporters.tasks import TasksManager
@@ -155,12 +156,8 @@ def instantiate_onnx_config(
 ) -> OnnxConfig:
     """Instantiate Optimum configs without Python 3.14 partial method binding."""
     config_class = constructor.func if isinstance(constructor, partial) else constructor
-    factory = getattr(config_class, "NORMALIZED_CONFIG_CLASS", None)
-    if (
-        isinstance(config_class, type)
-        and isinstance(factory, partial)
-        and hasattr(factory, "__get__")
-    ):
+    factory = getattr_static(config_class, "NORMALIZED_CONFIG_CLASS", None)
+    if isinstance(config_class, type) and isinstance(factory, partial):
         # Upstream factories are class attributes, not methods. Adapt locally;
         # never mutate Optimum's classes or its process-global registry.
         compatible_class = type(

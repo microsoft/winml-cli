@@ -288,14 +288,9 @@ def _resolve_arch_key() -> str:
     from :class:`~winml.modelkit.sysinfo.CPU`'s ``architecture`` (WMI's
     ``Win32_Processor.Architecture``): it queries the physical processor
     inventory directly, not the calling process, so it's correct even
-    under x64-on-ARM64 emulation — unlike ``platform.machine()``, which
-    reports "AMD64" for an x64 Python venv on Windows-on-ARM64 even though
-    the machine is ARM64. That's a documented ``onnxruntime-qnn`` footgun
-    ("WoS AMD64 — Python 3.11 installer issue" in the v2.3.0 release
-    notes): picking the amd64 (x64-emulated) QNN DLL over the native
-    arm64ec one causes the QNN HTP EP to hang indefinitely on some SDK
-    versions and run ~1000x slower on others, even though session creation
-    succeeds either way.
+    under x64-on-ARM64 emulation. Keep physical-host discovery separate
+    from the process build so each provider's architecture mapping can
+    select the appropriate DLL.
 
     Process architecture uses ``sysconfig.get_platform()``. Python 3.14's
     ``platform.machine()`` reports the native host even under x64 emulation.

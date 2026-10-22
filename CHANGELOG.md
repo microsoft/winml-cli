@@ -10,6 +10,7 @@ This cycle adds CGIR and Windows ML Runtime workflows, native PyTorch evaluation
 
 ### ⚠️ Behavior changes
 
+- **Python runtime** - requires Python 3.14 or later, with development and CI pinned to 3.14. On Windows, use standard-GIL x64 Python, including on Arm hosts. The optional QAIRT SDK compiler retains its separate vendor-pinned tool environment; it is not an alternative CLI runtime.
 - **Runtime selection** - runtime names are now `winml-ort` and `ort-genai` instead of `winml` and `winml-genai`; `winml perf` defaults to automatic runtime selection while retaining explicit choices (#1366, #1308).
 - `winml perf` - canonical cache controls are `--use-cache` / `--no-use-cache`; the older `--ignore-cache` / `--no-ignore-cache` forms remain hidden deprecated aliases, and conflicting toggles are rejected (#1271).
 - `winml analyze` - removes the obsolete `--htp-metadata` option in favor of pattern-rule-based runtime support checks (#1218).

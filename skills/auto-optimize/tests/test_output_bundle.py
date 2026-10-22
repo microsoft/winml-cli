@@ -236,7 +236,7 @@ def _valid_lock(assets: list[Path]) -> dict[str, Any]:
                 "kind": "git",
                 "revision": "fedcba9876543210fedcba9876543210fedcba98",
             },
-            "python": "3.11.14",
+            "python": "3.14.6",
             "runtime": "onnxruntime",
             "provider": "QNNExecutionProvider",
             "sdk": "declared-sdk",

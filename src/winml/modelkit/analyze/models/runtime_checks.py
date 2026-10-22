@@ -7,11 +7,10 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any, NotRequired
+from typing import Any, NotRequired, TypedDict
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
-from typing_extensions import TypedDict
 
 from .ihv_type import IHVType
 from .support_level import SupportLevel

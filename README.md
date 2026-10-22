@@ -53,6 +53,12 @@ uv run --no-sync python -m winml.modelkit.cli --help
 
 NumPy, SciPy, ONNX, and Windows ML runtime dependencies now use a single Python 3.14-compatible constraint set. Keep PyArrow and pandas pinned: their versions affect generated Parquet bytes. Internal rule generators retain IR 11, but newer ONNX operator definitions and shape inference can still affect regenerated artifacts. The runtime policy change does not certify every model or provider: known pipeline, cache, dataset, and QNN failures still require workload-specific validation.
 
+The optional QAIRT SDK compiler is an external tool with a separate,
+vendor-pinned environment, not a second CLI runtime. See the
+[SDK environment exception](docs/getting-started/installation.md#python-314-runtime-policy)
+before changing its Python or dependency versions. The normal ORT QNN path
+runs in the CLI's Python 3.14 environment.
+
 > **Windows on Arm:** winml-cli supports **x64 (AMD64) Python only**. On an Arm64 device, install an x64 build of Python 3.14 so `uv` resolves the `win_amd64` wheels — PyTorch and the Windows ML runtime packages publish no `win_arm64` wheels, so native Arm64 Python fails during setup. The x64 interpreter runs under Windows emulation. Create the environment with an explicit x64 interpreter:
 >
 > ```powershell

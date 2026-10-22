@@ -2,7 +2,6 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-# python >= 3.8
 import concurrent.futures as cf
 import multiprocessing as mp
 import sys

@@ -24,7 +24,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -64,9 +64,7 @@ class _OutputDirectoryLock:
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as exc:
             os.close(fd)
-            raise RuntimeError(
-                f"Output directory is already in use: {self._output_dir}"
-            ) from exc
+            raise RuntimeError(f"Output directory is already in use: {self._output_dir}") from exc
         self._fd = fd
         return self
 
@@ -89,7 +87,7 @@ class _OutputDirectoryLock:
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _tail(text: str | None, limit: int = 4000) -> str:
@@ -156,14 +154,17 @@ class _ProcessTreeGuard:
         import ctypes.wintypes as wintypes
 
         class _IoCounters(ctypes.Structure):
-            _fields_ = [(name, ctypes.c_uint64) for name in (
-                "ReadOperationCount",
-                "WriteOperationCount",
-                "OtherOperationCount",
-                "ReadTransferCount",
-                "WriteTransferCount",
-                "OtherTransferCount",
-            )]
+            _fields_ = [
+                (name, ctypes.c_uint64)
+                for name in (
+                    "ReadOperationCount",
+                    "WriteOperationCount",
+                    "OtherOperationCount",
+                    "ReadTransferCount",
+                    "WriteTransferCount",
+                    "OtherTransferCount",
+                )
+            ]
 
         class _BasicLimitInformation(ctypes.Structure):
             _fields_ = [
@@ -196,9 +197,7 @@ class _ProcessTreeGuard:
 
         info = _ExtendedLimitInformation()
         info.BasicLimitInformation.LimitFlags = 0x00002000  # KILL_ON_JOB_CLOSE
-        if not kernel32.SetInformationJobObject(
-            job, 9, ctypes.byref(info), ctypes.sizeof(info)
-        ):
+        if not kernel32.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info)):
             error = ctypes.get_last_error()
             kernel32.CloseHandle(job)
             raise ctypes.WinError(error)
@@ -492,9 +491,7 @@ def _context_point(
     device_kind = str(hw_monitor.get("device_kind") or "").lower()
     if expected_device == "cpu":
         if device_kind not in ("", "cpu"):
-            raise ValueError(
-                f"Expected CPU-only monitoring, got device_kind={device_kind!r}"
-            )
+            raise ValueError(f"Expected CPU-only monitoring, got device_kind={device_kind!r}")
         accelerator_util_pct = 0.0
         device_memory_mb = 0.0
         device_memory_util_pct = 0.0

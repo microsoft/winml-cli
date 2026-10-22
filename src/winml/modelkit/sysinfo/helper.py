@@ -4,18 +4,14 @@
 # --------------------------------------------------------------------------
 import json
 import subprocess
-from typing import TypeVar
 
 
-_T = TypeVar("_T")
-
-
-def _get_property_from_json(
+def _get_property_from_json[T](
     json_obj: dict,
     property_name: str,
-    property_type: type[_T] = str,  # type: ignore[assignment]
-    default: _T | None = None,
-) -> _T:
+    property_type: type[T] = str,  # type: ignore[assignment]
+    default: T | None = None,
+) -> T:
     """Extract and validate a property from a JSON object."""
     if not isinstance(json_obj, dict):
         raise TypeError("json_obj must be a dictionary.")
@@ -80,13 +76,13 @@ class CimInstance:
         """Initialize a CIM instance from a JSON object."""
         self._obj = json_obj
 
-    def get_property(self, property_name: str, property_type: type[_T]) -> _T:
+    def get_property[T](self, property_name: str, property_type: type[T]) -> T:
         """Get a property value from the CIM instance."""
         return _get_property_from_json(
             json_obj=self._obj, property_name=property_name, property_type=property_type
         )
 
-    def try_get_property(self, property_name: str, property_type: type[_T], default: _T) -> _T:
+    def try_get_property[T](self, property_name: str, property_type: type[T], default: T) -> T:
         """Get a property value from the CIM instance with a default fallback."""
         return _get_property_from_json(
             json_obj=self._obj,
@@ -155,7 +151,7 @@ class PnpDevice:
                 ],
                 stderr=subprocess.DEVNULL,
             )
-        except (subprocess.CalledProcessError, FileNotFoundError):
+        except subprocess.CalledProcessError, FileNotFoundError:
             return []
 
         text = output.decode("utf-8").strip()
@@ -244,11 +240,11 @@ class PnpDevice:
             value = _get_property_from_json(prop, "Data", object)
             self._extra_properties[key] = value
 
-    def get_property(self, property_name: str, property_type: type[_T]) -> _T:
+    def get_property[T](self, property_name: str, property_type: type[T]) -> T:
         """Get a property value from the PnP device."""
         return _get_property_from_json(self._pnp_device_obj, property_name, property_type)
 
-    def try_get_property(self, property_name: str, property_type: type[_T], default: _T) -> _T:
+    def try_get_property[T](self, property_name: str, property_type: type[T], default: T) -> T:
         """Get a property value from the PnP device with a default fallback."""
         return _get_property_from_json(
             json_obj=self._pnp_device_obj,
@@ -257,13 +253,13 @@ class PnpDevice:
             default=default,
         )
 
-    def get_extra_property(self, property_name: str, property_type: type[_T]) -> _T:
+    def get_extra_property[T](self, property_name: str, property_type: type[T]) -> T:
         """Get an extra device property from Get-PnpDeviceProperty."""
         return _get_property_from_json(self._extra_properties, property_name, property_type)
 
-    def try_get_extra_property(
-        self, property_name: str, property_type: type[_T], default: _T
-    ) -> _T:
+    def try_get_extra_property[T](
+        self, property_name: str, property_type: type[T], default: T
+    ) -> T:
         """Get an extra device property with a default fallback."""
         return _get_property_from_json(
             json_obj=self._extra_properties,
@@ -308,11 +304,11 @@ class AppxPackage:
         """Initialize an AppX package from a JSON object."""
         self._obj = json_obj
 
-    def get_property(self, property_name: str, property_type: type[_T]) -> _T:
+    def get_property[T](self, property_name: str, property_type: type[T]) -> T:
         """Get a property value from the AppX package."""
         return _get_property_from_json(self._obj, property_name, property_type)
 
-    def try_get_property(self, property_name: str, property_type: type[_T], default: _T) -> _T:
+    def try_get_property[T](self, property_name: str, property_type: type[T], default: T) -> T:
         """Get a property value from the AppX package with a default fallback."""
         return _get_property_from_json(
             json_obj=self._obj,

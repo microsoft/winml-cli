@@ -96,7 +96,13 @@ simultaneous exports must not write the same cached model artifacts.
 The optional Qualcomm QAIRT SDK backend runs its vendor-pinned compiler in a
 separate Python 3.11 subprocess environment. This is not a supported winml-cli
 runtime or a second project test matrix. Migrating that SDK environment requires
-a compatible vendor SDK, Torch, and ONNX stack; the CLI itself runs on 3.14.
+a compatible vendor SDK, Torch, and ONNX stack; the current vendor requirements
+include Torch 2.4.1, NumPy below 2, and ONNX below 1.17, which cannot simply be
+installed in the CLI's 3.14 environment. This exception applies only to the
+optional QAIRT SDK compiler backend, not the normal ORT QNN/NPU path.
+The CLI itself runs on 3.14.
+The standalone SDK compiler script also has a narrowly scoped Ruff target override
+so formatting the CLI cannot introduce syntax unsupported by the vendor runtime.
 
 ## Verify
 

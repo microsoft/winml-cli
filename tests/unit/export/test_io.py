@@ -67,6 +67,19 @@ def test_normalized_config_partial_remains_a_static_factory(partial_constructor:
     assert inspect.getattr_static(ExportConfig, "NORMALIZED_CONFIG_CLASS") is normalized_factory
 
 
+def test_static_normalized_config_factory_preserves_config_class() -> None:
+    class ExportConfig:
+        NORMALIZED_CONFIG_CLASS = staticmethod(partial(tuple))
+
+        def __init__(self, config):
+            self.normalized = self.NORMALIZED_CONFIG_CLASS(config)
+
+    result = instantiate_onnx_config(ExportConfig, ["value"])
+
+    assert type(result) is ExportConfig
+    assert result.normalized == ("value",)
+
+
 # =============================================================================
 # Test Constants - Minimal configs for fast testing
 # =============================================================================

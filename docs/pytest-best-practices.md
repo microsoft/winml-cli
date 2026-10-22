@@ -863,7 +863,7 @@ name = "myproject"
 version = "1.0.0"
 description = "My awesome project"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.14"
 license = {text = "MIT"}
 authors = [
     {name = "Your Name", email = "you@example.com"},
@@ -2600,7 +2600,7 @@ pytest --pdbcls=IPython.terminal.debugger:TerminalPdb
 # Set breakpoint in code
 def test_debug():
     value = calculate()
-    import pdb; pdb.set_trace()  # or breakpoint() in Python 3.7+
+    breakpoint()
     assert value == expected
 
 # Print debugging (use -s flag)
