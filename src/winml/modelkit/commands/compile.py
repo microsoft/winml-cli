@@ -224,7 +224,7 @@ def compile(
         except OSError as e:
             raise click.ClickException(f"CGC compilation failed: {e}") from e
         console.print(f"Output: {result_path}")
-        console.print("Format: MLIR bytecode; form: DEVICE_TARGETED (CG Output IR).")
+        console.print("Format: MLIR text; form: DEVICE_TARGETED (CG Output IR).")
         console.print(
             "Validation: reload, pipeline build and I/O schema passed (no inference)."
             if validate

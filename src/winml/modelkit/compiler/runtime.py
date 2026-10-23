@@ -106,7 +106,7 @@ def compile_cgc_ir(
     validate: bool = True,
     overwrite: bool = False,
 ) -> Path:
-    """Compile genuine CGC Input IR to a persistent device-targeted bytecode bundle.
+    """Compile genuine CGC Input IR to a persistent device-targeted text bundle.
 
     Validation reloads the artifact, builds a pipeline and compares I/O schemas;
     it does not run inference, numerical accuracy checks or performance tests.
@@ -118,8 +118,8 @@ def compile_cgc_ir(
         raise click.ClickException(
             "Input and output must be different files, even with --overwrite."
         )
-    if output_path.suffix.lower() not in {".mlir", ".mlirbc"}:
-        raise click.UsageError("CG Output IR output must use .mlir or .mlirbc.")
+    if output_path.suffix.lower() != ".mlir":
+        raise click.UsageError("Text CG Output IR output must use .mlir.")
     metadata_path = cgc_metadata_path(model_path)
     metadata_identity = _file_identity(metadata_path) if metadata_path.is_file() else None
     metadata = None
@@ -146,12 +146,13 @@ def compile_cgc_ir(
         staging = Path(temporary)
         artifact = staging / output_path.name
         session = WinMLRuntimeSession(model_path, backend="cgc", device_luid=luid)
-        session.compile_to_file(artifact, validate=validate)
+        session.compile_to_file(artifact, validate=validate, output_format="text")
         if not artifact.is_file() or not artifact.stat().st_size:
             raise click.ClickException("Runtime returned no nonempty Output IR artifact.")
-        with artifact.open("rb") as stream:
-            if stream.read(4) != b"ML\xefR":
-                raise click.ClickException("Runtime did not produce MLIR bytecode Output IR.")
+        try:
+            artifact.read_text(encoding="utf-8")
+        except UnicodeDecodeError as e:
+            raise click.ClickException("Runtime did not produce UTF-8 text Output IR.") from e
         if metadata is not None:
             cgc_metadata_path(artifact).write_text(
                 json.dumps({**metadata, "format": "cg-output-ir"}, indent=2),
@@ -169,7 +170,7 @@ def compile_cgc_ir(
             "target": "cg-output-ir",
             "runtime": "winml-runtime",
             "compiled_form": "DEVICE_TARGETED",
-            "output_encoding": "mlir-bytecode",
+            "output_encoding": "mlir-text",
             "input": source_identity,
             "gpu": {"name": adapter_info.name, "luid": adapter_info.luid},
             "validation": {
