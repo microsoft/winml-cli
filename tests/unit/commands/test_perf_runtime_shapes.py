@@ -116,8 +116,13 @@ def test_ort_options_are_fresh_and_receive_dimensions_before_use(monkeypatch):
         options.add_free_dimension_override_by_name.assert_called_once_with("batch", 2)
 
 
-@pytest.mark.parametrize("runtime", ["winml-runtime", "winml-ort"])
-def test_perf_hands_shapes_to_runtime_before_compilation(tmp_path, monkeypatch, runtime):
+@pytest.mark.parametrize(
+    ("runtime", "lowering"),
+    [("winml-ort", None), *[("winml-runtime", value) for value in (None, "auto", "dml", "d3d12")]],
+)
+def test_perf_hands_shapes_to_runtime_before_compilation(
+    tmp_path, monkeypatch, runtime, lowering
+):
     from winml.modelkit.models import WinMLAutoModel
 
     model_path = _model(tmp_path)
@@ -127,6 +132,7 @@ def test_perf_hands_shapes_to_runtime_before_compilation(tmp_path, monkeypatch, 
         model_id=str(model_path),
         runtime=runtime,
         backend="cgc" if runtime == "winml-runtime" else None,
+        cgc_lowering_target=lowering,
         input_data=data,
         device="gpu",
     )
@@ -142,6 +148,7 @@ def test_perf_hands_shapes_to_runtime_before_compilation(tmp_path, monkeypatch, 
     monkeypatch.setattr("winml.modelkit.commands.perf._ort_options_for_dimensions", configure)
 
     def construct(**kwargs):
+        assert kwargs["cgc_lowering_target"] == lowering
         if runtime == "winml-ort":
             assert kwargs["session_options"]() is options
             configure.assert_called_once_with({"batch": 2})

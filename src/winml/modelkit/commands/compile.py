@@ -35,6 +35,7 @@ from ..session import (
     available_eps_for_device,
     resolve_device,
 )
+from ..utils import CGCLoweringTarget
 from ..utils import cli as cli_utils
 from ..utils.constants import COMPILER_NAMES, ORT_SESSION_COMPILER, normalize_ep_name
 
@@ -111,6 +112,7 @@ def _is_epcontext_compiler(value: str) -> TypeGuard[CompilerName]:
     default=True,
     help="Validate compiled model with inference.",
 )
+@cli_utils.cgc_lowering_target_option()
 @click.option(
     "--compiler",
     type=click.Choice([*COMPILER_NAMES, "cgc"]),
@@ -156,6 +158,7 @@ def compile(
     verbose: int,
     quiet: bool,
     compiler: CompilerName | Literal["cgc"],
+    cgc_lowering_target: CGCLoweringTarget | None,
     qnn_sdk_root: Path | None,
     embed: bool,
     list_compilers_flag: bool,
@@ -220,6 +223,7 @@ def compile(
                 device_luid=device_luid,
                 validate=validate,
                 overwrite=overwrite,
+                cgc_lowering_target=cgc_lowering_target,
             )
         except OSError as e:
             raise click.ClickException(f"CGC compilation failed: {e}") from e

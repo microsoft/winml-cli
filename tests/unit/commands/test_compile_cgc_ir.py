@@ -52,6 +52,7 @@ def test_explicit_ir_compilation_routes_without_ep_resolution(ir_cli):
         device_luid="0x00000000_0x00000001",
         validate=True,
         overwrite=True,
+        cgc_lowering_target=None,
     )
     assert "MLIR text" in result.output and "no inference" in result.output
 
@@ -66,8 +67,17 @@ def test_ir_defaults_and_skipped_validation(ir_cli):
         device_luid=None,
         validate=False,
         overwrite=False,
+        cgc_lowering_target=None,
     )
     assert "skipped" in result.output
+
+
+@pytest.mark.parametrize("lowering", ["auto", "dml", "d3d12"])
+def test_ir_lowering_target_is_forwarded(ir_cli, lowering):
+    _, operation, args = ir_cli
+    result = CliRunner().invoke(compile, [*args, "--cgc-lowering-target", lowering])
+    assert result.exit_code == 0, result.output
+    assert operation.call_args.kwargs["cgc_lowering_target"] == lowering
 
 
 def test_ir_output_file_precedes_output_directory(ir_cli):
@@ -165,5 +175,5 @@ def test_ir_options_are_hidden_in_help():
     result = CliRunner().invoke(compile, ["--help"])
     assert result.exit_code == 0
     assert "--compiler" in result.output
-    for value in ("cgc", "cgir", "mlir", "--device-luid"):
+    for value in ("cgc", "cgir", "mlir", "--device-luid", "--cgc-lowering-target"):
         assert value not in result.output.casefold()

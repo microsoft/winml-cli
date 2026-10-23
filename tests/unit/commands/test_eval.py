@@ -651,6 +651,32 @@ def eval_config_file(tmp_path):
 
 
 class TestEvalConfigPrecedence:
+    @pytest.mark.parametrize("lowering", ["auto", "dml", "d3d12"])
+    @pytest.mark.parametrize("from_cli", [False, True])
+    def test_cgc_lowering_config_and_cli_precedence(
+        self, runner, tmp_path, lowering, from_cli
+    ):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        path = tmp_path / "eval.json"
+        path.write_text(json.dumps({"eval": {
+            "runtime": "winml-runtime", "backend": "cgc",
+            "task": "image-classification", "device": "gpu",
+            "cgc_lowering_target": "auto" if from_cli else lowering,
+        }}))
+        args = ["--config", str(path), "-m", "test/model"]
+        if from_cli:
+            args.extend(["--cgc-lowering-target", lowering])
+        with (
+            patch("winml.modelkit.eval.evaluate") as evaluate,
+            patch("winml.modelkit.commands.eval._resolve_device"),
+            patch("winml.modelkit.commands.eval._write_and_display"),
+        ):
+            result = runner.invoke(eval_cmd, args, obj={"debug": False})
+        assert result.exit_code == 0, result.output
+        assert evaluate.call_args.args[0].cgc_lowering_target == lowering
+        assert "--cgc-lowering-target" not in runner.invoke(eval_cmd, ["--help"]).output
+
     def test_cli_overrides_config_and_config_overrides_defaults(
         self,
         runner: CliRunner,

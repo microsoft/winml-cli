@@ -34,10 +34,11 @@ def native(tmp_path, monkeypatch):
     sessions = []
 
     class FakeSession:
-        def __init__(self, model_path, *, backend, device_luid):
+        def __init__(self, model_path, *, backend, device_luid, cgc_lowering_target=None):
             self.model_path = Path(model_path)
             self.backend = backend
             self.device_luid = device_luid
+            self.cgc_lowering_target = cgc_lowering_target
             self.validate = None
             sessions.append(self)
 
@@ -57,8 +58,9 @@ def native(tmp_path, monkeypatch):
     )
 
 
-def test_compile_routes_through_runtime_session_and_publishes_bundle(native):
-    result = compile_cgc_ir(native.source, native.output)
+@pytest.mark.parametrize("lowering", [None, "auto", "dml", "d3d12"])
+def test_compile_routes_through_runtime_session_and_publishes_bundle(native, lowering):
+    result = compile_cgc_ir(native.source, native.output, cgc_lowering_target=lowering)
 
     assert result == native.output
     assert native.output.read_text(encoding="utf-8") == "module { cgc.output }"
@@ -68,6 +70,7 @@ def test_compile_routes_through_runtime_session_and_publishes_bundle(native):
     receipt = json.loads(native.output.with_name("output_compile.json").read_text())
     assert receipt["validation"]["status"] == "passed"
     assert receipt["output_encoding"] == "mlir-text"
+    assert receipt["cgc_lowering_target"] == (lowering or "auto")
     assert {entry["filename"] for entry in receipt["artifacts"]} == {
         "output.mlir",
         "output.data",
@@ -77,6 +80,7 @@ def test_compile_routes_through_runtime_session_and_publishes_bundle(native):
     assert session.model_path == native.source
     assert session.backend == "cgc"
     assert session.device_luid == 1
+    assert session.cgc_lowering_target == lowering
     assert session.validate is True
     assert session.output_format == "text"
 

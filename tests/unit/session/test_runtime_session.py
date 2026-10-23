@@ -22,6 +22,7 @@ import pytest
 from winml.modelkit.session.runtime_session import (
     WinMLRuntimeSession,
     _apply_io_metadata,
+    _compile_runtime_model,
     _DXCoreAdapter,
     _numpy_dtype_for,
     _ResolvedRuntimeTarget,
@@ -276,7 +277,10 @@ def test_stage_schema_falls_back_to_projection_interface() -> None:
     )
 
 
-def test_persistent_compile_normalizes_dynamic_schema_dimensions(tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize("lowering", [None, "auto", "dml", "d3d12"])
+def test_persistent_compile_normalizes_dynamic_schema_dimensions(
+    tmp_path, monkeypatch, lowering
+) -> None:
     source_schema = Mock()
     source_schema.inputs.return_value = [("float32", (0, 4))]
     source_schema.outputs.return_value = [("float32", (0, 4))]
@@ -305,6 +309,7 @@ def test_persistent_compile_normalizes_dynamic_schema_dimensions(tmp_path, monke
     wr = SimpleNamespace(
         Runtime=Mock(return_value=runtime),
         CompiledModelForm=SimpleNamespace(DEVICE_TARGETED="device-targeted"),
+        CgcLoweringTarget=SimpleNamespace(AUTOMATIC=object(), DML=object(), D3D12=object()),
     )
     monkeypatch.setattr(
         "winml.modelkit.session.runtime_session.import_runtime", lambda: wr
@@ -319,7 +324,8 @@ def test_persistent_compile_normalizes_dynamic_schema_dimensions(tmp_path, monke
         serialize_text,
     )
     session = WinMLRuntimeSession(
-        tmp_path / "input.mlir", backend="cgc", device_luid=1
+        tmp_path / "input.mlir", backend="cgc", device_luid=1,
+        cgc_lowering_target=lowering,
     )
     monkeypatch.setattr(session, "_resolve_target", lambda _runtime, _wr: resolved)
 
@@ -327,6 +333,9 @@ def test_persistent_compile_normalizes_dynamic_schema_dimensions(tmp_path, monke
 
     assert output.read_text(encoding="utf-8") == "module { cgc.output }"
     assert options.form == "device-targeted"
+    if lowering is not None:
+        enum_name = "AUTOMATIC" if lowering == "auto" else lowering.upper()
+        assert options.cgc_lowering_target is getattr(wr.CgcLoweringTarget, enum_name)
     compiler.compile_to_file.assert_called_once_with(
         source_model, str(output), options=options
     )
@@ -349,6 +358,87 @@ def test_serialize_mlir_as_text_replaces_bytecode(tmp_path, monkeypatch) -> None
 
     assert path.read_text(encoding="utf-8") == "module { cgc.output }\n"
     read_text.assert_called_once_with(path)
+
+
+@pytest.mark.parametrize("lowering", ["auto", "dml", "d3d12"])
+@pytest.mark.parametrize("suffix", [".onnx", ".mlir", ".mlirbc"])
+def test_inference_loaders_forward_lowering_to_api(monkeypatch, tmp_path, lowering, suffix):
+    enum = SimpleNamespace(AUTOMATIC=object(), DML=object(), D3D12=object())
+    monkeypatch.setattr(
+        "winml.modelkit.session.runtime_session.import_runtime",
+        lambda: SimpleNamespace(CgcLoweringTarget=enum),
+    )
+    source, compiled = Mock(), Mock()
+    runtime = Mock()
+    runtime.load_model.side_effect = [source, compiled]
+    options = SimpleNamespace(close=Mock())
+    compiler = Mock(create_options=Mock(return_value=options))
+    target = _ResolvedRuntimeTarget(
+        SimpleNamespace(model_compiler=lambda: compiler), "gpu"
+    )
+    session = WinMLRuntimeSession(
+        tmp_path / f"input{suffix}", backend="cgc", device_luid=1,
+        cgc_lowering_target=lowering,
+    )
+    try:
+        loader = session._load_onnx_on_cgc if suffix == ".onnx" else session._load_mlir
+        model, _, _ = loader(runtime, target)
+        assert model is compiled
+        enum_name = "AUTOMATIC" if lowering == "auto" else lowering.upper()
+        assert options.cgc_lowering_target is getattr(enum, enum_name)
+        compiler.compile_to_file.assert_called_once_with(
+            source, runtime.load_model.call_args.args[0], options=options
+        )
+        options.close.assert_called_once()
+        compiler.close.assert_called_once()
+        if suffix != ".onnx":
+            source.close.assert_called_once()
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize("lowering", ["auto", "dml", "d3d12"])
+def test_lowering_rejects_ort_backend(tmp_path, lowering):
+    with pytest.raises(ValueError, match="requires backend='cgc'"):
+        WinMLRuntimeSession(
+            tmp_path / "model.onnx", backend="ort", cgc_lowering_target=lowering
+        )
+
+
+def test_lowering_rejects_invalid_config_value(tmp_path):
+    with pytest.raises(ValueError, match="Invalid CGC lowering target"):
+        WinMLRuntimeSession(
+            tmp_path / "model.onnx", backend="cgc", device_luid=1,
+            cgc_lowering_target="invalid",
+        )
+
+
+@pytest.mark.parametrize("lowering", ["auto", "dml", "d3d12"])
+def test_lowering_preserves_other_options_and_propagates_failure(monkeypatch, lowering):
+    enum = SimpleNamespace(AUTOMATIC=object(), DML=object(), D3D12=object())
+    monkeypatch.setattr(
+        "winml.modelkit.session.runtime_session.import_runtime",
+        lambda: SimpleNamespace(CgcLoweringTarget=enum),
+    )
+    options = SimpleNamespace(
+        supports_symbolic_dimensions=True, symbolic_dimensions={}, close=Mock()
+    )
+    compiler = Mock(create_options=Mock(return_value=options))
+    compiler.compile_to_file.side_effect = RuntimeError("lowering rejected")
+    target = _ResolvedRuntimeTarget(SimpleNamespace(model_compiler=lambda: compiler), "gpu")
+    with pytest.raises(RuntimeError, match="lowering rejected"):
+        _compile_runtime_model(
+            Mock(), target, Path("output.mlir"),
+            symbolic_dimensions={"batch": 2}, compiled_form="device-targeted",
+            cgc_lowering_target=lowering,
+        )
+    enum_name = "AUTOMATIC" if lowering == "auto" else lowering.upper()
+    assert options.cgc_lowering_target is getattr(enum, enum_name)
+    assert options.symbolic_dimensions == {"batch": 2}
+    assert options.form == "device-targeted"
+    compiler.compile_to_file.assert_called_once()
+    options.close.assert_called_once()
+    compiler.close.assert_called_once()
 
 
 def test_io_metadata_replaces_ordinal_names(tmp_path: Path) -> None:

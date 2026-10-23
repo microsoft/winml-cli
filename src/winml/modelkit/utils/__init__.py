@@ -5,7 +5,7 @@
 """Utility modules for ModelExport."""
 
 from .config_utils import merge_config
-from .constants import normalize_ep_name
+from .constants import CGC_LOWERING_TARGETS, CGCLoweringTarget, normalize_ep_name
 from .hub_utils import (
     get_pipeline_tag,
     inject_hub_metadata,
@@ -23,7 +23,9 @@ from .model_input import (
 
 
 __all__ = [
+    "CGC_LOWERING_TARGETS",
     "MANIFEST_FILENAME",
+    "CGCLoweringTarget",
     "ManifestStage",
     "ModelInput",
     "ModelInputKind",

@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 import click
 from rich.console import Console
 
+from ..utils import CGCLoweringTarget
 from ..utils import cli as cli_utils
 from ..utils.constants import (
     ALL_EP_NAMES,
@@ -131,6 +132,7 @@ logger = logging.getLogger(__name__)
     help="Evaluation runtime. 'winml-ort' exports Hugging Face checkpoints to ONNX; "
     "'pytorch' evaluates the original checkpoint.",
 )
+@cli_utils.cgc_lowering_target_option()
 @click.option(
     "--backend",
     type=click.Choice(list(RUNTIME_BACKENDS)),
@@ -287,6 +289,7 @@ def eval(
     dynamic_axes: Path | None,
     runtime: EvalRuntime,
     backend: str | None,
+    cgc_lowering_target: CGCLoweringTarget | None,
     ep: EPNameOrAlias | None,
     samples: int,
     split: str,

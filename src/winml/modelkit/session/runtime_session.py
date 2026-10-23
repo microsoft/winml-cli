@@ -50,6 +50,7 @@ if TYPE_CHECKING:
 
     import numpy as np
 
+    from ..utils import CGCLoweringTarget
     from ..utils.constants import RuntimeBackend
     from .ep_registry import WinMLEPDevice
     from .session import PerfContext
@@ -537,13 +538,18 @@ def _compile_runtime_model(
     *,
     symbolic_dimensions: Mapping[str, int] | None = None,
     compiled_form: Any | None = None,
+    cgc_lowering_target: CGCLoweringTarget | None = None,
 ) -> None:
     """Compile a loaded Runtime model while owning compiler/options lifetimes."""
     with _translate_native_errors("build", device_class=resolved_target.device_class):
         compiler = resolved_target.execution_target.model_compiler()
         options = None
         try:
-            if symbolic_dimensions or compiled_form is not None:
+            if (
+                symbolic_dimensions
+                or compiled_form is not None
+                or cgc_lowering_target is not None
+            ):
                 options = compiler.create_options()
                 if symbolic_dimensions:
                     if not options.supports_symbolic_dimensions:
@@ -558,6 +564,13 @@ def _compile_runtime_model(
                             "Runtime does not support DEVICE_TARGETED CG Output IR."
                         )
                     options.form = compiled_form
+                if cgc_lowering_target is not None:
+                    wr = import_runtime()
+                    options.cgc_lowering_target = {
+                        "auto": wr.CgcLoweringTarget.AUTOMATIC,
+                        "dml": wr.CgcLoweringTarget.DML,
+                        "d3d12": wr.CgcLoweringTarget.D3D12,
+                    }[cgc_lowering_target]
                 compiler.compile_to_file(source_model, str(output_path), options=options)
             else:
                 compiler.compile_to_file(source_model, str(output_path))
@@ -670,6 +683,7 @@ class WinMLRuntimeSession:
         session_options: Callable[[], Any] | None = None,
         backend: RuntimeBackend,
         device_luid: int | None = None,
+        cgc_lowering_target: CGCLoweringTarget | None = None,
     ) -> None:
         """Initialize a Runtime session.
 
@@ -682,11 +696,23 @@ class WinMLRuntimeSession:
                 rejected for ONNX because the Runtime pipeline API does not
                 expose a per-EP option hook.
             backend: Resolved backend used for model execution.
+            cgc_lowering_target: Optional CGC compilation target; defaults to automatic.
         """
+        from ..utils import CGC_LOWERING_TARGETS
+
+        if cgc_lowering_target is not None:
+            if cgc_lowering_target not in CGC_LOWERING_TARGETS:
+                raise ValueError(
+                    f"Invalid CGC lowering target {cgc_lowering_target!r}; "
+                    f"expected one of {CGC_LOWERING_TARGETS}."
+                )
+            if backend != "cgc":
+                raise ValueError("cgc_lowering_target requires backend='cgc'.")
         self._lock = threading.RLock()
         self._model_path = Path(model_path)
         self._is_mlir = self._model_path.suffix.lower() in {".mlir", ".mlirbc"}
         self._backend = backend
+        self._cgc_lowering_target = cgc_lowering_target
         if self._backend == "cgc" and ep_device is None and device_luid is None:
             raise ValueError("ep_device or device_luid is required for CGC Runtime sessions.")
         self._ep_device = ep_device
@@ -778,16 +804,16 @@ class WinMLRuntimeSession:
             model = runtime.load_model(str(self._model_path))
         return model, model.ort_schema(), True
 
-    def _load_onnx_on_cgc(
+    def _load_on_cgc(
         self,
         runtime: Any,
         resolved_target: _ResolvedRuntimeTarget,
     ) -> tuple[Any, Any, bool]:
-        """Compile ONNX to CGIR and reload it for execution by the CGC backend."""
+        """Compile ONNX or MLIR to CG Output IR and reload it for execution."""
         with _translate_native_errors("load"):
             source_model = runtime.load_model(str(self._model_path))
         try:
-            ort_schema = source_model.ort_schema()
+            ort_schema = None if self._is_mlir else source_model.ort_schema()
 
             self._compiled_artifacts = TemporaryDirectory(prefix="winml-runtime-cgc-")
             artifact_path = Path(self._compiled_artifacts.name) / "model.mlir"
@@ -796,19 +822,14 @@ class WinMLRuntimeSession:
                 resolved_target,
                 artifact_path,
                 symbolic_dimensions=self._symbolic_dimensions,
+                cgc_lowering_target=self._cgc_lowering_target,
             )
 
             with _translate_native_errors("load"):
                 model = runtime.load_model(str(artifact_path))
             return model, ort_schema, False
-        except Exception:
+        finally:
             source_model.close()
-            raise
-
-    def _load_mlir(self, runtime: Any) -> tuple[Any, None, bool]:
-        """Load MLIR directly for execution by the CGC backend."""
-        with _translate_native_errors("load"):
-            return runtime.load_model(str(self._model_path)), None, False
 
     def _ensure_built_locked(self) -> None:
         if self._built:
@@ -818,10 +839,8 @@ class WinMLRuntimeSession:
         runtime = wr.Runtime()
         resolved_target = self._resolve_target(runtime, wr)
         try:
-            if self._is_mlir:
-                model, ort_schema, has_named_bindings = self._load_mlir(runtime)
-            elif self._backend == "cgc":
-                model, ort_schema, has_named_bindings = self._load_onnx_on_cgc(
+            if self._backend == "cgc":
+                model, ort_schema, has_named_bindings = self._load_on_cgc(
                     runtime, resolved_target
                 )
             else:
@@ -1026,6 +1045,7 @@ class WinMLRuntimeSession:
                 resolved_target,
                 destination,
                 compiled_form=wr.CompiledModelForm.DEVICE_TARGETED,
+                cgc_lowering_target=self._cgc_lowering_target,
             )
             if output_format == "text":
                 _serialize_mlir_as_text(destination)
