@@ -42,7 +42,7 @@ jobs:
               tests/unit/ep_path
               skills/adding-model-support/tests skills/auto-optimize/tests
 
-    name: test (${{ matrix.group }}, Python 3.14)
+    name: test (${{ matrix.group }})
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

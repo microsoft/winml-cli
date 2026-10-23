@@ -70,6 +70,21 @@ def test_pre_commit_uses_the_cli_python_runtime() -> None:
     assert config["default_language_version"]["python"] == "python3.14"
 
 
+def test_ci_check_names_remain_stable_for_branch_protection() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github" / "workflows" / "modelkit-ci.yml").read_text(encoding="utf-8")
+    )
+    job = workflow["jobs"]["test"]
+    assert job["name"] == "test (${{ matrix.group }})"
+    assert set(job["strategy"]["matrix"]["group"]) == {
+        "analyze",
+        "models",
+        "optim",
+        "commands",
+        "remaining",
+    }
+
+
 def test_vendor_compiler_formatting_preserves_its_isolated_runtime() -> None:
     script = ROOT / "src" / "winml" / "modelkit" / "session" / "qairt" / "compile_qairt_bin.py"
     ast.parse(script.read_text(encoding="utf-8"), feature_version=(3, 11))
