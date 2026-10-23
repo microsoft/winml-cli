@@ -400,6 +400,12 @@ def eval(
         cfg.backend = resolve_runtime_api_backend(cfg.runtime, cfg.model_path, cfg.backend)
     except ValueError as error:
         raise click.UsageError(str(error)) from error
+    if cfg.cgc_lowering_target is not None and (
+        cfg.runtime != "winml-runtime" or cfg.backend != "cgc"
+    ):
+        raise click.UsageError(
+            "--cgc-lowering-target requires --runtime winml-runtime with the CGC backend."
+        )
     if cfg.runtime == "pytorch" and cfg.model_path is not None:
         raise click.UsageError(
             "--runtime pytorch requires a Hugging Face model ID or local Hugging Face "

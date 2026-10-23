@@ -193,6 +193,10 @@ def compile(
         and model[0].suffix.casefold() in {".mlir", ".mlirbc"}
     )
     ir_mode = compiler == "cgc" or inferred_cgc
+    if cgc_lowering_target is not None and not ir_mode:
+        raise click.UsageError(
+            "--cgc-lowering-target is only supported for CGC compilation."
+        )
     if ir_mode:
         incompatible = {
             "--ep": ep is not None,

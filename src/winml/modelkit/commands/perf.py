@@ -3440,6 +3440,12 @@ def perf(
         effective_backend = resolve_runtime_api_backend(runtime, model, backend)
     except ValueError as error:
         raise click.UsageError(str(error)) from error
+    if cgc_lowering_target is not None and (
+        runtime != "winml-runtime" or effective_backend != "cgc"
+    ):
+        raise click.UsageError(
+            "--cgc-lowering-target requires --runtime winml-runtime with the CGC backend."
+        )
     # AC 11 (mockup spec): --top-k requires --op-tracing. Outside the
     # op-tracing section the flag is meaningless, so reject it explicitly
     # rather than silently ignoring a user's intent.

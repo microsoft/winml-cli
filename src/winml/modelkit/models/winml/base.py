@@ -97,6 +97,10 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         # Set by WinMLAutoModel.from_pretrained() after construction
         self._build_config: Any = None
 
+        if cgc_lowering_target is not None and runtime != "winml-runtime":
+            raise ValueError(
+                "cgc_lowering_target requires runtime='winml-runtime'."
+            )
         runtime_kwargs: dict[str, Any] = (
             {"backend": backend, "cgc_lowering_target": cgc_lowering_target}
             if runtime == "winml-runtime" else {}
