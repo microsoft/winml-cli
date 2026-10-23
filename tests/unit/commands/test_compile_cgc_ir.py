@@ -53,7 +53,7 @@ def test_explicit_ir_compilation_routes_without_ep_resolution(ir_cli):
         validate=True,
         overwrite=True,
     )
-    assert "bytecode" in result.output and "no inference" in result.output
+    assert "MLIR text" in result.output and "no inference" in result.output
 
 
 def test_ir_defaults_and_skipped_validation(ir_cli):

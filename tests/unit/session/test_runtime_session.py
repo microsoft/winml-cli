@@ -25,6 +25,7 @@ from winml.modelkit.session.runtime_session import (
     _DXCoreAdapter,
     _numpy_dtype_for,
     _ResolvedRuntimeTarget,
+    _serialize_mlir_as_text,
     _shape_with_dynamic_dims,
     _stage_schema,
     _symbolic_dimensions_for_inputs,
@@ -308,21 +309,46 @@ def test_persistent_compile_normalizes_dynamic_schema_dimensions(tmp_path, monke
     monkeypatch.setattr(
         "winml.modelkit.session.runtime_session.import_runtime", lambda: wr
     )
+    serialize_text = Mock(
+        side_effect=lambda path: path.write_text(
+            "module { cgc.output }", encoding="utf-8"
+        )
+    )
+    monkeypatch.setattr(
+        "winml.modelkit.session.runtime_session._serialize_mlir_as_text",
+        serialize_text,
+    )
     session = WinMLRuntimeSession(
         tmp_path / "input.mlir", backend="cgc", device_luid=1
     )
     monkeypatch.setattr(session, "_resolve_target", lambda _runtime, _wr: resolved)
 
-    session.compile_to_file(output)
+    session.compile_to_file(output, output_format="text")
 
-    assert output.is_file()
+    assert output.read_text(encoding="utf-8") == "module { cgc.output }"
     assert options.form == "device-targeted"
     compiler.compile_to_file.assert_called_once_with(
         source_model, str(output), options=options
     )
+    serialize_text.assert_called_once_with(output)
     compiled_schema.close.assert_called_once_with()
     with pytest.raises(click.ClickException):
         _numpy_dtype_for(SimpleNamespace(name="BFLOAT16"))
+
+
+def test_serialize_mlir_as_text_replaces_bytecode(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "output.mlir"
+    path.write_bytes(b"ML\xefRcompiled")
+    read_text = Mock(return_value="module { cgc.output }\n")
+    monkeypatch.setattr(
+        "winml.modelkit.export.cgc.ir.read_mlir_text",
+        read_text,
+    )
+
+    _serialize_mlir_as_text(path)
+
+    assert path.read_text(encoding="utf-8") == "module { cgc.output }\n"
+    read_text.assert_called_once_with(path)
 
 
 def test_io_metadata_replaces_ordinal_names(tmp_path: Path) -> None:

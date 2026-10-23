@@ -27,7 +27,7 @@ def native(tmp_path, monkeypatch):
     compile_action = Mock()
 
     def write_artifact(path: Path) -> None:
-        path.write_bytes(b"ML\xefRcompiled")
+        path.write_text("module { cgc.output }", encoding="utf-8")
         path.with_suffix(".data").write_bytes(b"resources")
 
     compile_action.side_effect = write_artifact
@@ -41,8 +41,9 @@ def native(tmp_path, monkeypatch):
             self.validate = None
             sessions.append(self)
 
-        def compile_to_file(self, path, *, validate):
+        def compile_to_file(self, path, *, validate, output_format):
             self.validate = validate
+            self.output_format = output_format
             compile_action(Path(path))
 
     monkeypatch.setattr("winml.modelkit.compiler.runtime.WinMLRuntimeSession", FakeSession)
@@ -60,13 +61,13 @@ def test_compile_routes_through_runtime_session_and_publishes_bundle(native):
     result = compile_cgc_ir(native.source, native.output)
 
     assert result == native.output
-    assert native.output.read_bytes() == b"ML\xefRcompiled"
+    assert native.output.read_text(encoding="utf-8") == "module { cgc.output }"
     assert native.output.with_suffix(".data").read_bytes() == b"resources"
     metadata = json.loads(native.output.with_name("output_metadata.json").read_text())
     assert metadata["format"] == "cg-output-ir"
     receipt = json.loads(native.output.with_name("output_compile.json").read_text())
     assert receipt["validation"]["status"] == "passed"
-    assert receipt["output_encoding"] == "mlir-bytecode"
+    assert receipt["output_encoding"] == "mlir-text"
     assert {entry["filename"] for entry in receipt["artifacts"]} == {
         "output.mlir",
         "output.data",
@@ -77,6 +78,7 @@ def test_compile_routes_through_runtime_session_and_publishes_bundle(native):
     assert session.backend == "cgc"
     assert session.device_luid == 1
     assert session.validate is True
+    assert session.output_format == "text"
 
 
 def test_no_validate_is_forwarded_to_runtime_session(native):
@@ -93,7 +95,7 @@ def test_overwrite_requires_opt_in_and_preserves_source(native):
     native.compile_action.assert_not_called()
 
     compile_cgc_ir(native.source, native.output, overwrite=True)
-    assert native.output.read_bytes() == b"ML\xefRcompiled"
+    assert native.output.read_text(encoding="utf-8") == "module { cgc.output }"
     assert native.source.read_bytes() == b"Input IR fixture"
 
 
@@ -105,7 +107,7 @@ def test_overwrite_removes_stale_output_metadata(native):
 
     compile_cgc_ir(native.source, native.output, overwrite=True)
 
-    assert native.output.read_bytes() == b"ML\xefRcompiled"
+    assert native.output.read_text(encoding="utf-8") == "module { cgc.output }"
     assert not stale.exists()
 
 
@@ -126,12 +128,12 @@ def test_compile_failure_does_not_replace_existing_output(native):
     assert native.output.read_bytes() == b"old"
 
 
-@pytest.mark.parametrize("failure", ["empty", "text"])
+@pytest.mark.parametrize("failure", ["empty", "binary"])
 def test_rejects_invalid_runtime_output(native, failure):
     if failure == "empty":
         native.compile_action.side_effect = lambda path: None
     else:
-        native.compile_action.side_effect = lambda path: path.write_text("unexpected")
+        native.compile_action.side_effect = lambda path: path.write_bytes(b"\xff\xfe")
     with pytest.raises(click.ClickException):
         compile_cgc_ir(native.source, native.output)
     assert not native.output.exists()
@@ -139,7 +141,7 @@ def test_rejects_invalid_runtime_output(native, failure):
 
 def test_changed_input_is_rejected_before_publication(native):
     def mutate(path):
-        path.write_bytes(b"ML\xefRcompiled")
+        path.write_text("module { cgc.output }", encoding="utf-8")
         native.source.write_bytes(b"changed")
 
     native.compile_action.side_effect = mutate
@@ -159,7 +161,7 @@ def test_invalid_metadata_is_explicit(native, kind):
 
 def test_source_metadata_change_during_compile_is_rejected(native):
     def mutate(path):
-        path.write_bytes(b"ML\xefRcompiled")
+        path.write_text("module { cgc.output }", encoding="utf-8")
         native.source.with_name("input_metadata.json").write_text("{}")
 
     native.compile_action.side_effect = mutate
@@ -170,7 +172,7 @@ def test_source_metadata_change_during_compile_is_rejected(native):
 
 def test_input_and_output_metadata_collision_preserves_source(native):
     destination = native.source.with_suffix(".mlirbc")
-    with pytest.raises(click.ClickException, match="source artifact"):
+    with pytest.raises(click.UsageError, match=r"must use \.mlir"):
         compile_cgc_ir(native.source, destination, overwrite=True)
     assert not destination.exists()
 
@@ -178,7 +180,7 @@ def test_input_and_output_metadata_collision_preserves_source(native):
 def test_nonexistent_input_and_wrong_output_suffix_are_explicit(native):
     with pytest.raises(click.ClickException, match="file not found"):
         compile_cgc_ir(native.source.with_name("missing.mlir"), native.output)
-    with pytest.raises(click.UsageError, match=r"\.mlir or \.mlirbc"):
+    with pytest.raises(click.UsageError, match=r"must use \.mlir"):
         compile_cgc_ir(native.source, native.output.with_suffix(".onnx"))
     native.compile_action.assert_not_called()
 

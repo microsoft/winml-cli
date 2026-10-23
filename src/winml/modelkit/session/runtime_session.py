@@ -46,6 +46,7 @@ from ._runtime_import import import_runtime
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping
+    from typing import Literal
 
     import numpy as np
 
@@ -575,6 +576,13 @@ def _normalized_schema_descriptors(schema: Any) -> tuple[list[Any], list[Any]]:
     return normalize(schema.inputs()), normalize(schema.outputs())
 
 
+def _serialize_mlir_as_text(path: Path) -> None:
+    """Replace an MLIR bytecode artifact with its UTF-8 text representation."""
+    from ..export.cgc.ir import read_mlir_text
+
+    path.write_text(read_mlir_text(path), encoding="utf-8", newline="\n")
+
+
 def _resolve_onnx_target(
     runtime: Any,
     wr: Any,
@@ -988,12 +996,19 @@ class WinMLRuntimeSession:
         """Build the Runtime pipeline if it has not already been built."""
         self._ensure_built()
 
-    def compile_to_file(self, output_path: str | Path, *, validate: bool = True) -> None:
+    def compile_to_file(
+        self,
+        output_path: str | Path,
+        *,
+        validate: bool = True,
+        output_format: Literal["bytecode", "text"] = "bytecode",
+    ) -> None:
         """Persist this CGIR model as device-targeted CG Output IR.
 
         The output is compiled through the same Runtime compiler path used by
-        session-backed ONNX-to-CGC execution. Optional validation reloads the
-        artifact, builds a stage and compares normalized I/O schemas.
+        session-backed ONNX-to-CGC execution. Text output is serialized after
+        Runtime compilation. Optional validation reloads the final artifact,
+        builds a stage and compares normalized I/O schemas.
         """
         if self._backend != "cgc" or not self._is_mlir:
             raise ValueError("Persistent Runtime compilation requires a CGIR model.")
@@ -1012,6 +1027,8 @@ class WinMLRuntimeSession:
                 destination,
                 compiled_form=wr.CompiledModelForm.DEVICE_TARGETED,
             )
+            if output_format == "text":
+                _serialize_mlir_as_text(destination)
             if not validate:
                 return
             with _translate_native_errors("load"):
