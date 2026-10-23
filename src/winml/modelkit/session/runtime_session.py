@@ -15,9 +15,9 @@ the :class:`~winml.modelkit.session.backend.InferenceBackend` protocol, so
 Unlike the ORT path (which may run the full export/optimize/quantize/compile
 pipeline), this backend loads a prebuilt ``.onnx`` or ``.mlir`` directly via
 ``Runtime.load_model`` and drives inference through a single model stage. Output
-retrieval is by tensor name for ORT-backed stages (``OrtNamedBindings.output``)
-and by ordinal for non-ORT stages (``Stage.output``); both return caller-owned
-NumPy copies, so ``run`` yields real named outputs for parity/eval.
+retrieval uses prebound NumPy buffers for static shapes and ``Stage.output`` for
+dynamic shapes; both return caller-owned NumPy arrays, so ``run`` yields real
+named outputs for parity/eval.
 
 Runtime availability is optional: importing ``windowsml.runtime`` loads the
 preview ``WinMLRuntimeCore.dll`` and, for ONNX models, a matching
@@ -624,38 +624,6 @@ def _resolve_onnx_target(
     return _ResolvedRuntimeTarget(target, device_class, provider_name, adapter)
 
 
-def _bind_inputs(
-    runtime: Any,
-    wr: Any,
-    stage: Any,
-    input_names: list[str],
-    inputs: dict[str, Any],
-    *,
-    use_named_bindings: bool = True,
-) -> Any:
-    """Bind inputs, preferring name-based ORT bindings.
-
-    Returns the :class:`OrtNamedBindings` handle when the stage is ORT-backed
-    (so outputs can later be fetched by name), else ``None`` after binding by
-    ordinal.
-    """
-    named = None
-    if use_named_bindings:
-        try:
-            named = stage.ort_bindings()
-        except wr.NotSupportedError:
-            named = None
-
-    if named is not None:
-        for name in input_names:
-            named.bind_input(name, runtime.tensor_from_numpy(inputs[name]))
-        return named
-
-    for index, name in enumerate(input_names):
-        stage.bind_input(index, runtime.tensor_from_numpy(inputs[name]))
-    return None
-
-
 def _stage_diagnostics(wr: Any, stage: Any) -> tuple[str | None, bool]:
     """Return ``(selected_provider, is_pinned)`` when the stage exposes ORT diagnostics."""
     try:
@@ -953,22 +921,34 @@ class WinMLRuntimeSession:
             prepared[name] = arr if arr.flags.c_contiguous else np.ascontiguousarray(arr)
         return prepared
 
-    def _read_outputs(self, named: Any) -> dict[str, np.ndarray]:
-        """Fetch every declared output as a caller-owned NumPy array.
+    def _bind_input_output(self, inputs: dict[str, np.ndarray]) -> list[np.ndarray | None]:
+        """Bind NumPy inputs and fresh static outputs; request dynamic outputs."""
+        import numpy as np
 
-        ORT-backed stages fetch by tensor name via the bound
-        :class:`OrtNamedBindings`; non-ORT stages fetch by ordinal.
-        """
         assert self._io_config is not None
-        output_names = self._io_config["output_names"]
-        outputs: dict[str, np.ndarray] = {}
-        if named is not None:
-            for name in output_names:
-                outputs[name] = named.output(name).to_numpy()
-        else:
-            for index, name in enumerate(output_names):
-                outputs[name] = self._stage.output(index).to_numpy()
+        outputs = [
+            np.empty(tuple(shape), dtype=dtype) if all(dim is not None for dim in shape) else None
+            for shape, dtype in zip(
+                self._io_config["output_shapes"], self._io_config["output_types"], strict=True,
+            )
+        ]
+        for index, output in enumerate(outputs):
+            if output is None:
+                self._stage.request_output(index)
+        self._stage.bind_buffers(
+            [inputs[name] for name in self._io_config["input_names"]], outputs,
+        )
         return outputs
+
+    def _read_outputs(self, buffers: list[np.ndarray | None]) -> dict[str, np.ndarray]:
+        """Return host-bound outputs, reading back only dynamic outputs."""
+        assert self._io_config is not None
+        return {
+            name: buffer if buffer is not None else self._stage.output(index).to_numpy()
+            for index, (name, buffer) in enumerate(
+                zip(self._io_config["output_names"], buffers, strict=True)
+            )
+        }
 
     def run(self, inputs: dict[str, Any]) -> dict[str, np.ndarray]:
         """Run one inference and return ``{output_name: ndarray}``.
@@ -986,32 +966,23 @@ class WinMLRuntimeSession:
             raise ValueError("inputs cannot be empty")
         self._ensure_built_locked()
         prepared = self._prepare_inputs(inputs)
-        assert self._io_config is not None
-        input_names = self._io_config["input_names"]
-        output_count = len(self._io_config["output_names"])
+        outputs: list[np.ndarray | None] = []
 
         def _do() -> dict[str, np.ndarray]:
-            named = _bind_inputs(
-                self._runtime,
-                self._wr,
-                self._stage,
-                input_names,
-                prepared,
-                use_named_bindings=self._has_named_bindings,
-            )
-            with _translate_native_errors("run"):
-                # Older projections (including 2.7.9) materialize outputs automatically.
-                # Newer projections require an explicit request on every execution.
-                request_output = getattr(self._stage, "request_output", None)
-                if callable(request_output):
-                    for index in range(output_count):
-                        request_output(index)
-                self._pipeline.run()
-            return self._read_outputs(named)
+            nonlocal outputs
+            outputs = self._bind_input_output(prepared)
+            self._pipeline.run()
+            return self._read_outputs(outputs)
 
-        if self._perf_stats is not None:
-            return self._perf_stats.record(_do)
-        return _do()
+        with _translate_native_errors("run"):
+            try:
+                if self._perf_stats is not None:
+                    return self._perf_stats.record(_do)
+                return _do()
+            finally:
+                for index, output in enumerate(outputs):
+                    if output is not None:
+                        self._stage.request_output(index)
 
     def compile(self) -> None:
         """Build the Runtime pipeline if it has not already been built."""
