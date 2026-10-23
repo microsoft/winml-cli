@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from transformers import AutoConfig
 
-from .config import _get_model_config_class
+from ._model_config import _get_model_config_class
 
 
 if TYPE_CHECKING:

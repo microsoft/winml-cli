@@ -452,6 +452,25 @@ def test_deferred_model_config_annotation_selects_subconfig(
     assert model_class.config_class is original_config_class
 
 
+def test_hf_loader_does_not_import_config_orchestrator():
+    import ast
+    from pathlib import Path
+
+    import winml.modelkit.loader.hf as hf_module
+
+    tree = ast.parse(Path(hf_module.__file__).read_text(encoding="utf-8"))
+    imports = [
+        node.module
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        and (
+            (node.level == 1 and node.module == "config")
+            or node.module == "winml.modelkit.loader.config"
+        )
+    ]
+    assert not imports, "hf -> config -> hf creates a loader import cycle"
+
+
 class TestTasksManagerIntegration:
     """Tests for TasksManager integration with specific tasks.
 

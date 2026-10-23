@@ -12,9 +12,10 @@ This module provides:
 from __future__ import annotations
 
 import logging
-from annotationlib import get_annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
+
+from ._model_config import _get_model_config_class
 
 
 if TYPE_CHECKING:
@@ -297,22 +298,6 @@ def _create_hf_config_from_model_class(model_class: type) -> PretrainedConfig:
     hf_config = config_cls()
     hf_config.architectures = [model_class.__name__]
     return cast("PretrainedConfig", hf_config)
-
-
-def _get_model_config_class(model_class: type) -> Any:
-    """Resolve Transformers config classes despite deferred class annotations."""
-    config_cls = getattr(model_class, "config_class", None)
-    if (
-        isinstance(model_class, type)
-        and model_class.__module__.startswith("transformers.")
-        and config_cls is getattr(super(model_class, model_class), "config_class", None)
-    ):
-        # Transformers 4.x reads __dict__["__annotations__"] before Python 3.14
-        # evaluates it, incorrectly retaining the parent model's config class.
-        annotated_config = get_annotations(model_class, eval_str=True).get("config")
-        if isinstance(annotated_config, type):
-            return annotated_config
-    return config_cls
 
 
 def _resolve_hf_config_for_class(
