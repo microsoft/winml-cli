@@ -651,6 +651,67 @@ def eval_config_file(tmp_path):
 
 
 class TestEvalConfigPrecedence:
+    @pytest.mark.parametrize("backend", [None, "cgc"])
+    @pytest.mark.parametrize("lowering", ["auto", "dml", "d3d12"])
+    @pytest.mark.parametrize("from_cli", [False, True])
+    def test_cgc_lowering_config_and_cli_precedence(
+        self, runner, tmp_path, lowering, from_cli, backend
+    ):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        path = tmp_path / "eval.json"
+        path.write_text(json.dumps({"eval": {
+            "runtime": "winml-runtime", "backend": backend,
+            "task": "image-classification", "device": "gpu",
+            "cgc_lowering_target": "auto" if from_cli else lowering,
+        }}))
+        args = ["--config", str(path), "-m", "test/model"]
+        if from_cli:
+            args.extend(["--cgc-lowering-target", lowering])
+        with (
+            patch("winml.modelkit.eval.evaluate") as evaluate,
+            patch("winml.modelkit.commands.eval._resolve_device"),
+            patch("winml.modelkit.commands.eval._write_and_display"),
+        ):
+            result = runner.invoke(eval_cmd, args, obj={"debug": False})
+        assert result.exit_code == 0, result.output
+        assert evaluate.call_args.args[0].cgc_lowering_target == lowering
+        assert "--cgc-lowering-target" not in runner.invoke(eval_cmd, ["--help"]).output
+
+    @pytest.mark.parametrize("lowering", ["auto", "dml", "d3d12"])
+    @pytest.mark.parametrize("from_cli", [False, True])
+    @pytest.mark.parametrize(
+        ("runtime", "backend"),
+        [(None, None), ("winml-ort", None), ("winml-runtime", "ort"), ("pytorch", None)],
+    )
+    def test_cgc_lowering_rejects_incompatible_runtime(
+        self, runner, tmp_path, lowering, from_cli, runtime, backend
+    ):
+        from winml.modelkit.commands.eval import eval as eval_cmd
+
+        settings = {"cgc_lowering_target": lowering}
+        if runtime is not None:
+            settings["runtime"] = runtime
+        if backend is not None:
+            settings["backend"] = backend
+        args = ["-m", "test/model", "--task", "image-classification"]
+        if from_cli:
+            for key, value in settings.items():
+                args.extend([f"--{key.replace('_', '-')}", value])
+        else:
+            path = tmp_path / "eval.json"
+            path.write_text(json.dumps({"eval": settings}), encoding="utf-8")
+            args.extend(["--config", str(path)])
+        with (
+            patch("winml.modelkit.eval.evaluate") as evaluate,
+            patch("winml.modelkit.commands.eval._resolve_device") as resolve_device,
+        ):
+            result = runner.invoke(eval_cmd, args, obj={"debug": False})
+        assert result.exit_code == 2, result.output
+        assert "--cgc-lowering-target requires --runtime winml-runtime" in result.output
+        evaluate.assert_not_called()
+        resolve_device.assert_not_called()
+
     def test_cli_overrides_config_and_config_overrides_defaults(
         self,
         runner: CliRunner,

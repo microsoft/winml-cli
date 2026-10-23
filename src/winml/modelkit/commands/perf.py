@@ -30,6 +30,7 @@ import numpy as np
 from rich.markup import escape
 from rich.table import Table
 
+from ..utils import CGCLoweringTarget
 from ..utils import cli as cli_utils
 from ..utils.console import SafeConsole
 from ..utils.constants import (
@@ -565,6 +566,7 @@ class BenchmarkConfig:
     model_id: str
     runtime: RuntimeName = "winml-ort"
     backend: RuntimeBackend | None = None
+    cgc_lowering_target: CGCLoweringTarget | None = None
     task: str | None = None
     submodel: str | None = None
     device: str = "auto"
@@ -678,6 +680,7 @@ class BenchmarkResult:
                 "backend": resolve_runtime_api_backend(
                     self.config.runtime, self.config.model_id, self.config.backend
                 ),
+                "cgc_lowering_target": self.config.cgc_lowering_target,
                 "model_id": self.config.model_id,
                 "running_model_path": self.running_model_path,
                 "task": self.actual_task,
@@ -1420,6 +1423,7 @@ class PerfBenchmark:
             "no_compile": self.config.no_compile,
             "runtime": self.config.runtime,
             "backend": self._runtime_backend,
+            "cgc_lowering_target": self.config.cgc_lowering_target,
             # optimize/analyze/max-optim toggles, forwarded by WinMLAutoModel to
             # build_hf_model / build_onnx_model. Shared mapping with build/eval.
             **cli_utils.build_pipeline_extra_kwargs(
@@ -1468,6 +1472,7 @@ class PerfBenchmark:
                     task=resolved_task,
                     runtime=self.config.runtime,
                     backend="cgc",
+                    cgc_lowering_target=self.config.cgc_lowering_target,
                 )
         else:
             with suppress_native_warnings(enabled=True):
@@ -3077,6 +3082,7 @@ def _validate_duration(
     "'ort-genai' benchmarks an onnxruntime-genai bundle folder "
     "(LLM generation: TTFT + decode tokens/sec).",
 )
+@cli_utils.cgc_lowering_target_option()
 @click.option(
     "--backend",
     type=click.Choice(list(RUNTIME_BACKENDS)),
@@ -3301,6 +3307,7 @@ def perf(
     dxcgc_gpu_timing: bool,
     disable_d3d_mlir_programs: bool,
     backend: RuntimeBackend | None,
+    cgc_lowering_target: CGCLoweringTarget | None,
     prompt: str,
     prompt_file: Path | None,
     apply_template: bool,
@@ -3433,6 +3440,12 @@ def perf(
         effective_backend = resolve_runtime_api_backend(runtime, model, backend)
     except ValueError as error:
         raise click.UsageError(str(error)) from error
+    if cgc_lowering_target is not None and (
+        runtime != "winml-runtime" or effective_backend != "cgc"
+    ):
+        raise click.UsageError(
+            "--cgc-lowering-target requires --runtime winml-runtime with the CGC backend."
+        )
     # AC 11 (mockup spec): --top-k requires --op-tracing. Outside the
     # op-tracing section the flag is meaningless, so reject it explicitly
     # rather than silently ignoring a user's intent.
@@ -3800,6 +3813,7 @@ def perf(
         model_id=hf_model,
         runtime=runtime,
         backend=effective_backend,
+        cgc_lowering_target=cgc_lowering_target,
         task=task,
         submodel=submodel,
         device=device.lower(),

@@ -83,6 +83,44 @@ def _make_cpu_ep_device_with_bridge_name() -> WinMLEPDevice:
 class TestFromOnnx:
     """Test WinMLAutoModel.from_onnx()."""
 
+    @pytest.mark.parametrize("lowering", ["auto", "dml", "d3d12"])
+    @pytest.mark.parametrize("loader", ["from_onnx", "from_pretrained", "from_mlir"])
+    def test_cgc_lowering_reaches_runtime_session(
+        self, fake_onnx, cpu_ep_device, lowering, loader
+    ):
+        source = fake_onnx
+        if loader == "from_mlir":
+            source = fake_onnx.with_suffix(".mlir")
+            source.touch()
+        factory = MagicMock()
+        with patch.dict(
+            "winml.modelkit.models.winml.base.SESSION_CLASSES", {"winml-runtime": factory}
+        ):
+            model = getattr(WinMLAutoModel, loader)(
+                source, ep_device=cpu_ep_device, runtime="winml-runtime", backend="cgc",
+                cgc_lowering_target=lowering,
+            )
+        assert model._session is factory.return_value
+        assert factory.call_args.kwargs["cgc_lowering_target"] == lowering
+
+    @pytest.mark.parametrize("lowering", ["auto", "dml", "d3d12"])
+    @pytest.mark.parametrize("loader", ["from_onnx", "from_pretrained"])
+    def test_cgc_lowering_rejected_for_ort(
+        self, fake_onnx, cpu_ep_device, lowering, loader
+    ):
+        factory = MagicMock()
+        with (
+            patch.dict(
+                "winml.modelkit.models.winml.base.SESSION_CLASSES", {"winml-ort": factory}
+            ),
+            pytest.raises(ValueError, match="cgc_lowering_target requires runtime='winml-runtime'"),
+        ):
+            getattr(WinMLAutoModel, loader)(
+                fake_onnx, ep_device=cpu_ep_device, runtime="winml-ort",
+                skip_build=True, cgc_lowering_target=lowering,
+            )
+        factory.assert_not_called()
+
     def test_winml_runtime_passes_onnx_directly_to_runtime(
         self, fake_onnx: Path, cpu_ep_device: EPDeviceTarget
     ) -> None:
