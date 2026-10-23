@@ -218,6 +218,7 @@ class TestSysCommand:
         """Test sys with default (text) format."""
         result = runner.invoke(main, ["sys"])
         assert result.exit_code == 0
+        assert "WinML CLI system information" in result.output
         assert "Python" in result.output or "python" in result.output.lower()
 
     def test_sys_json_format(self, runner: CliRunner) -> None:
@@ -254,7 +255,7 @@ class TestSysCommand:
             result = runner.invoke(main, ["sys", "--format", "json"])
 
         assert result.exit_code == 0
-        assert "[WinML] Installing Execution Provider" not in result.output
+        assert "[WinML] Installing execution provider" not in result.output
 
     def test_sys_compact_format(self, runner: CliRunner) -> None:
         """Test sys with compact format."""
@@ -288,7 +289,7 @@ class TestSysCommand:
         assert result.exit_code == 0
         assert "CPU" in result.output
         # Compact output is a single line; no Rich panel borders
-        assert "Available Devices" not in result.output
+        assert "Available devices" not in result.output
 
     def test_sys_list_ep_compact(self, runner: CliRunner) -> None:
         """--list-ep --format compact must produce compact output, not text table."""
@@ -296,7 +297,7 @@ class TestSysCommand:
         assert result.exit_code == 0
         assert "CPUExecutionProvider" in result.output
         # Compact output is a single line; no Rich panel headers
-        assert "Available Execution Providers" not in result.output
+        assert "Available execution providers" not in result.output
 
 
 class TestSysListEpEndToEnd:

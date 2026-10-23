@@ -505,7 +505,7 @@ class HTPExporter:
             from ...onnx import load_onnx
 
             model = load_onnx(output_path)
-            logger.info("✅ ONNX verification passed")
+            logger.info("ONNX verification passed")
 
             # Check for dynamic batch dimension. Static remains the QNN-safe default,
             # but dynamic dimensions are valid when explicitly requested.
@@ -531,17 +531,17 @@ class HTPExporter:
                             )
                         else:
                             logger.warning(
-                                "⚠️  Dynamic batch detected in ONNX for '%s'.\n"
+                                "Dynamic batch detected in ONNX for '%s'.\n"
                                 "   This may cause QNN compatibility issues.\n"
                                 "   Use static batch for QNN-targeted optimization paths.",
                                 input_tensor.name,
                             )
 
             if not has_dynamic_batch:
-                logger.info("✅ Static batch confirmed (QNN-compatible)")
+                logger.info("Static batch confirmed (QNN-compatible)")
 
         except Exception as e:
-            logger.warning("⚠️  ONNX verification failed: %s", e)
+            logger.warning("ONNX verification failed: %s", e)
             logger.warning("   Export completed but validation encountered issues.")
             # Don't raise - export succeeded, just warn about validation
 

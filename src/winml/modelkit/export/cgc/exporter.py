@@ -111,7 +111,7 @@ class CGCExporter:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         self.console.print("\n" + "=" * 80)
-        self.console.print("🚀 [bold cyan]ONNX TO CGC EXPORT PROCESS[/bold cyan]")
+        self.console.print("[bold cyan]ONNX to CGC export process[/bold cyan]")
         self.console.print("=" * 80)
         self.console.print(f"[bold blue]Input:[/bold blue] {source_path}")
         self.console.print(f"[bold blue]Output:[/bold blue] {output_path}")
@@ -128,6 +128,7 @@ class CGCExporter:
         )
         self._freeze_dims = _parse_freeze_dims(self.options.freeze_dims)
         self._freeze_batch_size(model_proto, initializer_names)
+        self._validate_input_dimensions(model_proto, initializer_names)
         result = CGCExportResult(
             input_names=tuple(
                 value.name
@@ -143,7 +144,7 @@ class CGCExporter:
             result,
         )
 
-        self.console.print("\n[bold green]✅ CGC EXPORT COMPLETE[/bold green]")
+        self.console.print("\n[bold green]Done: CGC export complete[/bold green]")
         self.console.print(f"[dim]Total time: {time.monotonic() - export_start:.2f}s[/dim]")
         return result
 
@@ -158,7 +159,40 @@ class CGCExporter:
             for dimension in value.type.tensor_type.shape.dim
         ):
             self._freeze_dims["batch_size"] = 1
-            self.console.print("[dim]Freeze input dimension: batch_size=1[/dim]")
+            self.console.print(
+                "[yellow]Warning:[/yellow] Automatically freezing input dimension "
+                "'batch_size' to 1. The CGIR artifact will use batch size 1. "
+                "Override it with --cgc-options \"freeze-dims=batch_size=<N>\" "
+                "and include any other required dimensions."
+            )
+
+    def _validate_input_dimensions(
+        self, model: onnx.ModelProto, initializer_names: set[str],
+    ) -> None:
+        """Report input symbols missing from the dimension overrides."""
+        missing: list[str] = []
+        missing_dims: dict[str, str] = {}
+        for value in model.graph.input:
+            if value.name in initializer_names or not value.type.HasField("tensor_type"):
+                continue
+            for axis, dimension in enumerate(value.type.tensor_type.shape.dim):
+                name = dimension.dim_param
+                if name and name not in self._freeze_dims:
+                    missing.append(f"  {name!r} - input {value.name!r}, axis {axis}.")
+                    missing_dims[name] = f"<{name}>"
+        if not missing:
+            return
+
+        overrides = {**self._freeze_dims, **missing_dims}
+        assignments = ",".join(f"{name}={size}" for name, size in overrides.items())
+        raise ValueError("\n".join([
+            "Unresolved dynamic input dimensions for CGIR conversion.",
+            *missing,
+            "Provide all named dimensions with positive deployment sizes:",
+            f'  --cgc-options "freeze-dims={assignments}"',
+            "Use the same --cgc-options with winml export, winml config, or winml build.",
+            "Freezing specializes the model; it does not resize input data.",
+        ]))
 
     def export(
         self,
@@ -349,7 +383,7 @@ class CGCExporter:
         if isinstance(error, ShapeInferenceError) and not self._freeze_dims:
             details.append(
                 "If symbolic dimensions caused this failure, retry with "
-                "--options freeze-dims=batch=1,seq=128 "
+                "--cgc-options freeze-dims=batch=1,seq=128 "
                 "using the model's dimension names."
             )
         return " ".join(details)

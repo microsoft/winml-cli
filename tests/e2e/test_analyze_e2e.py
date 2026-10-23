@@ -504,7 +504,7 @@ class TestAnalyzeFlagVariations:
         assert result.exit_code == 0
         # The OP CHECK banner is part of the Rich live header path, which is
         # bypassed in --quiet mode. Stdout should not carry the banner emoji.
-        assert "📊 OP CHECK" not in result.output
+        assert "Op check" not in result.output
 
     def test_verbose_flag_accepted(self, onnx_model_path: Path, rules_dir: Path) -> None:
         _write_supported_rule(rules_dir, "QNNExecutionProvider", "NPU")

@@ -116,4 +116,15 @@ def test_device_luid_rendered_for_each_device_type(
 
     sysmod._output_device_text(devices)
 
-    assert "LUID: 0x00000000_0x00018393" in recording_console.export_text()
+    output = recording_console.export_text()
+    assert "Available devices (priority order)" in output
+    assert "LUID: 0x00000000_0x00018393" in output
+    if device_type in ("NPU", "GPU"):
+        lines = [line.strip() for line in output.splitlines()]
+        for key in ("driver", "manufacturer", "architecture"):
+            assert f"{key.capitalize()}: {devices[0]['details'][key]}" in lines
+
+
+def test_ep_title_uses_sentence_case(recording_console: Console) -> None:
+    sysmod._output_ep_text({})
+    assert "Available execution providers" in recording_console.export_text()

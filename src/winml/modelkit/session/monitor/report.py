@@ -231,7 +231,7 @@ def _display_detail_report(result: OpTraceResult, console: Console, top_n: int) 
     table.add_column("Cum %", justify="right", width=6)
     table.add_column("p90", justify="right", width=9)
     table.add_column("DRAM(R)", justify="right", width=8)
-    table.add_column("VTCM Hit", justify="right", width=8)
+    table.add_column("VTCM hit", justify="right", width=8)
 
     cum = 0.0
     for i, op in enumerate(ops, 1):

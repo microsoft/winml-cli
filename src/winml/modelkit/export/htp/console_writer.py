@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-# ruff: noqa: RUF001, SIM108
+# ruff: noqa: SIM108
 # RUF001: info emoji used intentionally in user-facing output
 # SIM108: explicit if-else is clearer for params formatting
 """Console writer for HTP export monitoring.
@@ -105,8 +105,8 @@ class ConsoleWriter(StepAwareWriter):
             return 0
 
         self._current_step = 1
-        step_header = f"STEP {self._current_step}/{self._total_steps}: MODEL PREPARATION"
-        self.console.print(f"\n📋 {self._bold(step_header)}")
+        step_header = f"Step {self._current_step}/{self._total_steps}: Model preparation"
+        self.console.print(f"\n{self._bold(step_header)}")
         self.console.print("=" * self.SEPARATOR_LENGTH)
 
         # Format parameters to match baseline (e.g., 4.4M not 4.4M)
@@ -117,12 +117,12 @@ class ConsoleWriter(StepAwareWriter):
             params_str = f"{params_m:.1f}"
 
         self.console.print(
-            f"✅ Model loaded: {data.model_prep.model_class} "
+            f"Done: Model loaded: {data.model_prep.model_class} "
             f"({self._bright_cyan(data.model_prep.total_modules)} modules, "
             f"{self._bright_cyan(params_str + 'M')} parameters)"
         )
-        self.console.print(f"🎯 Export target: {self._bright_magenta(data.output_path)}")
-        self.console.print("✅ Model set to evaluation mode")
+        self.console.print(f"Export target: {self._bright_magenta(data.output_path)}")
+        self.console.print("Done: Model set to evaluation mode")
 
         return 1
 
@@ -134,14 +134,14 @@ class ConsoleWriter(StepAwareWriter):
 
         self._current_step = 2
         self.console.print(
-            f"\n🔧 {self._bold(f'STEP {self._current_step}/{self._total_steps}: INPUT GENERATION')}"
+            f"\n{self._bold(f'Step {self._current_step}/{self._total_steps}: Input generation')}"
         )
         self.console.print("=" * self.SEPARATOR_LENGTH)
 
         if data.input_gen.method == "provided":
-            self.console.print("📝 Using provided input specifications")
+            self.console.print("Using provided input specifications")
         else:
-            self.console.print(f"🤖 Auto-generating inputs for: {data.model_name}")
+            self.console.print(f"Auto-generating inputs for: {data.model_name}")
             if data.input_gen.model_type:
                 self.console.print(
                     f"   • Model type: {self._bright_green(data.input_gen.model_type)}"
@@ -151,7 +151,7 @@ class ConsoleWriter(StepAwareWriter):
 
         # Display input details
         if data.input_gen.inputs:
-            self.console.print("✅ Generated inputs:")
+            self.console.print("Done: Generated inputs:")
             for name, tensor_info in data.input_gen.inputs.items():
                 shape_str = str(tensor_info.shape)
                 self.console.print(
@@ -168,31 +168,32 @@ class ConsoleWriter(StepAwareWriter):
             return 0
 
         self._current_step = 3
-        step_header = f"STEP {self._current_step}/{self._total_steps}: HIERARCHY BUILDING"
-        self.console.print(f"\n🏗️ {self._bold(step_header)}")
+        step_header = f"Step {self._current_step}/{self._total_steps}: Hierarchy building"
+        self.console.print(f"\n{self._bold(step_header)}")
         self.console.print("=" * self.SEPARATOR_LENGTH)
 
         if data.hierarchy.source == HIERARCHY_SOURCE_ONNX_METADATA:
             # Dynamo path: no forward trace ran; the hierarchy is reconstructed
             # from ONNX node metadata, so avoid trace/execution-step wording.
-            self.console.print("🔍 Reconstructing module hierarchy from ONNX node metadata...")
+            self.console.print("Reconstructing module hierarchy from ONNX node metadata...")
             self.console.print(
-                f"✅ Recovered {self._bright_cyan(len(data.hierarchy.hierarchy))} modules "
+                f"Done: Recovered {self._bright_cyan(len(data.hierarchy.hierarchy))} modules "
                 "in hierarchy"
             )
         else:
-            self.console.print("🔍 Tracing module execution with dummy inputs...")
+            self.console.print("Tracing module execution with dummy inputs...")
             self.console.print(
-                f"✅ Traced {self._bright_cyan(len(data.hierarchy.hierarchy))} modules in hierarchy"
+                f"Done: Traced {self._bright_cyan(len(data.hierarchy.hierarchy))} "
+                "modules in hierarchy"
             )
             if data.hierarchy.execution_steps is not None:
                 self.console.print(
-                    f"📊 Total execution steps: {self._bright_cyan(data.hierarchy.execution_steps)}"
+                    f"Total execution steps: {self._bright_cyan(data.hierarchy.execution_steps)}"
                 )
 
         # Build and display hierarchy tree
         if data.hierarchy.hierarchy:
-            self.console.print("\n🌳 Module Hierarchy:")
+            self.console.print("\nModule hierarchy:")
             tree = build_rich_tree(data.hierarchy.hierarchy, show_counts=False)
             self._display_truncated_tree(tree)
 
@@ -206,11 +207,11 @@ class ConsoleWriter(StepAwareWriter):
 
         self._current_step = 4
         self.console.print(
-            f"\n📦 {self._bold(f'STEP {self._current_step}/{self._total_steps}: ONNX EXPORT')}"
+            f"\n{self._bold(f'Step {self._current_step}/{self._total_steps}: ONNX export')}"
         )
         self.console.print("=" * self.SEPARATOR_LENGTH)
 
-        self.console.print("🔧 Export configuration:")
+        self.console.print("Export configuration:")
         self.console.print(
             f"   • Opset version: {self._bright_green(str(data.onnx_export.opset_version))}"
         )
@@ -226,7 +227,7 @@ class ConsoleWriter(StepAwareWriter):
                 )
                 + "]"
             )
-            self.console.print(f"📥 Input names: {formatted_inputs}")
+            self.console.print(f"Input names: {formatted_inputs}")
 
         if data.onnx_export.output_names:
             formatted_outputs = (
@@ -236,16 +237,16 @@ class ConsoleWriter(StepAwareWriter):
                 )
                 + "]"
             )
-            self.console.print(f"📤 Output names: {formatted_outputs}")
+            self.console.print(f"Output names: {formatted_outputs}")
         else:
             self.console.print(
-                f"📤 Output names: {self._bright_yellow('Not detected')} "
+                f"Output names: {self._bright_yellow('Not detected')} "
                 "(model may not have named outputs)"
             )
 
-        self.console.print("✅ ONNX model exported successfully")
+        self.console.print("Done: ONNX model exported successfully")
         self.console.print(
-            f"📦 Model size: {self._bright_cyan(f'{data.onnx_export.onnx_size_mb:.2f}MB')}"
+            f"Model size: {self._bright_cyan(f'{data.onnx_export.onnx_size_mb:.2f}MB')}"
         )
 
         return 1
@@ -257,16 +258,16 @@ class ConsoleWriter(StepAwareWriter):
             return 0
 
         self._current_step = 5
-        step_header = f"STEP {self._current_step}/{self._total_steps}: ONNX NODE TAGGING"
-        self.console.print(f"\n🔗 {self._bold(step_header)}")
+        step_header = f"Step {self._current_step}/{self._total_steps}: ONNX node tagging"
+        self.console.print(f"\n{self._bold(step_header)}")
         self.console.print("=" * self.SEPARATOR_LENGTH)
 
-        self.console.print("✅ Node tagging completed successfully")
+        self.console.print("Done: Node tagging completed successfully")
         self.console.print(
-            f"📈 Coverage: {self._bright_cyan(f'{data.node_tagging.coverage:.1f}%')}"
+            f"Coverage: {self._bright_cyan(f'{data.node_tagging.coverage:.1f}%')}"
         )
         self.console.print(
-            f"📊 Tagged nodes: {self._bright_cyan(len(data.node_tagging.tagged_nodes))}"
+            f"Tagged nodes: {self._bright_cyan(len(data.node_tagging.tagged_nodes))}"
             f"/{self._bright_cyan(data.node_tagging.total_nodes)}"
         )
 
@@ -279,7 +280,7 @@ class ConsoleWriter(StepAwareWriter):
 
         # Display hierarchy tree with node counts
         if data.hierarchy and data.hierarchy.hierarchy and data.node_tagging.tagged_nodes:
-            self.console.print("\n🌳 Complete HF Hierarchy with ONNX Nodes:")
+            self.console.print("\nComplete HF hierarchy with ONNX nodes:")
             self.console.print("-" * 60)
             tree = build_rich_tree(
                 data.hierarchy.hierarchy,
@@ -298,17 +299,17 @@ class ConsoleWriter(StepAwareWriter):
 
         self._current_step = 6
         self.console.print(
-            f"\n🏷️ {self._bold(f'STEP {self._current_step}/{self._total_steps}: TAG INJECTION')}"
+            f"\n{self._bold(f'Step {self._current_step}/{self._total_steps}: Tag injection')}"
         )
         self.console.print("=" * self.SEPARATOR_LENGTH)
 
         if data.tag_injection.tags_injected:
-            self.console.print("🔧 Injecting hierarchy tags into ONNX model...")
-            self.console.print("✅ Tags successfully embedded as node attributes")
+            self.console.print("Injecting hierarchy tags into ONNX model...")
+            self.console.print("Done: Tags successfully embedded as node attributes")
         else:
-            self.console.print("ℹ️ Hierarchy tag injection skipped (clean ONNX by default)")
+            self.console.print("Hierarchy tag injection skipped (clean ONNX by default)")
 
-        self.console.print(f"💾 Model saved to: {self._bright_magenta(data.output_path)}")
+        self.console.print(f"Model saved to: {self._bright_magenta(data.output_path)}")
 
         return 1
 
@@ -393,7 +394,7 @@ class ConsoleWriter(StepAwareWriter):
                 f"({self._bright_cyan(f'{root_pct:.1f}%')})"
             )
 
-        self.console.print(f"✅ Empty tags: {self._bright_cyan('0')}")
+        self.console.print(f"Empty tags: {self._bright_cyan('0')}")
 
     def _display_nodes_by_hierarchy(self, tagged_nodes: dict[str, str]) -> None:
         """Display top nodes grouped by hierarchy."""
@@ -406,7 +407,7 @@ class ConsoleWriter(StepAwareWriter):
         tag_counts = Counter(tagged_nodes.values())
 
         self.console.print(
-            f"\n📊 Top {self._bright_cyan(self.TOP_NODES_COUNT)} Nodes by Hierarchy:"
+            f"\nTop {self._bright_cyan(self.TOP_NODES_COUNT)} nodes by hierarchy:"
         )
         self.console.print("-" * 30)
 

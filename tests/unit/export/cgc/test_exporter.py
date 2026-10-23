@@ -328,11 +328,11 @@ def test_export_prints_progress(capsys: pytest.CaptureFixture[str], tmp_path: Pa
         CGCExporter(CGCOptions()).export(source, output)
 
     console_output = capsys.readouterr().out
-    assert "ONNX TO CGC EXPORT PROCESS" in console_output
+    assert "ONNX to CGC export process" in console_output
     assert "Input:" in console_output
     assert "Output:" in console_output
     assert "Format: CGC MLIR" in console_output
-    assert "CGC EXPORT COMPLETE" in console_output
+    assert "Done: CGC export complete" in console_output
 
 
 @pytest.mark.parametrize(
@@ -364,8 +364,19 @@ def test_auto_freeze_matches_input_symbol_and_preserves_options(tmp_path, dimens
     source = tmp_path / "source.onnx"
     save_model(model, source)
     exporter = CGCExporter(CGCOptions(freeze_dims=explicit))
-    with patch.object(exporter, "_export_mlir"):
-        exporter.export_onnx(source, tmp_path / "model.mlir")
+    with patch.object(exporter, "_export_mlir") as convert:
+        if (
+            isinstance(dimension, str)
+            and dimension != "batch_size"
+            and dimension not in exporter._freeze_dims
+        ):
+            with pytest.raises(ValueError, match="Unresolved dynamic input") as error:
+                exporter.export_onnx(source, tmp_path / "model.mlir")
+            assert f"{dimension}=<{dimension}>" in str(error.value)
+            convert.assert_not_called()
+        else:
+            exporter.export_onnx(source, tmp_path / "model.mlir")
+            convert.assert_called_once()
         if explicit:
             name, size = explicit.split("=")
             expected = {name: int(size)}
@@ -381,6 +392,72 @@ def test_auto_freeze_matches_input_symbol_and_preserves_options(tmp_path, dimens
             assert exporter._freeze_dims == {name: int(size)}
         else:
             assert exporter._freeze_dims == {}
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def test_dynamic_input_diagnostic_preserves_explicit_overrides(tmp_path, capsys, complete):
+    model = _make_model()
+    shape = ["batch_size", "height", "width"]
+    model.graph.input[0].CopyFrom(
+        helper.make_tensor_value_info("input", TensorProto.FLOAT, shape),
+    )
+    source = tmp_path / "source.onnx"
+    save_model(model, source)
+    before = source.read_bytes()
+    overrides = dict(zip(shape[:2], (2, 5), strict=True))
+    if complete:
+        overrides[shape[2]] = 7
+    exporter = CGCExporter(CGCOptions(
+        freeze_dims=",".join(f"{name}={size}" for name, size in overrides.items()),
+    ))
+    with patch.object(exporter, "_export_mlir") as convert:
+        if complete:
+            exporter.export_onnx(source, tmp_path / "model.mlir")
+            convert.assert_called_once()
+        else:
+            with pytest.raises(ValueError) as error:
+                exporter.export_onnx(source, tmp_path / "model.mlir")
+            message = str(error.value)
+            assert f"{shape[2]!r} - input {model.graph.input[0].name!r}, axis 2" in message
+            assert (
+                f'--cgc-options "freeze-dims={exporter.options.freeze_dims},'
+                f'{shape[2]}=<{shape[2]}>"'
+            ) in message
+            convert.assert_not_called()
+    assert exporter._freeze_dims == overrides
+    assert "Automatically freezing" not in capsys.readouterr().out
+    assert source.read_bytes() == before
+
+
+@pytest.mark.parametrize("shape", [None, [None, 2], [-1, 2]])
+def test_unnamed_dynamic_input_is_left_to_compiler(tmp_path, shape):
+    model = _make_model()
+    model.graph.input[0].CopyFrom(
+        helper.make_tensor_value_info("input", TensorProto.FLOAT, shape),
+    )
+    source = tmp_path / "source.onnx"
+    save_model(model, source)
+    exporter = CGCExporter(CGCOptions())
+    compiler_error = RuntimeError("Native compiler diagnostic")
+    with (
+        patch.object(exporter, "_export_mlir", side_effect=compiler_error) as convert,
+        pytest.raises(RuntimeError) as error,
+    ):
+        exporter.export_onnx(source, tmp_path / "model.mlir")
+    assert error.value is compiler_error
+    convert.assert_called_once()
+
+
+def test_auto_freeze_warning(tmp_path, capsys):
+    model = _make_model()
+    model.graph.input[0].type.tensor_type.shape.dim[0].dim_param = "batch_size"
+    source = tmp_path / "source.onnx"
+    save_model(model, source)
+    exporter = CGCExporter(CGCOptions())
+    with patch.object(exporter, "_export_mlir") as convert:
+        exporter.export_onnx(source, tmp_path / "model.mlir")
+    convert.assert_called_once()
+    assert "Warning: Automatically freezing" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("location", ["output", "value_info", "initializer"])
@@ -449,7 +526,7 @@ def test_invalid_freeze_dims_are_rejected(freeze_dims: str) -> None:
             "ShapeInferenceError",
             "ERROR_SHAPE_INFERENCE_FAILED",
             {"message": "Could not infer output shape."},
-            "--options freeze-dims=batch=1,seq=128",
+            "--cgc-options freeze-dims=batch=1,seq=128",
         ),
     ],
 )

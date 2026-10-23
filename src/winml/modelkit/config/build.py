@@ -1636,7 +1636,7 @@ def _find_submodules_by_class(
     """
     if not input_shapes:
         raise ValueError(
-            "input_shapes must be provided. NO HARDCODED SHAPES allowed. "
+            "input_shapes must be provided. No hardcoded shapes allowed. "
             "Pass shapes from io_specs obtained via resolve_io_specs()."
         )
 

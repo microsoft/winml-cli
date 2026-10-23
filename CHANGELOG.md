@@ -43,6 +43,7 @@ This cycle adds CGIR and Windows ML Runtime workflows, native PyTorch evaluation
 ### 🐛 Fixes
 
 - **Hugging Face export** - repairs Marian, TrOCR/Manga-OCR, LayoutLM QA, BLIP decoder, and SAM wrapper paths, and corrects eager-attention selection during model loading (#1323, #1330, #1392, #1403, #1375).
+- **Python 3.14 export** - keeps Optimum normalized-config factories static for both standalone models and nested text/vision encoder-decoder configurations, including cached decoder variants (#1489).
 - **FP16 conversion** - handles initializer-backed graph outputs, prevents quantization naming collisions, and validates captured local-function tensors against stricter ONNX Runtime graph-attribute requirements (#1280, #1417, #1377).
 - **Calibration and quantization** - clamps DistilBERT mask constants before calibration and fixes input-dtype, synthetic-calibration, and large-model QDQ serialization regressions found during release evaluation (#1420, #1411).
 - **FP16 recipes** - restores missing quantization configuration for RoBERTa-large SQuAD2 and DeBERTa-v3-base NLI recipes (#1245, #1244).

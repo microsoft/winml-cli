@@ -41,6 +41,7 @@ from ..utils.constants import RUNTIME_BACKENDS, RuntimeBackend
 from ..utils.logging import configure_logging
 from ..utils.model_input import ModelInputKind, classify_model_input
 from ._ep_arg import EpAtSourceParamType
+from .config import _apply_cgc_options
 
 
 if TYPE_CHECKING:
@@ -776,7 +777,7 @@ def _maybe_build_genai_bundle(
         force_rebuild=rebuild,
     )
     console.print(
-        f"\n[green]\u2713[/green] genai bundle ready: {bundle_dir} ([dim]{config_path.name}[/dim])"
+        f"\n[green]Done:[/green] genai bundle ready: {bundle_dir} ([dim]{config_path.name}[/dim])"
     )
     return True
 
@@ -861,6 +862,7 @@ def _maybe_build_genai_bundle(
     help_text="JSON with shape overrides for auto-generated HuggingFace export configs.",
 )
 @cli_utils.input_specs_option()
+@cli_utils.cgc_options_option()
 @cli_utils.export_config_option()
 @cli_utils.dynamic_axes_option(
     help_text=(
@@ -913,6 +915,7 @@ def build(
     verbose: int,
     quiet: bool,
     backend: RuntimeBackend | None = None,
+    cgc_options: tuple[str, ...] = (),
 ) -> None:
     r"""Build a WinML-optimized ONNX model from a HuggingFace model or .onnx file.
 
@@ -1185,6 +1188,8 @@ def build(
         _configs_to_validate: list[WinMLBuildConfig] = (
             config_or_configs if isinstance(config_or_configs, list) else [config_or_configs]
         )
+        for _cfg in _configs_to_validate:
+            _apply_cgc_options(_cfg, cgc_options)
         try:
             for _cfg in _configs_to_validate:
                 _cfg.validate()
@@ -1277,7 +1282,7 @@ def build(
                 source="HuggingFace",
             )
             print_stages_header(console)
-            console.print(f"   \U0001f9e9 [bold]Modules:[/bold] {len(configs)}")
+            console.print(f"   [bold]Modules:[/bold] {len(configs)}")
             console.print()
 
             results = _build_modules(
@@ -1589,7 +1594,7 @@ def _run_single_build(
     else:
         model_label = f"{model_id}  [dim](pretrained)[/dim]"
 
-    # ── 🔧 Setup section ────────────────────────────────────────
+    # ── Setup section ────────────────────────────────────────
     print_setup(
         console,
         model=model_label,
@@ -1672,9 +1677,9 @@ def _print_reused(artifact_path: Path) -> None:
     """Print reused artifact message."""
     console.print()
     console.print(
-        f"   \u267b\ufe0f  [bold cyan]Existing artifact found:[/bold cyan] {artifact_path}"
+        f"   [bold cyan]Existing artifact found:[/bold cyan] {artifact_path}"
     )
-    console.print("   \U0001f4a1 [dim]Use --rebuild to force rebuild.[/dim]")
+    console.print("   [dim]Use --rebuild to force rebuild.[/dim]")
     console.print()
 
 
@@ -2077,6 +2082,7 @@ def _run_convert_stage(
     options = cli_utils.parse_options(
         tuple(f"{key}={value}" for key, value in config.convert.options.items()),
         CGCExporter.options_type,
+        param_hint="--cgc-options",
     )
     output_path = current_path.with_suffix(".mlir")
     with StageLive("convert", console) as sl:

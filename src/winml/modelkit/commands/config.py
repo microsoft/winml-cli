@@ -25,7 +25,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import click
 
@@ -48,6 +48,31 @@ from ._ep_arg import EpAtSourceParamType
 
 logger = logging.getLogger(__name__)
 console = get_console()
+
+if TYPE_CHECKING:
+    from ..config import WinMLBuildConfig
+
+
+def _apply_cgc_options(config: WinMLBuildConfig, cgc_options: tuple[str, ...]) -> None:
+    """Merge CLI options into the config for the CGIR exporter to parse."""
+    if not cgc_options:
+        return
+    if config.convert is None or config.convert.target != "cgir":
+        raise click.UsageError(
+            "--cgc-options requires CGIR conversion. Use --backend cgc when generating "
+            "a config, or a build config with convert.target='cgir'."
+        )
+    options = {
+        key.replace("_", "-"): value for key, value in config.convert.options.items()
+    }
+    for item in cgc_options:
+        key, separator, value = item.partition("=")
+        if not separator or not key.strip():
+            raise click.BadParameter(
+                f"Invalid option format: {item!r}. Use KEY=VALUE.", param_hint="--cgc-options",
+            )
+        options[key.strip().replace("_", "-")] = value.strip()
+    config.convert.options = options
 
 
 def _apply_stage_overrides(cfg: Any, *, no_quant: bool, no_compile: bool) -> None:
@@ -157,6 +182,7 @@ def _merge_export_overrides(cfg: Any, export_overrides: dict[str, Any]) -> Any:
     "ort or omission preserves the existing configuration behavior.",
 )
 @cli_utils.output_option("Output JSON file path (default: stdout)")
+@cli_utils.cgc_options_option()
 @cli_utils.overwrite_option()
 @click.option(
     "--library",
@@ -200,6 +226,7 @@ def config(
     no_compile: bool,
     trust_remote_code: bool,
     backend: RuntimeBackend | None = None,
+    cgc_options: tuple[str, ...] = (),
 ) -> None:
     r"""Generate WinMLBuildConfig for a HuggingFace model or .onnx file.
 
@@ -259,7 +286,7 @@ def config(
     # Validate: at least one of -m, --model-type, or --model-class is required
     if hf_model is None and model_type is None and model_class is None:
         # Show header even for errors
-        print_command_header(console, "\U0001f4cb CONFIG GENERATION")
+        print_command_header(console, "Config generation")
         print_error(
             console,
             "Missing required input",
@@ -383,6 +410,7 @@ def config(
 
             # Apply --no-quant / --no-compile overrides
             _apply_stage_overrides(config_obj, no_quant=not quant, no_compile=no_compile)
+            _apply_cgc_options(config_obj, cgc_options)
 
             output_data = config_obj.to_dict()
             _is_onnx_mode = True
@@ -429,6 +457,7 @@ def config(
                     no_quant=not quant,
                     no_compile=no_compile,
                     backend=backend,
+                    cgc_options=cgc_options,
                     policy_overrides_config=policy_overrides_config,
                     output=output,
                     overwrite=overwrite,
@@ -472,6 +501,7 @@ def config(
                 configs = list(result)
                 for cfg in configs:
                     _apply_stage_overrides(cfg, no_quant=not quant, no_compile=no_compile)
+                    _apply_cgc_options(cfg, cgc_options)
                 output_data = [cfg.to_dict() for cfg in configs]
                 _n_modules = len(configs)
                 # Use first config for display metadata
@@ -480,6 +510,7 @@ def config(
                 config_obj = _merge_export_overrides(result, export_overrides)
                 configs = []
                 _apply_stage_overrides(config_obj, no_quant=not quant, no_compile=no_compile)
+                _apply_cgc_options(config_obj, cgc_options)
                 output_data = config_obj.to_dict()
                 _n_modules = 0
 
@@ -489,18 +520,18 @@ def config(
 
         # ── Rich console output ──────────────────────────────────────
         subtitle = "ONNX mode" if _is_onnx_mode else ("module mode" if module else None)
-        print_command_header(console, "\U0001f4cb CONFIG GENERATION", subtitle)
+        print_command_header(console, "Config generation", subtitle)
 
         # Model identity
         model_label = hf_model or model_type or model_class or "?"
-        print_kv(console, "Model:", model_label, icon="\U0001f4e6")
+        print_kv(console, "Model:", model_label)
 
         if _is_onnx_mode:
-            print_kv(console, "Mode:", "Direct ONNX", note="export=None", icon="\U0001f527")
+            print_kv(console, "Mode:", "Direct ONNX", note="export=None")
         else:
             # Fix #1: Model class before Task
             if module:
-                print_kv(console, "Module:", module, icon="\U0001f9e9")
+                print_kv(console, "Module:", module)
             elif _resolved_model_class:
                 mc_note = None if model_class else "auto-detected"
                 print_kv(
@@ -508,9 +539,7 @@ def config(
                     "Model class:",
                     _resolved_model_class,
                     note=mc_note,
-                    icon="\U0001f9e9",
                 )
-            # Fix #2: no trailing space after 🏷️
             if _resolved_task:
                 task_note = None if task else "auto-detected"
                 print_kv(
@@ -518,33 +547,32 @@ def config(
                     "Task:",
                     _resolved_task,
                     note=task_note,
-                    icon="\U0001f3f7\ufe0f",
                 )
 
         # Override files
         if config_file:
             console.print(
-                f"   \U0001f4c1 [bold]Overrides:[/bold]    {_override_file}  [green]\u2713[/green]"
+                f"   [bold]Overrides:[/bold]    {_override_file}  [green]Loaded[/green]"
             )
         if shape_config_file:
             console.print(
-                f"   \U0001f4c1 [bold]Shape config:[/bold] "
-                f"{_shape_config_file}  [green]\u2713[/green]"
+                f"   [bold]Shape config:[/bold] "
+                f"{_shape_config_file}  [green]Loaded[/green]"
             )
         if input_specs:
             console.print(
-                f"   \U0001f4c1 [bold]Input specs:[/bold]  "
-                f"{input_specs.name}  [green]\u2713[/green]"
+                f"   [bold]Input specs:[/bold]  "
+                f"{input_specs.name}  [green]Loaded[/green]"
             )
         if export_config:
             console.print(
-                f"   \U0001f4c1 [bold]Export config:[/bold] "
-                f"{export_config.name}  [green]\u2713[/green]"
+                f"   [bold]Export config:[/bold] "
+                f"{export_config.name}  [green]Loaded[/green]"
             )
         if dynamic_axes:
             console.print(
-                f"   \U0001f4c1 [bold]Dynamic axes:[/bold] "
-                f"{dynamic_axes.name}  [green]\u2713[/green]"
+                f"   [bold]Dynamic axes:[/bold] "
+                f"{dynamic_axes.name}  [green]Loaded[/green]"
             )
 
         console.print()
@@ -563,7 +591,7 @@ def config(
         if _ref_config is not None:
             _quant = _ref_config.quant
 
-            console.print("   \u2699\ufe0f  [bold]Resolution:[/bold]")
+            console.print("   [bold]Resolution:[/bold]")
 
             # Device from auto_detect_device, which validates that a local EP
             # actually exposes the selected device class.
@@ -595,7 +623,7 @@ def config(
         if module and not _is_onnx_mode and _n_modules > 0:
             console.print()
             console.print(
-                f"   \U0001f9e9 [bold]Submodules:[/bold] "
+                f"   [bold]Submodules:[/bold] "
                 f"[green]{_n_modules}[/green] matching '{module}'"
             )
 
@@ -669,6 +697,7 @@ def _generate_pipeline_configs(
     overwrite: bool,
     console: Any,
     backend: RuntimeBackend | None = None,
+    cgc_options: tuple[str, ...] = (),
 ) -> None:
     """Generate and save one config file per pipeline sub-component."""
     from ..config import generate_hf_build_config
@@ -695,6 +724,7 @@ def _generate_pipeline_configs(
             policy_overrides_config=policy_overrides_config,
         )
         _apply_stage_overrides(cfg, no_quant=no_quant, no_compile=no_compile)
+        _apply_cgc_options(cfg, cgc_options)
 
         config_json = json.dumps(cfg.to_dict(), indent=2)
 

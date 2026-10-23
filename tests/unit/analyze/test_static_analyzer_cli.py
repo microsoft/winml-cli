@@ -16,6 +16,7 @@ Tests verify:
 from __future__ import annotations
 
 import json
+from io import StringIO
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, Mock, patch
@@ -29,7 +30,14 @@ from rich.progress import Progress
 if TYPE_CHECKING:
     from pathlib import Path
 
-from winml.modelkit.commands.analyze import _get_local_ep_device_pairs, analyze
+from winml.modelkit.analyze import SupportLevel
+from winml.modelkit.commands.analyze import (
+    _build_analysis_table,
+    _build_pattern_query_table,
+    _get_local_ep_device_pairs,
+    _worst_level_label,
+    analyze,
+)
 from winml.modelkit.utils.constants import EP_SUPPORTED_DEVICES, normalize_ep_name
 
 
@@ -439,7 +447,7 @@ class TestAnalyzeCommandExecution:
         assert result.exit_code == 0
         assert mock_progress.call_args.kwargs["redirect_stdout"] is False
         assert mock_progress.call_args.kwargs["redirect_stderr"] is False
-        assert result.output.count("PATTERN CHECK") == 1
+        assert result.output.count("Pattern check") == 1
         assert "Pattern progress" in result.output
         assert "2/2" in result.output
         assert "1/0/1/0" in result.output
@@ -2044,8 +2052,87 @@ class TestQDQNodeDisplayMapping:
         assert qnn_counts["DequantizeLinear"] == {"supported": 4}
 
 
+@pytest.mark.parametrize("width", [80, 120])
+@pytest.mark.parametrize("table_builder", [_build_analysis_table, _build_pattern_query_table])
+def test_support_tables_use_text_status_without_truncating_names(width, table_builder):
+    counts = {
+        f"item_{index:018d}": {level.value: index}
+        for index, level in enumerate(SupportLevel, start=1)
+    }
+    buffer = StringIO()
+    console = Console(file=buffer, width=width, color_system=None)
+    console.print(table_builder(counts, complete=True))
+
+    output = buffer.getvalue()
+    for name, values in counts.items():
+        assert name in output
+        for level in values:
+            assert level.capitalize() in output
+    assert "Total" in output
+    assert "S/P/U/Unk" in output
+    assert "Done" in output
+    assert not any(
+        0x1F000 <= ord(char) <= 0x1FAFF or 0x2600 <= ord(char) <= 0x27BF
+        for char in output
+    )
+
+
+def test_support_text_preserves_worst_level_priority():
+    levels = (
+        SupportLevel.UNSUPPORTED,
+        SupportLevel.PARTIAL,
+        SupportLevel.UNKNOWN,
+        SupportLevel.SUPPORTED,
+    )
+    for index, level in enumerate(levels):
+        counts = {remaining.value: index + 1 for remaining in levels[index:]}
+        assert _worst_level_label(counts) == level.value.capitalize()
+
+
 class TestAnalyzeSummaryRendering:
     """Summary rendering behavior for no-rule-data fallback cases."""
+
+    @pytest.mark.parametrize("no_rule_data", [False, True])
+    def test_summary_statuses_are_text_without_emojis(self, no_rule_data):
+        from winml.modelkit.commands.analyze import _render_analysis_summary
+
+        ep_name, device = SIMULATED_LOCAL_EP_DEVICE_PAIRS[0]
+        names = {level: f"item_{index}" for index, level in enumerate(SupportLevel)}
+        counts = {
+            name: {level.value: index}
+            for index, (level, name) in enumerate(names.items(), start=1)
+        }
+        ep_support = SimpleNamespace(
+            ep_type=ep_name,
+            device_type=device,
+            classification={level: [name] for level, name in names.items()},
+            information=[],
+        )
+        patterns = {
+            ep_name: {
+                "patterns": [
+                    {"pattern_id": name, "instances": index, "status": level.value}
+                    for index, (level, name) in enumerate(names.items(), start=1)
+                ]
+            }
+        }
+        console = Console(file=StringIO(), record=True, width=80, color_system=None)
+        _render_analysis_summary(
+            console,
+            [ep_support],
+            ep_instance_counts={} if no_rule_data else {(ep_name, device): counts},
+            ep_patterns=patterns,
+            no_data_eps={(ep_name, device)} if no_rule_data else None,
+        )
+
+        output = console.export_text()
+        for level in (SupportLevel.UNSUPPORTED, SupportLevel.PARTIAL, SupportLevel.UNKNOWN):
+            assert level.value in output.lower()
+            assert names[level] in output
+        assert not any(
+            0x1F000 <= ord(char) <= 0x1FAFF or 0x2600 <= ord(char) <= 0x27BF
+            for char in output
+        )
 
     def test_summary_heading_includes_per_ep_analyze_elapsed(self) -> None:
         """Heading should show elapsed analyze time annotation for EP/device."""
@@ -2070,7 +2157,7 @@ class TestAnalyzeSummaryRendering:
         )
 
         output = console.export_text()
-        assert "ANALYSIS SUMMARY" in output
+        assert "Analysis summary" in output
         assert "Analyze total: DmlExecutionProvider (GPU), 1.23s" in output
 
     def test_no_rule_data_with_instance_counts_renders_op_summary(self) -> None:
@@ -2325,7 +2412,7 @@ class TestAnalyzeCheckOptim:
         )
 
         assert result.exit_code == 0
-        assert "OPTIMIZATION OUTPUT SUPPORT" in result.output
+        assert "Optimization output support" in result.output
         assert "--enable-matmul-add-fusion" in result.output
         assert "supported" in result.output.lower()
 
@@ -2367,7 +2454,7 @@ class TestAnalyzeCheckOptim:
         )
 
         assert result.exit_code == 0
-        assert "OPTIMIZATION OUTPUT SUPPORT" not in result.output
+        assert "Optimization output support" not in result.output
 
     @patch("winml.modelkit.analyze.ONNXStaticAnalyzer")
     def test_quiet_json_includes_structured_optimization_support(

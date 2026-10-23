@@ -40,6 +40,7 @@ import onnx
 import pytest
 from click.testing import CliRunner
 
+from tests.e2e.cli import cli_command
 from tests.e2e.dml_adapter import perf_test_luid, physical_dml_test_luid
 from tests.e2e.require_ep import require_device, require_ep
 from winml.modelkit.commands.perf import perf
@@ -188,7 +189,7 @@ def _run_winml_cli_subprocess(
 ) -> subprocess.CompletedProcess[str]:
     """Run the real winml CLI entry point in a fresh Python process."""
     return subprocess.run(  # noqa: S603 -- trusted args from the test body
-        [sys.executable, "-m", "winml.modelkit", *args],
+        [*cli_command(), *args],
         capture_output=True,
         encoding="utf-8",
         errors="replace",

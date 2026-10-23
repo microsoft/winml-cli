@@ -5,8 +5,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from importlib import import_module
-from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
@@ -31,10 +31,6 @@ from winml.modelkit.optim.pipes import (
 from winml.modelkit.pattern import PatternMatcher
 
 
-if TYPE_CHECKING:
-    from collections.abc import Callable
-
-
 def test_initializer_shape_without_value_info():
     from winml.modelkit.pattern.cgc.cgc_constant_folding import _ConstantParameters
 
@@ -54,6 +50,126 @@ def test_initializer_shape_without_value_info():
     expected = ReferenceEvaluator(model).run(None, {})[0]
     actual = _ConstantParameters(model, static_shapes=True).evaluate("shape", set(), set())
     np.testing.assert_array_equal(actual, expected)
+
+
+def _dynamic_pad_model():
+    nodes = [
+        helper.make_node("Shape", ["x"], ["shape"]),
+        helper.make_node("Gather", ["shape", "axes"], ["hw"], axis=0),
+        helper.make_node("Neg", ["hw"], ["negative"]),
+        helper.make_node("Mod", ["negative", "two"], ["padding"], fmod=0),
+        helper.make_node("Concat", ["zeros", "padding"], ["pads"], axis=0),
+        helper.make_node("Pad", ["x", "pads"], ["y"], mode="reflect"),
+    ]
+    return helper.make_model(
+        helper.make_graph(
+            nodes, "dynamic_pad",
+            [helper.make_tensor_value_info("x", TensorProto.FLOAT, ["batch_size", 1, "h", "w"])],
+            [helper.make_tensor_value_info("y", TensorProto.FLOAT, ["batch_size", 1, None, None])],
+            [
+                numpy_helper.from_array(np.array([2, 3], dtype=np.int64), "axes"),
+                numpy_helper.from_array(np.array([2, 2], dtype=np.int64), "two"),
+                numpy_helper.from_array(np.zeros(6, dtype=np.int64), "zeros"),
+            ],
+        ),
+        opset_imports=[helper.make_opsetid("", 18)], ir_version=10,
+    )
+
+
+@pytest.mark.parametrize("height,width", [(3, 5), (4, 6)])
+@pytest.mark.parametrize("entry_point", ["api", "optimizer"])
+def test_cgc_freezedim_supplies_dimensions_for_folding(height, width, entry_point):
+    from winml.modelkit.optim import optimize_onnx
+
+    model = _dynamic_pad_model()
+    original = model.SerializeToString()
+    optimize = optimize_onnx if entry_point == "api" else Optimizer().optimize
+    result = optimize(
+        model, cgc_freezedim=f"batch_size=1,h={height},w={width}", cgc_constant_folding=True,
+    )
+    checker.check_model(result)
+    assert model.SerializeToString() == original
+    assert result.graph.input[0].type == model.graph.input[0].type
+    assert not any(node.op_type in {"Shape", "Gather", "Neg", "Mod"} for node in result.graph.node)
+    x = np.random.default_rng(42).normal(size=(1, 1, height, width)).astype(np.float32)
+    np.testing.assert_array_equal(
+        ReferenceEvaluator(result).run(None, {"x": x})[0],
+        ReferenceEvaluator(model).run(None, {"x": x})[0],
+    )
+
+
+def test_cgc_freezedim_does_not_enable_folding():
+    model = _dynamic_pad_model()
+    config = CGIRRewritePipe.build_config(cgc_freezedim="h=3,w=5")
+    assert not config.rules
+    assert CGIRRewritePipe().process(model, config) is model
+
+
+def test_cgc_folding_preserves_unresolved_dimensions():
+    model = _dynamic_pad_model()
+    config = CGIRRewritePipe.build_config(cgc_constant_folding=True)
+    result = CGIRRewritePipe().process(model, config)
+    assert result.graph.input[0].type == model.graph.input[0].type
+    assert any(node.op_type == "Neg" for node in result.graph.node)
+    assert any(node.op_type == "Mod" for node in result.graph.node)
+
+
+@pytest.mark.parametrize("value", ["h=0,w=5", "h=3,h=5", "h=bad", "h", None])
+def test_cgc_folding_rejects_invalid_freeze_dimensions(value):
+    config = CGIRRewritePipe.build_config(
+        cgc_freezedim=value, cgc_constant_folding=True,
+    )
+    with pytest.raises(OptimizationError, match="freeze-dims"):
+        CGIRRewritePipe().process(_dynamic_pad_model(), config)
+
+
+def test_cgc_freezing_only_uses_explicit_dimensions():
+    from winml.modelkit.pattern.cgc.cgc_constant_folding import (
+        _dimension_overrides,
+        _infer_for_folding,
+    )
+
+    model = _dynamic_pad_model()
+    assert _dimension_overrides("") == {}
+    overrides = _dimension_overrides("h=3,w=5")
+    result = _infer_for_folding(model, overrides)
+    shape = result.graph.input[0].type.tensor_type.shape
+    assert shape.dim[0].dim_param == "batch_size"
+    assert [dim.dim_value for dim in shape.dim[2:]] == [3, 5]
+
+
+def test_cgc_freezing_updates_subgraph_shapes():
+    from winml.modelkit.pattern.cgc.cgc_constant_folding import _infer_for_folding
+
+    model = _dynamic_pad_model()
+    branch = helper.make_graph(
+        [helper.make_node("Identity", ["x"], ["captured"])], "branch", [],
+        [helper.make_tensor_value_info("captured", TensorProto.FLOAT, ["batch_size", 1, "h", "w"])],
+    )
+    model.graph.node.append(helper.make_node(
+        "If", ["condition"], ["selected"], then_branch=branch, else_branch=branch,
+    ))
+    model.graph.initializer.append(numpy_helper.from_array(np.array(True), "condition"))
+    checker.check_model(model)
+    result = _infer_for_folding(model, {"batch_size": 2, "h": 3, "w": 5})
+    checker.check_model(result)
+    for attr in result.graph.node[-1].attribute:
+        assert [dim.dim_value for dim in attr.g.output[0].type.tensor_type.shape.dim] == [
+            2, 1, 3, 5,
+        ]
+    original_shape = model.graph.node[-1].attribute[0].g.output[0].type.tensor_type.shape
+    assert original_shape.dim[2].dim_param == "h"
+
+
+def test_cgc_freezedim_does_not_change_folding_entry_conditions():
+    from winml.modelkit.pattern.cgc import cgc_constant_folding
+
+    model = helper.make_model(helper.make_graph(
+        [helper.make_node("Identity", ["x"], ["y"])], "no_shape",
+        [helper.make_tensor_value_info("x", TensorProto.FLOAT, ["h"])],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, ["h"])],
+    ), opset_imports=[helper.make_opsetid("", 18)], ir_version=10)
+    assert cgc_constant_folding(model, cgc_freezedim="h=3") is model
 
 
 @pytest.mark.parametrize("domain", ["", "com.microsoft"])
@@ -186,8 +302,8 @@ def test_cgc_constant_folding_pad_parameters(opset, shared, has_shape):
 @pytest.mark.parametrize("spatial,output_hw", [
     ((4, 7), (5, 6)), ((1, 5), (3, 1)), ((5, 1), (1, 4)), ((1, 1), (2, 3)),
 ])
-def test_gridsample_to_gather(opset, align, fp16, dynamic, spatial, output_hw):
-    import onnxruntime as ort
+def test_cgc_preserves_native_gridsample(opset, align, fp16, dynamic, spatial, output_hw):
+    from winml.modelkit.optim import WinMLOptimizationConfig
 
     dtype = TensorProto.FLOAT16 if fp16 else TensorProto.FLOAT
     batch_dim = "batch" if dynamic else 2
@@ -201,41 +317,20 @@ def test_gridsample_to_gather(opset, align, fp16, dynamic, spatial, output_hw):
     ], [helper.make_tensor_value_info("Y", dtype, [batch_dim, 3, *output_hw])]),
         opset_imports=[helper.make_opsetid("", opset)], ir_version=10)
     original = model.SerializeToString()
-    result = Optimizer().optimize(model, gridsample_to_gather=True)
+    config = WinMLOptimizationConfig.for_cgc()
+    assert "gridsample_to_gather" not in config
+    assert "gridsample-to-gather" not in CGIRRewritePipe.capabilities
+    result = CGIRRewritePipe().process(model, CGIRRewritePipe.build_config(**config))
     checker.check_model(result, full_check=True)
     assert model.SerializeToString() == original
-    assert not any(node.op_type == "GridSample" for node in result.graph.node)
-    assert sum(node.op_type == "GatherND" for node in result.graph.node) == 4
-    ranks = {value.name: len(value.type.tensor_type.shape.dim)
-             for value in result.graph.value_info}
-    if dynamic:
-        assert sum(node.op_type == "Range" for node in result.graph.node) == 1
-    for node in result.graph.node:
-        if node.op_type == "GatherND":
-            assert {attr.name: helper.get_attribute_value(attr)
-                    for attr in node.attribute}["batch_dims"] == 0
-            assert all(ranks[name] == 3 for name in [*node.input, *node.output])
-    rng = np.random.default_rng(42)
-    options = ort.SessionOptions()
-    options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
-    reference = ort.InferenceSession(original, options, providers=["CPUExecutionProvider"])
-    candidate = ort.InferenceSession(
-        result.SerializeToString(), options, providers=["CPUExecutionProvider"],
-    )
-    for batch in ([1, 2, 3] if dynamic else [2]):
-        feeds = {"X": rng.normal(size=(batch, 3, *spatial)).astype(
-                     np.float16 if fp16 else np.float32),
-                 "grid": rng.uniform(-3, 3, size=(batch, *output_hw, 2)).astype(
-                     np.float16 if fp16 else np.float32)}
-        feeds["grid"].reshape(-1, 2)[:3] = np.linspace(-1, 1, 3)[:, None]
-        expected = reference.run(None, feeds)
-        actual = candidate.run(None, feeds)
-        np.testing.assert_allclose(actual[0], expected[0], atol=2e-3 if fp16 else 2e-6, rtol=2e-3)
+    assert result.SerializeToString() == original
 
 
 @pytest.mark.parametrize("mode,padding", [("nearest", "zeros"), ("linear", "border"),
                                          ("cubic", "reflection")])
-def test_gridsample_to_gather_preserves_unsupported_modes(mode, padding):
+def test_cgc_preserves_other_gridsample_modes(mode, padding):
+    from winml.modelkit.optim import WinMLOptimizationConfig
+
     model = helper.make_model(helper.make_graph([
         helper.make_node("GridSample", ["X", "grid"], ["Y"], mode=mode, padding_mode=padding),
     ], "sampling", [
@@ -244,7 +339,7 @@ def test_gridsample_to_gather_preserves_unsupported_modes(mode, padding):
     ], [helper.make_tensor_value_info("Y", TensorProto.FLOAT, [1, 3, 5, 6])]),
         opset_imports=[helper.make_opsetid("", 20)], ir_version=10)
     result = CGIRRewritePipe().process(
-        model, CGIRRewritePipe.build_config(gridsample_to_gather=True),
+        model, CGIRRewritePipe.build_config(**WinMLOptimizationConfig.for_cgc()),
     )
     assert result is model
 
@@ -328,9 +423,11 @@ def test_cgc_constant_folding_rejects_broadcast_allocation(monkeypatch):
         _ConstantParameters(model, static_shapes=True).evaluate("result", set(), set())
 
 
-@pytest.mark.parametrize("source_op", ["Relu", "PRelu"])
+@pytest.mark.parametrize("matches_resize", [False, True])
 @pytest.mark.parametrize("model_barrier", [False, True])
-def test_cgir_reuses_matcher_without_skipping_rules(source_op, model_barrier, monkeypatch):
+def test_cgir_reuses_matcher_without_skipping_rules(matches_resize, model_barrier, monkeypatch):
+    import onnxruntime as ort
+
     import winml.modelkit.optim.pipes.cgir_rewrite as cgir_module
 
     prepared = []
@@ -346,44 +443,46 @@ def test_cgir_reuses_matcher_without_skipping_rules(source_op, model_barrier, mo
             return super().match()
 
     monkeypatch.setattr(cgir_module, "PatternMatcher", TrackingMatcher)
-    model = helper.make_model(
-        helper.make_graph(
-            [helper.make_node(
-                source_op, ["source", "slope"] if source_op == "PRelu" else ["source"],
-                ["result"],
-            )],
-            "matcher_reuse",
-            [helper.make_tensor_value_info("source", TensorProto.FLOAT, [2, 3])],
-            [helper.make_tensor_value_info("result", TensorProto.FLOAT, [2, 3])],
-            [numpy_helper.from_array(
-                np.random.default_rng(42).uniform(size=()).astype(np.float32), "slope",
-            )],
-        ),
-        opset_imports=[helper.make_opsetid("", 18)],
-        ir_version=10,
+    model = _make_resize_model(
+        opset=11, roi=_empty_float(), scales=_effective_scales(),
+        use_sizes=False, cast_inputs=False,
     )
-    resize_rule = CGIRRewritePipe.build_config(omit_empty_resize_inputs=True).rules[0]
-    prelu_rule = CGIRRewritePipe.build_config(prelu_to_relu=True).rules[0]
-    rules = [resize_rule]
+    node = _resize_nodes(model)[0]
+    node.attribute.extend([
+        helper.make_attribute(
+            "coordinate_transformation_mode",
+            "tf_half_pixel_for_nn" if matches_resize else "asymmetric",
+        ),
+        helper.make_attribute("nearest_mode", "floor"),
+    ])
+    cubic_rule = CGIRRewritePipe.build_config(approximate_cubic_resize_with_linear=True).rules[0]
+    nearest_rule = CGIRRewritePipe.build_config(
+        resize_tf_half_pixel_for_nn_to_asymmetric=True,
+    ).rules[0]
+    rules = [cubic_rule]
     if model_barrier:
         rules.extend(CGIRRewritePipe.build_config(deduplicate_opset_imports=True).rules)
-    rules.extend([prelu_rule, resize_rule])
+    rules.extend([nearest_rule, cubic_rule])
     original = model.SerializeToString()
-    feeds = {"source": np.exp(np.random.default_rng(42).normal(size=(2, 3))).astype(np.float32)}
-    expected = ReferenceEvaluator(model).run(None, feeds)
+    feeds = {"X": np.random.default_rng(42).normal(size=(1, 1, 2, 2)).astype(np.float32)}
+    expected = ort.InferenceSession(
+        original, providers=["CPUExecutionProvider"],
+    ).run(None, feeds)
 
     result = CGIRRewritePipe().process(model, CGIRRewritePipeConfig(rules=rules))
 
-    assert len(prepared) == 1 + int(model_barrier) + int(source_op == "PRelu")
-    expected_patterns = [resize_rule.source.__name__, prelu_rule.source.__name__]
-    if source_op == "PRelu":
-        expected_patterns.append(prelu_rule.source.__name__)
-    expected_patterns.append(resize_rule.source.__name__)
+    assert len(prepared) == 1 + int(model_barrier) + int(matches_resize)
+    expected_patterns = [cubic_rule.source.__name__, nearest_rule.source.__name__]
+    if matches_resize:
+        expected_patterns.append(nearest_rule.source.__name__)
+    expected_patterns.append(cubic_rule.source.__name__)
     assert matched == [(name,) for name in expected_patterns]
     assert model.SerializeToString() == original
     checker.check_model(result)
     for actual, reference in zip(
-        ReferenceEvaluator(result).run(None, feeds), expected, strict=True,
+        ort.InferenceSession(
+            result.SerializeToString(), providers=["CPUExecutionProvider"],
+        ).run(None, feeds), expected, strict=True,
     ):
         np.testing.assert_allclose(actual, reference)
 
@@ -394,6 +493,8 @@ def test_cgir_reuses_matcher_without_skipping_rules(source_op, model_barrier, mo
     "fold-scalar-initializer-casts",
     "eliminate-identity",
     "fold-constant-pad-pads",
+    "prelu-to-relu",
+    "omit-empty-resize-inputs",
 ])
 def test_retired_cgir_rules_are_not_registered(capability):
     from click.testing import CliRunner
@@ -532,16 +633,8 @@ def _empty_float() -> np.ndarray:
     return np.empty((0,), dtype=np.float32)
 
 
-def _nonempty_roi() -> np.ndarray:
-    return np.array([0.0, 0.0, 1.0, 1.0], dtype=np.float32)
-
-
 def _effective_scales() -> np.ndarray:
     return np.array([1.0, 1.0, 2.0, 2.0], dtype=np.float32)
-
-
-def _enabled_config() -> CGIRRewritePipeConfig:
-    return CGIRRewritePipe.build_config(omit_empty_resize_inputs=True)
 
 
 def _resize_nodes(model: ModelProto) -> list[NodeProto]:
@@ -556,12 +649,11 @@ def _default_opset(model: ModelProto) -> int:
     )
 
 
-def test_omit_empty_resize_inputs_is_disabled_by_default() -> None:
+def test_cgir_rewrites_are_disabled_by_default() -> None:
     config = CGIRRewritePipe.build_config()
 
     assert config.rules == []
     assert not CGIRRewritePipe.should_process(config)
-    assert CGIRRewritePipe.capabilities["omit-empty-resize-inputs"].default is False
 
 
 
@@ -573,215 +665,12 @@ def test_disable_graph_optimization_does_not_enable_rules_implicitly() -> None:
     assert CGIRRewritePipe.should_process(config) is False
 
 
-def test_omit_empty_resize_inputs_is_owned_only_by_cgir_rewrite_pipe() -> None:
-    assert "omit-empty-resize-inputs" in CGIRRewritePipe.capabilities
-    assert "omit-empty-resize-inputs" not in RewritePipe.capabilities
+def test_cgir_rewrites_precede_other_pipes() -> None:
     assert PIPES[0] is CGIRRewritePipe
 
 
 
 
-
-
-def test_omit_empty_resize_inputs_requires_explicit_enable() -> None:
-    config = _enabled_config()
-
-    assert CGIRRewritePipe.should_process(config)
-    assert len(config.rules) == 1
-
-
-@pytest.mark.parametrize("opset", [11, 12])
-def test_omit_empty_resize_inputs_updates_legacy_opset_and_rewrites(opset: int) -> None:
-    model = _make_resize_model(
-        opset=opset,
-        roi=_empty_float(),
-        scales=_empty_float(),
-        use_sizes=True,
-    )
-
-    result = CGIRRewritePipe().process(model, _enabled_config())
-
-    assert _default_opset(model) == opset
-    assert list(_resize_nodes(model)[0].input) == ["X", "roi", "scales", "sizes_0"]
-    assert _default_opset(result) == 13
-    assert list(_resize_nodes(result)[0].input) == ["X", "", "", "sizes_0"]
-    checker.check_model(result)
-
-
-def test_omit_empty_resize_inputs_rewrites_opset_13_without_conversion(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    model = _make_resize_model(
-        opset=13,
-        roi=_empty_float(),
-        scales=_empty_float(),
-        use_sizes=True,
-    )
-
-    def unexpected_conversion(*_args: object, **_kwargs: object) -> ModelProto:
-        pytest.fail("opset 13 model must not be converted")
-
-    monkeypatch.setattr(
-        "winml.modelkit.optim.pipes.cgir_rewrite.version_converter.convert_version",
-        unexpected_conversion,
-    )
-
-    result = CGIRRewritePipe().process(model, _enabled_config())
-
-    assert _default_opset(result) == 13
-    assert list(_resize_nodes(result)[0].input) == ["X", "", "", "sizes_0"]
-
-
-def test_omit_empty_resize_inputs_rewrites_all_matches() -> None:
-    model = _make_resize_model(
-        opset=11,
-        roi=_empty_float(),
-        scales=_empty_float(),
-        use_sizes=True,
-        resize_count=3,
-    )
-
-    result = CGIRRewritePipe().process(model, _enabled_config())
-
-    assert [
-        list(node.input)
-        for node in _resize_nodes(result)
-    ] == [
-        ["X", "", "", "sizes_0"],
-        ["X", "", "", "sizes_1"],
-        ["X", "", "", "sizes_2"],
-    ]
-
-
-def test_omit_empty_resize_inputs_preserves_effective_scales() -> None:
-    model = _make_resize_model(
-        opset=13,
-        roi=_empty_float(),
-        scales=_effective_scales(),
-        use_sizes=False,
-    )
-
-    result = CGIRRewritePipe().process(model, _enabled_config())
-
-    assert list(_resize_nodes(result)[0].input) == ["X", "", "scales"]
-
-
-@pytest.mark.parametrize(
-    "model_factory",
-    [
-        lambda: _make_resize_model(
-            opset=11,
-            roi=_nonempty_roi(),
-            scales=_empty_float(),
-            use_sizes=True,
-        ),
-        lambda: _make_resize_model(
-            opset=11,
-            roi=_nonempty_roi(),
-            scales=_effective_scales(),
-            use_sizes=True,
-        ),
-        lambda: _make_resize_model(
-            opset=13,
-            roi=_nonempty_roi(),
-            scales=_effective_scales(),
-            use_sizes=False,
-        ),
-    ],
-    ids=["nonempty-roi", "scales-and-sizes", "no-empty-inputs"],
-)
-def test_omit_empty_resize_inputs_does_not_rewrite_nonmatches(
-    model_factory: Callable[[], ModelProto],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    model = model_factory()
-    original = model.SerializeToString()
-
-    def unexpected_conversion(*_args: object, **_kwargs: object) -> ModelProto:
-        pytest.fail("non-matching model must not be converted")
-
-    monkeypatch.setattr(
-        "winml.modelkit.optim.pipes.cgir_rewrite.version_converter.convert_version",
-        unexpected_conversion,
-    )
-
-    result = CGIRRewritePipe().process(model, _enabled_config())
-
-    assert result is model
-    assert result.SerializeToString() == original
-
-
-def test_omit_empty_resize_inputs_does_not_rewrite_omitted_inputs() -> None:
-    model = _make_resize_model(
-        opset=13,
-        roi=_empty_float(),
-        scales=_empty_float(),
-        use_sizes=True,
-    )
-    resize = _resize_nodes(model)[0]
-    resize.input[1] = ""
-    resize.input[2] = ""
-    original = model.SerializeToString()
-
-    result = CGIRRewritePipe().process(model, _enabled_config())
-
-    assert result is model
-    assert result.SerializeToString() == original
-
-
-def test_omit_empty_resize_inputs_converts_once(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    model = _make_resize_model(
-        opset=11,
-        roi=_empty_float(),
-        scales=_empty_float(),
-        use_sizes=True,
-        resize_count=2,
-    )
-    calls: list[int] = []
-    convert_version = version_converter.convert_version
-
-    def recorded_conversion(
-        source: ModelProto,
-        target_opset: int,
-    ) -> ModelProto:
-        calls.append(target_opset)
-        return convert_version(source, target_opset)
-
-    monkeypatch.setattr(
-        "winml.modelkit.optim.pipes.cgir_rewrite.version_converter.convert_version",
-        recorded_conversion,
-    )
-
-    CGIRRewritePipe().process(model, _enabled_config())
-
-    assert calls == [13]
-
-
-def test_omit_empty_resize_inputs_surfaces_conversion_failure(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    model = _make_resize_model(
-        opset=11,
-        roi=_empty_float(),
-        scales=_empty_float(),
-        use_sizes=True,
-    )
-    original = model.SerializeToString()
-
-    def failed_conversion(*_args: object, **_kwargs: object) -> ModelProto:
-        raise RuntimeError("conversion failed")
-
-    monkeypatch.setattr(
-        "winml.modelkit.optim.pipes.cgir_rewrite.version_converter.convert_version",
-        failed_conversion,
-    )
-
-    with pytest.raises(OptimizationError, match="conversion failed"):
-        CGIRRewritePipe().process(model, _enabled_config())
-
-    assert model.SerializeToString() == original
 
 
 def test_optimizer_leaves_resize_unchanged_by_default() -> None:
@@ -802,20 +691,43 @@ def test_optimizer_leaves_resize_unchanged_by_default() -> None:
     assert resize_inputs[3] == "sizes_0"
 
 
-def test_optimizer_applies_explicit_cgir_resize_rewrite() -> None:
+@pytest.mark.parametrize("opset", [11, 12, 13])
+def test_cgc_preserves_native_empty_resize(opset) -> None:
+    from winml.modelkit.optim import WinMLOptimizationConfig
+
     model = _make_resize_model(
-        opset=11,
+        opset=opset,
         roi=_empty_float(),
         scales=_empty_float(),
         use_sizes=True,
     )
 
-    result = Optimizer().optimize(model, omit_empty_resize_inputs=True)
+    original = model.SerializeToString()
+    result = CGIRRewritePipe().process(
+        model, CGIRRewritePipe.build_config(**WinMLOptimizationConfig.for_cgc()),
+    )
 
-    assert _default_opset(result) == 13
-    assert list(_resize_nodes(result)[0].input) == ["X", "", "", "sizes_0"]
+    assert result.SerializeToString() == original
     checker.check_model(result)
 
+
+def test_cgc_preserves_native_prelu():
+    from winml.modelkit.optim import WinMLOptimizationConfig
+
+    slope = np.random.default_rng(42).uniform(size=(3,)).astype(np.float32)
+    model = helper.make_model(
+        helper.make_graph(
+            [helper.make_node("PRelu", ["x", "slope"], ["y"])], "prelu",
+            [helper.make_tensor_value_info("x", TensorProto.FLOAT, [2, 3])],
+            [helper.make_tensor_value_info("y", TensorProto.FLOAT, [2, 3])],
+            [numpy_helper.from_array(slope, "slope")],
+        ), opset_imports=[helper.make_opsetid("", 18)], ir_version=10,
+    )
+    original = model.SerializeToString()
+    result = CGIRRewritePipe().process(
+        model, CGIRRewritePipe.build_config(**WinMLOptimizationConfig.for_cgc()),
+    )
+    assert result.SerializeToString() == original
 
 
 
@@ -895,20 +807,50 @@ def test_deduplicate_opset_imports_rejects_conflicts_without_mutation(domain: st
     assert model.SerializeToString() == original
 
 
-def test_deduplicate_opset_imports_precedes_version_conversion() -> None:
+@pytest.mark.parametrize("conversion_fails", [False, True])
+def test_deduplicate_opset_imports_precedes_version_conversion(
+    monkeypatch, conversion_fails,
+) -> None:
     model = _make_resize_model(
-        opset=11, roi=_empty_float(), scales=_empty_float(), use_sizes=True
+        opset=11, roi=_empty_float(), scales=_effective_scales(),
+        use_sizes=False, cast_inputs=False, resize_count=2,
     )
+    for node in _resize_nodes(model):
+        node.attribute.extend([
+            helper.make_attribute("coordinate_transformation_mode", "tf_half_pixel_for_nn"),
+            helper.make_attribute("nearest_mode", "floor"),
+        ])
     model.opset_import.append(model.opset_import[0])
     original = model.SerializeToString()
-    result = CGIRRewritePipe().process(
-        model,
-        CGIRRewritePipe.build_config(
-            omit_empty_resize_inputs=True, deduplicate_opset_imports=True
-        ),
+    config = CGIRRewritePipe.build_config(
+        resize_tf_half_pixel_for_nn_to_asymmetric=True, deduplicate_opset_imports=True,
     )
+    config.rules[-1] = replace(config.rules[-1], minimum_opset=13)
+    convert = version_converter.convert_version
+    calls = []
+
+    def convert_once(source, target):
+        calls.append(target)
+        assert len(source.opset_import) == 1
+        if conversion_fails:
+            raise RuntimeError("conversion failed")
+        return convert(source, target)
+
+    monkeypatch.setattr(
+        "winml.modelkit.optim.pipes.cgir_rewrite.version_converter.convert_version", convert_once,
+    )
+    if conversion_fails:
+        with pytest.raises(OptimizationError, match="conversion failed"):
+            CGIRRewritePipe().process(model, config)
+        assert model.SerializeToString() == original
+        return
+    result = CGIRRewritePipe().process(model, config)
+    assert calls == [13]
     assert [opset.version for opset in result.opset_import if opset.domain == ""] == [13]
-    assert list(_resize_nodes(result)[0].input) == ["X", "", "", "sizes_0"]
+    for node in _resize_nodes(result):
+        assert next(
+            attr.s for attr in node.attribute if attr.name == "coordinate_transformation_mode"
+        ) == b"asymmetric"
     assert model.SerializeToString() == original
     checker.check_model(result)
 

@@ -36,9 +36,18 @@ from functools import partial
 from inspect import getattr_static
 from typing import TYPE_CHECKING, Any, cast
 
+from optimum.exporters.onnx.base import (
+    ConfigBehavior,
+    OnnxConfigWithPast,
+    OnnxSeq2SeqConfigWithPast,
+)
+from optimum.exporters.onnx.config import EncoderDecoderBaseOnnxConfig
 from optimum.exporters.tasks import TasksManager
 from optimum.utils.input_generators import (
     DEFAULT_DUMMY_SHAPES,
+    DummyPastKeyValuesGenerator,
+    DummySeq2SeqDecoderTextInputGenerator,
+    DummySeq2SeqPastKeyValuesGenerator,
     DummyTextInputGenerator,
 )
 
@@ -151,11 +160,107 @@ class MaxLengthTextInputGenerator(DummyTextInputGenerator):  # type: ignore[misc
         )
 
 
+class _Python314EncoderDecoderConfig(EncoderDecoderBaseOnnxConfig):  # type: ignore[misc]
+    """Construct nested Optimum configs through the same local adapter."""
+
+    def __init__(
+        self,
+        config: PretrainedConfig,
+        task: str = "feature-extraction",
+        int_dtype: str = "int64",
+        float_dtype: str = "fp32",
+        use_past: bool = False,
+        use_past_in_inputs: bool = False,
+        behavior: ConfigBehavior = ConfigBehavior.MONOLITH,
+        preprocessors: list[Any] | None = None,
+    ) -> None:
+        # Optimum's composite initializer constructs children directly. Keep its
+        # seq2seq initialization, but route both children through our adapter.
+        OnnxSeq2SeqConfigWithPast.__init__(
+            self,
+            config=config,
+            task=task,
+            int_dtype=int_dtype,
+            float_dtype=float_dtype,
+            use_past=use_past,
+            use_past_in_inputs=use_past_in_inputs,
+            behavior=behavior,
+            preprocessors=preprocessors,
+        )
+        children = {}
+        for name in ("encoder", "decoder"):
+            child_config = getattr(config, name)
+            constructor = TasksManager.get_exporter_config_constructor(
+                exporter="onnx",
+                task="feature-extraction",
+                model_type=child_config.model_type,
+                library_name="transformers",
+            )
+            child_kwargs: dict[str, Any] = {}
+            if name == "decoder":
+                self.is_decoder_with_past = issubclass(constructor.func, OnnxConfigWithPast)
+                if self.is_decoder_with_past:
+                    child_kwargs["use_past"] = use_past
+                elif use_past:
+                    raise ValueError(
+                        "The decoder part of the encoder-decoder model is "
+                        f"{child_config.model_type} "
+                        "which does not need past key values."
+                    )
+                else:
+                    self.use_past = False
+            child = instantiate_onnx_config(
+                constructor,
+                child_config,
+                int_dtype=int_dtype,
+                float_dtype=float_dtype,
+                preprocessors=preprocessors,
+                **child_kwargs,
+            )
+            if name == "decoder" and isinstance(child, OnnxSeq2SeqConfigWithPast):
+                child = child.with_behavior(
+                    self._behavior, use_past=use_past, use_past_in_inputs=use_past_in_inputs
+                )
+            children[name] = child
+
+        self._encoder_onnx_config = children["encoder"]
+        self._decoder_onnx_config = children["decoder"]
+        normalized_decoder = self._decoder_onnx_config._normalized_config
+        self._normalized_config.ENCODER_NORMALIZED_CONFIG_CLASS = (
+            self._encoder_onnx_config._normalized_config
+        )
+        self._normalized_config.DECODER_NORMALIZED_CONFIG_CLASS = normalized_decoder
+        normalized_decoder.encoder_num_attention_heads = normalized_decoder.num_attention_heads
+        normalized_decoder.decoder_num_attention_heads = normalized_decoder.num_attention_heads
+        past_generator = (
+            DummySeq2SeqPastKeyValuesGenerator
+            if isinstance(self._decoder_onnx_config, OnnxSeq2SeqConfigWithPast)
+            else DummyPastKeyValuesGenerator
+        )
+        self._past_key_values_generator = (DummySeq2SeqDecoderTextInputGenerator, past_generator)
+        self.DUMMY_INPUT_GENERATOR_CLASSES += self._past_key_values_generator
+
+
 def instantiate_onnx_config(
     constructor: Callable[..., OnnxConfig], *args: Any, **kwargs: Any
 ) -> OnnxConfig:
     """Instantiate Optimum configs without Python 3.14 partial method binding."""
     config_class = constructor.func if isinstance(constructor, partial) else constructor
+    if (
+        isinstance(config_class, type)
+        and issubclass(config_class, EncoderDecoderBaseOnnxConfig)
+        and not issubclass(config_class, _Python314EncoderDecoderConfig)
+    ):
+        bases = (
+            (_Python314EncoderDecoderConfig,)
+            if config_class is EncoderDecoderBaseOnnxConfig
+            else (config_class, _Python314EncoderDecoderConfig)
+        )
+        config_class = type(f"{config_class.__name__}Python314", bases, {})
+        if isinstance(constructor, partial):
+            constructor = partial(config_class, *constructor.args, **constructor.keywords)
+        else:
+            constructor = config_class
     factory = getattr_static(config_class, "NORMALIZED_CONFIG_CLASS", None)
     if isinstance(config_class, type) and isinstance(factory, partial):
         # Upstream factories are class attributes, not methods. Adapt locally;

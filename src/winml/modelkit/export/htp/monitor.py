@@ -198,7 +198,7 @@ class HTPExportMonitor:
         console = self.console
 
         console.print("\n" + "=" * ConsoleWriter.SEPARATOR_LENGTH)
-        console.print("✅ [bold green]EXPORT COMPLETE[/bold green]")
+        console.print("[bold green]Done: Export complete[/bold green]")
         console.print("=" * ConsoleWriter.SEPARATOR_LENGTH)
 
         # Summary stats
@@ -209,7 +209,7 @@ class HTPExportMonitor:
         tagged = len(self.data.node_tagging.tagged_nodes) if self.data.node_tagging else 0
         coverage = self.data.node_tagging.coverage if self.data.node_tagging else 0.0
 
-        console.print("📊 Export Summary:")
+        console.print("Export summary:")
         console.print(f"   • Total time: [bold cyan]{total_time:.2f}s[/bold cyan]")
         console.print(f"   • Hierarchy modules: [bold cyan]{total_modules}[/bold cyan]")
         # "Traced" only fits the TorchScript path; the dynamo path recovers modules
@@ -228,7 +228,7 @@ class HTPExportMonitor:
             f"([bold cyan]{coverage:.1f}%[/bold cyan] coverage)"
         )
 
-        console.print("\n📁 Output files:")
+        console.print("\nOutput files:")
         console.print(f"   • ONNX model: [bold magenta]{self.output_path}[/bold magenta]")
 
         # Metadata is always written
@@ -275,26 +275,26 @@ class HTPExportMonitor:
         console = self.console
 
         console.print("\n" + "=" * ConsoleWriter.SEPARATOR_LENGTH)
-        console.print("🚀 [bold cyan]HTP ONNX EXPORT PROCESS[/bold cyan]")
+        console.print("[bold cyan]HTP ONNX export process[/bold cyan]")
         console.print("=" * ConsoleWriter.SEPARATOR_LENGTH)
 
         # Timestamp
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-        console.print(f"📅 Export Time: [bold green]{timestamp}[/bold green]")
+        console.print(f"Export time: [bold green]{timestamp}[/bold green]")
         console.print(
-            f"🔄 Loading model and exporting: [bold magenta]{self.model_name}[/bold magenta]"
+            f"Loading model and exporting: [bold magenta]{self.model_name}[/bold magenta]"
         )
 
         # Strategy info
         console.print(
-            "🎯 Strategy: [bold cyan]HTP[/bold cyan] (Hierarchical Tracing and Projection)"
+            "Strategy: [bold cyan]HTP[/bold cyan] (Hierarchical Tracing and Projection)"
         )
 
         # Hierarchy embedding status
         if self.embed_hierarchy:
-            console.print("   Hierarchy Embedding: [bold green]ENABLED[/bold green]")
+            console.print("   Hierarchy embedding: [bold green]Enabled[/bold green]")
         else:
             console.print(
-                "   Hierarchy Embedding: [bold red]DISABLED[/bold red] (clean ONNX by default)"
+                "   Hierarchy embedding: [bold red]Disabled[/bold red] (clean ONNX by default)"
             )
         console.print("=" * ConsoleWriter.SEPARATOR_LENGTH)

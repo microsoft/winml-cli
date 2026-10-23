@@ -5,8 +5,8 @@
 """CLI surface tests for ``winml`` (no args) and ``winml --help``.
 
 Both invocations follow the same contract: exit 0 and render the full
-help page, which consists of the selected banner on stderr and the Click
-help text (Usage / Options / Commands) on stdout.  The tests here pin the
+help page, which consists of the banner on stderr and the Click
+help text (introduction / Usage / Options / Commands) on stdout. The tests here pin the
 *observable output contract* of these two entry points — no mocks, no
 subcommand execution.
 
@@ -107,14 +107,15 @@ class TestWinmlNoArgs:
         assert "Options" in _invoke().output
 
     def test_banner_present(self) -> None:
-        """The 'Windows ML' footer line of the gradient banner must appear on stderr."""
+        """The plain-text product name must appear on stderr with the banner."""
         assert "Windows ML" in _invoke().stderr
 
     def test_banner_shows_current_version(self) -> None:
         assert __version__ in _invoke().stderr
 
     def test_description_present(self) -> None:
-        assert "WinML CLI" in _invoke().output
+        assert main.help is not None
+        assert main.help.splitlines()[0] in _invoke().stdout
 
 
 # ===========================================================================
@@ -145,7 +146,35 @@ class TestWinmlHelp:
         assert "Windows ML" in _invoke("--help").stderr
 
     def test_description_present(self) -> None:
-        assert "WinML CLI" in _invoke("--help").output
+        assert main.help is not None
+        assert main.help.splitlines()[0] in _invoke("--help").stdout
+
+    @pytest.mark.parametrize("args", [(), ("--help",), ("-h",), ("--no-color", "--help")])
+    def test_landing_page_information_order(self, args: tuple[str, ...]) -> None:
+        result = _invoke(*args)
+        assert result.exit_code == 0
+        assert main.help is not None
+        introduction = main.help.splitlines()[0]
+        output = result.output
+        positions = [
+            output.index(text)
+            for text in (
+                f"Windows ML CLI | Version {__version__}",
+                introduction,
+                "aka.ms/winmlcli",
+                "Usage:",
+                "Options:",
+                "Commands:",
+            )
+        ]
+        assert positions == sorted(positions)
+        assert output.count(introduction) == 1
+        assert output.count("aka.ms/winmlcli") == 1
+        assert "CPU" not in output
+        assert "GPU" not in output
+        assert "NPU" not in output
+        assert "Model conversion & optimization" not in output
+        assert "Accelerate Model Deployment" not in output
 
     def test_subcommand_help_has_no_banner(self) -> None:
         """Subcommand ``--help`` must NOT render the top-level banner."""
@@ -197,13 +226,15 @@ class TestWinmlHelp:
         _print_banner("1.2.3", _console=console)
         assert self._MARK_SIGNATURE not in console.file.getvalue()
 
-    def test_capsule_places_version_inside_frame(self) -> None:
-        console = Console(file=StringIO(), force_terminal=False, color_system=None, width=110)
-        _print_banner("1.2.3", _console=console)
+    @pytest.mark.parametrize("width", [80, 90, 110])
+    def test_capsule_places_name_and_version_before_frame(self, width: int) -> None:
+        console = Console(file=StringIO(), force_terminal=False, color_system=None, width=width)
+        _print_banner(__version__, _console=console)
         output = console.file.getvalue()
-        version_line = next(line for line in output.splitlines() if "v1.2.3" in line)
-        assert version_line.strip().startswith("┃")
-        assert version_line.strip().endswith("┃")
+        heading = f"Windows ML CLI | Version {__version__}"
+        assert output.count(heading) == 1
+        assert output.index(heading) < output.index("┏")
+        assert __version__ not in output[output.index("┏"):]
 
 
 # ===========================================================================
@@ -392,6 +423,15 @@ class TestOptionsSection:
         assert result.exit_code == 0
         assert __version__ in result.output
 
+    def test_option_descriptions_end_with_periods(self) -> None:
+        with click.Context(main) as ctx:
+            options = [*main.params, main.get_help_option(ctx)]
+            for option in options:
+                assert isinstance(option, click.Option)
+                record = option.get_help_record(ctx)
+                if record is not None:
+                    assert record[1].endswith("."), record
+
 
 class TestCGCHelpVisibility:
     """CGC entry points stay parseable without being advertised in help."""
@@ -424,7 +464,9 @@ class TestCGCHelpVisibility:
             ("perf", "--backend", "cgc", "backend"),
             ("eval", "--backend", "cgc", "backend"),
             ("export", "--target", "cgir", "target"),
-            ("export", "--options", "external-weights=true", "target_options"),
+            ("export", "--cgc-options", "external-weights=true", "cgc_options"),
+            ("config", "--cgc-options", "freeze-dims=height=720", "cgc_options"),
+            ("build", "--cgc-options", "freeze-dims=height=720", "cgc_options"),
             ("compile", "--device-luid", "0x00000000_0x00000001", "device_luid"),
         ],
     )
@@ -457,7 +499,9 @@ class TestCGCHelpVisibility:
                 visible_choices = [
                     value
                     for value in option.type.choices
-                    if value not in ("winmlcg", "WinMLCGExecutionProvider", "winml-runtime", "cgc")
+                    if value not in (
+                        "winmlcg", "WinMLCGExecutionProvider", "winml-runtime", "cgc", "dxcgc"
+                    )
                 ]
                 assert option.make_metavar(help_ctx) == f"[{'|'.join(visible_choices)}]"
                 help_record = option.get_help_record(help_ctx)

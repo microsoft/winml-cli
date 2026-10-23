@@ -542,6 +542,23 @@ def parse_ep_options(values: tuple[str, ...]) -> dict[str, str] | None:
     return options
 
 
+def cgc_options_option() -> Callable[[F], F]:
+    """Add the shared CGIR target options to export, config, and build."""
+    return click.option(
+        "--cgc-options",
+        "cgc_options",
+        multiple=True,
+        metavar="KEY=VALUE",
+        hidden=True,
+        help=(
+            "Additional CGIR target options (repeatable). Supports external-weights, "
+            "update-opset, topo-sort-nodes, and freeze-dims "
+            "(for example freeze-dims=batch=1,seq=128). "
+            "CLI values replace config values per option key."
+        ),
+    )
+
+
 def parse_options[OptionsT](
     values: tuple[str, ...],
     options_type: type[OptionsT],
@@ -771,13 +788,13 @@ def verbosity_options() -> Callable[[F], F]:
             "-q",
             is_flag=True,
             default=False,
-            help="Quiet mode - errors only to stderr",
+            help="Quiet mode - errors only to stderr.",
         )(f)
         return click.option(
             "--verbose",
             "-v",
             count=True,
-            help="Increase verbosity (-v=INFO, -vv=DEBUG)",
+            help="Increase verbosity (-v=INFO, -vv=DEBUG).",
         )(f)
 
     return decorator
