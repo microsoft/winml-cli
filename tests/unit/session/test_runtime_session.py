@@ -125,6 +125,7 @@ class _Model:
 class _Runtime:
     def __init__(self, stage: _Stage, pipeline: _Pipeline) -> None:
         self.builder = _Builder(stage, pipeline)
+        self.target = Mock()
 
     def load_model(self, path: str) -> _Model:
         assert path.endswith(".mlir")
@@ -134,7 +135,7 @@ class _Runtime:
         return self.builder
 
     def create_target_from_adapter(self, adapter: object) -> object:
-        return adapter
+        return self.target
 
     def close(self) -> None:
         pass
@@ -191,7 +192,7 @@ def test_onnx_cgc_reloads_compiled_model_without_io_counts() -> None:
     )
     session = WinMLRuntimeSession("model.onnx", ep_device=_mlir_ep_device(), backend="cgc")
     try:
-        model, ort_schema, has_named_bindings = session._load_onnx_on_cgc(runtime, target)
+        model, ort_schema, has_named_bindings = session._load_on_cgc(runtime, target)
 
         assert model is compiled_model
         assert ort_schema is source_model.ort_schema.return_value
@@ -201,6 +202,7 @@ def test_onnx_cgc_reloads_compiled_model_without_io_counts() -> None:
         compiler.compile_to_file.assert_called_once_with(source_model, loaded_paths[1])
         compiler.close.assert_called_once_with()
         source_model.schema.assert_not_called()
+        source_model.close.assert_called_once_with()
     finally:
         session.reset()
 
@@ -229,13 +231,14 @@ def test_cgc_compile_uses_public_symbolic_options_and_closes_them(monkeypatch, f
     try:
         if fails:
             with pytest.raises(RuntimeError, match="compile failed"):
-                session._load_onnx_on_cgc(runtime, target)
+                session._load_on_cgc(runtime, target)
         else:
-            session._load_onnx_on_cgc(runtime, target)
+            session._load_on_cgc(runtime, target)
         assert options.symbolic_dimensions == {"batch": 2}
         assert compiler.compile_to_file.call_args.kwargs == {"options": options}
         options.close.assert_called_once_with()
         compiler.close.assert_called_once_with()
+        source.close.assert_called_once_with()
     finally:
         session.reset()
 
@@ -360,7 +363,7 @@ def test_serialize_mlir_as_text_replaces_bytecode(tmp_path, monkeypatch) -> None
     read_text.assert_called_once_with(path)
 
 
-@pytest.mark.parametrize("lowering", ["auto", "dml", "d3d12"])
+@pytest.mark.parametrize("lowering", [None, "auto", "dml", "d3d12"])
 @pytest.mark.parametrize("suffix", [".onnx", ".mlir", ".mlirbc"])
 def test_inference_loaders_forward_lowering_to_api(monkeypatch, tmp_path, lowering, suffix):
     enum = SimpleNamespace(AUTOMATIC=object(), DML=object(), D3D12=object())
@@ -381,18 +384,56 @@ def test_inference_loaders_forward_lowering_to_api(monkeypatch, tmp_path, loweri
         cgc_lowering_target=lowering,
     )
     try:
-        loader = session._load_onnx_on_cgc if suffix == ".onnx" else session._load_mlir
-        model, _, _ = loader(runtime, target)
+        model, ort_schema, has_named_bindings = session._load_on_cgc(runtime, target)
         assert model is compiled
-        enum_name = "AUTOMATIC" if lowering == "auto" else lowering.upper()
-        assert options.cgc_lowering_target is getattr(enum, enum_name)
-        compiler.compile_to_file.assert_called_once_with(
-            source, runtime.load_model.call_args.args[0], options=options
-        )
-        options.close.assert_called_once()
+        assert has_named_bindings is False
+        if lowering is None:
+            compiler.create_options.assert_not_called()
+            compiler.compile_to_file.assert_called_once_with(
+                source, runtime.load_model.call_args.args[0]
+            )
+            options.close.assert_not_called()
+        else:
+            enum_name = "AUTOMATIC" if lowering == "auto" else lowering.upper()
+            assert options.cgc_lowering_target is getattr(enum, enum_name)
+            compiler.compile_to_file.assert_called_once_with(
+                source, runtime.load_model.call_args.args[0], options=options
+            )
+            options.close.assert_called_once()
         compiler.close.assert_called_once()
-        if suffix != ".onnx":
-            source.close.assert_called_once()
+        source.close.assert_called_once()
+        if suffix == ".onnx":
+            assert ort_schema is source.ort_schema.return_value
+        else:
+            assert ort_schema is None
+            source.ort_schema.assert_not_called()
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize("suffix", [".onnx", ".mlir", ".mlirbc"])
+@pytest.mark.parametrize("failure_point", ["compile", "reload"])
+def test_cgc_loader_closes_source_on_failure(tmp_path, suffix, failure_point):
+    source = Mock()
+    compiler = Mock()
+    failure = RuntimeError(f"{failure_point} failed")
+    runtime = Mock(load_model=Mock(side_effect=[source, Mock()]))
+    if failure_point == "compile":
+        compiler.compile_to_file.side_effect = failure
+    else:
+        runtime.load_model.side_effect = [source, failure]
+    target = _ResolvedRuntimeTarget(
+        SimpleNamespace(model_compiler=lambda: compiler), "gpu"
+    )
+    session = WinMLRuntimeSession(
+        tmp_path / f"input{suffix}", backend="cgc", device_luid=1
+    )
+    try:
+        with pytest.raises(RuntimeError, match=f"{failure_point} failed") as raised:
+            session._load_on_cgc(runtime, target)
+        assert raised.value is failure
+        source.close.assert_called_once()
+        compiler.close.assert_called_once()
     finally:
         session.close()
 
@@ -508,8 +549,7 @@ def test_onnx_io_ranges_reach_tensor_comparison(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "failure_point",
     [
-        "_load_mlir",
-        "_load_onnx_on_cgc",
+        "_load_on_cgc",
         "_load_onnx_on_ort",
         "create_pipeline_builder",
         "build",
@@ -885,7 +925,8 @@ def test_mlir_session_builds_runs_and_resets(
     session.compile()
     close.assert_not_called()
     assert session._adapter_handle is adapter
-    assert runtime.builder.targets == [123]
+    assert runtime.builder.targets == [runtime.target]
+    runtime.target.model_compiler.return_value.compile_to_file.assert_called_once()
     assert runtime.builder.caller_owned_at_build is False
     assert session.device == "gpu"
     assert session.io_config["input_names"] == ["input_0"]
@@ -1029,7 +1070,7 @@ def test_cgc_target_uses_selected_adapter(
     else:
         resolved = session._resolve_target(runtime, SimpleNamespace())
         try:
-            assert resolved.execution_target == adapter.pointer
+            assert resolved.execution_target is runtime.target
             assert resolved.adapter is adapter
             assert adapter.closed is False
         finally:
@@ -1110,7 +1151,7 @@ def test_onnx_session_passes_resolved_ep_and_device_to_runtime(
     assert runtime.target_args == (
         "NvTensorRTRTXExecutionProvider",
         gpu_kind,
-        123,
+        runtime.target,
     )
     assert runtime.builder.caller_owned_at_build is False
     assert runtime.builder.targets[0] is not None
