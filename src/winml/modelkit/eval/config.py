@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import isfinite
 from pathlib import Path
 from typing import Any, Literal
 
@@ -41,6 +42,8 @@ class DatasetConfig:
             ``--output <path>`` before the dataset is loaded.
         label_mapping_file: Path to a JSON file with label mapping.
             Resolved into ``label_mapping`` at eval time.
+        max_duration_seconds: Optional positive audio duration cap. When omitted,
+            evaluators preserve the full input duration.
     """
 
     path: str | None = field(default=None, metadata={"cli_name": "dataset_path"})
@@ -55,6 +58,13 @@ class DatasetConfig:
     revision: str | None = field(default=None, metadata={"cli_name": "dataset_revision"})
     build_script: str | None = field(default=None, metadata={"cli_name": "dataset_script"})
     label_mapping_file: str | None = None
+    max_duration_seconds: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.max_duration_seconds is not None and (
+            not isfinite(self.max_duration_seconds) or self.max_duration_seconds <= 0
+        ):
+            raise ValueError("max_duration_seconds must be a finite value greater than zero.")
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -80,6 +90,8 @@ class DatasetConfig:
             result["build_script"] = self.build_script
         if self.label_mapping_file is not None:
             result["label_mapping_file"] = self.label_mapping_file
+        if self.max_duration_seconds is not None:
+            result["max_duration_seconds"] = self.max_duration_seconds
         return result
 
 
@@ -285,10 +297,12 @@ class WinMLEvaluationConfig:
             shuffle=ds_data.get("shuffle", True),
             seed=ds_data.get("seed", 42),
             columns_mapping=ds_data.get("columns_mapping", {}),
+            label_mapping=ds_data.get("label_mapping"),
             streaming=ds_data.get("streaming", False),
             revision=ds_data.get("revision"),
             build_script=ds_data.get("build_script"),
             label_mapping_file=ds_data.get("label_mapping_file"),
+            max_duration_seconds=ds_data.get("max_duration_seconds"),
         )
         return cls(
             model_id=data.get("model_id"),
