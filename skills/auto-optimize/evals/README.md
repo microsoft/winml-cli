@@ -1,6 +1,6 @@
 # Live-agent behavioral evals
 
-Run manually with Python 3.11 and an authenticated Codex CLI:
+Run manually with Python 3.14 and an authenticated Codex CLI:
 
     python skills/auto-optimize/evals/run_evals.py --output <new-absolute-directory>
 

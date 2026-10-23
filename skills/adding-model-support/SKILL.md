@@ -9,7 +9,7 @@ description: >
   repair support rather than explicitly saying "add model support". Do not use it merely to
   run or tune an already-supported model, optimize an existing recipe, or add a new execution
   provider backend.
-compatibility: Requires a microsoft/winml-cli checkout, Python 3.11 with uv, GitHub CLI with push access, and an agent runtime that can delegate fresh subagents.
+compatibility: Requires a microsoft/winml-cli checkout, Python 3.14 x64 with uv, GitHub CLI with push access, and an agent runtime that can delegate fresh subagents.
 ---
 
 # Adding model support
@@ -24,7 +24,7 @@ This skill lives in `skills/adding-model-support/` in [`microsoft/winml-cli`](ht
 
 ## Prerequisites and optional integrations
 
-- Run from a `microsoft/winml-cli` checkout with Python 3.11, `uv`, authenticated `gh`, and push access. The orchestrator verifies these before implementation.
+- Run from a `microsoft/winml-cli` checkout with Python 3.14 x64, `uv`, authenticated `gh`, and push access. The orchestrator verifies these before implementation.
 - The agent runtime must support fresh subagent delegation. Each role loads its file under `agents/`; if delegation is unavailable, stop as BLOCKED rather than collapsing producer, tester, and reviewer into one agent.
 - `model-breakdown` is optional. When discoverable as an installed skill, require schema `1.2+`; otherwise the planner builds the same profile from pinned source, config, and model-card evidence.
 - `auto-optimize` is optional and needed only for `--promotion-handoff`. Discover its `scripts/promotion.py` through the installed skill location. If it is absent or incompatible, promotion mode stops as BLOCKED while normal model-support work remains available. Follow the [orchestrator promotion handoff entry](./agents/orchestrator.md#promotion-handoff-entry).

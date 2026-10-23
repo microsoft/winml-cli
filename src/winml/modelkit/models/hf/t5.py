@@ -221,9 +221,11 @@ class T5EncoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is un
     Outputs: encoder_hidden_states
     """
 
-    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
-        vocab_size="vocab_size",
-        allow_new=True,
+    NORMALIZED_CONFIG_CLASS = staticmethod(
+        NormalizedConfig.with_args(
+            vocab_size="vocab_size",
+            allow_new=True,
+        )
     )
     DUMMY_INPUT_GENERATOR_CLASSES = (DummyTextInputGenerator,)
 
@@ -263,14 +265,16 @@ class T5DecoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is un
     # sequence_length uses Optimum default (16) — NOT n_positions (512, too large).
     # head_dim maps to d_kv for PastKeyValueInputGenerator.
     # max_cache_len maps to n_positions (decoder static buffer size).
-    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
-        hidden_size="d_model",
-        num_layers="num_layers",
-        num_attention_heads="num_heads",
-        head_dim="d_kv",
-        max_cache_len="n_positions",
-        vocab_size="vocab_size",
-        allow_new=True,
+    NORMALIZED_CONFIG_CLASS = staticmethod(
+        NormalizedConfig.with_args(
+            hidden_size="d_model",
+            num_layers="num_layers",
+            num_attention_heads="num_heads",
+            head_dim="d_kv",
+            max_cache_len="n_positions",
+            vocab_size="vocab_size",
+            allow_new=True,
+        )
     )
     DUMMY_INPUT_GENERATOR_CLASSES = (
         EncoderDecoderInputGenerator,

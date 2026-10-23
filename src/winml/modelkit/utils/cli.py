@@ -35,7 +35,6 @@ F = TypeVar("F", bound="Callable[..., Any]")
 OutputFormat: TypeAlias = Literal["text", "json", "table", "compact"]
 PrimitiveOptionType: TypeAlias = type[bool] | type[int] | type[float] | type[str]
 PrimitiveOptionValue: TypeAlias = bool | int | float | str
-OptionsT = TypeVar("OptionsT")
 
 
 class _CacheExtraKwargs(TypedDict):
@@ -560,7 +559,7 @@ def cgc_options_option() -> Callable[[F], F]:
     )
 
 
-def parse_options(
+def parse_options[OptionsT](
     values: tuple[str, ...],
     options_type: type[OptionsT],
     *,
@@ -580,9 +579,7 @@ def parse_options(
     for field in fields(options_type):
         value_type = type_hints[field.name]
         if value_type not in {bool, int, float, str}:
-            raise TypeError(
-                f"Unsupported option type for '{field.name}': {value_type!r}"
-            )
+            raise TypeError(f"Unsupported option type for '{field.name}': {value_type!r}")
         schema[field.name] = value_type
 
     options: dict[str, PrimitiveOptionValue] = {}
@@ -620,8 +617,7 @@ def parse_options(
                 options[key] = value_type(raw_value)
             except ValueError as e:
                 raise click.BadParameter(
-                    f"Option '{cli_key}' expects {value_type.__name__}, "
-                    f"got '{raw_value}'.",
+                    f"Option '{cli_key}' expects {value_type.__name__}, got '{raw_value}'.",
                     param_hint=param_hint,
                 ) from e
 
@@ -701,8 +697,7 @@ def device_luid_option(
     ) -> str | None:
         if value is not None and _DEVICE_LUID_PATTERN.fullmatch(value) is None:
             raise click.BadParameter(
-                "expected 0xHHHHHHHH_0xLLLLLLLL; "
-                "copy the adapter LUID from 'winml sys'.",
+                "expected 0xHHHHHHHH_0xLLLLLLLL; copy the adapter LUID from 'winml sys'.",
                 ctx=ctx,
                 param=param,
             )

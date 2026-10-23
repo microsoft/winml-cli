@@ -91,9 +91,9 @@ jobs:
           Invoke-RestMethod https://astral.sh/uv/0.11.25/install.ps1 | Invoke-Expression
           $env:PATH = "$uvBin;$env:PATH"
           uv --version
-          uv python install 3.11
+          uv python install cpython-3.14-windows-x86_64-none
           Remove-Item -Recurse -Force "$(Build.SourcesDirectory)\.venv" -ErrorAction SilentlyContinue
-          uv venv $(Build.SourcesDirectory)\.venv --python 3.11
+          uv venv $(Build.SourcesDirectory)\.venv --python cpython-3.14-windows-x86_64-none
           $venvDir = "$(Build.SourcesDirectory)\.venv\Scripts"
           Write-Host "##vso[task.prependpath]$uvBin"
           Write-Host "##vso[task.prependpath]$venvDir"

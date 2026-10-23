@@ -276,7 +276,7 @@ class QwenPrefillIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is 
     Outputs: logits [1, 1, vocab], present_{i}_key/value [1, 8, 64, 128]
     """
 
-    NORMALIZED_CONFIG_CLASS = _QWEN_NORMALIZED
+    NORMALIZED_CONFIG_CLASS = staticmethod(_QWEN_NORMALIZED)
     DUMMY_INPUT_GENERATOR_CLASSES = (DecoderOnlyPrefillInputGenerator, PastKeyValueInputGenerator)
 
     @property
@@ -297,7 +297,7 @@ class QwenGenIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is unty
     Outputs: logits [1, 1, vocab], present_{i}_key/value [1, 8, 1, 128]
     """
 
-    NORMALIZED_CONFIG_CLASS = _QWEN_NORMALIZED
+    NORMALIZED_CONFIG_CLASS = staticmethod(_QWEN_NORMALIZED)
     DUMMY_INPUT_GENERATOR_CLASSES = (DecoderOnlyInputGenerator, PastKeyValueInputGenerator)
 
     @property

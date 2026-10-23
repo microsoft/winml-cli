@@ -20,7 +20,7 @@ import hashlib
 import logging
 import shutil
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 import onnx
@@ -48,14 +48,7 @@ def _get_external_tensor_info(tensor: onnx.TensorProto) -> tuple[str | None, int
 
 def _tensor_proto_dtype_to_np_dtype(tensor_type: int) -> np.dtype[Any]:
     """Convert a TensorProto dtype enum to a numpy dtype."""
-    try:
-        from onnx.helper import tensor_dtype_to_np_dtype as onnx_tensor_dtype_to_np_dtype
-    except ImportError:
-        from onnx.mapping import TENSOR_TYPE_TO_NP_TYPE
-
-        return cast("np.dtype[Any]", np.dtype(TENSOR_TYPE_TO_NP_TYPE[tensor_type]))
-
-    return np.dtype(onnx_tensor_dtype_to_np_dtype(tensor_type))
+    return np.dtype(onnx.helper.tensor_dtype_to_np_dtype(tensor_type))
 
 
 def try_load_external_initializer_array(

@@ -208,7 +208,7 @@ def build_onnx_model(
     manifest = WinMLManifest(
         source="onnx",
         input_onnx=str(onnx_path),
-        timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
         elapsed_seconds=round(elapsed, 3),
         final_artifact=final_path.name,
         stages=manifest_stages,

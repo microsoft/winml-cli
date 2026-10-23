@@ -207,9 +207,11 @@ class Mu2DecoderWrapper(nn.Module):
 class Mu2EncoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for Mu2 encoder (feature-extraction task)."""
 
-    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
-        vocab_size="vocab_size",
-        allow_new=True,
+    NORMALIZED_CONFIG_CLASS = staticmethod(
+        NormalizedConfig.with_args(
+            vocab_size="vocab_size",
+            allow_new=True,
+        )
     )
     DUMMY_INPUT_GENERATOR_CLASSES = (DummyTextInputGenerator,)
 
@@ -231,14 +233,16 @@ class Mu2EncoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is u
 class Mu2DecoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """ONNX config for Mu2 decoder with static KV cache."""
 
-    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
-        hidden_size="n_embd",
-        num_layers="n_decoder_layer",
-        num_attention_heads="n_kv_head",
-        head_dim="head_dim",
-        max_cache_len="block_size",
-        vocab_size="vocab_size",
-        allow_new=True,
+    NORMALIZED_CONFIG_CLASS = staticmethod(
+        NormalizedConfig.with_args(
+            hidden_size="n_embd",
+            num_layers="n_decoder_layer",
+            num_attention_heads="n_kv_head",
+            head_dim="head_dim",
+            max_cache_len="block_size",
+            vocab_size="vocab_size",
+            allow_new=True,
+        )
     )
     DUMMY_INPUT_GENERATOR_CLASSES = (
         EncoderDecoderInputGenerator,

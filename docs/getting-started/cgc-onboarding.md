@@ -11,7 +11,7 @@ CGC onboarding has two journeys:
 Create a virtual environment and install WinML CLI:
 
 ```powershell
-uv venv --python 3.11
+uv venv --python 3.14
 uv pip install winml-cli
 ```
 

@@ -14,7 +14,7 @@ fields — report rendering lives in the ModelKitArtifacts-site scripts):
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from .classifier import classify_failure
@@ -88,7 +88,7 @@ def build_eval_result(
         "priority": entry.priority,
         "eval_types_run": eval_types_run,
         "run_timestamp": (
-            perf_proc.get("timestamp") if perf_proc else datetime.now(timezone.utc).isoformat()
+            perf_proc.get("timestamp") if perf_proc else datetime.now(UTC).isoformat()
         ),
         "perf": perf_section,
         "accuracy": accuracy_result,

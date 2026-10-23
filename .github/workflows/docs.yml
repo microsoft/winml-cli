@@ -26,9 +26,9 @@ jobs:
 
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          python-version: "3.11"
+          python-version: "3.14"
 
-      - run: uv sync --only-group docs
+      - run: uv sync --python 3.14 --only-group docs
 
       - name: Configure git for mike
         run: |

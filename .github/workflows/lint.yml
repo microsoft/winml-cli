@@ -24,10 +24,10 @@ jobs:
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
 
       - name: Set up Python
-        run: uv python install 3.11
+        run: uv python install 3.14
 
       - name: Install dependencies
-        run: uv sync --all-extras --all-groups
+        run: uv sync --python 3.14 --all-extras --all-groups
 
       - name: Check license headers
         run: |
