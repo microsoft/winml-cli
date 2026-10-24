@@ -91,7 +91,7 @@ class GpuCapture:
         self.directory.mkdir(parents=True, exist_ok=False)
         try:
             self.command("logman", "create", "trace", self.name, "-ets", "-o",
-                         str(self.directory / "gpu.etl"), "-p", GPU_PROVIDER, "0x1", "4")
+                         str(self.directory / "trace.etl"), "-p", GPU_PROVIDER, "0x1", "4")
             self.started = True
             self.command("logman", "update", "trace", self.name, "-ets",
                          "-p", RUNTIME_PROVIDER, "0x2", "4")
@@ -126,10 +126,10 @@ class GpuCapture:
 
     def finish(self):
         # -rts retains raw QPC timestamps for exact Run/marker matching.
-        self.command("tracerpt", str(self.directory / "gpu.etl"), "-o",
+        self.command("tracerpt", str(self.directory / "trace.etl"), "-o",
                      str(self.directory / "events.xml"), "-of", "XML", "-rts", "-y")
         # tracerpt forbids combining raw timestamps and a summary in one pass.
-        self.command("tracerpt", str(self.directory / "gpu.etl"),
+        self.command("tracerpt", str(self.directory / "trace.etl"),
                      "-summary", str(self.directory / "summary.xml"),
                      "-o", "NUL", "-y")
         return analyze_trace(self.directory)

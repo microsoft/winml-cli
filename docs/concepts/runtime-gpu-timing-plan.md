@@ -19,7 +19,7 @@ recorded path 0 includes transfers and is excluded. Missing samples, event
 loss, unknown paths and multiple submissions per Run fail closed.
 
 GPU statistics are stored only in the normal perf JSON's `gpu_execution` field.
-Diagnostic artifacts include gpu.etl, raw-QPC events.xml,
+Diagnostic artifacts include trace.etl, raw-QPC events.xml,
 summary.xml (tracerpt text) and windows.json. The summary pass discards its
 duplicate event dump. Runtime
 owners are released before stopping the trace to flush pending GPU samples.
