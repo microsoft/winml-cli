@@ -998,7 +998,15 @@ class WinMLRuntimeSession:
         def _do() -> dict[str, np.ndarray]:
             nonlocal outputs
             outputs = self._bind_input_output(prepared)
+            from .gpu_capture import active_capture
+
+            capture = active_capture.get()
+            measured = (capture is not None and self._perf_stats is not None
+                        and len(self._perf_stats.all_samples_ms) >= self._perf_stats.warmup)
+            begin = capture.mark() if measured else None
             self._pipeline.run()
+            if begin is not None:
+                capture.record(begin)
             return self._read_outputs(outputs)
 
         with _translate_native_errors("run"):

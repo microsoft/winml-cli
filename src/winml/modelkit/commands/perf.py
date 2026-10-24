@@ -637,6 +637,7 @@ class BenchmarkResult:
 
     # Raw samples (for advanced analysis)
     raw_samples_ms: list[float] = field(default_factory=list)
+    gpu_execution: dict[str, Any] | None = None
 
     # Throughput
     samples_per_sec: float = 0.0
@@ -670,6 +671,7 @@ class BenchmarkResult:
         """Convert to dictionary for JSON serialization."""
         result: dict[str, Any] = {
             "schema_version": 2,
+            **({"gpu_execution": self.gpu_execution} if self.gpu_execution is not None else {}),
             "benchmark_info": {
                 "runtime": self.config.runtime,
                 "timing_scope": (
@@ -2145,6 +2147,14 @@ def display_console_report(result: BenchmarkResult, console: SafeConsole) -> Non
     even though they no longer render to stdout — the data model is
     unchanged, only the console rendering was pruned.
     """
+    if result.gpu_execution is not None:
+        gpu = result.gpu_execution
+        console.print("\n[bold]GPU execution time (ms; inference body)[/bold]")
+        console.print(
+            f"Mean {gpu['mean_ms']:.6f} | P50 {gpu['median_ms']:.6f} | "
+            f"P95 {gpu['p95_ms']:.6f} | Valid Runs {gpu['valid_runs']}/{gpu['expected_runs']}"
+        )
+        console.print(f"ETW lost: {gpu['events_lost']} | Recorded excluded: {gpu['recorded_runs']}")
     # Latency table
     console.print()
     console.print("[bold]Latency (ms)[/bold]")
@@ -3295,8 +3305,13 @@ def _validate_duration(
 @cli_utils.verbosity_options()
 @cli_utils.no_color_option()
 @click.pass_context
+@click.option(
+    "--gpu-timing-trace", type=click.Path(path_type=Path), default=None,
+    help="Capture Runtime CGC GPU timestamps to a new directory (ETW access required).",
+)
 def perf(
     ctx: click.Context,
+    gpu_timing_trace: Path | None,
     model: str | None,
     runtime: RuntimeName | Literal["dxcgc"],
     dxcgc_host: Path | None,
@@ -3436,6 +3451,13 @@ def perf(
     model = hf_model
     runtime = _resolve_runtime(runtime, model)
     is_gguf = Path(model).suffix.lower() == ".gguf"
+    if gpu_timing_trace is not None:
+        if (runtime != "winml-runtime" or backend not in (None, "cgc")
+                or device.lower() != "gpu" or Path(model).suffix.lower() not in (".onnx", ".mlir")
+                or monitor or op_tracing or module_class or compare_devices):
+            raise click.UsageError(
+                "--gpu-timing-trace requires a local ONNX/MLIR model, winml-runtime, "
+                "CGC backend and --device gpu, without monitor/op-tracing/module modes.")
     try:
         effective_backend = resolve_runtime_api_backend(runtime, model, backend)
     except ValueError as error:
@@ -3906,7 +3928,20 @@ def perf(
             suppress_huggingface_warning_logs(verbosity=verbose, quiet=quiet),
             suppress_third_party_progress(verbosity=verbose, quiet=quiet),
         ):
-            result = benchmark.run()
+            if gpu_timing_trace is None:
+                result = benchmark.run()
+            else:
+                from ..session.gpu_capture import GpuCapture
+
+                try:
+                    with GpuCapture(gpu_timing_trace.resolve()) as capture:
+                        try:
+                            result = benchmark.run()
+                        finally:
+                            benchmark.close()
+                    result.gpu_execution = capture.finish()
+                except (OSError, RuntimeError) as exc:
+                    raise click.ClickException(str(exc)) from exc
 
         # Composite models (e.g. CLIP/SigLIP dual-encoders) have no single ORT
         # session; each sub-model is benchmarked individually and reported as
