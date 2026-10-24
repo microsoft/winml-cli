@@ -65,7 +65,6 @@ def analyze_trace(directory: Path) -> dict:
     result["mean_ms"] = mean(ordered)
     result["aggregation"] = "per-run; single-window median"
     result["trace_directory"] = str(directory.resolve())
-    (directory / "gpu-execution.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     return result
 
 active_capture: ContextVar = ContextVar("runtime_gpu_capture", default=None)
@@ -132,5 +131,5 @@ class GpuCapture:
         # tracerpt forbids combining raw timestamps and a summary in one pass.
         self.command("tracerpt", str(self.directory / "gpu.etl"),
                      "-summary", str(self.directory / "summary.xml"),
-                     "-o", str(self.directory / "events-wallclock.xml"), "-y")
+                     "-o", "NUL", "-y")
         return analyze_trace(self.directory)

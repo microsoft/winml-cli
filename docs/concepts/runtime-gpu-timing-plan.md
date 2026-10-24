@@ -18,8 +18,10 @@ Warmup is excluded. Only replay paths 1 and 2 contribute GPU body time;
 recorded path 0 includes transfers and is excluded. Missing samples, event
 loss, unknown paths and multiple submissions per Run fail closed.
 
-Artifacts include gpu.etl, raw-QPC events.xml, events-wallclock.xml,
-summary.xml (tracerpt text), windows.json and gpu-execution.json. Runtime
+GPU statistics are stored only in the normal perf JSON's `gpu_execution` field.
+Diagnostic artifacts include gpu.etl, raw-QPC events.xml,
+summary.xml (tracerpt text) and windows.json. The summary pass discards its
+duplicate event dump. Runtime
 owners are released before stopping the trace to flush pending GPU samples.
 
 ## Current limitations
