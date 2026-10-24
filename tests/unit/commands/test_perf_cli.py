@@ -2606,6 +2606,7 @@ class TestPerfFormatJson:
         mock_result.warmup_mean_ms = 12.0
         mock_result.samples_per_sec = 100.0
         mock_result.batches_per_sec = 100.0
+        mock_result.gpu_execution = None
         mock_result.hw_monitor = None
         mock_result.memory_profile = None
         mock_instance = MagicMock()
