@@ -1,11 +1,11 @@
 # Runtime GPU execution timing
 
-`winml perf --gpu-timing-trace <new-directory>` captures Runtime CGC ETW
+`winml perf --etw-tracing <new-directory>` captures Runtime CGC ETW
 events and reports GPU inference-body Mean/P50/P95 alongside CPU latency.
 The normal benchmark JSON includes an optional `gpu_execution` object.
 
 ```powershell
-winml perf -m C:\models\yolo11n.onnx --runtime winml-runtime --backend cgc --device gpu --iterations 1000 --warmup 10 --gpu-timing-trace C:\perf\yolo11n-new
+winml perf -m C:\models\yolo11n.onnx --runtime winml-runtime --backend cgc --device gpu --iterations 1000 --warmup 10 --etw-tracing C:\perf\yolo11n-new
 ```
 
 Requires Windows, ETW permissions (for example an elevated terminal), and a

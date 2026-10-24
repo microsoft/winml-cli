@@ -3306,12 +3306,12 @@ def _validate_duration(
 @cli_utils.no_color_option()
 @click.pass_context
 @click.option(
-    "--gpu-timing-trace", type=click.Path(path_type=Path), default=None,
-    help="Capture Runtime CGC GPU timestamps to a new directory (ETW access required).",
+    "--etw-tracing", type=click.Path(path_type=Path), default=None,
+    help="Collect Runtime ETW events to a new directory and report GPU execution timing (ETW access required).",
 )
 def perf(
     ctx: click.Context,
-    gpu_timing_trace: Path | None,
+    etw_tracing: Path | None,
     model: str | None,
     runtime: RuntimeName | Literal["dxcgc"],
     dxcgc_host: Path | None,
@@ -3451,12 +3451,12 @@ def perf(
     model = hf_model
     runtime = _resolve_runtime(runtime, model)
     is_gguf = Path(model).suffix.lower() == ".gguf"
-    if gpu_timing_trace is not None:
+    if etw_tracing is not None:
         if (runtime != "winml-runtime" or backend not in (None, "cgc")
                 or device.lower() != "gpu" or Path(model).suffix.lower() not in (".onnx", ".mlir")
                 or monitor or op_tracing or module_class or compare_devices):
             raise click.UsageError(
-                "--gpu-timing-trace requires a local ONNX/MLIR model, winml-runtime, "
+                "--etw-tracing requires a local ONNX/MLIR model, winml-runtime, "
                 "CGC backend and --device gpu, without monitor/op-tracing/module modes.")
     try:
         effective_backend = resolve_runtime_api_backend(runtime, model, backend)
@@ -3928,13 +3928,13 @@ def perf(
             suppress_huggingface_warning_logs(verbosity=verbose, quiet=quiet),
             suppress_third_party_progress(verbosity=verbose, quiet=quiet),
         ):
-            if gpu_timing_trace is None:
+            if etw_tracing is None:
                 result = benchmark.run()
             else:
                 from ..session.gpu_capture import GpuCapture
 
                 try:
-                    with GpuCapture(gpu_timing_trace.resolve()) as capture:
+                    with GpuCapture(etw_tracing.resolve()) as capture:
                         try:
                             result = benchmark.run()
                         finally:
