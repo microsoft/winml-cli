@@ -1,16 +1,24 @@
+# -------------------------------------------------------------------------
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
+# --------------------------------------------------------------------------
 """Runtime CGC ETW protocol and strict inference-body analysis.
 
 Transport-independent: an ETW/TDH consumer supplies decoded events, while the
 benchmark supplies *measured* Run keys (never inferred from event delivery time).
 This module does not enable tracing or change existing CPU latency statistics.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from statistics import median
-from typing import Iterable
+from typing import TYPE_CHECKING
+
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
 
 GPU_PROVIDER = "{655dde5b-3272-520c-d5aa-6114ae82f74a}"
 RUNTIME_PROVIDER = "{3ed09fb9-ab2d-559e-b4cd-0cce5aca3732}"
@@ -25,12 +33,14 @@ class GpuTimingError(ValueError):
 
 @dataclass(frozen=True)
 class RunKey:
+    """Runtime ETW RunKey."""
     process_id: int
     run_id: int
 
 
 @dataclass(frozen=True)
 class GpuSubmission:
+    """Runtime ETW GpuSubmission."""
     key: RunKey
     path: int
     frequency: int
@@ -40,6 +50,7 @@ class GpuSubmission:
     submit_end: int
 
     def body_ms(self) -> float:
+        """Runtime ETW body_ms."""
         ticks = (self.submit_start, self.body_start, self.body_end, self.submit_end)
         if self.frequency <= 0 or any(t < 0 or t >= 2**64 for t in ticks):
             raise GpuTimingError("Invalid GPU timestamp or frequency.")
@@ -51,6 +62,7 @@ class GpuSubmission:
 
 @dataclass(frozen=True)
 class GpuTimingResult:
+    """Runtime ETW GpuTimingResult."""
     samples_ms: tuple[float, ...]
     expected_runs: int
     recorded_runs: int
@@ -59,6 +71,7 @@ class GpuTimingResult:
     outside_submissions: int
 
     def to_dict(self) -> dict:
+        """Runtime ETW to_dict."""
         return {
             "source": "runtime-cgc-etw",
             "metric": "inference-body",
@@ -122,4 +135,4 @@ def analyze_gpu_timing(
             bodies.append(body)
     if not bodies:
         raise GpuTimingError("No replay GPU samples; recorded-path body includes transfers.")
-    return GpuTimingResult(tuple(bodies), len(keys), *counts, outside)
+    return GpuTimingResult(tuple(bodies), len(keys), counts[0], counts[1], counts[2], outside)

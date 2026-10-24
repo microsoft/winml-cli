@@ -3307,7 +3307,8 @@ def _validate_duration(
 @click.pass_context
 @click.option(
     "--etw-tracing", type=click.Path(path_type=Path), default=None,
-    help="Collect Runtime ETW events to a new directory and report GPU execution timing (ETW access required).",
+    help="Collect Runtime ETW events to a new directory and report GPU execution timing "
+    "(ETW access required).",
 )
 def perf(
     ctx: click.Context,
@@ -3451,13 +3452,12 @@ def perf(
     model = hf_model
     runtime = _resolve_runtime(runtime, model)
     is_gguf = Path(model).suffix.lower() == ".gguf"
-    if etw_tracing is not None:
-        if (runtime != "winml-runtime" or backend not in (None, "cgc")
-                or device.lower() != "gpu" or Path(model).suffix.lower() not in (".onnx", ".mlir")
-                or monitor or op_tracing or module_class or compare_devices):
-            raise click.UsageError(
-                "--etw-tracing requires a local ONNX/MLIR model, winml-runtime, "
-                "CGC backend and --device gpu, without monitor/op-tracing/module modes.")
+    if etw_tracing is not None and (runtime != "winml-runtime" or backend not in (None, "cgc")
+            or device.lower() != "gpu" or Path(model).suffix.lower() not in (".onnx", ".mlir")
+            or monitor or op_tracing or module_class or compare_devices):
+        raise click.UsageError(
+            "--etw-tracing requires a local ONNX/MLIR model, winml-runtime, "
+            "CGC backend and --device gpu, without monitor/op-tracing/module modes.")
     try:
         effective_backend = resolve_runtime_api_backend(runtime, model, backend)
     except ValueError as error:
@@ -3939,6 +3939,8 @@ def perf(
                             result = benchmark.run()
                         finally:
                             benchmark.close()
+                    if isinstance(result, dict):
+                        raise click.UsageError("--etw-tracing does not support composite models.")
                     result.gpu_execution = capture.finish()
                 except (OSError, RuntimeError) as exc:
                     raise click.ClickException(str(exc)) from exc
