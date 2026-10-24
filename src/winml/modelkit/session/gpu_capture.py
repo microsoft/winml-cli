@@ -15,6 +15,20 @@ import xml.etree.ElementTree as ET
 from statistics import mean
 from .gpu_timing import GPU_PROVIDER, RUNTIME_PROVIDER, GpuSubmission, RunKey, analyze_gpu_timing
 
+# Runtime/ORT diagnostics from the Windows ML CI profile plus GPU scheduling.
+# All keywords at verbose level; no kernel stack sampling or capture-state calls.
+DIAGNOSTIC_PROVIDERS = (
+    ("RuntimeCore", RUNTIME_PROVIDER),
+    ("WindowsMLRuntime", "{1491d42b-0927-55b9-a765-10ec4bb1980f}"),
+    ("ONNX", "{929dd115-1ecb-4cb5-b060-ebd4983c421d}"),
+    ("OrtTraceLogging", "{3a26b1ff-7484-7484-7484-15261f42614d}"),
+    ("WinML", "{d766d9ff-112c-4dac-9247-241cf99d123f}"),
+    ("MachineLearning", "{bcad6aee-c08d-4f66-828c-4c43461a033d}"),
+    ("WIL", "{6d1b249d-131b-468a-899b-fb0ad9551772}"),
+    ("TestInProduction", "{50109fbd-6d85-5815-731e-c907eca1607b}"),
+    ("DxgKrnl", "{802ec45a-1e99-4b83-9920-87c98277ba9d}"),
+)
+
 
 def analyze_trace(directory: Path) -> dict:
     markers = json.loads((directory / "windows.json").read_text(encoding="utf-8"))
@@ -35,8 +49,10 @@ def analyze_trace(directory: Path) -> dict:
             continue
         data = {item.get("Name"): (item.text or "").strip()
                 for item in event.findall("e:EventData/e:Data", ns)}
-        key = RunKey(pid, int(data["RunId"]))
         name = event.findtext("e:RenderingInfo/e:Task", namespaces=ns)
+        if name not in ("CgcGpuTiming", "PipelineRunStart", "PipelineRunStop"):
+            continue
+        key = RunKey(pid, int(data["RunId"]))
         stamp = int(system.find("e:TimeCreated", ns).get("RawTime"))
         if provider == GPU_PROVIDER.lower() and name == "CgcGpuTiming":
             samples.append(GpuSubmission(key, *[int(data[f]) for f in
@@ -65,6 +81,8 @@ def analyze_trace(directory: Path) -> dict:
     result["mean_ms"] = mean(ordered)
     result["aggregation"] = "per-run; single-window median"
     result["trace_directory"] = str(directory.resolve())
+    result["collection_profile"] = markers.get("collection_profile", "runtime-gpu-timing")
+    result["unavailable_providers"] = markers.get("unavailable_providers", [])
     return result
 
 active_capture: ContextVar = ContextVar("runtime_gpu_capture", default=None)
@@ -76,11 +94,14 @@ class GpuCapture:
         self.name = "WinMLCLI-" + uuid.uuid4().hex
         self.windows = []
         self.started = False
+        self.unavailable_providers = []
 
-    def command(self, *args):
+    def command(self, *args, optional_provider=False):
         run = subprocess.run(args, capture_output=True, text=True, errors="replace")
         with (self.directory / "capture.log").open("a", encoding="utf-8") as log:
             log.write(run.stdout + run.stderr)
+        if optional_provider and run.returncode & 0xffffffff == 0x80071068:
+            return False
         if run.returncode:
             raise RuntimeError(f"GPU timing command failed ({run.returncode}): {args[0]}. "
                                f"Check ETW permissions and {self.directory / 'capture.log'}.")
@@ -91,10 +112,15 @@ class GpuCapture:
         self.directory.mkdir(parents=True, exist_ok=False)
         try:
             self.command("logman", "create", "trace", self.name, "-ets", "-o",
-                         str(self.directory / "trace.etl"), "-p", GPU_PROVIDER, "0x1", "4")
+                         str(self.directory / "trace.etl"), "-bs", "256", "-nb", "64", "256",
+                         "-p", GPU_PROVIDER, "0xffffffffffffffff", "5")
             self.started = True
-            self.command("logman", "update", "trace", self.name, "-ets",
-                         "-p", RUNTIME_PROVIDER, "0x2", "4")
+            for name, provider in DIAGNOSTIC_PROVIDERS:
+                enabled = self.command("logman", "update", "trace", self.name, "-ets",
+                             "-p", provider, "0xffffffffffffffff", "5",
+                             optional_provider=provider != RUNTIME_PROVIDER)
+                if enabled is False:
+                    self.unavailable_providers.append({"name": name, "guid": provider})
         except BaseException:
             self.stop()
             raise
@@ -122,7 +148,9 @@ class GpuCapture:
         active_capture.reset(self.token)
         self.stop()
         (self.directory / "windows.json").write_text(
-            json.dumps({"pid": os.getpid(), "windows": self.windows}), encoding="utf-8")
+            json.dumps({"pid": os.getpid(), "windows": self.windows,
+                        "collection_profile": "runtime-ort-gpu-diagnostics-verbose",
+                        "unavailable_providers": self.unavailable_providers}), encoding="utf-8")
 
     def finish(self):
         # -rts retains raw QPC timestamps for exact Run/marker matching.

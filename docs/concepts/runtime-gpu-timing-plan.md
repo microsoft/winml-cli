@@ -46,3 +46,20 @@ python tests/unit/session/check_gpu_trace_replay.py C:\perf\existing-trace
 Validated on RTX 5090 D with ResNet-50 (20 measured Runs) and YOLO11n
 (1000 measured Runs): all expected GPU samples received, zero ETW loss.
 Models, traces and binary payloads are not included in this change.
+
+## Expanded diagnostic capture
+
+ETW tracing enables all keywords at verbose level for RuntimeCore, GPU Timing,
+WindowsMLRuntime, ONNX, OrtTraceLogging, WinML, MachineLearning, WIL,
+TestInProduction and DxgKrnl. Providers unavailable to logman are recorded in
+`gpu_execution.unavailable_providers`; the two GPU attribution providers are
+required. This is a bounded Runtime/ORT/GPU provider set, not every Windows
+provider. No capture-state callbacks, kernel stack sampling or unrelated
+application providers are enabled.
+
+Tracing adds overhead: GPU timestamps insert command lists, and verbose events
+consume CPU, buffers and disk bandwidth. Compare performance only with the
+same tracing profile; use a separate untraced run for baseline CPU latency.
+On one YOLO11n 1000-Run diagnostic capture, 716653 events were collected with
+zero loss (roughly 74 MB ETL / 744 MB decoded XML). This is not a controlled
+measurement of tracing overhead.
