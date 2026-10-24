@@ -2968,6 +2968,20 @@ def _run_gguf_runtime(
     warmup = p["warmup"] if cli_utils.is_cli_provided(ctx, "warmup") else 2
     output = p.get("output") or generate_output_path(str(model_path))
     cli_utils.guard_output(output, p["overwrite"])
+    prefill_trace = p.get("gguf_prefill_trace")
+    if prefill_trace is not None:
+        trace_files = {
+            prefill_trace.resolve(),
+            prefill_trace.with_name(prefill_trace.name + ".context.json").resolve(),
+        }
+        inputs = {model_path.resolve(), Path(output).resolve()}
+        if p.get("prompt_file") is not None:
+            inputs.add(p["prompt_file"].resolve())
+        if trace_files & inputs:
+            raise click.UsageError(
+                "--gguf-prefill-trace and its context file must differ from "
+                "model, prompt and output"
+            )
     prompt = _resolve_prompt(ctx)
 
     config = GGUFPerfConfig(
@@ -2982,6 +2996,7 @@ def _run_gguf_runtime(
         warmup=warmup,
         memory=bool(p.get("memory")),
         output_path=output,
+        prefill_trace_path=prefill_trace,
     )
     run_gguf_perf(config, console=console, json_mode=json_mode)
 
@@ -3056,10 +3071,16 @@ def _validate_duration(
     help="[dxcgc] Agility SDK directory (default: installed windowsml/lib).",
 )
 @click.option("--dxcgc-sdk-version", type=click.IntRange(min=1), default=721, hidden=True)
-@click.option("--dxcgc-gpu-timing", is_flag=True, hidden=True,
-              help="[dxcgc] Collect GPU timestamps in a separate diagnostic run.")
 @click.option(
-    "--disable-d3d-mlir-programs", is_flag=True, hidden=True,
+    "--dxcgc-gpu-timing",
+    is_flag=True,
+    hidden=True,
+    help="[dxcgc] Collect GPU timestamps in a separate diagnostic run.",
+)
+@click.option(
+    "--disable-d3d-mlir-programs",
+    is_flag=True,
+    hidden=True,
     help="[dxcgc] Disable the D3D12 MLIR programs target when compiling Input IR.",
 )
 @click.option(
@@ -3105,6 +3126,13 @@ def _validate_duration(
     default=None,
     help="[ort-genai, GGUF] Read the prompt from a UTF-8 text file. Mutually exclusive "
     "with an explicit --prompt; avoids command-line length limits for long contexts.",
+)
+@click.option(
+    "--gguf-prefill-trace",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="[GGUF] Fresh JSONL output for synchronized prefill events from an externally "
+    "instrumented native backend. Stock Windows ML packages do not emit these events.",
 )
 @click.option(
     "--apply-template/--no-apply-template",
@@ -3310,6 +3338,7 @@ def perf(
     cgc_lowering_target: CGCLoweringTarget | None,
     prompt: str,
     prompt_file: Path | None,
+    gguf_prefill_trace: Path | None,
     apply_template: bool,
     max_new_tokens: int,
     compile_timeout: int,
@@ -3392,6 +3421,10 @@ def perf(
     """
     if not model:
         raise click.UsageError("A model is required via -m/--model.")
+    if gguf_prefill_trace is not None and (
+        Path(model).suffix.lower() != ".gguf" or runtime not in ("auto", "winml-runtime")
+    ):
+        raise click.UsageError("--gguf-prefill-trace requires a GGUF model on winml-runtime")
 
     if runtime == "dxcgc":
         from ._perf_dxcgc import run_dxcgc
@@ -3402,7 +3435,8 @@ def perf(
         raise click.UsageError("--disable-d3d-mlir-programs requires --runtime dxcgc")
     if any(
         ctx.get_parameter_source(name) == click.core.ParameterSource.COMMANDLINE
-        for name in ctx.params if name.startswith("dxcgc_")
+        for name in ctx.params
+        if name.startswith("dxcgc_")
     ):
         raise click.UsageError("--dxcgc-* options require --runtime dxcgc")
 
