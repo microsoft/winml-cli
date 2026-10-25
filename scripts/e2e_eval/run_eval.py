@@ -2676,6 +2676,8 @@ def _run_winml_eval(
             args += ["--dataset-revision", ds_config["revision"]]
         for k, v in ds_config.get("columns_mapping", {}).items():
             args += ["--column", f"{k}={v}"]
+        if ds_config.get("audio_input_length") is not None:
+            args += ["--audio-input-length", str(ds_config["audio_input_length"])]
         if ds_config.get("label_mapping_file"):
             args += ["--label-mapping", ds_config["label_mapping_file"]]
         if ds_config.get("streaming"):
@@ -2736,6 +2738,7 @@ def _baseline_cache_key(hf_id: str, task: str, ds_config: dict) -> str:
         ds_config.get("dataset_config", ""),
         ds_config.get("split", ""),
         str(ds_config.get("num_samples", _DEFAULT_SAMPLES)),
+        str(ds_config.get("audio_input_length", "")),
     ]
     return "|".join(parts)
 
@@ -2818,6 +2821,8 @@ def _run_pytorch_baseline(entry: ModelEntry, device: str, timeout: int) -> dict:
         args += ["--dataset-revision", ds_config["revision"]]
     if ds_config.get("columns_mapping"):
         args += ["--columns-mapping", json.dumps(ds_config["columns_mapping"])]
+    if ds_config.get("audio_input_length") is not None:
+        args += ["--audio-input-length", str(ds_config["audio_input_length"])]
     if ds_config.get("label_mapping_file"):
         args += ["--label-mapping-file", ds_config["label_mapping_file"]]
     winml_key = ds_config.get("winml_metric_key") or ds_config.get("metric")
