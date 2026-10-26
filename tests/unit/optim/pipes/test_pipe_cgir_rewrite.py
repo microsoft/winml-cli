@@ -25,10 +25,8 @@ from winml.modelkit.optim import OptimizationError, Optimizer
 from winml.modelkit.optim.pipes import (
     PIPES,
     CGIRRewritePipe,
-    CGIRRewritePipeConfig,
     RewritePipe,
 )
-from winml.modelkit.pattern import PatternMatcher
 
 
 def test_initializer_shape_without_value_info():
@@ -421,70 +419,6 @@ def test_cgc_constant_folding_rejects_broadcast_allocation(monkeypatch):
     ]), opset_imports=[helper.make_opsetid("", 17)], ir_version=10)
     with pytest.raises(ValueError, match="Broadcast allocation budget"):
         _ConstantParameters(model, static_shapes=True).evaluate("result", set(), set())
-
-
-@pytest.mark.parametrize("matches_resize", [False, True])
-@pytest.mark.parametrize("model_barrier", [False, True])
-def test_cgir_reuses_matcher_without_skipping_rules(matches_resize, model_barrier, monkeypatch):
-    import onnxruntime as ort
-
-    import winml.modelkit.optim.pipes.cgir_rewrite as cgir_module
-
-    prepared = []
-    matched = []
-
-    class TrackingMatcher(PatternMatcher):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            prepared.append(self)
-
-        def match(self):
-            matched.append(tuple(self.patterns))
-            return super().match()
-
-    monkeypatch.setattr(cgir_module, "PatternMatcher", TrackingMatcher)
-    model = _make_resize_model(
-        opset=11, roi=_empty_float(), scales=_effective_scales(),
-        use_sizes=False, cast_inputs=False,
-    )
-    node = _resize_nodes(model)[0]
-    node.attribute.extend([
-        helper.make_attribute(
-            "coordinate_transformation_mode",
-            "tf_half_pixel_for_nn" if matches_resize else "asymmetric",
-        ),
-        helper.make_attribute("nearest_mode", "floor"),
-    ])
-    cubic_rule = CGIRRewritePipe.build_config(approximate_cubic_resize_with_linear=True).rules[0]
-    nearest_rule = CGIRRewritePipe.build_config(
-        resize_tf_half_pixel_for_nn_to_asymmetric=True,
-    ).rules[0]
-    rules = [cubic_rule]
-    if model_barrier:
-        rules.extend(CGIRRewritePipe.build_config(deduplicate_opset_imports=True).rules)
-    rules.extend([nearest_rule, cubic_rule])
-    original = model.SerializeToString()
-    feeds = {"X": np.random.default_rng(42).normal(size=(1, 1, 2, 2)).astype(np.float32)}
-    expected = ort.InferenceSession(
-        original, providers=["CPUExecutionProvider"],
-    ).run(None, feeds)
-
-    result = CGIRRewritePipe().process(model, CGIRRewritePipeConfig(rules=rules))
-
-    assert len(prepared) == 1 + int(model_barrier) + int(matches_resize)
-    expected_patterns = [cubic_rule.source.__name__, nearest_rule.source.__name__]
-    if matches_resize:
-        expected_patterns.append(nearest_rule.source.__name__)
-    expected_patterns.append(cubic_rule.source.__name__)
-    assert matched == [(name,) for name in expected_patterns]
-    assert model.SerializeToString() == original
-    checker.check_model(result)
-    for actual, reference in zip(
-        ort.InferenceSession(
-            result.SerializeToString(), providers=["CPUExecutionProvider"],
-        ).run(None, feeds), expected, strict=True,
-    ):
-        np.testing.assert_allclose(actual, reference)
 
 
 @pytest.mark.parametrize("capability", [

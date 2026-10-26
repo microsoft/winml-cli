@@ -18,8 +18,6 @@ from ...pattern.cgc import (
     MatMulDFTPattern,
     ReshapedGatherNDPattern,
     ResizeWithAsymmetricCoordinatesPattern,
-    ResizeWithCubicInterpolationPattern,
-    ResizeWithLinearInterpolationPattern,
     ResizeWithTfHalfPixelForNNPattern,
     cgc_constant_folding,
     deduplicate_opset_imports,
@@ -76,16 +74,6 @@ RESIZE_TF_HALF_PIXEL_FOR_NN_TO_ASYMMETRIC = BoolCapability(
     default=False,
 )
 
-APPROXIMATE_CUBIC_RESIZE_WITH_LINEAR = BoolCapability(
-    name="approximate-cubic-resize-with-linear",
-    ort_name=None,
-    description=(
-        "Lossy cubic-to-linear Resize approximation without antialiasing or outside exclusion"
-    ),
-    category=CapabilityCategory.REWRITE,
-    default=False,
-)
-
 GATHERND_TO_RESHAPE = BoolCapability(
     name="gathernd-to-reshape",
     ort_name=None,
@@ -134,15 +122,6 @@ CGIR_REWRITE_RULES = (
         minimum_opset=11,
     ),
     CGIRRewriteRule(
-        capability=APPROXIMATE_CUBIC_RESIZE_WITH_LINEAR,
-        source=ResizeWithCubicInterpolationPattern,
-        target=ResizeWithLinearInterpolationPattern,
-        minimum_opset=11,
-        warning=(
-            "Replacing cubic Resize with linear is a lossy approximation and may reduce accuracy."
-        ),
-    ),
-    CGIRRewriteRule(
         capability=GATHERND_TO_RESHAPE,
         source=GatherNDWithIdentityIndicesPattern,
         target=ReshapedGatherNDPattern,
@@ -164,7 +143,6 @@ CGIR_REWRITE_CAPABILITIES = {
 
 
 __all__ = [
-    "APPROXIMATE_CUBIC_RESIZE_WITH_LINEAR",
     "CGC_CONSTANT_FOLDING",
     "CGIR_REWRITE_CAPABILITIES",
     "CGIR_REWRITE_RULES",

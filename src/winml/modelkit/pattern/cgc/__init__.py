@@ -11,8 +11,6 @@ from .gathernd_patterns import GatherNDWithIdentityIndicesPattern, ReshapedGathe
 from .opset_rewrites import deduplicate_opset_imports
 from .resize_patterns import (
     ResizeWithAsymmetricCoordinatesPattern,
-    ResizeWithCubicInterpolationPattern,
-    ResizeWithLinearInterpolationPattern,
     ResizeWithTfHalfPixelForNNPattern,
 )
 
@@ -23,8 +21,6 @@ __all__ = [
     "MatMulDFTPattern",
     "ReshapedGatherNDPattern",
     "ResizeWithAsymmetricCoordinatesPattern",
-    "ResizeWithCubicInterpolationPattern",
-    "ResizeWithLinearInterpolationPattern",
     "ResizeWithTfHalfPixelForNNPattern",
     "cgc_constant_folding",
     "deduplicate_opset_imports",
