@@ -21,6 +21,7 @@ from .gpu_timing import GPU_PROVIDER, RUNTIME_PROVIDER, GpuSubmission, RunKey, a
 
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
 
@@ -39,6 +40,25 @@ DIAGNOSTIC_PROVIDERS = (
 )
 
 
+def _trace_events(path: Path) -> Iterator[ElementTree.Element]:
+    """Stream complete events, releasing each subtree before reading the next."""
+    with path.open("rb") as source:
+        events = ElementTree.iterparse(source, events=("start", "end"))  # noqa: S314 -- local tracerpt output
+        _, root = next(events)
+        depth = 0
+        for action, element in events:
+            if action == "start":
+                depth += 1
+            else:
+                if depth == 1:
+                    try:
+                        yield element
+                    finally:
+                        root.remove(element)
+                        element.clear()
+                depth -= 1
+
+
 def analyze_trace(directory: Path) -> dict:
     """Runtime ETW analyze_trace."""
     markers = json.loads((directory / "windows.json").read_text(encoding="utf-8"))
@@ -50,7 +70,7 @@ def analyze_trace(directory: Path) -> dict:
         )
     ns = {"e": "http://schemas.microsoft.com/win/2004/08/events/event"}
     starts, stops, samples = [], {}, []
-    for event in ElementTree.parse(directory / "events.xml").getroot():  # noqa: S314 -- local tracerpt output
+    for event in _trace_events(directory / "events.xml"):
         system = event.find("e:System", ns)
         if system is None:
             raise RuntimeError("ETW event missing System")
@@ -143,11 +163,21 @@ class GpuCapture:
         self.started = False
         self.unavailable_providers: list[dict[str, str]] = []
 
-    def command(self, *args: str, optional_provider: bool = False) -> bool | None:
+    def command(
+        self, *args: str, optional_provider: bool = False, session_started: bool | None = None
+    ) -> bool | None:
         """Runtime ETW command."""
         run = subprocess.run(args, capture_output=True, text=True, errors="replace")  # noqa: S603 -- fixed tracing tools, no shell
-        with (self.directory / "capture.log").open("a", encoding="utf-8") as log:
-            log.write(run.stdout + run.stderr)
+        # Track ownership before diagnostic I/O can fail (for example, a full disk).
+        if run.returncode == 0 and session_started is not None:
+            self.started = session_started
+        try:
+            with (self.directory / "capture.log").open("a", encoding="utf-8") as log:
+                log.write(run.stdout + run.stderr)
+        except OSError:
+            # Cleanup must succeed even when the capture log is unwritable.
+            if session_started is not False:
+                raise
         if optional_provider and run.returncode & 0xFFFFFFFF == 0x80071068:
             return False
         if run.returncode:
@@ -180,8 +210,8 @@ class GpuCapture:
                 GPU_PROVIDER,
                 "0xffffffffffffffff",
                 "5",
+                session_started=True,
             )
-            self.started = True
             for name, provider in DIAGNOSTIC_PROVIDERS:
                 enabled = self.command(
                     "logman",
@@ -221,8 +251,7 @@ class GpuCapture:
     def stop(self) -> None:
         """Runtime ETW stop."""
         if self.started:
-            self.command("logman", "stop", self.name, "-ets")
-            self.started = False
+            self.command("logman", "stop", self.name, "-ets", session_started=False)
 
     def __exit__(self, *exc: object) -> None:
         """Runtime ETW __exit__."""
