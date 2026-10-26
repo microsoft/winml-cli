@@ -261,38 +261,7 @@ class ResizeWithAsymmetricCoordinatesPattern(_ResizeAttributesPattern):
         return {**attributes, "coordinate_transformation_mode": "asymmetric"}
 
 
-class ResizeWithCubicInterpolationPattern(_ResizeAttributesPattern):
-    """Match cubic Resize without antialiasing, outside exclusion, or crop semantics."""
-
-    def check_skeleton_result(
-        self,
-        skeleton_match_result: SkeletonMatchResult,
-    ) -> PatternMatchResult | None:
-        """Exclude cubic settings that need separate linear-approximation handling."""
-        result = super().check_skeleton_result(skeleton_match_result)
-        if result is None:
-            return None
-        attributes = result.attributes
-        if (
-            attributes.get("mode") != "cubic"
-            or attributes.get("antialias", 0) != 0
-            or attributes.get("exclude_outside", 0) != 0
-            or attributes.get("coordinate_transformation_mode") == "tf_crop_and_resize"
-        ):
-            return None
-        return result
-
-
-class ResizeWithLinearInterpolationPattern(_ResizeAttributesPattern):
-    """Approximate cubic interpolation with linear interpolation."""
-
-    def _rewrite_attributes(self, attributes: dict[str, Any]) -> dict[str, Any]:
-        return {**attributes, "mode": "linear"}
-
-
 __all__ = [
     "ResizeWithAsymmetricCoordinatesPattern",
-    "ResizeWithCubicInterpolationPattern",
-    "ResizeWithLinearInterpolationPattern",
     "ResizeWithTfHalfPixelForNNPattern",
 ]
