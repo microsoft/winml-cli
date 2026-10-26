@@ -7,7 +7,33 @@
 from __future__ import annotations
 
 import json
+from typing import get_type_hints
 from unittest.mock import MagicMock, patch
+
+import pytest
+
+
+@pytest.mark.parametrize(
+    ("class_name", "method"),
+    [
+        ("CimInstance", "get_property"),
+        ("CimInstance", "try_get_property"),
+        ("PnpDevice", "get_property"),
+        ("PnpDevice", "try_get_property"),
+        ("PnpDevice", "get_extra_property"),
+        ("PnpDevice", "try_get_extra_property"),
+        ("AppxPackage", "get_property"),
+        ("AppxPackage", "try_get_property"),
+    ],
+)
+def test_property_method_type_parameters_resolve(class_name: str, method: str) -> None:
+    from winml.modelkit.sysinfo import helper
+
+    accessor = getattr(getattr(helper, class_name), method)
+    (parameter,) = accessor.__type_params__
+    hints = get_type_hints(accessor)
+    assert hints["property_type"] == type[parameter]
+    assert hints["return"] is parameter
 
 
 class TestCimInstancePropertyFilter:

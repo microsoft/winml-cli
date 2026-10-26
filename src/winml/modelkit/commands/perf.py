@@ -57,6 +57,7 @@ from ._pre_bench import print_pre_bench_block
 if TYPE_CHECKING:
     import contextlib
     from collections.abc import Iterator
+    from typing import IO
 
     from rich.console import Console
 
@@ -942,12 +943,7 @@ def _runtime_input_shapes(
                 for name in io_config["input_names"]:
                     with archive.open(name + ".npy") as stream:
                         version = np.lib.format.read_magic(stream)
-                        # NumPy has no public v3 header reader. Use the same
-                        # version-aware, size-limited reader as np.load, without
-                        # reading or allocating the array payload.
-                        shape, _, dtype = np.lib.format._read_array_header(  # type: ignore[attr-defined]
-                            stream, version
-                        )
+                        shape, _, dtype = _read_numpy_header(stream, version)
                         if dtype.hasobject:
                             raise ValueError("object input arrays are unsupported")
                         shapes[name] = shape
@@ -969,6 +965,37 @@ def _runtime_input_shapes(
                     shape, name, batch_size, symbolic_shape=symbolic, shape_config=shape_config
                 )
     return shapes, _symbolic_dimensions_for_inputs(io_config, shapes)
+
+
+def _read_numpy_header(
+    stream: IO[bytes], version: tuple[int, int]
+) -> tuple[tuple[int, ...], bool, np.dtype]:
+    """Read only a bounded NPY header using NumPy's public format API."""
+    if version == (3, 0):
+        from io import BytesIO
+
+        # V3 uses V2's layout but UTF-8 rather than Latin-1. Escape Unicode in the
+        # literal header so the public V2 parser preserves field names exactly.
+        size_bytes = stream.read(4)
+        if len(size_bytes) != 4:
+            raise EOFError("Truncated NPY header length")
+        size = int.from_bytes(size_bytes, "little")
+        if size > 10_000:
+            raise ValueError("NPY header exceeds the 10000-byte safety limit")
+        header = stream.read(size)
+        if len(header) != size:
+            raise EOFError("Truncated NPY header")
+        ascii_header = header.decode("utf-8").encode("ascii", "backslashreplace")
+        stream = BytesIO(len(ascii_header).to_bytes(4, "little") + ascii_header)
+        version = (2, 0)
+
+    if version == (1, 0):
+        result: tuple[tuple[int, ...], bool, np.dtype] = np.lib.format.read_array_header_1_0(stream)
+    elif version == (2, 0):
+        result = np.lib.format.read_array_header_2_0(stream)
+    else:
+        raise ValueError(f"Unsupported NPY version: {version}")
+    return result
 
 
 def _ort_options_for_dimensions(dimensions: dict[str, int]) -> Any:

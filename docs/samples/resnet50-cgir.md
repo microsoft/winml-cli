@@ -11,7 +11,7 @@ CGIR workflow can be reviewed, repeated, and checked into source control.
 ## Prerequisites
 
 - A Windows device with a GPU.
-- An activated Python 3.11 environment with winml-cli and the experimental
+- An activated Python 3.14 environment with winml-cli and the experimental
     wheels from [CGC environment setup](../getting-started/cgc-onboarding.md#environment-setup).
 - A network connection to download the model and evaluation dataset.
 

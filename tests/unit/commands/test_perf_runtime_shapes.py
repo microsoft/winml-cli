@@ -19,6 +19,7 @@ from winml.modelkit.commands.perf import (
     BenchmarkConfig,
     PerfBenchmark,
     _ort_options_for_dimensions,
+    _read_numpy_header,
     _runtime_input_shapes,
 )
 
@@ -88,6 +89,36 @@ def test_npz_header_versions_without_reading_payload(tmp_path, version):
     shapes, dimensions = _runtime_input_shapes(_model(tmp_path), data, None, 1)
     assert shapes == {"left": (2, 3), "right": (2, 3)}
     assert dimensions == {"batch": 2}
+
+
+def test_v3_header_preserves_unicode_dtype_fields():
+    stream = BytesIO()
+    dtype = np.dtype([("\u8ba1\u6570", np.float32)])
+    np.lib.format.write_array(stream, np.zeros((2, 3), dtype=dtype), version=(3, 0))
+    stream.seek(0)
+    version = np.lib.format.read_magic(stream)
+    shape, _, restored_dtype = _read_numpy_header(stream, version)
+    assert shape == (2, 3)
+    assert restored_dtype == dtype
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        b"",
+        b"\x01\x00",
+        (10_001).to_bytes(4, "little"),
+        (10).to_bytes(4, "little") + b"{}",
+        (1).to_bytes(4, "little") + b"\xff",
+    ],
+)
+def test_npz_rejects_malformed_v3_headers(tmp_path, header):
+    data = tmp_path / "malformed.npz"
+    with ZipFile(data, "w") as archive:
+        for name in ("left", "right"):
+            archive.writestr(name + ".npy", np.lib.format.magic(3, 0) + header)
+    with pytest.raises(click.UsageError, match="Cannot read concrete"):
+        _runtime_input_shapes(_model(tmp_path), data, None, 1)
 
 
 @pytest.mark.parametrize("right_shape", [(3, 3), (2, 4), (2, 3, 1)])

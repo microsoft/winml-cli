@@ -36,6 +36,16 @@ def _create_gelu_model(pattern, dtype=np.float32):
     )
 
 
+@pytest.mark.parametrize("pattern_class", _ALL_GELU_CLASSES)
+@pytest.mark.parametrize("dtype", [np.float16, np.float32])
+def test_gelu_constants_preserve_input_dtype(pattern_class, dtype) -> None:
+    model = _create_gelu_model(pattern_class(), dtype=dtype)
+    expected = onnx.helper.np_dtype_to_tensor_dtype(np.dtype(dtype))
+    assert model.graph.initializer
+    assert all(initializer.data_type == expected for initializer in model.graph.initializer)
+    onnx.checker.check_model(model, full_check=True)
+
+
 def test_single_gelu_output_shape_preserves_input_rank() -> None:
     """Symbolic inference should preserve contrib-op output rank."""
     input_value = np.random.randn(2, 4).astype(np.float32)

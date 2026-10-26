@@ -2091,7 +2091,15 @@ class PatternRewriter:
                             dtype_str = match_result.type_param_to_type[input_param.type_str]
                             np_dtype = SupportedONNXType.from_onnx_type(dtype_str).np_type
                             # For shape computation, create a zero array
-                            inputs[input_name] = np.zeros(info.shape, dtype=np_dtype)
+                            concrete_shape: list[int] = []
+                            for dim in info.shape:
+                                if not isinstance(dim, int):
+                                    raise TypeError(
+                                        f"Cannot rewrite input {input_name!r} with unresolved "
+                                        f"shape {info.shape!r}"
+                                    )
+                                concrete_shape.append(dim)
+                            inputs[input_name] = np.zeros(concrete_shape, dtype=np_dtype)
                         else:
                             # No shape info, skip this input
                             is_constant_map[input_name] = False

@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 from rich.console import Console
 from rich.table import Table
 
-from .op_metrics import OperatorMetrics, OpTraceResult  # noqa: TC001 (used at runtime)
+from .op_metrics import OperatorMetrics, OpTraceResult
 
 
 if TYPE_CHECKING:

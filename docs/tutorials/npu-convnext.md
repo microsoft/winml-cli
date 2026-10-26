@@ -18,7 +18,7 @@ The tutorial is split into two sections. Section A runs through eight primitive 
 
 - **Windows 11 24H2** — required for NPU stack support
 - **Copilot+PC with NPU** — 40+ TOPS recommended; CPU and DirectML work as fallback throughout
-- **Python 3.11** and **uv** installed (`pip install uv` or follow [astral.sh/uv](https://astral.sh/uv))
+- **Python 3.14** and **uv** installed (`pip install uv` or follow [astral.sh/uv](https://astral.sh/uv))
 - **winml-cli** installed — see [Installation](../getting-started/installation.md)
 
 > No NPU? Set `--device cpu` wherever you see `--device npu` and drop `--monitor` from perf commands. Every other flag stays the same.

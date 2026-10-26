@@ -315,7 +315,7 @@ def build_hf_model(
         task=task,
         cache_key=cache_key,
         config_hash=cache_key.rsplit("_", 1)[-1] if cache_key and "_" in cache_key else None,
-        timestamp=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
         elapsed_seconds=round(elapsed, 3),
         final_artifact=final_path.name,
         stages=manifest_stages,

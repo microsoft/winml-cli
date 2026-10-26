@@ -165,8 +165,8 @@ def _query_native_machine_via_win32() -> int | None:
 def _get_windows_native_machine() -> str | None:
     """Return the host architecture name, or None when unavailable.
 
-    platform.machine() returns the *process* arch (PROCESSOR_ARCHITECTURE),
-    so an x64 Python running under ARM64 emulation reports "AMD64". This
+    Before Python 3.14, platform.machine() returns the *process* arch, so
+    an x64 Python running under ARM64 emulation reports "AMD64". This
     consults IsWow64Process2 for the real host machine type, which is what
     the user expects to see in `winml sys`. PROCESSOR_ARCHITEW6432 is
     unreliable on ARM64 (Prism emulation does not set it on Snapdragon X).
@@ -277,7 +277,7 @@ def _get_library_versions() -> dict[str, str | None]:
     for lib in lib_names:
         try:
             libraries[lib] = version(lib)
-        except PackageNotFoundError:  # noqa: PERF203
+        except PackageNotFoundError:
             libraries[lib] = None
 
     # onnxruntime has multiple distribution variants
@@ -638,7 +638,7 @@ def _gather_device_info(
         for label, fut in futures:
             try:
                 ordered_results.append((label, cast("Sequence[Any]", fut.result())))
-            except Exception as e:  # noqa: PERF203 - per-future error capture
+            except Exception as e:
                 ordered_results.append((label, e))
         try:
             native_adapters = native_adapters_future.result()

@@ -75,7 +75,7 @@ import sys
 import tempfile
 import time
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 
@@ -287,7 +287,7 @@ def _precision_from_build_config(config_path: Path) -> str | None:
     """
     try:
         cfg = json.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return None
     quant = cfg.get("quant")
     if not isinstance(quant, dict):
@@ -549,7 +549,7 @@ def _progress_prefix(index: int, total: int, now: datetime | None = None) -> str
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _compute_onnx_size(onnx_paths: dict[str, str]) -> int | None:
@@ -642,7 +642,7 @@ def _kill_process_tree(pid: int) -> None:
     if psutil is not None:
         try:
             parent = psutil.Process(pid)
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
+        except psutil.NoSuchProcess, psutil.AccessDenied:
             return
         try:
             children = parent.children(recursive=True)
@@ -971,7 +971,7 @@ def _run_subprocess(args: list[str], timeout: int) -> dict:
                     if not download_monitor_stalled:
                         try:
                             snapshot = json.loads(progress_path.read_text(encoding="utf-8"))
-                        except (OSError, json.JSONDecodeError):
+                        except OSError, json.JSONDecodeError:
                             snapshot = None
                         if snapshot is not None:
                             last_download_observation = snapshot["observed_at"]
@@ -1329,7 +1329,7 @@ def _config_has_eval_section(config_path: Path) -> bool:
     """True when a recipe config carries an ``eval`` object."""
     try:
         cfg = json.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return False
     return isinstance(cfg.get("eval"), dict)
 
@@ -1357,7 +1357,7 @@ def _needs_trust_remote_code(config_path: Path | None) -> bool:
         return False
     try:
         cfg = json.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return False
     dataset = (cfg.get("eval") or {}).get("dataset") or {}
     return bool(dataset.get("build_script"))
@@ -1494,7 +1494,7 @@ def _extract_task_from_config(config_path: Path) -> str | None:
         data = json.loads(config_path.read_text(encoding="utf-8"))
         loader = data.get("loader", {})
         return loader.get("task")
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return None
 
 
@@ -1801,7 +1801,7 @@ def _load_results(path: Path) -> dict:
     """Load the build_only_results.json log, or {} on any error."""
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return {}
 
 
@@ -1874,7 +1874,7 @@ def _fetch_feed_versions(
             return None
         try:
             return json.loads(res["stdout"])
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             return None
 
     listing = _get_json(f"{base}/packages?api-version={_FEED_API_VERSION}")
@@ -2564,7 +2564,7 @@ def _read_eval_output(output_path: Path) -> tuple[dict | None, dict | None]:
     """
     try:
         data = json.loads(output_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return None, None
     metrics = data.get("metrics")
     dataset = data.get("dataset")
@@ -2744,7 +2744,7 @@ def _load_baseline_cache() -> dict:
     """Load baseline cache from disk. Returns {} on any error."""
     try:
         return json.loads(BASELINE_CACHE_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return {}
 
 
@@ -2962,7 +2962,7 @@ def save_environment_info(path: Path) -> None:
             info["git_commit"] = lines[0] if lines else ""
             info["git_commit_message"] = lines[1] if len(lines) > 1 else ""
             info["git_commit_date"] = lines[2] if len(lines) > 2 else ""
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    except subprocess.TimeoutExpired, FileNotFoundError:
         pass  # git not available or timed out; commit info stays empty
 
     # `winml sys --format json` captures hardware details (devices, EPs,
@@ -3973,7 +3973,7 @@ def main() -> None:
                     safe_print(
                         f"\n{_progress_prefix(i, total_jobs)} {label}  (RETRY - was {retry_label})"
                     )
-            except (json.JSONDecodeError, KeyError):
+            except json.JSONDecodeError, KeyError:
                 pass  # Corrupted result file — re-run
 
         if backfill_existing is None:

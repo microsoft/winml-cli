@@ -10,14 +10,14 @@ readme = "README.md"
 keywords = [ "onnx", "winml" ]
 license = { text = "MIT" }
 authors = [ { name = "WinML Team" } ]
-requires-python = ">=3.11,<3.12"
+requires-python = ">=3.14"
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
   "Intended Audience :: Science/Research",
   "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
@@ -43,15 +43,17 @@ dependencies = [
   "jsonschema>=4.23",
   "mcp>=0.1.0",
   "ml-dtypes>=0.5.3",
-  "numpy>=2.2,<2.3",
-  "onnx==1.18",
+  # These release lines provide Windows x64 wheels compatible with CPython 3.14.
+  "numpy>=2.3.2,<2.4",
+  "onnx==1.20.0",
   "onnx-ir>=0.1",
   "onnxruntime-genai-winml==0.14.1 ; sys_platform == 'win32'",
   # Range, not an exact pin: the exact build `1.24.5.202604171637` is the PyPI
   # form of what WinML's wasdk metadata pins as `1.24.5.post202604171637` (PEP 440
   # normalized) — an exact `==` can't reconcile the two. Allow newer releases
   # through 1.27 for OpenVINO operator profiling.
-  "onnxruntime-windowsml>=1.24.5,<1.28 ; sys_platform == 'win32'",
+  # Older runtime builds have no CPython 3.14 Windows wheels.
+  "onnxruntime-windowsml>=1.27.1,<1.28 ; sys_platform == 'win32'",
   "onnxscript>=0.2",
   "opentelemetry-sdk>=1.39.1",
   "optimum>=2",
@@ -71,7 +73,7 @@ dependencies = [
   "requests>=2.32.5",
   "rich>=14",
   "scikit-learn>=1.7",
-  "scipy>=1.15,<1.16",
+  "scipy>=1.16.1,<1.17",
   "sentencepiece>=0.2.1",
   "seqeval>=1.2.2",
   "snakemd>=2",
@@ -112,14 +114,14 @@ scripts.winml = "winml.modelkit.cli:main"
 # winml-cli is a Windows-only tool and its dependencies (PyTorch, the Windows ML
 # runtime packages, etc.) publish only x64/AMD64 wheels -- there are no
 # win_arm64 wheels. Restricting resolution to these environments keeps the
-# lockfile x64-only and makes `uv sync` fail fast with a clear
-# "unsupported environment" error on native Arm64 Python instead of an opaque
-# missing-wheel error. The linux/x86_64 entry is required for the docs CI job
-# that runs on ubuntu-latest.
+# lockfile restricted to deployment platforms. Python 3.14 reports the native
+# ARM64 host even from an emulated x64 interpreter, so that marker must also be
+# accepted. Native Arm64 Python is still unsupported: PyTorch has no wheel.
+# The linux/x86_64 entry is required for the docs CI job on ubuntu-latest.
 [tool.uv]
 environments = [
   "sys_platform == 'linux' and platform_machine == 'x86_64'",
-  "sys_platform == 'win32' and platform_machine == 'AMD64'",
+  "sys_platform == 'win32' and (platform_machine == 'AMD64' or platform_machine == 'ARM64')",
 ]
 
 [[tool.uv.index]]
@@ -203,7 +205,9 @@ include = [ "winml", "winml.*" ]
 # =============================================================================
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py314"
+# This standalone compiler runs under the external SDK, not the CLI interpreter.
+per-file-target-version."src/winml/modelkit/session/qairt/compile_qairt_bin.py" = "py311"
 
 line-length = 100 # Extended for modern screens
 # Indent with spaces (consistent with PEP 8)
@@ -265,11 +269,16 @@ lint.select = [
   "TID", # flake8-tidy-imports (import hygiene)
   # === Exception Handling ===
   "TRY", # tryceratops (exception handling best practices)
-  "UP",  # pyupgrade (Python 3.11+ syntax)
+  "UP",  # pyupgrade (Python 3.14+ syntax)
 
   "W", # pycodestyle warnings (PEP 8)
 ]
 lint.ignore = [
+  # Keep runtime-visible annotations/imports and existing generic/Enum semantics.
+  # Python 3.14 permits these rewrites, but changing reflection and generated
+  # aliases is a separate migration from raising the interpreter minimum.
+  "TC001", "TC003", "UP037", "UP040", "UP042", "UP046", "UP047",
+
   # === Annotations (gradual typing) ===
   "ANN001", # missing type for self/args in nested functions - too strict
   "ANN002", # missing type for *args
@@ -396,6 +405,8 @@ norecursedirs = [
   "dist",
   "build",
   ".venv",
+  ".venv_old",
+  ".venv_new",
   "*.egg-info",
   "__pycache__",
   ".pytest_cache",
@@ -496,7 +507,7 @@ exclude_lines = [
 ]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.14"
 
 # Pydantic v2 plugin: teaches mypy about Field() defaults, so models with
 # Field(None, ...) or Field(default_factory=...) aren't reported as having

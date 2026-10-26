@@ -1061,6 +1061,8 @@ class OpInputGenerator(ABC):
 
         # Create the model
         model = onnx.helper.make_model(graph, opset_imports=opset_imports)
+        # Match PatternMatchResult and the ONNX 1.18 rule-artifact baseline.
+        model.ir_version = 11
 
         # Infer shapes
         try:

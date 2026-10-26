@@ -10,6 +10,7 @@ This cycle adds CGIR and Windows ML Runtime workflows, native PyTorch evaluation
 
 ### ⚠️ Behavior changes
 
+- **Python runtime** - requires Python 3.14 or later, with development and CI pinned to 3.14. On Windows, use standard-GIL x64 Python, including on Arm hosts. The optional QAIRT SDK compiler retains its separate vendor-pinned tool environment; it is not an alternative CLI runtime.
 - **Runtime selection** - runtime names are now `winml-ort` and `ort-genai` instead of `winml` and `winml-genai`; `winml perf` defaults to automatic runtime selection while retaining explicit choices (#1366, #1308).
 - `winml perf` - canonical cache controls are `--use-cache` / `--no-use-cache`; the older `--ignore-cache` / `--no-ignore-cache` forms remain hidden deprecated aliases, and conflicting toggles are rejected (#1271).
 - `winml analyze` - removes the obsolete `--htp-metadata` option in favor of pattern-rule-based runtime support checks (#1218).
@@ -42,6 +43,7 @@ This cycle adds CGIR and Windows ML Runtime workflows, native PyTorch evaluation
 ### 🐛 Fixes
 
 - **Hugging Face export** - repairs Marian, TrOCR/Manga-OCR, LayoutLM QA, BLIP decoder, and SAM wrapper paths, and corrects eager-attention selection during model loading (#1323, #1330, #1392, #1403, #1375).
+- **Python 3.14 export** - keeps Optimum normalized-config factories static for both standalone models and nested text/vision encoder-decoder configurations, including cached decoder variants (#1489).
 - **FP16 conversion** - handles initializer-backed graph outputs, prevents quantization naming collisions, and validates captured local-function tensors against stricter ONNX Runtime graph-attribute requirements (#1280, #1417, #1377).
 - **Calibration and quantization** - clamps DistilBERT mask constants before calibration and fixes input-dtype, synthetic-calibration, and large-model QDQ serialization regressions found during release evaluation (#1420, #1411).
 - **FP16 recipes** - restores missing quantization configuration for RoBERTa-large SQuAD2 and DeBERTa-v3-base NLI recipes (#1245, #1244).

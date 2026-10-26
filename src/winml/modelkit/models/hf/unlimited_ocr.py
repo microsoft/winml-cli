@@ -113,7 +113,7 @@ class UnlimitedOCRVisionIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum b
     projected image-embedding sequence consumed by the (unexported) LM.
     """
 
-    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(allow_new=True)
+    NORMALIZED_CONFIG_CLASS = staticmethod(NormalizedConfig.with_args(allow_new=True))
     DUMMY_INPUT_GENERATOR_CLASSES = (DummyVisionInputGenerator,)
     DEFAULT_ONNX_OPSET = 17
 
