@@ -2,6 +2,10 @@
 
 Two eval suites, following the `skill-creator` methodology (trigger optimization + response benchmarking with `with_skill` vs `baseline` subagents, a grader, `aggregate_benchmark`, and the eval-viewer).
 
+The `custom-code-authorization-and-isolation` response case is a user-requested policy regression, not a historical engineering golden. Evaluate it as a decision-only simulation: no model downloads, custom-code execution, credential access, or publication. It covers missing authorization, missing isolation, approved exact-revision execution, and changed revisions. Keep assertion results unset until actual response evidence is graded. The recipe-authority case assumes this separate trust gate has already passed; a recipe never grants execution approval.
+
+Run the structural trust-gate regressions from the repository root with `python -m pytest skills/adding-model-support/tests/test_custom_code_contract.py`. These checks protect the written policy and existing explanation-only negative labels, not live-agent security.
+
 ## 1. Trigger eval — [`trigger_eval.json`](./trigger_eval.json)
 
 18 realistic queries: 9 **should-trigger**, 9 **should-not**. The negatives are deliberately *near-misses* against adjacent workflows this skill must not poach from:
