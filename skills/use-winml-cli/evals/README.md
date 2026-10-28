@@ -133,3 +133,8 @@ estimate of pass@k or an accuracy evaluation of the resulting models.
 Keep all results outside the shipped skill. Review logs before sharing: they
 may contain local paths or host configuration. No new live-agent or hardware
 results are asserted by these restored fixtures.
+
+Recovered May 2026 scores and CPU metric evidence are archived separately in
+[historical evaluation results](../../../docs/skill-evals/use-winml-cli/README.md).
+They do not certify these revised fixtures; NPU execution evidence was not
+found in the searched sources, and the recovered CPU run records NPU cases as SKIP.

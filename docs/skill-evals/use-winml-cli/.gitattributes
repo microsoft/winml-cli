@@ -1,0 +1,5 @@
+# Preserve archived evidence bytes for the provenance checksums.
+.gitattributes text eol=lf
+e2e/** -text whitespace=cr-at-eol
+response/** -text whitespace=cr-at-eol
+trigger/** -text whitespace=cr-at-eol

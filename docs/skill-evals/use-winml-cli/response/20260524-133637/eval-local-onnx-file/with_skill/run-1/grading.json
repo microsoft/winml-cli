@@ -1,0 +1,38 @@
+{
+  "eval_id": 8,
+  "eval_name": "local-onnx-file",
+  "config": "with_skill",
+  "expectations": [
+    {
+      "text": "Identifies OpenVINO as the correct EP for Intel Core Ultra NPU.",
+      "passed": true,
+      "evidence": "Quote: 'The Intel NPU goes through the OpenVINO execution provider, which is Ready on Core Ultra (Meteor Lake / Lunar Lake)'."
+    },
+    {
+      "text": "Recognizes that winml commands accept local `.onnx` files directly via `-m` / `--model` -- no re-export needed.",
+      "passed": true,
+      "evidence": "Quote: 'winml accepts a local .onnx path anywhere a model is expected, so you can point it straight at the file on disk'."
+    },
+    {
+      "text": "Does NOT walk the user through `winml export` or any HuggingFace download -- the model is already on disk.",
+      "passed": true,
+      "evidence": "Quote: 'Since you already have an ONNX file, you're entering the pipeline past export'. No export step."
+    },
+    {
+      "text": "Either directs the user to `winml --help`, OR uses only common/plausible flag patterns.",
+      "passed": true,
+      "evidence": "Multiple 'Read winml perf --help first' nudges + 'I don't want to invent one'."
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": true,
+      "evidence": "All ? winml commands verified runnable against --help."
+    }
+  ],
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 5,
+    "failed": 0,
+    "total": 5
+  }
+}

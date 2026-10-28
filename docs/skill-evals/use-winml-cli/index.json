@@ -1,0 +1,84 @@
+{
+  "skill_name": "use-winml-cli",
+  "archive_kind": "historical_results_not_current_validation",
+  "recovered_on": "2026-10-28",
+  "source_snapshot_commit": "db80c8bc609fa0d7a385fe88368ee56ecaeaaad3",
+  "results_regraded_during_recovery": false,
+  "new_hardware_or_agent_trials": false,
+  "runs": [
+    {
+      "suite": "trigger",
+      "run_id": "20260520-133832",
+      "evidence_type": "description_only_judge_not_native_activation",
+      "results_path": "trigger/20260520-133832/results.json",
+      "queries": 30,
+      "positive_labels": 14,
+      "negative_labels": 16,
+      "recorded_correct": 29,
+      "recorded_false_positives": 0,
+      "recorded_false_negatives": 1,
+      "false_negative_row_ids": [13],
+      "native_skill_invocation_verified": false
+    },
+    {
+      "suite": "response",
+      "run_id": "20260520-133849",
+      "evidence_type": "advice_only_concept_and_static_grades",
+      "results_path": "response/20260520-133849/benchmark.json",
+      "cases": 9,
+      "recorded_with_skill": { "passed": 56, "total": 56 },
+      "recorded_without_skill": { "passed": 29, "total": 56 },
+      "hardware_execution_verified": false,
+      "independent_grader": false
+    },
+    {
+      "suite": "response",
+      "run_id": "20260524-133637",
+      "evidence_type": "advice_only_concept_and_static_grades",
+      "results_path": "response/20260524-133637/benchmark.md",
+      "cases": 11,
+      "recorded_with_skill": { "passed": 71, "total": 71 },
+      "recorded_without_skill": { "passed": 35, "total": 71 },
+      "hardware_execution_verified": false,
+      "independent_grader": false,
+      "baseline_reuse_prevents_independent_replication_claim": true
+    },
+    {
+      "suite": "e2e",
+      "run_id": "20260520-134922_cpu-only",
+      "evidence_type": "cpu_metrics_and_historical_trial_grades_without_full_traces",
+      "results_path": "e2e/20260520-134922_cpu-only/meta.json",
+      "recorded_winml_version": "winml, version 0.0.2",
+      "exact_tested_skill_snapshot_verified": false,
+      "cases_eligible": 3,
+      "trials_per_case": 3,
+      "recorded_passing_trials": 9,
+      "recorded_total_trials": 9,
+      "benchmark": {
+        "case_id": "cpu-benchmark-resnet",
+        "model_id": "microsoft/resnet-50",
+        "recorded_device": "cpu",
+        "batch_size": 1,
+        "warmup_iterations": 10,
+        "measured_iterations_per_trial": 100,
+        "recorded_mean_latency_ms_by_trial": [22.326, 27.276, 34.251],
+        "raw_metric_files": [
+          "e2e/20260520-134922_cpu-only/cases/cpu-benchmark-resnet/trial-1/outputs/resnet50_perf.json",
+          "e2e/20260520-134922_cpu-only/cases/cpu-benchmark-resnet/trial-2/outputs/resnet50_perf.json",
+          "e2e/20260520-134922_cpu-only/cases/cpu-benchmark-resnet/trial-3/outputs/resnet50_perf.json"
+        ]
+      },
+      "recorded_skips": [
+        { "case_id": "qnn-benchmark-resnet", "status": "SKIP", "reason": "QNNExecutionProvider not registered" },
+        { "case_id": "qnn-full-build-resnet", "status": "SKIP", "reason": "QNNExecutionProvider not registered" },
+        { "case_id": "vitisai-benchmark-resnet", "status": "SKIP", "reason": "VitisAIExecutionProvider not registered" }
+      ],
+      "current_e2e_contract_verified": false,
+      "npu_execution_record_found_in_searched_sources": false
+    }
+  ],
+  "excluded_demo_directories": [
+    "20260513-220000_cpu-only",
+    "20260513-230000_cpu-only-dogfood"
+  ]
+}

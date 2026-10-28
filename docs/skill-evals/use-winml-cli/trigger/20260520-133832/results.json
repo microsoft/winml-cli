@@ -1,0 +1,282 @@
+{
+  "run": "20260520-133832",
+  "total": 30,
+  "correct": 29,
+  "accuracy": 0.9667,
+  "false_positives_over_trigger": 0,
+  "false_negatives_under_trigger": 1,
+  "recall_on_positives": 0.9286,
+  "specificity_on_negatives": 1.0,
+  "rows": [
+    {
+      "id": 0,
+      "query": "i just got a snapdragon x elite dev box and want to see how fast microsoft/resnet-50 runs on the npu. need actual latency numbers, not theoretical.",
+      "expected": true,
+      "predicted": true,
+      "correct": true,
+      "reason": "ResNet-50 latency on Snapdragon X Elite NPU is a core in-scope benchmark task.",
+      "rationale": "Classic skill use case: HF model, Snapdragon NPU, benchmarking. Directly in scope."
+    },
+    {
+      "id": 1,
+      "query": "optimize facebook/convnext-tiny-224 for my ryzen ai laptop's npu. trying to get the lowest latency possible for a real-time demo next week.",
+      "expected": true,
+      "predicted": true,
+      "correct": true,
+      "reason": "ConvNeXt optimization for Ryzen AI NPU low-latency is exactly the BYOM/NPU pipeline.",
+      "rationale": "AMD NPU + HF vision model + optimization. Directly in scope."
+    },
+    {
+      "id": 2,
+      "query": "got a ViT model i need to run inference on with the intel core ultra NPU \u2014 what's the path from huggingface to actually running on the NPU?",
+      "expected": true,
+      "predicted": true,
+      "correct": true,
+      "reason": "ViT from HuggingFace to Intel Core Ultra NPU matches the on-device inference pipeline.",
+      "rationale": "Intel NPU + ViT (vision transformer, in-scope architecture) + end-to-end deployment."
+    },
+    {
+      "id": 3,
+      "query": "i need to ship a BERT classifier to windows ai pcs. walk me through getting from the hf model to something that actually runs fast on the NPU.",
+      "expected": true,
+      "predicted": true,
+      "correct": true,
+      "reason": "BERT classifier (encoder-only) shipping to Windows AI PC NPU fits the BYOM scope.",
+      "rationale": "BERT (in scope) + Windows AI PC + NPU deployment. Core use case."
+    },
+    {
+      "id": 4,
+      "query": "winml optimize keeps erroring with some unsupported op pattern on microsoft/swin-large-patch4-window7-224 targeting QNN. inspect and export went fine. what now?",
+      "expected": true,
+      "predicted": true,
+      "correct": true,
+      "reason": "Troubleshooting unsupported operator on QNN during winml optimize is explicitly in scope.",
+      "rationale": "Direct invocation of winml CLI + troubleshooting flow the skill covers (analyze step)."
+    },
+    {
+      "id": 5,
+      "query": "benchmark google/vit-base-patch16-224 across qnn and cpu on my snapdragon. need apples-to-apples numbers for a perf review.",
+      "expected": true,
+      "predicted": true,
+      "correct": true,
+      "reason": "Benchmarking ViT across QNN and CPU on Snapdragon is a direct skill use case.",
+      "rationale": "Snapdragon + ViT + NPU-vs-CPU comparison (a pattern in SKILL.md)."
+    },
+    {
+      "id": 6,
+      "query": "fastest way to see latency for facebook/convnext-tiny-224 on my ryzen ai npu? i don't care about saving the artifact, just need a number.",
+      "expected": true,
+      "predicted": true,
+      "correct": true,
+      "reason": "Quick latency measurement for ConvNeXt on Ryzen AI NPU fits the benchmark workflow.",
+      "rationale": "Ryzen AI + quick benchmark pattern, no artifact needed."
+    },
+    {
+      "id": 7,
+      "query": "got a new hexagon npu laptop and want to try microsoft/table-transformer-detection. how do i get it running on the npu with good latency?",
+      "expected": true,
+      "predicted": true,
+      "correct": true,
+      "reason": "Table-transformer detection on Hexagon NPU is a vision model on Windows NPU, in scope.",
+      "rationale": "Hexagon NPU (Qualcomm) + Table Transformer (in scope) + deployment."
+    },
+    {
+      "id": 8,
+      "query": "our segformer model needs to ship to intel npu customers. how do we prep nvidia/segformer-b1-finetuned-ade-512-512 into something that actually runs on the npu?",
+      "expected": true,
+      "predicted": true,
+      "correct": true,
+      "reason": "SegFormer prep for Intel NPU customers is a BYOM on-device inference task.",
+      "rationale": "Intel NPU + SegFormer (in scope) + production prep."
+    },
+    {
+      "id": 9,
+      "query": "before i commit to a build, is there a way to tell if microsoft/swin-large-patch4-window7-224 will actually survive the full pipeline on qualcomm npu? burned half a day last time.",
+      "expected": true,
+      "predicted": true,
+      "correct": true,
+      "reason": "Pre-flight EP/operator compatibility check on Qualcomm NPU is exactly troubleshooting scope.",
+      "rationale": "Pre-flight check for QNN compatibility \u2014 exactly the inspect+analyze flow the skill teaches."
+    },
+    {
+      "id": 10,
+      "query": "i've got a resnet50.onnx file already on disk from an earlier export \u2014 want to get it onto my intel core ultra NPU and see latency. don't want to re-download from huggingface.",
+      "expected": true,
+      "predicted": true,
+      "correct": true,
+      "reason": "Local ONNX file to Intel Core Ultra NPU with latency measurement fits the pipeline.",
+      "rationale": "Local ONNX file input (not HF) + Intel NPU + benchmarking. Tests trigger on the non-HF branch of the BYOM pipeline."
+    },
+    {
+      "id": 11,
+      "query": "just got my snapdragon x elite dev box, python 3.11 already installed. how do i install winml? want to run microsoft/resnet-50 first to see NPU latency.",
+      "expected": true,
+      "predicted": true,
+      "correct": true,
+      "reason": "Installing winml and running ResNet-50 on Snapdragon NPU is a direct skill usage scenario.",
+      "rationale": "Install/setup question + Snapdragon NPU + named HF model. Note Python 3.11 is wrong (skill pins 3.10), so the install section is directly relevant."
+    },
+    {
+      "id": 12,
+      "query": "need to get ultralytics/yolov8n running on my ryzen ai laptop for an object detection demo. how fast can we get it on the NPU?",
+      "expected": true,
+      "predicted": true,
+      "correct": true,
+      "reason": "YOLOv8 (vision detection) on Ryzen AI NPU is in-scope BYOM benchmarking.",
+      "rationale": "Object detection (in-scope architecture) + AMD NPU + latency goal. Covers object-detection which is absent from the current positive set."
+    },
+    {
+      "id": 13,
+      "query": "want a json config i can commit to git so our CI rebuilds the optimized resnet50 the exact same way every PR. target is qnn. how do i set this up?",
+      "expected": true,
+      "predicted": false,
+      "correct": false,
+      "reason": "Description does not mention CI/reproducible JSON config workflows, only CLI usage.",
+      "rationale": "config + build for reproducibility/CI \u2014 the production path the skill recommends. Tests trigger on the config-file workflow."
+    },
+    {
+      "id": 14,
+      "query": "how do i call windows ml from a c# app? i want to load my onnx model and run inference from a WinUI 3 app.",
+      "expected": false,
+      "predicted": false,
+      "correct": true,
+      "reason": "Description covers winml CLI for ONNX prep, not Windows ML C#/WinUI runtime integration.",
+      "rationale": "Negative \u2014 Windows ML C# SDK programming, not CLI driving. Skill is about the winml CLI, not the WinRT/SDK APIs."
+    },
+    {
+      "id": 15,
+      "query": "i want to train a bert classifier on azure ml, dataset is already prepared. how do i set up the training pipeline?",
+      "expected": false,
+      "predicted": false,
+      "correct": true,
+      "reason": "Training on Azure ML is unrelated to on-device inference optimization.",
+      "rationale": "Negative \u2014 training on Azure ML, not deployment via winml. Different lifecycle stage entirely."
+    },
+    {
+      "id": 16,
+      "query": "how do i get llama 3 8b running locally on my laptop? want to use it for a chatbot prototype.",
+      "expected": false,
+      "predicted": false,
+      "correct": true,
+      "reason": "Llama 3 is an LLM, explicitly out of scope.",
+      "rationale": "Negative \u2014 LLM, out of scope per skill. Should NOT trigger (user might expect it to, since 'local model' sounds similar)."
+    },
+    {
+      "id": 17,
+      "query": "i want to fine-tune microsoft/phi-3-mini-4k-instruct on my support tickets. what's the cheapest way to do that?",
+      "expected": false,
+      "predicted": false,
+      "correct": true,
+      "reason": "Fine-tuning Phi-3 LLM is explicitly out of scope (generative).",
+      "rationale": "Negative \u2014 fine-tuning (training) + LLM (out of scope). Doubly out of scope."
+    },
+    {
+      "id": 18,
+      "query": "how does qualcomm's hexagon npu compare to apple's neural engine for transformer inference? is one faster?",
+      "expected": false,
+      "predicted": false,
+      "correct": true,
+      "reason": "Hardware comparison question, not a build/optimize/benchmark task using winml.",
+      "rationale": "Negative \u2014 general hardware comparison question, not actionable. No model to build."
+    },
+    {
+      "id": 19,
+      "query": "i need to generate a marketing image using stable diffusion on my rtx 4090. what's the fastest setup?",
+      "expected": false,
+      "predicted": false,
+      "correct": true,
+      "reason": "Stable Diffusion is explicitly listed as out of scope.",
+      "rationale": "Negative \u2014 Stable Diffusion (out of scope generative) + NVIDIA GPU (skill doesn't cover that path)."
+    },
+    {
+      "id": 20,
+      "query": "my Foundry Local deployment on windows server won't come up \u2014 port binding keeps failing. how do i debug?",
+      "expected": false,
+      "predicted": false,
+      "correct": true,
+      "reason": "Foundry Local server deployment debugging is not covered by the skill description.",
+      "rationale": "Negative \u2014 Foundry Local is a different product (model serving), not winml CLI. Adjacent name, very different scope."
+    },
+    {
+      "id": 21,
+      "query": "what's the best way to read onnx model metadata in python? need to inspect input/output shapes programmatically.",
+      "expected": false,
+      "predicted": false,
+      "correct": true,
+      "reason": "Reading ONNX metadata in Python is generic tooling, not the winml CLI BYOM pipeline.",
+      "rationale": "Negative \u2014 general ONNX programming question, no Windows/NPU/winml angle. User wants Python API, not CLI."
+    },
+    {
+      "id": 22,
+      "query": "i need to set up onnxruntime on a mac m2 to test a vision model. which package gives me CoreML support?",
+      "expected": false,
+      "predicted": false,
+      "correct": true,
+      "reason": "Mac M2 with CoreML is not a Windows AI PC scenario.",
+      "rationale": "Negative \u2014 macOS + CoreML, winml is Windows-only. Tempting because of NPU/ONNX overlap but wrong platform."
+    },
+    {
+      "id": 23,
+      "query": "i'm building a vscode extension that bundles an onnx model and runs it locally. how should i package the model?",
+      "expected": false,
+      "predicted": false,
+      "correct": true,
+      "reason": "VSCode extension packaging is not part of winml CLI optimize/benchmark scope.",
+      "rationale": "Negative \u2014 extension packaging question, not model optimization/deployment via winml. Skill doesn't cover dev-tooling."
+    },
+    {
+      "id": 24,
+      "query": "want to call Phi Silica from my WinUI 3 app to summarize text \u2014 got any sample code? running on snapdragon x elite.",
+      "expected": false,
+      "predicted": false,
+      "correct": true,
+      "reason": "Phi Silica is a generative LLM API, explicitly out of scope.",
+      "rationale": "Negative \u2014 Phi Silica is an OS-bundled built-in Windows model, not BYOM. Hits 'Windows + NPU + Snapdragon' keywords but it's app integration with a prebuilt model, not the winml CLI."
+    },
+    {
+      "id": 25,
+      "query": "Olive's QNN quantization keeps crashing at the calibration step \u2014 error says ORT can't load the qnn provider. how do i debug?",
+      "expected": false,
+      "predicted": false,
+      "correct": true,
+      "reason": "Olive/ORT QNN debugging is separate tooling, not the winml CLI described here.",
+      "rationale": "Negative \u2014 Olive is a separate Microsoft optimization tool (not winml CLI). Mentions 'QNN quantization' which strongly overlaps; description must distinguish adjacent MS tools."
+    },
+    {
+      "id": 26,
+      "query": "how do i register a custom onnx model with windows ai foundry so copilot runtime can call it from a c# app?",
+      "expected": false,
+      "predicted": false,
+      "correct": true,
+      "reason": "Registering models with Windows AI Foundry/Copilot runtime is not in the description.",
+      "rationale": "Negative \u2014 Windows AI Foundry / Copilot Runtime is the runtime/integration layer for OS-level AI features, not the BYOM CLI. Strong near-miss with 'custom onnx + windows'."
+    },
+    {
+      "id": 27,
+      "query": "i'm using onnxruntime-genai to run microsoft/phi-3-mini-4k-instruct on my snapdragon. want to measure tokens/sec. how do i benchmark this?",
+      "expected": false,
+      "predicted": false,
+      "correct": true,
+      "reason": "onnxruntime-genai with Phi-3 LLM tokens/sec is explicitly out of scope.",
+      "rationale": "Negative \u2014 ORT-GenAI is a different runtime for LLM inference, Phi-3 is out-of-scope LLM. Hits 'Snapdragon + onnxruntime + benchmark' but doubly out of scope."
+    },
+    {
+      "id": 28,
+      "query": "want to get openai/whisper-base running on my snapdragon x elite NPU for live transcription. how do i optimize it?",
+      "expected": false,
+      "predicted": false,
+      "correct": true,
+      "reason": "Whisper is explicitly listed as out of scope.",
+      "rationale": "Negative \u2014 Whisper is seq2seq audio (encoder-decoder generator), out of scope per SKILL.md. Tempting because Snapdragon + NPU + HF model all hit."
+    },
+    {
+      "id": 29,
+      "query": "trying to fine-tune bert with torch-directml backend on my arc gpu but it keeps OOMing at batch size 4. any tips?",
+      "expected": false,
+      "predicted": false,
+      "correct": true,
+      "reason": "Fine-tuning BERT with torch-directml is training, not the inference optimization pipeline.",
+      "rationale": "Negative \u2014 DirectML for PyTorch training, not winml inference deployment. Hits 'DirectML + bert + windows GPU' but it's training-side and framework backend, not BYOM."
+    }
+  ]
+}

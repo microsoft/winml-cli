@@ -1,0 +1,38 @@
+{
+  "eval_id": 7,
+  "eval_name": "install-setup",
+  "config": "with_skill",
+  "expectations": [
+    {
+      "text": "Recommends Python 3.10 specifically, and calls out that the user's existing 3.11 will NOT work (winml-cli wheel pins >=3.10,<3.11).",
+      "passed": true,
+      "evidence": "Quote: 'ModelKit pins Python 3.10 exactly (>=3.10,<3.11). Your system Python 3.11 will not resolve the winml-cli wheel.'"
+    },
+    {
+      "text": "Uses `uv venv --python 3.10` (or an equivalent isolated venv command) rather than installing into system Python or a 3.11 environment.",
+      "passed": true,
+      "evidence": "Step 2 `uv venv --python 3.10`."
+    },
+    {
+      "text": "Points to the AITK cache as the wheel source today (e.g., `$env:USERPROFILE\\.aitk\\bin\\model_lab_runtime\\cache\\winml_cli-*.whl`) and acknowledges PyPI is the planned/future path. Does NOT fabricate a generic `pip install winml` URL as if it works today.",
+      "passed": true,
+      "evidence": "Step 3 uses the exact AITK cache path and notes 'When winml-cli is published to PyPI -- planned -- this step becomes a plain uv pip install winml-cli.'"
+    },
+    {
+      "text": "Includes a post-install verification step (e.g., `winml --help` or `winml sys --list-ep`) so the user can confirm the install worked before moving on.",
+      "passed": true,
+      "evidence": "Step 4 'Verify the install' runs both `winml --help` and `winml sys --list-device --list-ep`."
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": true,
+      "evidence": "All ? winml commands verified runnable against --help."
+    }
+  ],
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 5,
+    "failed": 0,
+    "total": 5
+  }
+}

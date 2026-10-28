@@ -1,0 +1,53 @@
+{
+  "eval_id": 4,
+  "eval_name": "npu-vs-cpu-comparison",
+  "config": "with_skill",
+  "expectations": [
+    {
+      "text": "Recommends `winml inspect` (or equivalent inspection step) before any build/benchmark work.",
+      "passed": true,
+      "evidence": "Inspect step explicitly included as a golden-rule preflight."
+    },
+    {
+      "text": "Identifies QNN as the EP for Snapdragon X Elite NPU.",
+      "passed": true,
+      "evidence": "Quote: 'Snapdragon X Elite ... QNN execution provider ...'"
+    },
+    {
+      "text": "Recommends building the model once and then running `winml perf` twice -- once on NPU, once on CPU -- rather than building two separate pipelines.",
+      "passed": true,
+      "evidence": "Response explains 'one config, one build that produces both artifacts, two perf runs.'"
+    },
+    {
+      "text": "Specifies that the CPU run should use the optimized (pre-compile) artifact, NOT the QNN-compiled artifact.",
+      "passed": true,
+      "evidence": "Quote: 'CPU run: optimized (pre-compile) ONNX, on the CPU EP. Same source model, same optimization passes ...'"
+    },
+    {
+      "text": "Warns that EP-compiled artifacts are EP-locked / can't be run on a different EP and produce nonsense numbers.",
+      "passed": true,
+      "evidence": "Quote: EP-compiled artifacts are bound to the EP they were compiled for; trying CPU EP with a QNN-compiled .onnx is at best meaningless."
+    },
+    {
+      "text": "Either directs user to `winml --help`, OR uses only common/plausible flag patterns.",
+      "passed": true,
+      "evidence": "All flags real; references `winml <cmd> --help` for flag verification."
+    },
+    {
+      "text": "Includes an install/prereq block (or a clear pointer back to install steps) -- the user's prompt does not signal prior winml usage, so the default-include-install rule applies.",
+      "passed": true,
+      "evidence": "Prereq install block included with uv venv + AITK wheel + verify."
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": true,
+      "evidence": "All ? winml commands verified runnable against --help."
+    }
+  ],
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 8,
+    "failed": 0,
+    "total": 8
+  }
+}

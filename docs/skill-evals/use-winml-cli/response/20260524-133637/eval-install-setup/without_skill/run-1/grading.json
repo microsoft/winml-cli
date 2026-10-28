@@ -1,0 +1,38 @@
+{
+  "eval_id": 7,
+  "eval_name": "install-setup",
+  "config": "without_skill",
+  "expectations": [
+    {
+      "text": "Recommends Python 3.10 specifically, and calls out that the user's existing 3.11 will NOT work (winml-cli wheel pins >=3.10,<3.11).",
+      "passed": false,
+      "evidence": "Baseline endorses Python 3.11 / uses py -3.11 -m venv. Doesn't know about the 3.10 pin."
+    },
+    {
+      "text": "Uses `uv venv --python 3.10` (or an equivalent isolated venv command) rather than installing into system Python or a 3.11 environment.",
+      "passed": false,
+      "evidence": "Baseline uses py -3.11 -m venv; uv only mentioned at the end as optional tooling."
+    },
+    {
+      "text": "Points to the AITK cache as the wheel source today (e.g., `$env:USERPROFILE\\.aitk\\bin\\model_lab_runtime\\cache\\winml_cli-*.whl`) and acknowledges PyPI is the planned/future path. Does NOT fabricate a generic `pip install winml` URL as if it works today.",
+      "passed": false,
+      "evidence": "Baseline interprets 'winml' as Windows ML runtime + onnxruntime-qnn (pip). No mention of AITK cache or winml-cli."
+    },
+    {
+      "text": "Includes a post-install verification step (e.g., `winml --help` or `winml sys --list-ep`) so the user can confirm the install worked before moving on.",
+      "passed": false,
+      "evidence": "Baseline's smoke test verifies onnxruntime-qnn, not the winml CLI."
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": true,
+      "evidence": "Response uses no winml commands (trivially passes)."
+    }
+  ],
+  "summary": {
+    "pass_rate": 0.2,
+    "passed": 1,
+    "failed": 4,
+    "total": 5
+  }
+}

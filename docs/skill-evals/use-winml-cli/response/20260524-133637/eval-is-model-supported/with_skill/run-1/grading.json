@@ -1,0 +1,43 @@
+{
+  "eval_id": 5,
+  "eval_name": "is-model-supported",
+  "config": "with_skill",
+  "expectations": [
+    {
+      "text": "Recommends `winml inspect` as the first, cheapest check (config-only, no weights download).",
+      "passed": true,
+      "evidence": "Quote: 'inspect \u2014 does ModelKit know how to handle this architecture? It reads the Hugging Face config without downloading weights'."
+    },
+    {
+      "text": "Recommends `winml analyze` after inspect -- explicitly to find op patterns that won't survive optimize/quantize for the target EP.",
+      "passed": true,
+      "evidence": "Quote: 'analyze \u2014 will the operators survive optimize/quantize/compile on the OpenVINO EP? This is the one that specifically addresses your \"died at optimize\" scar.' Plus explicit ordering: 'Always inspect first, then analyze.'"
+    },
+    {
+      "text": "Identifies OpenVINO as the EP for Intel NPU.",
+      "passed": true,
+      "evidence": "Quote: 'Intel NPU goes through the OpenVINO EP, which is currently Ready'."
+    },
+    {
+      "text": "Explains analyze's role: a linter that classifies operators as supported / partial / unsupported per EP (so the user knows WHY this answers their question).",
+      "passed": true,
+      "evidence": "Quote: 'The analyzer's linter walks every operator in the graph and classifies it as supported / partial / unsupported for the EP you're targeting'."
+    },
+    {
+      "text": "Does NOT just say \"build the full pipeline and see what happens\" -- that's exactly the workflow the user already said burned them.",
+      "passed": true,
+      "evidence": "Whole response framed as cheap pre-flight ('Run them in order; if either one is unhappy, don't proceed to export') before committing to a full build."
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": true,
+      "evidence": "All ? winml commands verified runnable against --help."
+    }
+  ],
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 6,
+    "failed": 0,
+    "total": 6
+  }
+}

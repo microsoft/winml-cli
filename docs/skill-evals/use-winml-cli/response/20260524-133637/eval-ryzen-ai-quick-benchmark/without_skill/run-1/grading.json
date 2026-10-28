@@ -1,0 +1,48 @@
+{
+  "eval_id": 2,
+  "eval_name": "ryzen-ai-quick-benchmark",
+  "config": "without_skill",
+  "expectations": [
+    {
+      "text": "Identifies VitisAI as the correct EP for AMD Ryzen AI NPU.",
+      "passed": true,
+      "evidence": "General knowledge identifies VitisAI as the AMD NPU EP."
+    },
+    {
+      "text": "Recommends a single `winml perf` invocation as the primary action.",
+      "passed": false,
+      "evidence": "Baseline walks several manual steps (install Ryzen AI software -> export -> quantize -> perf_test). Not a 'fastest path to the number' shape."
+    },
+    {
+      "text": "Does NOT instruct the user to run export, analyze, optimize, quantize, and compile as separate steps.",
+      "passed": false,
+      "evidence": "Baseline explicitly walks export + quantize as separate steps before benchmarking."
+    },
+    {
+      "text": "Mentions running `winml inspect` first as a sanity check.",
+      "passed": false,
+      "evidence": "Baseline never mentions winml. Uses Device-Manager-level NPU check instead, but that's environment-level not model-level."
+    },
+    {
+      "text": "Either directs the user to `winml --help`, OR uses only common/plausible flag patterns.",
+      "passed": true,
+      "evidence": "Uses real Quark / onnxruntime_perf_test flag patterns."
+    },
+    {
+      "text": "Includes an install/prereq block (or a clear pointer back to install steps) -- the user said \"I have a Ryzen AI laptop\" with no signal of prior winml usage, so the default-include-install rule applies.",
+      "passed": false,
+      "evidence": "Baseline installs Ryzen AI software + onnxruntime-vitisai instead of winml-cli. Misses the winml-cli prereq."
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": true,
+      "evidence": "Response uses no winml commands (trivially passes)."
+    }
+  ],
+  "summary": {
+    "pass_rate": 0.4286,
+    "passed": 3,
+    "failed": 4,
+    "total": 7
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "eval_id": 6,
+  "eval_name": "optimize-failure-recovery",
+  "config": "with_skill",
+  "expectations": [
+    {
+      "text": "Recommends running `winml analyze` against the exported ONNX as the first diagnostic step.",
+      "passed": true,
+      "evidence": "Step 1 'Re-run analyze against the exported ONNX' with concrete `winml analyze -m <exported> --ep qnn --device NPU` command."
+    },
+    {
+      "text": "Explains that analyze's linter will name the offending op pattern per EP (i.e., tells the user what analyze will tell THEM).",
+      "passed": true,
+      "evidence": "Pattern families (Gelu1..4, LayerNormPow/Mul, ReshapeTransposeReshape, etc.) mapped to optimizer rewrite flags."
+    },
+    {
+      "text": "Does NOT recommend hand-editing the ONNX graph.",
+      "passed": true,
+      "evidence": "Explicit avoidance: hand-editing the ONNX graph desynchronizes from the toolkit and is called out as a thing to avoid."
+    },
+    {
+      "text": "Suggests either trying a different optim/quant config to dodge the unsupported pattern OR escalating to \"this model isn't a fit for this EP\". Avoids dead-ending.",
+      "passed": true,
+      "evidence": "Step 3 'Dodge the specific pattern' lists targeted retries; escalation path included in 'if none of the above works'."
+    },
+    {
+      "text": "Encourages reading the actual error message (which names op/EP/stage) before guessing -- doesn't jump to generic advice.",
+      "passed": true,
+      "evidence": "Step 1 explicitly tells the user to capture the offending pattern name from the optimize error output."
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": true,
+      "evidence": "All ? winml commands verified runnable against --help."
+    }
+  ],
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 6,
+    "failed": 0,
+    "total": 6
+  }
+}

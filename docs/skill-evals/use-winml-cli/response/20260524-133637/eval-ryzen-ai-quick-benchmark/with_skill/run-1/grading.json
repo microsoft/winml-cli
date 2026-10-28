@@ -1,0 +1,48 @@
+{
+  "eval_id": 2,
+  "eval_name": "ryzen-ai-quick-benchmark",
+  "config": "with_skill",
+  "expectations": [
+    {
+      "text": "Identifies VitisAI as the correct EP for AMD Ryzen AI NPU.",
+      "passed": true,
+      "evidence": "Quote: 'For AMD Ryzen AI, the NPU execution provider is VitisAI (Ready as of 2026-05-20)'."
+    },
+    {
+      "text": "Recommends a single `winml perf` invocation as the primary action.",
+      "passed": true,
+      "evidence": "Title 'Fastest path to a latency number on Ryzen AI NPU' + Step 3 is a single `winml perf -m facebook/convnext-tiny-224 -o perf-convnext-vitisai.json`."
+    },
+    {
+      "text": "Does NOT instruct the user to run export, analyze, optimize, quantize, and compile as separate steps.",
+      "passed": true,
+      "evidence": "Quote: 'It builds whatever it needs on the fly (export -> optimize -> quantize -> compile) and writes a metrics JSON. No need to walk the pipeline manually.'"
+    },
+    {
+      "text": "Mentions running `winml inspect` first as a sanity check.",
+      "passed": true,
+      "evidence": "Step 2 'Inspect (golden rule, cheap, no download)' runs `winml inspect -m facebook/convnext-tiny-224`."
+    },
+    {
+      "text": "Either directs the user to `winml --help`, OR uses only common/plausible flag patterns.",
+      "passed": true,
+      "evidence": "Explicit 'check the real flag spellings on your installed version' + `winml perf --help`. Plus a 'Don't invent flags' gotcha."
+    },
+    {
+      "text": "Includes an install/prereq block (or a clear pointer back to install steps) -- the user said \"I have a Ryzen AI laptop\" with no signal of prior winml usage, so the default-include-install rule applies.",
+      "passed": true,
+      "evidence": "'Prereqs (skip if winml --help already works)' block with uv venv + AITK wheel + verify."
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": true,
+      "evidence": "All ? winml commands verified runnable against --help."
+    }
+  ],
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 7,
+    "failed": 0,
+    "total": 7
+  }
+}

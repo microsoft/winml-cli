@@ -1,0 +1,43 @@
+{
+  "eval_id": 5,
+  "eval_name": "is-model-supported",
+  "config": "without_skill",
+  "expectations": [
+    {
+      "text": "Recommends `winml inspect` as the first, cheapest check (config-only, no weights download).",
+      "passed": false,
+      "evidence": "Baseline doesn't use winml inspect -- recommends export + ONNX-level introspection as the pre-flight."
+    },
+    {
+      "text": "Recommends `winml analyze` after inspect -- explicitly to find op patterns that won't survive optimize/quantize for the target EP.",
+      "passed": false,
+      "evidence": "Baseline doesn't recommend winml analyze -- uses ad-hoc try-and-see / netron inspection."
+    },
+    {
+      "text": "Identifies OpenVINO as the EP for Intel NPU.",
+      "passed": true,
+      "evidence": "General knowledge identifies OpenVINO as the Intel NPU EP."
+    },
+    {
+      "text": "Explains analyze's role: a linter that classifies operators as supported / partial / unsupported per EP (so the user knows WHY this answers their question).",
+      "passed": false,
+      "evidence": "No mention of an EP-coverage linter step. Pre-flight is much less specific."
+    },
+    {
+      "text": "Does NOT just say \"build the full pipeline and see what happens\" -- that's exactly the workflow the user already said burned them.",
+      "passed": false,
+      "evidence": "Baseline largely recommends try-and-see / run-export-then-quantize approach without the cheap pre-flight that would catch op-pattern issues."
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": true,
+      "evidence": "Response uses no winml commands (trivially passes)."
+    }
+  ],
+  "summary": {
+    "pass_rate": 0.3333,
+    "passed": 2,
+    "failed": 4,
+    "total": 6
+  }
+}

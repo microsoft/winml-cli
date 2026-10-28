@@ -1,0 +1,43 @@
+{
+  "eval_id": 9,
+  "eval_name": "config-build-for-ci",
+  "config": "without_skill",
+  "expectations": [
+    {
+      "text": "Recommends the `winml config` -> `winml build` two-step (the shortcut/pipeline path), not chained primitives (export/optimize/quantize/compile).",
+      "passed": false,
+      "evidence": "Baseline writes its own build_model.py that manually chains download -> optimize -> quantize -> qnn-compile. Doesn't know about winml config / winml build."
+    },
+    {
+      "text": "States or strongly implies the JSON output of `winml config` is the artifact to commit / version-control -- it's the single source of truth for the build.",
+      "passed": false,
+      "evidence": "Baseline commits a custom-schema model.config.json, not the output of winml config. Misses the canonical artifact."
+    },
+    {
+      "text": "If precedence is mentioned at all, correctly states that explicit CLI flags override config-file defaults (per every primitive's --help: \"Provides defaults; explicit CLI options take precedence\"). Does NOT claim the config overrides CLI.",
+      "passed": true,
+      "evidence": "Baseline doesn't mention CLI vs config precedence at all -- vacuously passes (no reversal)."
+    },
+    {
+      "text": "Addresses how to make the build repeatable in CI -- either by mentioning that re-running `winml build -c config.json` against the same config produces the same artifact, OR by pointing at the `--rebuild` / `--use-cache` flags.",
+      "passed": true,
+      "evidence": "Baseline goes hard on reproducibility (pinned deps, sha256, manifest, fixed seeds)."
+    },
+    {
+      "text": "The CI workflow / runbook includes a winml-cli install step (pinned wheel today, PyPI later) -- not just the build invocation. A fresh CI runner won't have winml; the workflow must install it.",
+      "passed": false,
+      "evidence": "Baseline CI yaml uses `uv pip sync requirements.lock` with onnxruntime-qnn etc., not winml-cli."
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": true,
+      "evidence": "Response uses no winml commands (trivially passes)."
+    }
+  ],
+  "summary": {
+    "pass_rate": 0.5,
+    "passed": 3,
+    "failed": 3,
+    "total": 6
+  }
+}

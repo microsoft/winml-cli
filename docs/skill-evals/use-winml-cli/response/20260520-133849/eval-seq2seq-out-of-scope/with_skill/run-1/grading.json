@@ -1,0 +1,38 @@
+{
+  "eval_id": 10,
+  "eval_name": "seq2seq-out-of-scope",
+  "config": "with_skill",
+  "expectations": [
+    {
+      "text": "Identifies CodeT5+ as a generative / seq2seq / encoder-decoder architecture (or otherwise invokes the body's scope rule about generative models). Must invoke a generalizable architectural property -- not just say \"we don't support codet5p specifically.\" Note: codet5p is NOT named in the description's exclusion list, so this tests whether the body's scope rule generalizes.",
+      "passed": true,
+      "evidence": "Response identifies CodeT5+ as 'T5-style encoder-decoder seq2seq generator' and invokes the body's scope rule ('seq2seq generative models are explicitly out of scope')."
+    },
+    {
+      "text": "States clearly that this model is out of scope for the winml pipeline today, not hedged with \"might work\" or \"try and see.\"",
+      "passed": true,
+      "evidence": "Title: 'Stop \u2014 Salesforce/codet5p-220m is out of scope for the WinML ModelKit pipeline today'. Unhedged."
+    },
+    {
+      "text": "Does NOT walk the user through `winml export/optimize/quantize/compile/build/perf` for this model.",
+      "passed": true,
+      "evidence": "Response explicitly refuses to walk the pipeline; lists what would fail at each stage if attempted."
+    },
+    {
+      "text": "Suggests a legitimate alternative for running this kind of model on Windows/NPU (e.g., onnxruntime-genai, Olive, ORT directly) OR mentions roadmap for generative support.",
+      "passed": true,
+      "evidence": "Alternatives proposed (ONNX Runtime GenAI, OpenVINO GenAI, AITK / Foundry Local) + late-2026 roadmap mention."
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": true,
+      "evidence": "All ? winml commands verified runnable against --help."
+    }
+  ],
+  "summary": {
+    "pass_rate": 1.0,
+    "passed": 5,
+    "failed": 0,
+    "total": 5
+  }
+}

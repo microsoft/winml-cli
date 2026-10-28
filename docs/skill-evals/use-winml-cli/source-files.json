@@ -1,0 +1,439 @@
+{
+  "schema_version": 1,
+  "source_snapshot_commit": "db80c8bc609fa0d7a385fe88368ee56ecaeaaad3",
+  "hash_algorithm": "SHA-256",
+  "records": [
+    {
+      "path": "e2e/20260520-134922_cpu-only/cases/cpu-benchmark-resnet/aggregate.json",
+      "source_path": ".claude/skills/winml-cli-workspace/e2e_eval/runs/20260520-134922_cpu-only/cases/cpu-benchmark-resnet/aggregate.json",
+      "sha256": "288d0df67721e02e08826602f69698b3514141b03d263d0b0cbacc68617fafcb",
+      "source_kind": "git",
+      "source_git_blob": "c5bb849b77eb4bc3f370e57f781528981fb4f0f5"
+    },
+    {
+      "path": "e2e/20260520-134922_cpu-only/cases/cpu-benchmark-resnet/trial-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/e2e_eval/runs/20260520-134922_cpu-only/cases/cpu-benchmark-resnet/trial-1/grading.json",
+      "sha256": "ad96f24795ebca82b303cc24ab2b51ad374a1b5f30842980ff3bd2c8c9c3edea",
+      "source_kind": "git",
+      "source_git_blob": "aed3c03a4a677345876d403906d84781c93e2015"
+    },
+    {
+      "path": "e2e/20260520-134922_cpu-only/cases/cpu-benchmark-resnet/trial-1/outputs/resnet50_perf.json",
+      "source_path": ".claude/skills/winml-cli-workspace/e2e_eval/runs/20260520-134922_cpu-only/cases/cpu-benchmark-resnet/trial-1/outputs/resnet50_perf.json",
+      "sha256": "ad24da2075412310e089b61c754998f0988cdcd5fdc549825b48429ae800f44c",
+      "source_kind": "recovered_local_only_output"
+    },
+    {
+      "path": "e2e/20260520-134922_cpu-only/cases/cpu-benchmark-resnet/trial-2/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/e2e_eval/runs/20260520-134922_cpu-only/cases/cpu-benchmark-resnet/trial-2/grading.json",
+      "sha256": "c00363e181d210317dffa087bbb28bff6fd5f8cd9f1817ff2918de79ee3cf8eb",
+      "source_kind": "git",
+      "source_git_blob": "0b48aeb941c1bfb42ca65511f96101cb67143d6a"
+    },
+    {
+      "path": "e2e/20260520-134922_cpu-only/cases/cpu-benchmark-resnet/trial-2/outputs/resnet50_perf.json",
+      "source_path": ".claude/skills/winml-cli-workspace/e2e_eval/runs/20260520-134922_cpu-only/cases/cpu-benchmark-resnet/trial-2/outputs/resnet50_perf.json",
+      "sha256": "6af2ac8f685ff9ba08b3ff2d585149839290884f80a8ec178eed5d05109a1bc4",
+      "source_kind": "recovered_local_only_output"
+    },
+    {
+      "path": "e2e/20260520-134922_cpu-only/cases/cpu-benchmark-resnet/trial-3/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/e2e_eval/runs/20260520-134922_cpu-only/cases/cpu-benchmark-resnet/trial-3/grading.json",
+      "sha256": "93d67f1cbd39f6946576de34e7e893191e2b3482a5e2bfc979c376800936984d",
+      "source_kind": "git",
+      "source_git_blob": "7cd6ddf9a2bf5f2a9ebf4b572a51a39c0c7a8ac9"
+    },
+    {
+      "path": "e2e/20260520-134922_cpu-only/cases/cpu-benchmark-resnet/trial-3/outputs/resnet50_perf.json",
+      "source_path": ".claude/skills/winml-cli-workspace/e2e_eval/runs/20260520-134922_cpu-only/cases/cpu-benchmark-resnet/trial-3/outputs/resnet50_perf.json",
+      "sha256": "6e2e9294fe878f7513498b909677dc61e40033917d85284126eaf402251830f4",
+      "source_kind": "recovered_local_only_output"
+    },
+    {
+      "path": "e2e/20260520-134922_cpu-only/cases/cpu-full-build-resnet/aggregate.json",
+      "source_path": ".claude/skills/winml-cli-workspace/e2e_eval/runs/20260520-134922_cpu-only/cases/cpu-full-build-resnet/aggregate.json",
+      "sha256": "c1cd27afaae6707643c3ff313fad56c41d8c08f95287b75de5e2e766fe1cb818",
+      "source_kind": "git",
+      "source_git_blob": "d1a3c3cf8b29f440747e968975eaeda2ac53551c"
+    },
+    {
+      "path": "e2e/20260520-134922_cpu-only/cases/cpu-full-build-resnet/trial-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/e2e_eval/runs/20260520-134922_cpu-only/cases/cpu-full-build-resnet/trial-1/grading.json",
+      "sha256": "a217b9327b0d931876e6a3d01a3e8ccc7fc6106dcd1417fb7ba79f07bfabcc3a",
+      "source_kind": "git",
+      "source_git_blob": "3f27934a667587473bd44529a8cf5257d1592deb"
+    },
+    {
+      "path": "e2e/20260520-134922_cpu-only/cases/cpu-full-build-resnet/trial-2/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/e2e_eval/runs/20260520-134922_cpu-only/cases/cpu-full-build-resnet/trial-2/grading.json",
+      "sha256": "0bdc8a68a47827b18543dd6c62777b162554de0738e9a5dbc428040cc9d54996",
+      "source_kind": "git",
+      "source_git_blob": "c635e8fbc5fc46962920b2465ba20e2f5ce4d73e"
+    },
+    {
+      "path": "e2e/20260520-134922_cpu-only/cases/cpu-full-build-resnet/trial-3/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/e2e_eval/runs/20260520-134922_cpu-only/cases/cpu-full-build-resnet/trial-3/grading.json",
+      "sha256": "1a8cb78e37c33b5ca5aa6eb3f48b95f7aef59a14b194b14a4165d8fa24ec5c18",
+      "source_kind": "git",
+      "source_git_blob": "df3456610901800c6a84b444eb3b70b13fd20665"
+    },
+    {
+      "path": "e2e/20260520-134922_cpu-only/cases/llm-refusal-phi3/aggregate.json",
+      "source_path": ".claude/skills/winml-cli-workspace/e2e_eval/runs/20260520-134922_cpu-only/cases/llm-refusal-phi3/aggregate.json",
+      "sha256": "dcc117b655b61bea0643e82ab8f67387f4aa61e87c7b833db1242dc6f71f6d7e",
+      "source_kind": "git",
+      "source_git_blob": "028a205c75ddefa172d21dc16d7cc87742ae7c0b"
+    },
+    {
+      "path": "e2e/20260520-134922_cpu-only/cases/llm-refusal-phi3/trial-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/e2e_eval/runs/20260520-134922_cpu-only/cases/llm-refusal-phi3/trial-1/grading.json",
+      "sha256": "1dd4a554f85306ccde98beb42c52ff210fa439f02d5561d3e439aee1cee75382",
+      "source_kind": "git",
+      "source_git_blob": "13cbaa61c23e110beac48f900a1a7c5058681911"
+    },
+    {
+      "path": "e2e/20260520-134922_cpu-only/cases/llm-refusal-phi3/trial-2/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/e2e_eval/runs/20260520-134922_cpu-only/cases/llm-refusal-phi3/trial-2/grading.json",
+      "sha256": "dbe322bdbb032d2c8ca486b52932a69f1f2647ab70528846adfb0be231b4dc89",
+      "source_kind": "git",
+      "source_git_blob": "de34612e369533f0847170087c763d0a8a250126"
+    },
+    {
+      "path": "e2e/20260520-134922_cpu-only/cases/llm-refusal-phi3/trial-3/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/e2e_eval/runs/20260520-134922_cpu-only/cases/llm-refusal-phi3/trial-3/grading.json",
+      "sha256": "9ff505a6079b8e0f45a038f03bee1aeede1de4148e2e7ff8d47d74ed5a6ab39e",
+      "source_kind": "git",
+      "source_git_blob": "35efe4d8b028a216126e99a49669fd18f3a386e9"
+    },
+    {
+      "path": "e2e/20260520-134922_cpu-only/meta.json",
+      "source_path": ".claude/skills/winml-cli-workspace/e2e_eval/runs/20260520-134922_cpu-only/meta.json",
+      "sha256": "809b5799b06bcf2a6d2b603a9eb58c613fa8da91724b2e0917daa0edd0750a43",
+      "source_kind": "git",
+      "source_git_blob": "b0b662e9d8af33fd8733f49d00f69aa5a0ad63cd",
+      "transformation": "Removed private host name; all other source fields unchanged"
+    },
+    {
+      "path": "response/20260520-133849/benchmark.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260520-133849/benchmark.json",
+      "sha256": "81a970a26dffca0b3859df16d260df595d934e10564c07f382c86bf83d8e54b2",
+      "source_kind": "git",
+      "source_git_blob": "3cf1f9881902407776e65263d3e87f8b58f3396b"
+    },
+    {
+      "path": "response/20260520-133849/eval-config-build-for-ci/with_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260520-133849/eval-config-build-for-ci/with_skill/run-1/grading.json",
+      "sha256": "a823f335afed7d2cfce085cb16ccc00c6f76214dc7c22d1ac69f3175cfbf001d",
+      "source_kind": "git",
+      "source_git_blob": "880dd9e3e58b88c7e674d34af518967d6135150a"
+    },
+    {
+      "path": "response/20260520-133849/eval-config-build-for-ci/without_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260520-133849/eval-config-build-for-ci/without_skill/run-1/grading.json",
+      "sha256": "7c4accf29e319a86dcb0569255f55d1f0e0c370284aa7415cdcd9fb626328d7c",
+      "source_kind": "git",
+      "source_git_blob": "3ebe80806c26672cbdd56ccc82c39f89fda2d164"
+    },
+    {
+      "path": "response/20260520-133849/eval-install-setup/with_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260520-133849/eval-install-setup/with_skill/run-1/grading.json",
+      "sha256": "3d8fd2820bec8ebfbab579e55496c913aeec65be31802e8ec6ac42a75123df81",
+      "source_kind": "git",
+      "source_git_blob": "94826c84a01970003eaf52727994b4409d9f7d88"
+    },
+    {
+      "path": "response/20260520-133849/eval-install-setup/without_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260520-133849/eval-install-setup/without_skill/run-1/grading.json",
+      "sha256": "83c10e85dec02d1408edb1a91b3210da857a5b22184fcaab03e6a869c4b9ed91",
+      "source_kind": "git",
+      "source_git_blob": "90528c1a341aa21d84449e3ee0c248f29cab7763"
+    },
+    {
+      "path": "response/20260520-133849/eval-is-model-supported/with_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260520-133849/eval-is-model-supported/with_skill/run-1/grading.json",
+      "sha256": "c25d5058a5855514b5ab658d8ff3bfc0c1d1ee7bd6dc99c3974967b5a2685f51",
+      "source_kind": "git",
+      "source_git_blob": "e95b406846139c7685796d0eb4faab814fd9c7ff"
+    },
+    {
+      "path": "response/20260520-133849/eval-is-model-supported/without_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260520-133849/eval-is-model-supported/without_skill/run-1/grading.json",
+      "sha256": "f321b983a8e8a0e0f7ad4af85dea8a20e8a2e1f2370f888642e7270e95db833a",
+      "source_kind": "git",
+      "source_git_blob": "0d079edcaf8d5f58b63a329f4087df82c59364fe"
+    },
+    {
+      "path": "response/20260520-133849/eval-local-onnx-file/with_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260520-133849/eval-local-onnx-file/with_skill/run-1/grading.json",
+      "sha256": "27f2b7e40babb8d51ef3982797bf429434b8e0e68ec99ad6dc02100d19faaa34",
+      "source_kind": "git",
+      "source_git_blob": "2b0feb6ea36a290d6f7917c7339f057c8121ba7f"
+    },
+    {
+      "path": "response/20260520-133849/eval-local-onnx-file/without_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260520-133849/eval-local-onnx-file/without_skill/run-1/grading.json",
+      "sha256": "c41abf451022a7b0e9c4a6524ed2c7d0baffeed50d434a23db9512a2b19cbfa4",
+      "source_kind": "git",
+      "source_git_blob": "53d108ee449d6799e1edb82c9103379c0588d242"
+    },
+    {
+      "path": "response/20260520-133849/eval-npu-vs-cpu-comparison/with_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260520-133849/eval-npu-vs-cpu-comparison/with_skill/run-1/grading.json",
+      "sha256": "7f9d850752b2cc2cf51053d030505801f34364509b25f8d76f06c73035d59358",
+      "source_kind": "git",
+      "source_git_blob": "25ce7be8c2b84b6afd11d66582fe078ebb5816e3"
+    },
+    {
+      "path": "response/20260520-133849/eval-npu-vs-cpu-comparison/without_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260520-133849/eval-npu-vs-cpu-comparison/without_skill/run-1/grading.json",
+      "sha256": "8efd972c977f9c200829b90d42af12aa97badf7cd3120779b8b6015e275f1a80",
+      "source_kind": "git",
+      "source_git_blob": "dedb7133a9944766ac246894083158e9bba83d7d"
+    },
+    {
+      "path": "response/20260520-133849/eval-optimize-failure-recovery/with_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260520-133849/eval-optimize-failure-recovery/with_skill/run-1/grading.json",
+      "sha256": "909bb57c9590b4fd3c72a55b8aade84f3f63751b61ffbae7a54e4503e1515b64",
+      "source_kind": "git",
+      "source_git_blob": "f6c4acdabbec4f2da9788513cdf219d222a0faa3"
+    },
+    {
+      "path": "response/20260520-133849/eval-optimize-failure-recovery/without_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260520-133849/eval-optimize-failure-recovery/without_skill/run-1/grading.json",
+      "sha256": "aaedd3fa43cc7191676c34dfd5d574fbeab29dfe589dd2af3f846645e5a61484",
+      "source_kind": "git",
+      "source_git_blob": "a3004570b56dc1d77de265e840a65752676101ac"
+    },
+    {
+      "path": "response/20260520-133849/eval-ryzen-ai-quick-benchmark/with_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260520-133849/eval-ryzen-ai-quick-benchmark/with_skill/run-1/grading.json",
+      "sha256": "d1a726919e42a92f2c58482e065367dfdb656a4ca046374e63b433787d3710fb",
+      "source_kind": "git",
+      "source_git_blob": "3a98cb93f9eb97f9e913f8e81b0ad2a652089625"
+    },
+    {
+      "path": "response/20260520-133849/eval-ryzen-ai-quick-benchmark/without_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260520-133849/eval-ryzen-ai-quick-benchmark/without_skill/run-1/grading.json",
+      "sha256": "d79da59b17a351ac4e0a484de6abe5f126a58a639bf2736d6574ac00afd3c5b1",
+      "source_kind": "git",
+      "source_git_blob": "fff6e64ca7606fc965923fdebf1c4afd7f1cb4ad"
+    },
+    {
+      "path": "response/20260520-133849/eval-seq2seq-out-of-scope/with_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260520-133849/eval-seq2seq-out-of-scope/with_skill/run-1/grading.json",
+      "sha256": "2b9f1c57c20f328f853ecf7c15ea7e628d456a009f9efc3b317ade1827ee3b1b",
+      "source_kind": "git",
+      "source_git_blob": "3b1d23e323365c3da4ae866398367e36fdcf05c7"
+    },
+    {
+      "path": "response/20260520-133849/eval-seq2seq-out-of-scope/without_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260520-133849/eval-seq2seq-out-of-scope/without_skill/run-1/grading.json",
+      "sha256": "a7def5fbbbdbdbe07dfefb2467f20a25c7df3a6fc33d30029ddc36a262c5c83e",
+      "source_kind": "git",
+      "source_git_blob": "c40278bfbc150d0f410fa6c5b43c2558161824f8"
+    },
+    {
+      "path": "response/20260520-133849/eval-snapdragon-resnet-build/with_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260520-133849/eval-snapdragon-resnet-build/with_skill/run-1/grading.json",
+      "sha256": "46ced5f55edfeefaa8c379a97b0031114e3212d9a03dc0e92f7807cc45d38824",
+      "source_kind": "git",
+      "source_git_blob": "3a9a96a6b552e804a6553db1da755d36c96cd257"
+    },
+    {
+      "path": "response/20260520-133849/eval-snapdragon-resnet-build/without_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260520-133849/eval-snapdragon-resnet-build/without_skill/run-1/grading.json",
+      "sha256": "698606c9a9b358d80f5f8823929bee57e59c7441dda90652de9abd5a16d68809",
+      "source_kind": "git",
+      "source_git_blob": "bb0e7bd82ba3ea8e44dffcbe7e90239e83b8c8f1"
+    },
+    {
+      "path": "response/20260524-133637/benchmark.md",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260524-133637/benchmark.md",
+      "sha256": "ad2db5ae8926d947d34ab547e48d45c635fe40b9e09bf4c223a81ba342facfbf",
+      "source_kind": "git",
+      "source_git_blob": "c4ab8f4c7febd5ce9313aad8670c6db9791db13a"
+    },
+    {
+      "path": "response/20260524-133637/eval-ambiguous-run-intent/with_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260524-133637/eval-ambiguous-run-intent/with_skill/run-1/grading.json",
+      "sha256": "a682f621848a5e9defd85297632722d7ec4e496ae70c56085bd27f1e6bb4a210",
+      "source_kind": "git",
+      "source_git_blob": "c8127a6e8360e6ce2d74e749edb9bab99dd3afc7"
+    },
+    {
+      "path": "response/20260524-133637/eval-ambiguous-run-intent/without_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260524-133637/eval-ambiguous-run-intent/without_skill/run-1/grading.json",
+      "sha256": "83718270c6650430433ab3e614a0ae686ccb8a01d0ec625996b0883c14e17a2a",
+      "source_kind": "git",
+      "source_git_blob": "edc4c96f5ff0f5ba2fb7f391bde2b6d8ea76ddac"
+    },
+    {
+      "path": "response/20260524-133637/eval-config-build-for-ci/with_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260524-133637/eval-config-build-for-ci/with_skill/run-1/grading.json",
+      "sha256": "8df8ee20f5f4b0fcd1b42d0ea3a701f91bdc439dee4346dc8252e3fb26168a8f",
+      "source_kind": "git",
+      "source_git_blob": "15a61b3d6e8f2a3e1db8e1138d777795a0bf116b"
+    },
+    {
+      "path": "response/20260524-133637/eval-config-build-for-ci/without_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260524-133637/eval-config-build-for-ci/without_skill/run-1/grading.json",
+      "sha256": "7c4accf29e319a86dcb0569255f55d1f0e0c370284aa7415cdcd9fb626328d7c",
+      "source_kind": "git",
+      "source_git_blob": "3ebe80806c26672cbdd56ccc82c39f89fda2d164"
+    },
+    {
+      "path": "response/20260524-133637/eval-install-setup/with_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260524-133637/eval-install-setup/with_skill/run-1/grading.json",
+      "sha256": "149b77f43e23c2ecd1d370eded9003467211c58f8aeeedbfa0672c189f42c72a",
+      "source_kind": "git",
+      "source_git_blob": "fba25d2bd7766357e45559a3265bd2b574c42c4e"
+    },
+    {
+      "path": "response/20260524-133637/eval-install-setup/without_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260524-133637/eval-install-setup/without_skill/run-1/grading.json",
+      "sha256": "83c10e85dec02d1408edb1a91b3210da857a5b22184fcaab03e6a869c4b9ed91",
+      "source_kind": "git",
+      "source_git_blob": "90528c1a341aa21d84449e3ee0c248f29cab7763"
+    },
+    {
+      "path": "response/20260524-133637/eval-is-model-supported/with_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260524-133637/eval-is-model-supported/with_skill/run-1/grading.json",
+      "sha256": "5e4dbc540b0a9df1d495bd08e532684883b44ea040b8677ee5b819f6f0dd4641",
+      "source_kind": "git",
+      "source_git_blob": "900221aefc52bc4cd48088d92933054312f84a79"
+    },
+    {
+      "path": "response/20260524-133637/eval-is-model-supported/without_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260524-133637/eval-is-model-supported/without_skill/run-1/grading.json",
+      "sha256": "f321b983a8e8a0e0f7ad4af85dea8a20e8a2e1f2370f888642e7270e95db833a",
+      "source_kind": "git",
+      "source_git_blob": "0d079edcaf8d5f58b63a329f4087df82c59364fe"
+    },
+    {
+      "path": "response/20260524-133637/eval-local-onnx-file/with_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260524-133637/eval-local-onnx-file/with_skill/run-1/grading.json",
+      "sha256": "d6a47b5987ea94bc8f8dfddfb802d70daa23f502635335e36ac413deddda4429",
+      "source_kind": "git",
+      "source_git_blob": "e6b5b416e8803e5c56350f0b9d1bb678b70ab590"
+    },
+    {
+      "path": "response/20260524-133637/eval-local-onnx-file/without_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260524-133637/eval-local-onnx-file/without_skill/run-1/grading.json",
+      "sha256": "c41abf451022a7b0e9c4a6524ed2c7d0baffeed50d434a23db9512a2b19cbfa4",
+      "source_kind": "git",
+      "source_git_blob": "53d108ee449d6799e1edb82c9103379c0588d242"
+    },
+    {
+      "path": "response/20260524-133637/eval-npu-vs-cpu-comparison/with_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260524-133637/eval-npu-vs-cpu-comparison/with_skill/run-1/grading.json",
+      "sha256": "39ce0424c6e20e5f61133158c6f2d266122d1921428d455c54cfe4b1575b297a",
+      "source_kind": "git",
+      "source_git_blob": "2295b2afba444b6ff306b7bb4f2ab131b1976c6b"
+    },
+    {
+      "path": "response/20260524-133637/eval-npu-vs-cpu-comparison/without_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260524-133637/eval-npu-vs-cpu-comparison/without_skill/run-1/grading.json",
+      "sha256": "8efd972c977f9c200829b90d42af12aa97badf7cd3120779b8b6015e275f1a80",
+      "source_kind": "git",
+      "source_git_blob": "dedb7133a9944766ac246894083158e9bba83d7d"
+    },
+    {
+      "path": "response/20260524-133637/eval-optimize-failure-recovery/with_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260524-133637/eval-optimize-failure-recovery/with_skill/run-1/grading.json",
+      "sha256": "7f2e166e656377cb443129b4a9f8d36e9afa459bdb9043511f5440013164da60",
+      "source_kind": "git",
+      "source_git_blob": "98839917e3889c21b6e4830cea8d4d98ee31fb66"
+    },
+    {
+      "path": "response/20260524-133637/eval-optimize-failure-recovery/without_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260524-133637/eval-optimize-failure-recovery/without_skill/run-1/grading.json",
+      "sha256": "aaedd3fa43cc7191676c34dfd5d574fbeab29dfe589dd2af3f846645e5a61484",
+      "source_kind": "git",
+      "source_git_blob": "a3004570b56dc1d77de265e840a65752676101ac"
+    },
+    {
+      "path": "response/20260524-133637/eval-perf-output-recovery/with_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260524-133637/eval-perf-output-recovery/with_skill/run-1/grading.json",
+      "sha256": "16a3b2ed9add5d9194ebe0f64ada7a602bf8ad99aa0826698918a09b36e6fcd7",
+      "source_kind": "git",
+      "source_git_blob": "33698a82ca852a536d423344c9e319bd57ff38a2"
+    },
+    {
+      "path": "response/20260524-133637/eval-perf-output-recovery/without_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260524-133637/eval-perf-output-recovery/without_skill/run-1/grading.json",
+      "sha256": "ce1f81af275ccaaa7d1b72e7d252b1452a0336709b5496bfcc34ea0881c4d5d0",
+      "source_kind": "git",
+      "source_git_blob": "f06a4784fcc9bce148cd3e4261e138453a1b2a46"
+    },
+    {
+      "path": "response/20260524-133637/eval-ryzen-ai-quick-benchmark/with_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260524-133637/eval-ryzen-ai-quick-benchmark/with_skill/run-1/grading.json",
+      "sha256": "6fc7c7957880e52bef11b41499bfde2532fc33de988113737c0d93642f5d1760",
+      "source_kind": "git",
+      "source_git_blob": "b3441ddb5e9b26e9568d68753deace4c94c44312"
+    },
+    {
+      "path": "response/20260524-133637/eval-ryzen-ai-quick-benchmark/without_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260524-133637/eval-ryzen-ai-quick-benchmark/without_skill/run-1/grading.json",
+      "sha256": "d79da59b17a351ac4e0a484de6abe5f126a58a639bf2736d6574ac00afd3c5b1",
+      "source_kind": "git",
+      "source_git_blob": "fff6e64ca7606fc965923fdebf1c4afd7f1cb4ad"
+    },
+    {
+      "path": "response/20260524-133637/eval-seq2seq-out-of-scope/with_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260524-133637/eval-seq2seq-out-of-scope/with_skill/run-1/grading.json",
+      "sha256": "8377742562a007d5f3c7bd722d2d1e9996b96cc6d7564f057e032156280fcac8",
+      "source_kind": "git",
+      "source_git_blob": "74f78bb764581a4d63eccea1235bec68f2cd00be"
+    },
+    {
+      "path": "response/20260524-133637/eval-seq2seq-out-of-scope/without_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260524-133637/eval-seq2seq-out-of-scope/without_skill/run-1/grading.json",
+      "sha256": "a7def5fbbbdbdbe07dfefb2467f20a25c7df3a6fc33d30029ddc36a262c5c83e",
+      "source_kind": "git",
+      "source_git_blob": "c40278bfbc150d0f410fa6c5b43c2558161824f8"
+    },
+    {
+      "path": "response/20260524-133637/eval-snapdragon-resnet-build/with_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260524-133637/eval-snapdragon-resnet-build/with_skill/run-1/grading.json",
+      "sha256": "3df795fcc3eaabec3d0d6e147364b836a45b9e0929c23c3735d2944340b84cfe",
+      "source_kind": "git",
+      "source_git_blob": "5de95a585fd715405a2dedef05faa42f9f8fabe5"
+    },
+    {
+      "path": "response/20260524-133637/eval-snapdragon-resnet-build/without_skill/run-1/grading.json",
+      "source_path": ".claude/skills/winml-cli-workspace/response_eval/runs/20260524-133637/eval-snapdragon-resnet-build/without_skill/run-1/grading.json",
+      "sha256": "698606c9a9b358d80f5f8823929bee57e59c7441dda90652de9abd5a16d68809",
+      "source_kind": "git",
+      "source_git_blob": "bb0e7bd82ba3ea8e44dffcbe7e90239e83b8c8f1"
+    },
+    {
+      "path": "trigger/20260520-133832/description.md",
+      "source_path": ".claude/skills/winml-cli-workspace/trigger_eval/runs/20260520-133832/description.md",
+      "sha256": "d24f5cbc453a6b6b7a61db8f2339351a39291760b3124aceb4aaa430f10d75c8",
+      "source_kind": "git",
+      "source_git_blob": "bf250ea719d9770506eedfec5ba6bb95f3a5820d"
+    },
+    {
+      "path": "trigger/20260520-133832/judge_responses.json",
+      "source_path": ".claude/skills/winml-cli-workspace/trigger_eval/runs/20260520-133832/judge_responses.json",
+      "sha256": "7e0a0ca12531015093a6be03ea9eff4d838705cc8d69c513aa9fda7f21c491ee",
+      "source_kind": "git",
+      "source_git_blob": "02fa952e6e5b260e2a60d7c487a165b6ecb3760f"
+    },
+    {
+      "path": "trigger/20260520-133832/queries.json",
+      "source_path": ".claude/skills/winml-cli-workspace/trigger_eval/runs/20260520-133832/queries.json",
+      "sha256": "c168b243df8c4c3dd4eba88c9e240ef3985dd072a48ec239b115cb413b45cbcc",
+      "source_kind": "git",
+      "source_git_blob": "37e20f632124d816c808616bba29718576ce82f6"
+    },
+    {
+      "path": "trigger/20260520-133832/results.json",
+      "source_path": ".claude/skills/winml-cli-workspace/trigger_eval/runs/20260520-133832/results.json",
+      "sha256": "8d86a838c8ef3acaa43e522dbd915a0d7ac09db47af2ba796db3ed4a530eb81f",
+      "source_kind": "git",
+      "source_git_blob": "a512c3cef844c71a9f311fb9a23ea21616daefd3"
+    }
+  ]
+}

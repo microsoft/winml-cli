@@ -1,0 +1,53 @@
+{
+  "eval_id": 4,
+  "eval_name": "npu-vs-cpu-comparison",
+  "config": "without_skill",
+  "expectations": [
+    {
+      "text": "Recommends `winml inspect` (or equivalent inspection step) before any build/benchmark work.",
+      "passed": false,
+      "evidence": "Baseline doesn't use winml inspect; goes straight to optimum-cli export."
+    },
+    {
+      "text": "Identifies QNN as the EP for Snapdragon X Elite NPU.",
+      "passed": true,
+      "evidence": "General knowledge identifies QNN / Hexagon NPU."
+    },
+    {
+      "text": "Recommends building the model once and then running `winml perf` twice -- once on NPU, once on CPU -- rather than building two separate pipelines.",
+      "passed": false,
+      "evidence": "Baseline exports once but quantizes separately for NPU (separate QDQ file), then benchmarks. Doesn't have the 'shared build, two perf runs' shape."
+    },
+    {
+      "text": "Specifies that the CPU run should use the optimized (pre-compile) artifact, NOT the QNN-compiled artifact.",
+      "passed": false,
+      "evidence": "Baseline has no notion of an EP-compiled artifact -- uses FP32 ONNX for CPU and a separately quantized QDQ ONNX for NPU."
+    },
+    {
+      "text": "Warns that EP-compiled artifacts are EP-locked / can't be run on a different EP and produce nonsense numbers.",
+      "passed": false,
+      "evidence": "Baseline never warns about EP-locking."
+    },
+    {
+      "text": "Either directs user to `winml --help`, OR uses only common/plausible flag patterns.",
+      "passed": true,
+      "evidence": "Real ORT/QNN APIs."
+    },
+    {
+      "text": "Includes an install/prereq block (or a clear pointer back to install steps) -- the user's prompt does not signal prior winml usage, so the default-include-install rule applies.",
+      "passed": false,
+      "evidence": "Baseline installs onnxruntime-qnn / optimum, not the winml CLI."
+    },
+    {
+      "text": "All `winml` commands quoted in the response are runnable -- every flag exists in `winml <cmd> --help`, no positional model arg where the CLI is flag-only.",
+      "passed": true,
+      "evidence": "Response uses no winml commands (trivially passes)."
+    }
+  ],
+  "summary": {
+    "pass_rate": 0.375,
+    "passed": 3,
+    "failed": 5,
+    "total": 8
+  }
+}
