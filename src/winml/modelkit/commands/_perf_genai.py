@@ -25,7 +25,6 @@ The ``perf`` command validates the folder input and delegates here via
 
 from __future__ import annotations
 
-import gc
 import json
 import logging
 import time
@@ -50,6 +49,15 @@ from ..utils.constants import (
     EPNameOrAlias,
     normalize_ep_name,
 )
+from ._generation_metrics import (
+    _DEFAULT_PROMPT,
+    _mean,
+    _round_stats,
+    _stats,
+)
+from ._generation_metrics import (
+    _GenerationMemoryTracker as _GenaiMemoryTracker,
+)
 
 
 if TYPE_CHECKING:
@@ -69,10 +77,6 @@ logger = logging.getLogger(__name__)
 
 RUNTIME_TYPE: RuntimeName = "ort-genai"
 _HW_POLL_INTERVAL_MS = 200
-
-# Built-in benchmark prompt.  Mirrored by the ``--prompt`` CLI default and the
-# ``GenaiPerfConfig.prompt`` field default (a test asserts the two stay in sync).
-_DEFAULT_PROMPT = "Explain the theory of relativity in simple terms."
 
 # Sentinel ``--device`` value meaning "respect the bundle's genai_config.json
 # routing" (no EP override).  It is the ort-genai default: a genai bundle is
@@ -145,60 +149,6 @@ def genai_output_path(bundle_dir: str | Path) -> Path:
 # =============================================================================
 
 
-def _mean(xs: list[float]) -> float:
-    """Arithmetic mean, or ``0.0`` for an empty sequence."""
-    return sum(xs) / len(xs) if xs else 0.0
-
-
-def _percentile(sorted_xs: list[float], p: float) -> float:
-    """Nearest-rank ``p``-th percentile (0-100) of an already-sorted list.
-
-    Matches :meth:`winml.modelkit.session.stats.PerfStats.percentile` so the
-    two perf paths report percentiles the same way.
-    """
-    if not sorted_xs:
-        return 0.0
-    idx = int(len(sorted_xs) * p / 100)
-    idx = min(idx, len(sorted_xs) - 1)
-    return sorted_xs[idx]
-
-
-def _stats(values: list[float]) -> dict[str, float]:
-    """Return the percentile summary shape used by perf JSON blocks."""
-    sorted_values = sorted(values)
-    mean = _mean(values)
-    variance = _mean([(value - mean) ** 2 for value in values]) if values else 0.0
-    return {
-        "mean": mean,
-        "std": variance**0.5,
-        "min": min(values) if values else 0.0,
-        "max": max(values) if values else 0.0,
-        "p50": _percentile(sorted_values, 50),
-        "p90": _percentile(sorted_values, 90),
-        "p95": _percentile(sorted_values, 95),
-        "p99": _percentile(sorted_values, 99),
-    }
-
-
-def _round_stats(values: dict[str, float]) -> dict[str, float]:
-    """Round a stats block for JSON output."""
-    return {key: round(value, 3) for key, value in values.items()}
-
-
-def _get_rss_mb() -> float:
-    """Return current process RSS in MB."""
-    from ..session.monitor import get_rss_mb
-
-    return get_rss_mb()
-
-
-def _get_vram_mb(adapter_luid: str | None) -> tuple[float | None, float | None]:
-    """Return current process device-memory usage as local/shared MB."""
-    from ..session.monitor import get_vram_mb
-
-    return get_vram_mb(adapter_luid)
-
-
 def _resolve_adapter_luid(device: str, ep: EPNameOrAlias | None) -> str | None:
     """Resolve the adapter LUID used for best-effort process VRAM sampling."""
     if device not in ACCELERATOR_DEVICE_TYPES:
@@ -212,77 +162,6 @@ def _resolve_adapter_luid(device: str, ep: EPNameOrAlias | None) -> str | None:
     except Exception:
         logger.debug("Could not resolve adapter LUID for genai memory tracking", exc_info=True)
     return None
-
-
-@dataclass
-class _MemorySnapshot:
-    """Point-in-time process RAM and device-memory usage."""
-
-    rss_mb: float = 0.0
-    vram_local_mb: float | None = None
-    vram_shared_mb: float | None = None
-
-
-class _GenaiMemoryTracker:
-    """Best-effort process memory tracking for the genai benchmark phases."""
-
-    def __init__(self, *, adapter_luid: str | None) -> None:
-        self._adapter_luid = adapter_luid
-        self._baseline = _MemorySnapshot()
-        self._after_load = _MemorySnapshot()
-        self._after_benchmark = _MemorySnapshot()
-
-    def _snapshot(self) -> _MemorySnapshot:
-        gc.collect()
-        rss = _get_rss_mb()
-        local, shared = _get_vram_mb(self._adapter_luid) if self._adapter_luid else (None, None)
-        return _MemorySnapshot(rss_mb=rss, vram_local_mb=local, vram_shared_mb=shared)
-
-    def record_baseline(self) -> None:
-        self._baseline = self._snapshot()
-
-    def record_after_load(self) -> None:
-        self._after_load = self._snapshot()
-
-    def record_after_benchmark(self) -> None:
-        self._after_benchmark = self._snapshot()
-
-    @staticmethod
-    def _delta(after: float | None, before: float | None) -> float | None:
-        return round(after - before, 2) if after is not None and before is not None else None
-
-    def to_dict(self) -> dict[str, float | None]:
-        baseline = self._baseline
-        after_load = self._after_load
-        after_benchmark = self._after_benchmark
-        result = {
-            "rss_baseline_mb": round(baseline.rss_mb, 2),
-            "rss_after_compile_mb": round(after_load.rss_mb, 2),
-            "rss_after_inference_mb": round(after_benchmark.rss_mb, 2),
-            "rss_checkpoint_peak_mb": round(
-                max(baseline.rss_mb, after_load.rss_mb, after_benchmark.rss_mb), 2
-            ),
-            "rss_model_load_delta_mb": self._delta(after_load.rss_mb, baseline.rss_mb),
-            "rss_inference_delta_mb": self._delta(after_benchmark.rss_mb, after_load.rss_mb),
-            "rss_total_delta_mb": self._delta(after_benchmark.rss_mb, baseline.rss_mb),
-        }
-        if self._adapter_luid is None:
-            return result
-        for key in ("vram_local", "vram_shared"):
-            points = [
-                getattr(snapshot, key + "_mb")
-                for snapshot in (baseline, after_load, after_benchmark)
-            ]
-            for phase, value in zip(
-                ("baseline", "after_compile", "after_inference"), points, strict=True
-            ):
-                result[f"{key}_{phase}_mb"] = round(value, 2) if value is not None else None
-            result[f"{key}_checkpoint_peak_mb"] = (
-                round(max(points), 2) if all(value is not None for value in points) else None
-            )
-            for phase, start, end in (("model_load", 0, 1), ("inference", 1, 2), ("total", 0, 2)):
-                result[f"{key}_{phase}_delta_mb"] = self._delta(points[end], points[start])
-        return result
 
 
 # =============================================================================

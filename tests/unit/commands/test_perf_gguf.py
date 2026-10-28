@@ -335,7 +335,9 @@ class TestBenchmark:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         rss = iter([100.0, 400.0, 420.0])
-        monkeypatch.setattr("winml.modelkit.commands._perf_genai._get_rss_mb", lambda: next(rss))
+        monkeypatch.setattr(
+            "winml.modelkit.commands._generation_metrics._get_rss_mb", lambda: next(rss)
+        )
         timings = [_timing(generated_tokens=1) for _ in range(3)]
         result, _session = _run_fake(tmp_path, timings, memory=True)
 
@@ -603,6 +605,31 @@ class TestCliDispatch:
         assert "ignored for GGUF models" in result.output
         assert "--precision" in result.output
         assert "--batch-size" in result.output
+
+    def test_ignored_build_config_does_not_load_ort_configuration(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        capture_run: dict,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Ignored ONNX configuration cannot initialize unrelated runtime dependencies."""
+        from winml.modelkit.utils import cli as cli_utils
+
+        def unexpected_config_load(_path: Path) -> None:
+            pytest.fail("GGUF must not load the ignored ONNX build configuration")
+
+        monkeypatch.setattr(cli_utils, "load_build_config", unexpected_config_load)
+        config_path = tmp_path / "onnx-build.json"
+        config_path.write_text(
+            json.dumps({"compile": {"device": "npu", "execution_provider": "qnn"}}),
+            encoding="utf-8",
+        )
+        result = runner.invoke(perf, ["-m", str(_gguf(tmp_path)), "--config", str(config_path)])
+
+        assert result.exit_code == 0, result.output
+        assert "--config" in result.output and "ignored for GGUF models" in result.output
+        assert capture_run["config"].device == "cpu"
 
     def test_prompt_and_prompt_file_are_exclusive(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict
