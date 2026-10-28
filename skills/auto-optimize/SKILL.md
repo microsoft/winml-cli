@@ -1,6 +1,6 @@
 ---
 name: auto-optimize
-description: 'Use when optimizing ONNX latency with WinML for a target EP/device, including QNN NPU profiling and graph interactions.'
+description: 'Use when optimizing ONNX latency with WinML for a target EP/device, including QNN NPU profiling and graph interactions. Also use to validate a supplied optimization candidate or resume, diagnose replay, or deliver an existing optimization run. Do not use for explanation-only questions, conceptual EP/device comparisons, or standalone benchmark-only measurements unless they are part of a requested optimization run. Model onboarding, new EP backends, export-only tasks, and prompt or training optimization are outside this skill.'
 ---
 
 ## Entry

@@ -75,11 +75,6 @@ def test_skill_is_small_and_single_agent() -> None:
 
     assert metadata["name"] == SKILL_ROOT.name == "auto-optimize"
     assert metadata["description"].startswith("Use when ")
-    assert (
-        metadata["description"]
-        == "Use when optimizing ONNX latency with WinML for a target EP/device, "
-        "including QNN NPU profiling and graph interactions."
-    )
     description = metadata["description"].lower()
     for keyword in ("onnx", "winml", "qnn", "npu", "latency"):
         assert keyword in description, keyword
@@ -115,6 +110,40 @@ def test_skill_is_small_and_single_agent() -> None:
         "typed plan",
     ):
         assert forbidden not in lowered, forbidden
+
+
+def test_activation_description_preserves_workflow_and_excludes_adjacent_requests() -> None:
+    description = _frontmatter((SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8"))[
+        "description"
+    ].lower()
+    for boundary in (
+        "validate a supplied optimization candidate",
+        "resume, diagnose replay, or deliver an existing optimization run",
+        "explanation-only",
+        "conceptual ep/device comparisons",
+        "standalone benchmark-only",
+        "unless they are part of a requested optimization run",
+        "model onboarding",
+        "new ep backends",
+        "export-only",
+    ):
+        assert boundary in description, boundary
+
+
+def test_activation_regressions_cover_negative_and_positive_boundaries() -> None:
+    suite = _load_json(SKILL_ROOT / "evals" / "trigger_eval.json")
+    assert suite["skill_name"] == "auto-optimize"
+    cases = suite["queries"]
+    by_id = {case["id"]: case for case in cases}
+    assert len(by_id) == len(cases)
+    assert len({case["query"] for case in cases}) == len(cases)
+    for case in cases:
+        assert isinstance(case["query"], str) and case["query"].strip()
+        assert isinstance(case["should_trigger"], bool)
+    for case_id in ("A14", "A15", "A16", "A23", "A24"):
+        assert by_id[case_id]["should_trigger"] is False
+    for case_id in ("A04", "A06", "A07", "A08", "A09", "A21", "A22"):
+        assert by_id[case_id]["should_trigger"] is True
 
 
 def test_auto_optimize_is_checked_in_as_a_repository_skill() -> None:

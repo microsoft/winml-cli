@@ -1,5 +1,23 @@
 # Live-agent behavioral evals
 
+## Activation regressions
+
+[`trigger_eval.json`](./trigger_eval.json) contains 24 standalone selection cases:
+12 should activate and 12 should not. The first 20 preserve the original
+activation evaluation, including false positives for explanation-only EPContext
+questions, conceptual provider comparisons, and benchmark-only requests.
+Four additional cases distinguish those exclusions from explanation or
+benchmarking that is part of an actual optimization request.
+
+Run these separately from the simulator below: supply only each query to a
+fresh skill-aware session and retain `should_trigger` as evaluator-only
+metadata. Grade the actual successful `auto-optimize` skill invocation, not
+mentions in prose or a model's self-reported selection. Preserve failed trials
+and report execution errors separately. Contract tests check metadata and
+coverage; they do not prove live activation behavior.
+
+## Workflow simulator
+
 Run manually with Python 3.11 and an authenticated Codex CLI:
 
     python skills/auto-optimize/evals/run_evals.py --output <new-absolute-directory>
