@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 
 # Keep the existing default prompt and percentile/JSON semantics for both routes.
-_DEFAULT_PROMPT = "Explain the theory of relativity in simple terms."
+DEFAULT_PROMPT = "Explain the theory of relativity in simple terms."
 
 
 def _mean(xs: list[float]) -> float:

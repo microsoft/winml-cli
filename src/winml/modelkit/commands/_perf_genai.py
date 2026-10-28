@@ -50,13 +50,15 @@ from ..utils.constants import (
     normalize_ep_name,
 )
 from ._generation_metrics import (
-    _DEFAULT_PROMPT,
-    _mean,
-    _round_stats,
-    _stats,
+    DEFAULT_PROMPT as _DEFAULT_PROMPT,
 )
 from ._generation_metrics import (
     _GenerationMemoryTracker as _GenaiMemoryTracker,
+)
+from ._generation_metrics import (
+    _mean,
+    _round_stats,
+    _stats,
 )
 
 

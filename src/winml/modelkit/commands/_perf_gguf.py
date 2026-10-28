@@ -35,7 +35,9 @@ from rich.markup import escape
 
 from ..session import LlamaSessionError, WinMLLlamaSession, llama_package_versions
 from ._generation_metrics import (
-    _DEFAULT_PROMPT,
+    DEFAULT_PROMPT as _DEFAULT_PROMPT,
+)
+from ._generation_metrics import (
     _GenerationMemoryTracker,
     _round_stats,
     _stats,
