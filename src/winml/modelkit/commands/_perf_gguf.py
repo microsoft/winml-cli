@@ -34,9 +34,11 @@ import click
 from rich.markup import escape
 
 from ..session import LlamaSessionError, WinMLLlamaSession, llama_package_versions
-from ._perf_genai import (
-    _DEFAULT_PROMPT,
-    _GenaiMemoryTracker,
+from ._generation_metrics import (
+    DEFAULT_PROMPT as _DEFAULT_PROMPT,
+)
+from ._generation_metrics import (
+    _GenerationMemoryTracker,
     _round_stats,
     _stats,
 )
@@ -335,11 +337,11 @@ class GGUFPerfBenchmark:
 
     def _run_benchmark_body(self, session: WinMLLlamaSession) -> GGUFBenchmarkResult:
         config = self._config
-        memory_tracker: _GenaiMemoryTracker | None = None
+        memory_tracker: _GenerationMemoryTracker | None = None
         if config.memory:
             # llama.cpp does not report which adapter a GPU backend selected, so
             # only process RAM is tracked; VRAM fields are omitted, not guessed.
-            memory_tracker = _GenaiMemoryTracker(adapter_luid=None)
+            memory_tracker = _GenerationMemoryTracker(adapter_luid=None)
             memory_tracker.record_baseline()
 
         load_start = self._clock()

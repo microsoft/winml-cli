@@ -26,7 +26,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 
 import click
-import numpy as np
 from rich.markup import escape
 from rich.table import Table
 
@@ -58,6 +57,7 @@ if TYPE_CHECKING:
     import contextlib
     from collections.abc import Iterator
 
+    import numpy as np
     from rich.console import Console
 
     from ..models.winml.base import WinMLPreTrainedModel
@@ -782,6 +782,8 @@ def generate_random_inputs(
     Returns:
         Dictionary of input_name -> numpy array
     """
+    import numpy as np
+
     from ..core import generate_dummy_inputs_from_specs
 
     symbolic_shapes = io_config.get("input_symbolic_shapes") or [
@@ -931,6 +933,8 @@ def _runtime_input_shapes(
         return {}, {}
     shapes: dict[str, tuple[int, ...]] = {}
     if input_data is not None:
+        import numpy as np
+
         if input_data.suffix.lower() != ".npz":
             raise click.UsageError("--input-data must be a named .npz archive.")
         try:
@@ -1669,6 +1673,8 @@ class PerfBenchmark:
 
     def _collect_results(self, stats: PerfStats) -> BenchmarkResult:
         """Collect benchmark results from PerfStats."""
+        import numpy as np
+
         io_config = self._single.io_config
 
         # Calculate throughput. Scale by the batch the session actually ran
@@ -1803,6 +1809,8 @@ def _perf_modules(
     import difflib
     import json as json_mod
     import tempfile
+
+    import numpy as np
 
     from ..build import build_hf_model
     from ..cache import get_cache_dir, get_cache_key, get_model_dir
@@ -3481,6 +3489,15 @@ def perf(
     if op_tracing and ctx.get_parameter_source("iterations") == click.core.ParameterSource.DEFAULT:
         iterations = 10
 
+    json_mode = output_format == "json"
+    console = SafeConsole(stderr=True) if json_mode else SafeConsole()
+
+    # GGUF ignores ONNX build configuration. Route it before loading config
+    # dataclasses, which import unrelated EP/ORT session dependencies.
+    if is_gguf:
+        _run_gguf_runtime(ctx, model=model, runtime=runtime, console=console, json_mode=json_mode)
+        return
+
     # Apply build config defaults (CLI explicit options take precedence).
     # Read raw JSON so missing keys are distinguishable from dataclass defaults.
     if config_file is not None:
@@ -3511,16 +3528,6 @@ def perf(
     if runtime == "winml-runtime" and ep_provider_options and not is_gguf:
         logger.warning("--ep-options are ignored with --runtime winml-runtime.")
         ep_provider_options = None
-
-    json_mode = output_format == "json"
-    console = SafeConsole(stderr=True) if json_mode else SafeConsole()
-
-    # =========================================================================
-    # GGUF (experimental): Windows ML Tasks over a Runtime llama.cpp pipeline
-    # =========================================================================
-    if is_gguf:
-        _run_gguf_runtime(ctx, model=model, runtime=runtime, console=console, json_mode=json_mode)
-        return
 
     # =========================================================================
     # GENAI RUNTIME: benchmark an onnxruntime-genai bundle folder
