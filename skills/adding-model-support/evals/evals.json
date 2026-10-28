@@ -165,7 +165,7 @@
         { "text": "Assigns automatic cleanup to the orchestrator, which owns terminal lifecycle and cross-role dependency knowledge", "passed": null, "evidence": "" },
         { "text": "Plans a free-space check before disk-heavy stages, a declared trigger threshold and a separate target at which deletion stops", "passed": null, "evidence": "" },
         { "text": "Requires a structured dry-run and a terminal, quiescent, dependency-complete ownership manifest before execute mode", "passed": null, "evidence": "" },
-        { "text": "Limits planned deletion to declared run-owned regenerable candidates with ownership markers, rejecting outside roots, evidence files, reparse points and Git metadata", "passed": null, "evidence": "" },
+        { "text": "Limits planned deletion to manifest-declared, run-owned, regenerable candidates; requires matching run-id/kind ownership markers only for non-exempt disposable directories, preserving the helper's documented recognized-file, __pycache__, and Git-worktree exemptions; rejects out-of-root paths, protected evidence, reparse points and direct Git-metadata deletion", "passed": null, "evidence": "" },
         { "text": "Scopes each manifest to one volume and permits worktree removal only when clean and recoverable from a declared remote-tracking ref", "passed": null, "evidence": "" },
         { "text": "Preserves compact evidence, manifests, scripts, branches/commits/PR state, dirty or unrecoverable worktrees, source, rules, and resumable BLOCKED evidence", "passed": null, "evidence": "" },
         { "text": "Protects shared Hugging Face hub/dataset, uv, pip, WinML, dataset, and external-user caches by default", "passed": null, "evidence": "" },
