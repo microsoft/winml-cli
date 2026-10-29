@@ -21,12 +21,14 @@ The ``perf`` command validates the ``.gguf`` input and delegates here via
 
 from __future__ import annotations
 
+import gc
 import json
 import logging
 import time
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from itertools import pairwise
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -42,7 +44,8 @@ from ._generation_metrics import (
     _round_stats,
     _stats,
 )
-from ._gguf_evidence import token_ids_sha256
+from ._gguf_evidence import EvidenceRecorder, planned_requests, token_ids_sha256
+from ._gguf_native_log import NativeLogCapture
 
 
 if TYPE_CHECKING:
@@ -50,6 +53,7 @@ if TYPE_CHECKING:
 
     from rich.console import Console
 
+    from ..session import LlamaRequestRecord
     from ..utils.constants import RuntimeName
 
 logger = logging.getLogger(__name__)
@@ -93,6 +97,23 @@ _MEASURED_REQUEST_METRICS = (
 def is_gguf_model(model: str | Path) -> bool:
     """Return whether a ``-m/--model`` value names a GGUF file (by extension)."""
     return Path(model).suffix.lower() == GGUF_SUFFIX
+
+
+class GGUFEvidenceError(LlamaSessionError):
+    """An evidence run failed; the evidence file records the phase and the cause.
+
+    Attributes:
+        phase: The ``failure_phase`` written to the evidence.
+        path: The evidence file.
+        status: Always ``failed``.
+    """
+
+    def __init__(self, phase: str, cause: BaseException | None, path: Path) -> None:
+        detail = (str(cause) or type(cause).__name__) if cause is not None else "unknown failure"
+        super().__init__(f"GGUF evidence run failed during {phase}: {detail} Evidence: {path}")
+        self.phase = phase
+        self.path = path
+        self.status = "failed"
 
 
 def read_prompt_ids_file(path: Path) -> tuple[int, ...]:
@@ -265,6 +286,44 @@ class _GGUFRequestSample:
         return result
 
 
+def _sample_from_record(record: LlamaRequestRecord, *, kind: str, index: int) -> _GGUFRequestSample:
+    """Convert the QPC time points of a completed request to a schema 3 sample.
+
+    The spans match :meth:`WinMLLlamaSession.generate_timed`; exact token IDs
+    are not tokenized, so the template and tokenization spans are ``0``.
+
+    Raises:
+        ValueError: The record lacks a time point a completed request has.
+    """
+    reset_end = record.reset_end_ns
+    submit = record.submit_ns
+    created = record.stream_created_ns
+    completed = record.completed_ns
+    fetched = record.result_fetched_ns
+    if reset_end is None or submit is None or created is None or completed is None:
+        raise ValueError("Only a completed request record has a timing sample.")
+    if fetched is None:
+        raise ValueError("Only a completed request record has a timing sample.")
+    arrivals = [observed_ns for observed_ns, _ in record.events]
+    return _GGUFRequestSample(
+        kind=kind,
+        index=index,
+        prompt_tokens=record.prompt_token_count or 0,
+        generated_tokens=len(arrivals),
+        template_duration_ms=0.0,
+        tokenization_duration_ms=0.0,
+        generator_create_duration_ms=(reset_end - record.reset_start_ns) / 1e6,
+        task_ttft_duration_ms=(arrivals[0] - submit) / 1e6 if arrivals else None,
+        task_generation_duration_ms=(fetched - submit) / 1e6,
+        task_stream_create_duration_ms=(created - submit) / 1e6,
+        task_stream_completion_duration_ms=(completed - (arrivals[-1] if arrivals else created))
+        / 1e6,
+        result_fetch_duration_ms=(fetched - completed) / 1e6,
+        decode_token_durations_ms=[(end - start) / 1e6 for start, end in pairwise(arrivals)],
+        response_text=record.response_text or "",
+    )
+
+
 @dataclass
 class GGUFBenchmarkResult:
     """Canonical results from a GGUF generation benchmark."""
@@ -371,6 +430,9 @@ class GGUFPerfBenchmark:
             ``None`` a :class:`WinMLLlamaSession` is created from ``config`` and
             closed after the run.
         clock: Monotonic clock in seconds (injectable for tests).
+        clock_ns: Integer-nanosecond QPC clock for evidence time points.
+        log_capture: Native log capture for an evidence run (default: one bound
+            to the loaded ``WinMLllama.dll``).
     """
 
     def __init__(
@@ -379,26 +441,125 @@ class GGUFPerfBenchmark:
         *,
         session: WinMLLlamaSession | None = None,
         clock: Callable[[], float] = time.perf_counter,
+        clock_ns: Callable[[], int] = time.perf_counter_ns,
+        log_capture: NativeLogCapture | None = None,
     ) -> None:
         self._config = config
         self._session = session
         self._owns_session = session is None
         self._clock = clock
+        self._clock_ns = clock_ns
+        self._log_capture = log_capture
         self._stop_reasons: list[tuple[str, str]] = []
         self._prompt_ids_sha256: str | None = None
 
     def run(self) -> GGUFBenchmarkResult:
-        """Execute the benchmark and return aggregated metrics."""
+        """Execute the benchmark and return aggregated metrics.
+
+        Raises:
+            GGUFEvidenceError: An evidence run failed (the evidence records why).
+        """
         if self._session is None:
             self._session = WinMLLlamaSession(
                 self._config.model_path,
                 device=self._config.device,
             )
         try:
+            if self._config.evidence_path is not None:
+                return self._run_protocol_body(self._session)
             return self._run_benchmark_body(self._session)
         finally:
             if self._owns_session:
                 self._session.close()
+
+    def _run_protocol_body(self, session: WinMLLlamaSession) -> GGUFBenchmarkResult:
+        """Run every planned request while recording ``gguf-task-events-1.1`` evidence.
+
+        The order is the evidence definition: the model is hashed before any
+        initialization; native log lines are captured from the tokenizer open
+        through warmup 0; garbage collection is off during measured requests and
+        runs between them; a failed request is kept and the run continues unless
+        the session can no longer reset. The Runtime log callback is restored
+        before the caller closes the session.
+        """
+        config = self._config
+        recorder = EvidenceRecorder(config, clock_ns=self._clock_ns)
+        capture = self._log_capture or NativeLogCapture(clock_ns=self._clock_ns)
+        gc_was_enabled = gc.isenabled()
+        collections = 0
+        samples: list[_GGUFRequestSample] = []
+        session_load_ms = 0.0
+        phase = "configuration"
+        try:
+            recorder.record_configuration()
+            phase = "initialization"
+            recorder.begin_initialization()
+            load_start = self._clock()
+            session.open_tokenizer()
+            tokenizer_ready = self._clock()
+            capture.install()
+            prompt_ids = self._prompt_ids(session)
+            recorder.record_prompt(prompt_ids)
+            self._prompt_ids_sha256 = token_ids_sha256(prompt_ids)
+            model_start = self._clock()
+            context = self._load(session, prompt_ids)
+            load_end = self._clock()
+            session_load_ms = ((tokenizer_ready - load_start) + (load_end - model_start)) * 1000.0
+            # Record what the Runtime reports before verifying it, so a mismatch
+            # leaves both values in the evidence.
+            recorder.record_load(session, requested_context=context)
+            self._verify_load(session, prompt_ids)
+            options = session.greedy_options(config.max_new_tokens)
+            recorder.record_options(options)
+            planned = planned_requests(config.warmup, config.iterations)
+            for position, (kind, index) in enumerate(planned):
+                phase = kind
+                if (kind, index) == ("measured", 0):
+                    gc.collect()
+                    gc.disable()
+                record = session.run_request(prompt_ids, options=options, clock_ns=self._clock_ns)
+                if position == 0:
+                    capture.restore()
+                if record.reset_error is not None:
+                    # Nothing was submitted and the session can no longer reset.
+                    recorder.fail(kind, record.reset_error)
+                    break
+                row = recorder.record_request(kind, index, record)
+                if position == 0:
+                    recorder.record_loaded_modules("after_warmup0")
+                if kind == "measured":
+                    gc.collect()
+                    collections += 1
+                if row["status"] == "succeeded":
+                    sample_kind = "warmup" if kind == "warmup" else "timed"
+                    samples.append(_sample_from_record(record, kind=sample_kind, index=position))
+                    stop_reason = record.task_stop_reason or str(record.finish_reason)
+                    self._stop_reasons.append((sample_kind, stop_reason))
+            if recorder.failure_phase is None:
+                phase = "finalization"
+                recorder.record_loaded_modules("at_end")
+                recorder.record_hashed_modules()
+        except Exception as exc:
+            recorder.fail(phase, exc)
+        except BaseException as exc:
+            recorder.fail(phase, exc)
+            raise
+        finally:
+            capture.restore()
+            if gc_was_enabled:
+                gc.enable()
+            recorder.finish(
+                capture=capture,
+                initialization_spans=session.initialization_spans,
+                gc_collections=collections,
+            )
+        if recorder.status == "failed":
+            raise GGUFEvidenceError(
+                recorder.failure_phase or phase, recorder.cause, recorder.path
+            ) from recorder.cause
+        result = self._aggregate(samples, session_load_ms=session_load_ms)
+        result.evidence_status = recorder.status
+        return result
 
     def _run_benchmark_body(self, session: WinMLLlamaSession) -> GGUFBenchmarkResult:
         config = self._config
@@ -733,11 +894,16 @@ def run_gguf_perf(
     """Run a GGUF benchmark, print the report, and persist JSON.
 
     Translates session failures into ``click`` errors so the CLI exits cleanly
-    instead of dumping a traceback.
+    instead of dumping a traceback. An evidence run exits non-zero unless every
+    planned request succeeded: a ``partial`` run still reports and saves its
+    schema 3 results; a ``failed`` run saves only its evidence.
     """
     benchmark = GGUFPerfBenchmark(config)
     try:
         result = benchmark.run()
+    except GGUFEvidenceError as exc:
+        _print_evidence_line(console, exc.path, exc.status)
+        raise click.ClickException(str(exc)) from exc
     except (LlamaSessionError, FileNotFoundError) as exc:  # incl. not-installed and load errors
         raise click.ClickException(str(exc)) from exc
 
@@ -749,4 +915,16 @@ def run_gguf_perf(
     output_path = config.output_path or gguf_output_path(config.model_path)
     write_gguf_report(result, output_path)
     console.print(f"[green]Results saved to:[/green] {output_path}")
+    if config.evidence_path is not None:
+        _print_evidence_line(console, config.evidence_path, result.evidence_status)
+        if result.evidence_status != "complete":
+            raise click.ClickException(
+                f"GGUF evidence status {result.evidence_status}; see {config.evidence_path} "
+                "for the requests that did not succeed."
+            )
     return result
+
+
+def _print_evidence_line(console: Console, path: Path, status: str | None) -> None:
+    """Print where the evidence was saved, with its status in words."""
+    console.print(f"Evidence saved to: {escape(str(path))} (status: {status})", soft_wrap=True)
