@@ -26,6 +26,7 @@ from click.testing import CliRunner
 from rich.console import Console
 
 from winml.modelkit.commands import _perf_gguf as perf_gguf
+from winml.modelkit.commands._gguf_evidence import token_ids_sha256
 from winml.modelkit.commands._perf_gguf import (
     GGUFBenchmarkResult,
     GGUFPerfBenchmark,
@@ -87,10 +88,19 @@ class _FakeLlamaSession:
         *,
         prompt_ids: list[int] | None = None,
         chat_template: bool = True,
+        effective_context: int | None = None,
+        eos_readback: tuple[int, ...] | None = None,
+        check_error: Exception | None = None,
     ) -> None:
         self._timings = list(timings)
         self._prompt_ids = prompt_ids if prompt_ids is not None else list(range(4))
         self._chat_template = chat_template
+        self._effective_context = effective_context
+        self._eos_readback = eos_readback
+        self._check_error = check_error
+        self.load_kwargs: dict[str, Any] = {}
+        self.checked_ids: list[int] | None = None
+        self.submitted_ids: list[list[int]] = []
         self.chat_template_applied: bool | None = None
         self.context_length: int | None = None
         self.effective_device: str | None = None
@@ -120,13 +130,30 @@ class _FakeLlamaSession:
         self.chat_template_applied = apply_template and self._chat_template
         return list(self._prompt_ids)
 
-    def load(self, *, context_length: int | None = None) -> None:
+    def load(
+        self, *, context_length: int | None = None, eos_token_ids: tuple[int, ...] | None = None
+    ) -> None:
         self.calls.append("load")
-        self.context_length = context_length
+        self.load_kwargs = {"context_length": context_length, "eos_token_ids": eos_token_ids}
+        self.context_length = (
+            self._effective_context if self._effective_context is not None else context_length
+        )
         self.effective_device = "cpu"
+
+    @property
+    def task_default_eos_token_ids(self) -> tuple[int, ...]:
+        if self._eos_readback is not None:
+            return self._eos_readback
+        return () if self.load_kwargs.get("eos_token_ids") == () else (7,)
+
+    def check_prompt_ids(self, token_ids: list[int]) -> None:
+        self.checked_ids = list(token_ids)
+        if self._check_error is not None:
+            raise self._check_error
 
     def generate_timed(self, prompt_token_ids: list[int], **kwargs: Any) -> LlamaGenerationTiming:
         self.generate_kwargs.append(kwargs)
+        self.submitted_ids.append(list(prompt_token_ids))
         return self._timings.pop(0)
 
     def close(self) -> None:
@@ -165,6 +192,100 @@ def _gguf(tmp_path: Path, name: str = "model.gguf") -> Path:
 # ---------------------------------------------------------------------------
 # Benchmark engine
 # ---------------------------------------------------------------------------
+
+
+ADDITIVE_KEYS = {
+    "input_mode",
+    "prompt_ids_sha256",
+    "context_length_requested",
+    "eos_policy",
+    "evidence_path",
+    "evidence_status",
+}
+
+
+class TestProtocolOptions:
+    def test_prompt_ids_skip_encoding_and_size_the_context(self, tmp_path: Path) -> None:
+        ids = (5, 6, 7, 8, 9)
+        result, session = _run_fake(
+            tmp_path,
+            [_timing(input_tokens=len(ids)) for _ in range(3)],
+            prompt_ids=ids,
+            apply_template=False,
+        )
+        assert "encode_prompt" not in session.calls
+        assert session.submitted_ids == [list(ids)] * 3
+        assert session.load_kwargs == {
+            "context_length": len(ids) + result.config.max_new_tokens,
+            "eos_token_ids": None,
+        }
+        assert session.checked_ids == list(ids)
+        assert all(sample.tokenization_duration_ms == 0.0 for sample in result.requests)
+
+    def test_context_length_overrides_the_derived_capacity(self, tmp_path: Path) -> None:
+        _, session = _run_fake(tmp_path, [_timing()] * 3, context_length=64)
+        assert session.load_kwargs["context_length"] == 64
+
+    def test_context_length_mismatch_fails_before_any_request(self, tmp_path: Path) -> None:
+        session = _FakeLlamaSession([_timing()] * 3, effective_context=32)
+        with pytest.raises(LlamaLoadError, match="--context-length 64"):
+            GGUFPerfBenchmark(_config(tmp_path, context_length=64), session=session).run()
+        assert session.generate_kwargs == []
+
+    def test_prompt_longer_than_context_length_fails_before_load(self, tmp_path: Path) -> None:
+        session = _FakeLlamaSession([_timing()] * 3, prompt_ids=list(range(8)))
+        with pytest.raises(LlamaSessionError, match="--context-length 10"):
+            GGUFPerfBenchmark(
+                _config(tmp_path, context_length=10, max_new_tokens=3), session=session
+            ).run()
+        assert "load" not in session.calls
+
+    def test_ignore_eos_requests_and_verifies_an_empty_set(self, tmp_path: Path) -> None:
+        _, session = _run_fake(tmp_path, [_timing()] * 3, ignore_eos=True)
+        assert session.load_kwargs["eos_token_ids"] == ()
+        bad = _FakeLlamaSession([_timing()] * 3, eos_readback=(7,))
+        with pytest.raises(LlamaLoadError, match="--ignore-eos"):
+            GGUFPerfBenchmark(_config(tmp_path, ignore_eos=True), session=bad).run()
+        assert bad.generate_kwargs == []
+
+    def test_out_of_vocabulary_ids_fail_before_any_request(self, tmp_path: Path) -> None:
+        session = _FakeLlamaSession(
+            [_timing()] * 3, check_error=LlamaSessionError("outside the model vocabulary")
+        )
+        with pytest.raises(LlamaSessionError, match="vocabulary"):
+            GGUFPerfBenchmark(_config(tmp_path, prompt_ids=(1, 2)), session=session).run()
+        assert session.generate_kwargs == []
+
+    def test_schema3_adds_fields_only_with_protocol_options(self, tmp_path: Path) -> None:
+        stock = _run_fake(tmp_path, [_timing()] * 3)[0].to_dict()["benchmark_info"]
+        ids = (1, 2, 3, 4)
+        protocol = _run_fake(
+            tmp_path,
+            [_timing()] * 3,
+            prompt_ids=ids,
+            context_length=16,
+            ignore_eos=True,
+            apply_template=False,
+        )[0].to_dict()["benchmark_info"]
+        assert ADDITIVE_KEYS.isdisjoint(stock)
+        assert set(protocol) == set(stock) | ADDITIVE_KEYS
+        assert {key: protocol[key] for key in ADDITIVE_KEYS} == {
+            "input_mode": "token_ids",
+            "prompt_ids_sha256": token_ids_sha256(ids),
+            "context_length_requested": 16,
+            "eos_policy": "ignore",
+            "evidence_path": None,
+            "evidence_status": None,
+        }
+        assert protocol["prompt"] is None
+        assert stock["prompt"] == GGUFPerfConfig(model_path=Path("m.gguf")).prompt
+
+    def test_text_mode_reports_the_digest_of_the_encoded_prompt(self, tmp_path: Path) -> None:
+        info = _run_fake(tmp_path, [_timing()] * 3, context_length=64)[0].to_dict()
+        benchmark_info = info["benchmark_info"]
+        assert benchmark_info["input_mode"] == "text"
+        assert benchmark_info["prompt_ids_sha256"] == token_ids_sha256(range(4))
+        assert benchmark_info["prompt"] == GGUFPerfConfig(model_path=Path("m.gguf")).prompt
 
 
 class TestBenchmark:

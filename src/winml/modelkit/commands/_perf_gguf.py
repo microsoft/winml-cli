@@ -33,7 +33,7 @@ from typing import TYPE_CHECKING, Any
 import click
 from rich.markup import escape
 
-from ..session import LlamaSessionError, WinMLLlamaSession, llama_package_versions
+from ..session import LlamaLoadError, LlamaSessionError, WinMLLlamaSession, llama_package_versions
 from ._generation_metrics import (
     DEFAULT_PROMPT as _DEFAULT_PROMPT,
 )
@@ -42,10 +42,11 @@ from ._generation_metrics import (
     _round_stats,
     _stats,
 )
+from ._gguf_evidence import token_ids_sha256
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     from rich.console import Console
 
@@ -126,6 +127,13 @@ class GGUFPerfConfig:
         warmup: Warmup requests excluded from statistics.
         memory: Record process RAM at the load and inference checkpoints.
         output_path: JSON report path (default: :func:`gguf_output_path`).
+        prompt_ids: Exact prompt token IDs submitted on every request instead of
+            encoding ``prompt``.
+        context_length: Fixed sequence capacity; the run fails unless the Runtime
+            reports exactly this capacity after load.
+        ignore_eos: Create the Task with an empty EOS set so every request runs to
+            ``max_new_tokens`` or the sequence capacity.
+        evidence_path: Raw ``gguf-task-events-1.1`` evidence file.
     """
 
     model_path: Path
@@ -138,6 +146,20 @@ class GGUFPerfConfig:
     warmup: int = 2
     memory: bool = False
     output_path: Path | None = None
+    prompt_ids: tuple[int, ...] | None = None
+    context_length: int | None = None
+    ignore_eos: bool = False
+    evidence_path: Path | None = None
+
+    @property
+    def uses_protocol_options(self) -> bool:
+        """Whether any exact-workload option (IDs, context, EOS, evidence) is set."""
+        return (
+            self.prompt_ids is not None
+            or self.context_length is not None
+            or self.ignore_eos
+            or self.evidence_path is not None
+        )
 
 
 @dataclass
@@ -232,38 +254,50 @@ class GGUFBenchmarkResult:
     requests: list[_GGUFRequestSample] = field(default_factory=list)
     aggregate: dict[str, Any] = field(default_factory=dict)
     memory_profile: dict[str, float | None] | None = None
+    prompt_ids_sha256: str | None = None
+    evidence_status: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to a JSON-serializable Task timing report."""
         cfg = self.config
+        benchmark_info: dict[str, Any] = {
+            "runtime": RUNTIME_TYPE,
+            "backend": BACKEND_NAME,
+            "api": "windowsml.tasks",
+            "timing_source": "task-stream",
+            "model_format": MODEL_FORMAT,
+            "experimental": True,
+            "model_id": str(cfg.model_path),
+            "running_model_path": str(cfg.model_path),
+            "ep": None,
+            "device": cfg.requested_device,
+            "effective_device": self.effective_device,
+            "iterations": cfg.iterations,
+            "warmup": cfg.warmup,
+            "max_new_tokens": cfg.max_new_tokens,
+            "apply_template": cfg.apply_template,
+            "chat_template_applied": self.chat_template_applied,
+            "prompt": cfg.prompt if cfg.prompt_ids is None else None,
+            "prompt_tokens": self.prompt_tokens,
+            "generated_tokens": self.generated_tokens,
+            "stop_reason": self.stop_reason,
+            "context_length": self.context_length,
+            "packages": dict(self.packages),
+            "llama_backends": list(self.llama_backends),
+            "timestamp": self.timestamp,
+        }
+        if cfg.uses_protocol_options:
+            benchmark_info.update(
+                input_mode="token_ids" if cfg.prompt_ids is not None else "text",
+                prompt_ids_sha256=self.prompt_ids_sha256,
+                context_length_requested=cfg.context_length,
+                eos_policy="ignore" if cfg.ignore_eos else "default",
+                evidence_path=str(cfg.evidence_path) if cfg.evidence_path is not None else None,
+                evidence_status=self.evidence_status,
+            )
         result: dict[str, Any] = {
             "schema_version": 3,
-            "benchmark_info": {
-                "runtime": RUNTIME_TYPE,
-                "backend": BACKEND_NAME,
-                "api": "windowsml.tasks",
-                "timing_source": "task-stream",
-                "model_format": MODEL_FORMAT,
-                "experimental": True,
-                "model_id": str(cfg.model_path),
-                "running_model_path": str(cfg.model_path),
-                "ep": None,
-                "device": cfg.requested_device,
-                "effective_device": self.effective_device,
-                "iterations": cfg.iterations,
-                "warmup": cfg.warmup,
-                "max_new_tokens": cfg.max_new_tokens,
-                "apply_template": cfg.apply_template,
-                "chat_template_applied": self.chat_template_applied,
-                "prompt": cfg.prompt,
-                "prompt_tokens": self.prompt_tokens,
-                "generated_tokens": self.generated_tokens,
-                "stop_reason": self.stop_reason,
-                "context_length": self.context_length,
-                "packages": dict(self.packages),
-                "llama_backends": list(self.llama_backends),
-                "timestamp": self.timestamp,
-            },
+            "benchmark_info": benchmark_info,
             "load": {
                 key: round(value, 3) if isinstance(value, float) else value
                 for key, value in self.load.items()
@@ -321,6 +355,7 @@ class GGUFPerfBenchmark:
         self._owns_session = session is None
         self._clock = clock
         self._stop_reasons: list[tuple[str, str]] = []
+        self._prompt_ids_sha256: str | None = None
 
     def run(self) -> GGUFBenchmarkResult:
         """Execute the benchmark and return aggregated metrics."""
@@ -348,10 +383,12 @@ class GGUFPerfBenchmark:
         session.open_tokenizer()
         tokenizer_ready = self._clock()
         # Size the context to this benchmark (excluded from the load span).
-        prompt_ids = session.encode_prompt(config.prompt, apply_template=config.apply_template)
+        prompt_ids = self._prompt_ids(session)
+        self._prompt_ids_sha256 = token_ids_sha256(prompt_ids)
         model_start = self._clock()
-        session.load(context_length=len(prompt_ids) + config.max_new_tokens)
+        self._load(session, prompt_ids)
         load_end = self._clock()
+        self._verify_load(session, prompt_ids)
         session_load_ms = ((tokenizer_ready - load_start) + (load_end - model_start)) * 1000.0
         if memory_tracker is not None:
             memory_tracker.record_after_load()
@@ -378,6 +415,56 @@ class GGUFPerfBenchmark:
             result.memory_profile = memory_tracker.to_dict()
         return result
 
+    def _prompt_ids(self, session: WinMLLlamaSession) -> list[int]:
+        """Return the exact prompt IDs, or encode the prompt text."""
+        config = self._config
+        if config.prompt_ids is not None:
+            return list(config.prompt_ids)
+        return session.encode_prompt(config.prompt, apply_template=config.apply_template)
+
+    def _load(self, session: WinMLLlamaSession, prompt_ids: Sequence[int]) -> int:
+        """Load the model and return the sequence capacity hint passed to the Runtime.
+
+        Raises:
+            LlamaSessionError: The prompt plus ``max_new_tokens`` exceeds
+                ``--context-length`` (checked before loading).
+        """
+        config = self._config
+        needed = len(prompt_ids) + config.max_new_tokens
+        context = needed if config.context_length is None else config.context_length
+        if needed > context:
+            raise LlamaSessionError(
+                f"--context-length {context} is smaller than the {len(prompt_ids)} prompt "
+                f"tokens plus --max-new-tokens {config.max_new_tokens}."
+            )
+        session.load(context_length=context, eos_token_ids=() if config.ignore_eos else None)
+        return context
+
+    def _verify_load(self, session: WinMLLlamaSession, prompt_ids: Sequence[int]) -> None:
+        """Check the loaded session honors the protocol options before any request.
+
+        Raises:
+            LlamaLoadError: The effective capacity differs from ``--context-length``,
+                or the Task kept EOS IDs under ``--ignore-eos``.
+            LlamaSessionError: Exact prompt IDs cannot be submitted to this model.
+        """
+        config = self._config
+        if config.context_length is not None and session.context_length != config.context_length:
+            raise LlamaLoadError(
+                f"--context-length {config.context_length} resolved to an effective sequence "
+                f"capacity of {session.context_length}; the Runtime did not apply the "
+                "requested capacity."
+            )
+        if config.ignore_eos:
+            eos_token_ids = session.task_default_eos_token_ids
+            if eos_token_ids:
+                raise LlamaLoadError(
+                    "--ignore-eos requested an empty EOS set, but the Task reports EOS "
+                    f"token IDs {list(eos_token_ids)}."
+                )
+        if config.prompt_ids is not None:
+            session.check_prompt_ids(prompt_ids)
+
     def _time_one_generation(
         self,
         session: WinMLLlamaSession,
@@ -389,13 +476,17 @@ class GGUFPerfBenchmark:
 
         The tokenizer renders the chat template and tokenizes in one call, so that
         span is reported as ``tokenization_duration_ms``; ``template_duration_ms``
-        is ``0``. Resetting the sequence state for a new request is reported as
+        is ``0``. Exact prompt IDs are not tokenized, so that span is ``0`` too.
+        Resetting the sequence state for a new request is reported as
         ``generator_create_duration_ms``.
         """
         config = self._config
         tokenize_start = self._clock()
-        prompt_ids = session.encode_prompt(config.prompt, apply_template=config.apply_template)
+        prompt_ids = self._prompt_ids(session)
         tokenize_end = self._clock()
+        tokenization_ms = (
+            (tokenize_end - tokenize_start) * 1000.0 if config.prompt_ids is None else 0.0
+        )
         timing = session.generate_timed(
             prompt_ids,
             max_new_tokens=config.max_new_tokens,
@@ -412,7 +503,7 @@ class GGUFPerfBenchmark:
             prompt_tokens=timing.input_tokens,
             generated_tokens=timing.generated_tokens,
             template_duration_ms=0.0,
-            tokenization_duration_ms=(tokenize_end - tokenize_start) * 1000.0,
+            tokenization_duration_ms=tokenization_ms,
             generator_create_duration_ms=timing.reset_s * 1000.0,
             task_ttft_duration_ms=(
                 timing.first_token_s * 1000.0 if timing.first_token_s is not None else None
@@ -466,6 +557,7 @@ class GGUFPerfBenchmark:
             load=self._load_metrics(session_load_ms),
             requests=samples,
             aggregate=aggregate,
+            prompt_ids_sha256=self._prompt_ids_sha256,
         )
 
     def _load_metrics(self, session_load_ms: float) -> dict[str, float | str | None]:

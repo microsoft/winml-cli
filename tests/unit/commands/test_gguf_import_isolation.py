@@ -134,7 +134,7 @@ def test_gguf_command_runs_without_heavy_dependency_imports(
                 self.chat_template_applied = apply_template
                 return [1, 2, 3, 4]
 
-            def load(self, *, context_length):
+            def load(self, *, context_length, eos_token_ids=None):
                 self.context_length = context_length
                 self.effective_device = self.device
 
