@@ -3464,50 +3464,9 @@ def perf(
     model = hf_model
     runtime = _resolve_runtime(runtime, model)
     is_gguf = Path(model).suffix.lower() == ".gguf"
-    cgep_trace = (runtime == "winml-ort" and ep is not None
-                  and ep[0].lower() in ("winmlcg", "winmlcgexecutionprovider"))
-    if etw_tracing is not None and (
-            (not cgep_trace and (runtime != "winml-runtime" or backend not in (None, "cgc")))
-            or device.lower() != "gpu" or Path(model).suffix.lower() not in (".onnx", ".mlir")
-            or monitor or op_tracing or module_class or compare_devices):
-        raise click.UsageError(
-            "--etw-tracing requires a local ONNX/MLIR model, winml-runtime, "
-            "CGC backend and --device gpu, without monitor/op-tracing/module modes.")
-    try:
-        effective_backend = resolve_runtime_api_backend(runtime, model, backend)
-    except ValueError as error:
-        raise click.UsageError(str(error)) from error
-    if cgc_lowering_target is not None and (
-        not cgep_trace and (runtime != "winml-runtime" or effective_backend != "cgc")
-    ):
-        raise click.UsageError(
-            "--cgc-lowering-target requires --runtime winml-runtime with the CGC backend."
-        )
-    # AC 11 (mockup spec): --top-k requires --op-tracing. Outside the
-    # op-tracing section the flag is meaningless, so reject it explicitly
-    # rather than silently ignoring a user's intent.
-    if top_k is not None and op_tracing is None:
-        raise click.UsageError("--top-k requires --op-tracing to be set.")
-    if top_k is not None and top_k < 1:
-        raise click.UsageError("--top-k must be >= 1.")
-
-    # Retain multiple trace samples for timing stability without the full
-    # benchmark's trace volume. Explicit iteration counts always take precedence.
-    if op_tracing and ctx.get_parameter_source("iterations") == click.core.ParameterSource.DEFAULT:
-        iterations = 10
-
-    json_mode = output_format == "json"
-    console = SafeConsole(stderr=True) if json_mode else SafeConsole()
-
-    # GGUF ignores ONNX build configuration. Route it before loading config
-    # dataclasses, which import unrelated EP/ORT session dependencies.
-    if is_gguf:
-        _run_gguf_runtime(ctx, model=model, runtime=runtime, console=console, json_mode=json_mode)
-        return
-
     # Apply build config defaults (CLI explicit options take precedence).
     # Read raw JSON so missing keys are distinguishable from dataclass defaults.
-    if config_file is not None:
+    if config_file is not None and not is_gguf:
         build_cfg, raw_cfg = cli_utils.load_build_config(config_file)
         lc = raw_cfg.get("loader") or {}
         cc = raw_cfg.get("compile") or {}
@@ -3531,6 +3490,58 @@ def perf(
                 ep = (configured_target.ep, configured_target.source)
             elif "execution_provider" in cc:
                 ep = (cc["execution_provider"], None)
+
+    cgep_trace = (
+        etw_tracing is not None
+        and runtime == "winml-ort"
+        and ep is not None
+        and ep[0].lower() in ("winmlcg", "winmlcgexecutionprovider")
+    )
+    if etw_tracing is not None and (
+            (not cgep_trace and (runtime != "winml-runtime" or backend not in (None, "cgc")))
+            or device.lower() != "gpu" or Path(model).suffix.lower() not in (".onnx", ".mlir")
+            or monitor or op_tracing or module_class or compare_devices):
+        raise click.UsageError(
+            "--etw-tracing requires --device gpu and either winml-runtime with CGC "
+            "(ONNX/MLIR) or winml-ort with --ep winmlcg (ONNX), without "
+            "monitor/op-tracing/module/compare-devices modes.")
+    try:
+        effective_backend = resolve_runtime_api_backend(runtime, model, backend)
+    except ValueError as error:
+        raise click.UsageError(str(error)) from error
+    if cgc_lowering_target is not None and (
+        not cgep_trace and (runtime != "winml-runtime" or effective_backend != "cgc")
+    ):
+        raise click.UsageError(
+            "--cgc-lowering-target requires winml-runtime with the CGC backend, "
+            "or winml-ort with --ep winmlcg and --etw-tracing."
+        )
+    if cgep_trace and (
+        cgc_lowering_target == "d3d12" or Path(model).suffix.lower() != ".onnx"
+    ):
+        raise click.UsageError("WinMLCG EP tracing requires ONNX and auto/dml lowering.")
+
+    # AC 11 (mockup spec): --top-k requires --op-tracing. Outside the
+    # op-tracing section the flag is meaningless, so reject it explicitly
+    # rather than silently ignoring a user's intent.
+    if top_k is not None and op_tracing is None:
+        raise click.UsageError("--top-k requires --op-tracing to be set.")
+    if top_k is not None and top_k < 1:
+        raise click.UsageError("--top-k must be >= 1.")
+
+    # Retain multiple trace samples for timing stability without the full
+    # benchmark's trace volume. Explicit iteration counts always take precedence.
+    if op_tracing and ctx.get_parameter_source("iterations") == click.core.ParameterSource.DEFAULT:
+        iterations = 10
+
+    json_mode = output_format == "json"
+    console = SafeConsole(stderr=True) if json_mode else SafeConsole()
+
+    # GGUF ignores ONNX build configuration. Route it before loading config
+    # dataclasses, which import unrelated EP/ORT session dependencies.
+    if is_gguf:
+        _run_gguf_runtime(ctx, model=model, runtime=runtime, console=console, json_mode=json_mode)
+        return
 
     if runtime == "winml-runtime" and ep_provider_options and not is_gguf:
         logger.warning("--ep-options are ignored with --runtime winml-runtime.")
@@ -3951,13 +3962,6 @@ def perf(
                     with GpuCapture(etw_tracing.resolve()) as capture:
                         capture.execution_path = "winmlcgep" if cgep_trace else "runtime-api"
                         capture.lowering_target = cgc_lowering_target or "auto"
-                        if cgep_trace and (
-                            capture.lowering_target == "d3d12"
-                            or Path(model).suffix.lower() != ".onnx"
-                        ):
-                            raise click.UsageError(
-                                "WinMLCG EP tracing requires ONNX and auto/dml lowering."
-                            )
                         try:
                             result = benchmark.run()
                         finally:
