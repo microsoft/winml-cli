@@ -95,6 +95,36 @@ def is_gguf_model(model: str | Path) -> bool:
     return Path(model).suffix.lower() == GGUF_SUFFIX
 
 
+def read_prompt_ids_file(path: Path) -> tuple[int, ...]:
+    """Read exact prompt token IDs from a UTF-8 JSON array file (a BOM is accepted).
+
+    Raises:
+        TypeError: The JSON document is not an array.
+        ValueError: The file cannot be read, is not JSON, is an empty array, or
+            holds an element that is not a non-negative integer.
+    """
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except OSError as exc:
+        raise ValueError(f"could not be read: {exc}") from exc
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"not valid JSON: {exc}") from exc
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"not valid JSON: {exc}") from exc
+    if not isinstance(data, list):
+        raise TypeError("expected a JSON array of token IDs")
+    if not data:
+        raise ValueError("expected at least one token ID")
+    for index, value in enumerate(data):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(
+                f"element {index} is not a non-negative integer token ID: {value!r}"
+            )
+    return tuple(data)
+
+
 def gguf_output_path(model_path: str | Path) -> Path:
     """Default JSON report path for a GGUF model.
 

@@ -2931,6 +2931,83 @@ _GGUF_IGNORED_FLAGS: dict[str, str] = {
     "config_file": "--config",
 }
 
+# Exact-workload options only the GGUF Task path implements, mapped to the flag.
+_GGUF_ONLY_FLAGS: dict[str, str] = {
+    "prompt_ids_file": "--prompt-ids-file",
+    "context_length": "--context-length",
+    "ignore_eos": "--ignore-eos/--no-ignore-eos",
+    "evidence": "--evidence",
+}
+
+
+def _reject_gguf_only_options(ctx: click.Context) -> None:
+    """Reject GGUF-only options for other inputs rather than silently ignoring them."""
+    provided = [
+        flag for param, flag in _GGUF_ONLY_FLAGS.items() if cli_utils.is_cli_provided(ctx, param)
+    ]
+    if provided:
+        raise click.UsageError(
+            "Options that only apply to GGUF models (.gguf) cannot be used with "
+            f"'{ctx.params['model']}': {', '.join(provided)}"
+        )
+
+
+def _resolve_gguf_prompt_ids(ctx: click.Context) -> tuple[int, ...] | None:
+    """Read ``--prompt-ids-file`` after checking it against the text-prompt options."""
+    from ._perf_gguf import read_prompt_ids_file
+
+    p = ctx.params
+    path: Path | None = p.get("prompt_ids_file")
+    if path is None:
+        return None
+    if cli_utils.is_cli_provided(ctx, "prompt") or p.get("prompt_file") is not None:
+        raise click.UsageError(
+            "--prompt-ids-file cannot be combined with --prompt or --prompt-file."
+        )
+    if cli_utils.is_cli_provided(ctx, "apply_template") and p["apply_template"]:
+        raise click.UsageError(
+            "--apply-template cannot be used with --prompt-ids-file: exact token IDs are "
+            "submitted without a chat template."
+        )
+    try:
+        prompt_ids = read_prompt_ids_file(path)
+    except (TypeError, ValueError) as exc:
+        raise click.UsageError(f"--prompt-ids-file {path}: {exc}") from exc
+    context_length = p.get("context_length")
+    if context_length is not None and len(prompt_ids) + p["max_new_tokens"] > context_length:
+        raise click.UsageError(
+            f"--context-length {context_length} is smaller than the {len(prompt_ids)} prompt "
+            f"token IDs plus --max-new-tokens {p['max_new_tokens']}."
+        )
+    return prompt_ids
+
+
+def _resolve_gguf_evidence(
+    ctx: click.Context, *, warmup: int, output: str | Path
+) -> Path | None:
+    """Check ``--evidence`` against the in-process options and the report path."""
+    from ._gguf_evidence import rows_path
+
+    p = ctx.params
+    evidence: Path | None = p.get("evidence")
+    if evidence is None:
+        return None
+    if cli_utils.is_cli_provided(ctx, "memory") and p["memory"]:
+        raise click.UsageError(
+            "--memory cannot be used with --evidence: an evidence run performs no "
+            "in-process resource sampling."
+        )
+    if warmup < 1:
+        raise click.UsageError(
+            "--evidence needs at least one warmup request: native log capture and "
+            "external GPU attribution use warmup 0."
+        )
+    if Path(output).resolve() in {evidence.resolve(), rows_path(evidence).resolve()}:
+        raise click.UsageError("--evidence and --output must name different files.")
+    cli_utils.guard_output(evidence, p["overwrite"], label="Evidence")
+    cli_utils.guard_output(rows_path(evidence), p["overwrite"], label="Evidence rows")
+    return evidence
+
 
 def _run_gguf_runtime(
     ctx: click.Context,
@@ -2989,8 +3066,11 @@ def _run_gguf_runtime(
     iterations = p["iterations"] if cli_utils.is_cli_provided(ctx, "iterations") else 10
     warmup = p["warmup"] if cli_utils.is_cli_provided(ctx, "warmup") else 2
     output = p.get("output") or generate_output_path(str(model_path))
+    prompt_ids = _resolve_gguf_prompt_ids(ctx)
+    evidence = _resolve_gguf_evidence(ctx, warmup=warmup, output=output)
     cli_utils.guard_output(output, p["overwrite"])
-    prompt = _resolve_prompt(ctx)
+    # Exact token IDs bypass the text prompt and its chat template.
+    prompt = _resolve_prompt(ctx) if prompt_ids is None else p["prompt"]
 
     config = GGUFPerfConfig(
         model_path=model_path,
@@ -2998,12 +3078,16 @@ def _run_gguf_runtime(
         device="cpu" if requested_device == "auto" else requested_device,
         requested_device=requested_device,
         prompt=prompt,
-        apply_template=p["apply_template"],
+        apply_template=p["apply_template"] and prompt_ids is None,
         max_new_tokens=p["max_new_tokens"],
         iterations=iterations,
         warmup=warmup,
-        memory=bool(p.get("memory")),
+        memory=bool(p.get("memory")) and evidence is None,
         output_path=output,
+        prompt_ids=prompt_ids,
+        context_length=p.get("context_length"),
+        ignore_eos=bool(p.get("ignore_eos")),
+        evidence_path=evidence,
     )
     run_gguf_perf(config, console=console, json_mode=json_mode)
 
@@ -3141,6 +3225,35 @@ def _validate_duration(
     default=128,
     show_default=True,
     help="[ort-genai, GGUF] Number of new tokens to generate per iteration.",
+)
+@click.option(
+    "--prompt-ids-file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="[GGUF] Read exact prompt token IDs from a JSON array file and submit them on "
+    "every request without a chat template. Cannot be combined with --prompt or "
+    "--prompt-file.",
+)
+@click.option(
+    "--context-length",
+    type=click.IntRange(min=1),
+    default=None,
+    help="[GGUF] Sequence capacity to load the model with; the run fails unless the "
+    "Runtime reports exactly this capacity. Default: prompt tokens plus --max-new-tokens.",
+)
+@click.option(
+    "--ignore-eos/--no-ignore-eos",
+    default=False,
+    show_default=True,
+    help="[GGUF] Create the Task with an empty EOS set so every request generates "
+    "--max-new-tokens tokens unless it reaches the sequence capacity.",
+)
+@click.option(
+    "--evidence",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="[GGUF] Write raw gguf-task-events-1.1 request evidence to this new JSON file "
+    "and a .rows.jsonl sidecar. Needs --warmup 1 or more and turns off --memory.",
 )
 @click.option(
     "--compile-timeout",
@@ -3340,6 +3453,10 @@ def perf(
     prompt_file: Path | None,
     apply_template: bool,
     max_new_tokens: int,
+    prompt_ids_file: Path | None,
+    context_length: int | None,
+    ignore_eos: bool,
+    evidence: Path | None,
     compile_timeout: int,
     task: str | None,
     submodel: str | None,
@@ -3542,6 +3659,7 @@ def perf(
     if is_gguf:
         _run_gguf_runtime(ctx, model=model, runtime=runtime, console=console, json_mode=json_mode)
         return
+    _reject_gguf_only_options(ctx)
 
     if runtime == "winml-runtime" and ep_provider_options and not is_gguf:
         logger.warning("--ep-options are ignored with --runtime winml-runtime.")

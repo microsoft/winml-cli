@@ -189,6 +189,12 @@ def _gguf(tmp_path: Path, name: str = "model.gguf") -> Path:
     return model
 
 
+def _ids_file(tmp_path: Path, content: bytes) -> Path:
+    path = tmp_path / "ids.json"
+    path.write_bytes(content)
+    return path
+
+
 # ---------------------------------------------------------------------------
 # Benchmark engine
 # ---------------------------------------------------------------------------
@@ -764,6 +770,240 @@ class TestCliDispatch:
 
         assert result.exit_code == 2, result.output
         assert "mutually exclusive" in result.output
+
+    def test_protocol_options_are_forwarded(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        ids = list(range(10))
+        evidence = tmp_path / "run" / "task-events.json"
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                str(_gguf(tmp_path)),
+                "--prompt-ids-file",
+                str(_ids_file(tmp_path, json.dumps(ids).encode())),
+                "--context-length",
+                "64",
+                "--ignore-eos",
+                "--evidence",
+                str(evidence),
+                "--max-new-tokens",
+                "8",
+                "-o",
+                str(tmp_path / "r.json"),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        config = capture_run["config"]
+        assert (
+            config.prompt_ids,
+            config.context_length,
+            config.ignore_eos,
+            config.evidence_path,
+            config.memory,
+            config.apply_template,
+        ) == (tuple(ids), 64, True, evidence, False, False)
+
+    def test_prompt_ids_file_accepts_a_utf8_bom(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        path = _ids_file(tmp_path, b"\xef\xbb\xbf" + json.dumps([1, 2]).encode())
+        result = runner.invoke(perf, ["-m", str(_gguf(tmp_path)), "--prompt-ids-file", str(path)])
+
+        assert result.exit_code == 0, result.output
+        assert capture_run["config"].prompt_ids == (1, 2)
+
+    @pytest.mark.parametrize(
+        ("content", "message"),
+        [
+            (b"[]", "at least one token ID"),
+            (b"[true]", "element 0"),
+            (b"[1, 1.5]", "element 1"),
+            (b"[-1]", "element 0"),
+            (b'{"ids": [1]}', "JSON array of token IDs"),
+            (b"1,2", "not valid JSON"),
+            (b"\xff[1]", "not valid JSON"),
+        ],
+    )
+    def test_prompt_ids_file_rejects_malformed_content(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict, content: bytes, message: str
+    ) -> None:
+        path = _ids_file(tmp_path, content)
+        result = runner.invoke(perf, ["-m", str(_gguf(tmp_path)), "--prompt-ids-file", str(path)])
+
+        assert result.exit_code == 2, result.output
+        assert f"--prompt-ids-file {path}" in result.output
+        assert message in result.output
+        assert "config" not in capture_run
+
+    @pytest.mark.parametrize(
+        ("extra", "message"),
+        [
+            (["--prompt", "hi"], "cannot be combined"),
+            (["--prompt-file", "<file>"], "cannot be combined"),
+            (["--apply-template"], "--apply-template cannot be used with --prompt-ids-file"),
+        ],
+    )
+    def test_prompt_ids_conflicts_are_usage_errors(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        capture_run: dict,
+        extra: list[str],
+        message: str,
+    ) -> None:
+        prompt_file = tmp_path / "prompt.txt"
+        prompt_file.write_text("hello", encoding="utf-8")
+        extra = [str(prompt_file) if value == "<file>" else value for value in extra]
+        ids = _ids_file(tmp_path, b"[1, 2]")
+        result = runner.invoke(
+            perf, ["-m", str(_gguf(tmp_path)), "--prompt-ids-file", str(ids), *extra]
+        )
+
+        assert result.exit_code == 2, result.output
+        assert message in result.output
+        assert "config" not in capture_run
+
+    def test_explicit_no_apply_template_is_allowed_with_prompt_ids(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        ids = _ids_file(tmp_path, b"[1, 2]")
+        result = runner.invoke(
+            perf,
+            ["-m", str(_gguf(tmp_path)), "--prompt-ids-file", str(ids), "--no-apply-template"],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert capture_run["config"].apply_template is False
+
+    def test_prompt_ids_plus_max_new_tokens_must_fit_context_length(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        ids = _ids_file(tmp_path, json.dumps(list(range(10))).encode())
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                str(_gguf(tmp_path)),
+                "--prompt-ids-file",
+                str(ids),
+                "--max-new-tokens",
+                "8",
+                "--context-length",
+                "16",
+            ],
+        )
+
+        assert result.exit_code == 2, result.output
+        assert "--context-length 16" in result.output
+        assert "config" not in capture_run
+
+    @pytest.mark.parametrize(
+        ("extra", "message"),
+        [
+            (["--memory"], "--memory cannot be used with --evidence"),
+            (["--warmup", "0"], "--evidence needs at least one warmup request"),
+        ],
+    )
+    def test_evidence_rejects_in_process_memory_and_zero_warmup(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        capture_run: dict,
+        extra: list[str],
+        message: str,
+    ) -> None:
+        evidence = tmp_path / "ev.json"
+        result = runner.invoke(
+            perf, ["-m", str(_gguf(tmp_path)), "--evidence", str(evidence), *extra]
+        )
+
+        assert result.exit_code == 2, result.output
+        assert message in result.output
+        assert "config" not in capture_run
+
+    @pytest.mark.parametrize("extra", [[], ["--no-memory"]])
+    def test_evidence_turns_off_default_memory_sampling(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict, extra: list[str]
+    ) -> None:
+        evidence = tmp_path / "ev.json"
+        result = runner.invoke(
+            perf, ["-m", str(_gguf(tmp_path)), "--evidence", str(evidence), *extra]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert capture_run["config"].memory is False
+
+    @pytest.mark.parametrize("existing", ["ev.json", "ev.rows.jsonl"])
+    def test_evidence_must_be_new_unless_overwrite(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict, existing: str
+    ) -> None:
+        (tmp_path / existing).write_text("{}", encoding="utf-8")
+        args = ["-m", str(_gguf(tmp_path)), "--evidence", str(tmp_path / "ev.json")]
+
+        result = runner.invoke(perf, args)
+        assert result.exit_code == 1, result.output
+        assert "already exists" in result.output
+        assert "config" not in capture_run
+
+        result = runner.invoke(perf, [*args, "--overwrite"])
+        assert result.exit_code == 0, result.output
+        assert capture_run["config"].evidence_path == tmp_path / "ev.json"
+
+    @pytest.mark.parametrize("output", ["x.json", "x.rows.jsonl"])
+    def test_evidence_and_output_must_differ(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict, output: str
+    ) -> None:
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                str(_gguf(tmp_path)),
+                "--evidence",
+                str(tmp_path / "x.json"),
+                "-o",
+                str(tmp_path / output),
+            ],
+        )
+
+        assert result.exit_code == 2, result.output
+        assert "--evidence and --output must name different files" in result.output
+        assert "config" not in capture_run
+
+    @pytest.mark.parametrize(
+        "flag",
+        [
+            ["--prompt-ids-file", "<ids>"],
+            ["--context-length", "8"],
+            ["--ignore-eos"],
+            ["--evidence", "<ev>"],
+        ],
+    )
+    @pytest.mark.parametrize("kind", ["onnx", "genai"])
+    def test_gguf_only_options_are_rejected_for_other_runtimes(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        capture_run: dict,
+        flag: list[str],
+        kind: str,
+    ) -> None:
+        if kind == "onnx":
+            model = tmp_path / "model.onnx"
+            model.write_bytes(b"")
+        else:
+            model = tmp_path / "bundle"
+            model.mkdir()
+            (model / "genai_config.json").write_text("{}", encoding="utf-8")
+        values = {"<ids>": str(_ids_file(tmp_path, b"[1]")), "<ev>": str(tmp_path / "ev.json")}
+        flag = [values.get(value, value) for value in flag]
+        result = runner.invoke(perf, ["-m", str(model), *flag])
+
+        assert result.exit_code == 2, result.output
+        assert "only apply to GGUF models" in result.output
+        assert "config" not in capture_run
 
 
 class TestAutoRuntime:

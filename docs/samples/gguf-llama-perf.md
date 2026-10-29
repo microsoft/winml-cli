@@ -105,9 +105,16 @@ These options apply to GGUF models:
 | `--prompt`, `--prompt-file` | The prompt for every generation. |
 | `--apply-template/--no-apply-template` | Render the prompt with the chat template stored in the GGUF file. Without a template, the raw prompt is used and the report sets `chat_template_applied` to `false`. |
 | `--max-new-tokens` | Upper bound on generated tokens per generation. |
+| `--prompt-ids-file` | A JSON array of token IDs (UTF-8; a byte order mark is accepted) submitted unchanged on every generation, with no chat template and no tokenization. Cannot be combined with `--prompt`, `--prompt-file`, or `--apply-template`. |
+| `--context-length` | Sequence capacity to load the model with, instead of the prompt tokens plus `--max-new-tokens`. The run fails before the first generation unless the Runtime reports exactly this capacity. |
+| `--ignore-eos/--no-ignore-eos` | Create the Task with an empty end-of-sequence set, so each generation runs to `--max-new-tokens` unless it reaches the sequence capacity. The run fails if the Task still reports end-of-sequence tokens. |
+| `--evidence` | Write raw `gguf-task-events-1.1` request evidence to this JSON file and to a `.rows.jsonl` file next to it. Both must be new unless you pass `--overwrite`, and neither can be the `--output` file. Needs `--warmup` of at least `1` and turns off `--memory`; an explicit `--memory` is an error. |
 | `--iterations`, `--warmup` | Timed and warmup generations (defaults `10` and `2`). |
 | `--memory/--no-memory` | Process RAM at the load and inference checkpoints. |
 | `--output`, `--overwrite`, `--format json` | Same as for the other runtimes. |
+
+`--prompt-ids-file`, `--context-length`, `--ignore-eos`, and `--evidence` apply only
+to GGUF models; `winml perf` rejects them for other inputs.
 
 Options that select another benchmark target are rejected: `--ep`, `--ep-options`,
 `--backend`, `--device-luid`, `--input-data`, `--module`, and `--submodel`.
