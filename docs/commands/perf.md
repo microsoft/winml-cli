@@ -193,6 +193,13 @@ throughput without a decode interval are also `null`. See the
 These timings differ from earlier GGUF schema version 2 Runtime measurements and
 the `ort-genai` metric definitions above; `ort-genai` remains unchanged.
 
+For a fixed workload, `--prompt-ids-file`, `--context-length`, and `--ignore-eos`
+submit exact token IDs, pin the sequence capacity, and run every request to
+`--max-new-tokens`. `--evidence PATH` also writes raw per-request time points and
+the effective configuration in the `gguf-task-events-1.1` format; the command exits
+with code 1 unless every planned request succeeded. See
+[Protocol runs with exact token IDs](../samples/gguf-llama-perf.md#protocol-runs-with-exact-token-ids).
+
 ## Examples
 
 ### Memory measurement contract

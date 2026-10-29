@@ -192,3 +192,118 @@ def test_gguf_command_runs_without_heavy_dependency_imports(
         str(ignored_config),
     )
     assert outcome == {"device": device, "memory": memory, "imports": []}
+
+
+def test_gguf_evidence_run_without_heavy_dependency_imports(tmp_path: Path) -> None:
+    outcome = _run_isolated(
+        """
+        import dataclasses
+        from pathlib import Path
+        from types import SimpleNamespace
+        from click.testing import CliRunner
+        from winml.modelkit.cli import main
+        from winml.modelkit.commands import _perf_gguf
+        from winml.modelkit.session.llama_session import LlamaRequestRecord
+        from winml.modelkit.telemetry.telemetry import Telemetry
+
+        Telemetry.get_or_init = classmethod(lambda cls: SimpleNamespace(disabled=True))
+        root = Path(sys.argv[1])
+        model = root / "placeholder.gguf"
+        model.write_bytes(b"GGUF")
+        ids = root / "ids.json"
+        ids.write_text("[1, 2, 3, 4]", encoding="utf-8")
+        evidence = root / "task-events.json"
+        output = root / "report.json"
+        sessions = []
+
+        @dataclasses.dataclass(frozen=True)
+        class Options:
+            max_new_tokens: int
+            stop_token_ids: tuple = ()
+
+        class FakeSession:
+            def __init__(self, model_path, *, device):
+                assert model_path == model
+                self.context_length = None
+                self.effective_device = None
+                self.chat_template_applied = None
+                self.load_timings_ms = {}
+                self.payload = None
+                self.initialization_spans = [("runtime_create", 1, 2), ("tokenizer_open", 2, 3)]
+                self.declared_context_length = None
+                self.task_default_eos_token_ids = ()
+                self.tokenizer_eos_token_ids = (7,)
+                self.speculative_readback = {"model_draft_predictor_enabled": False,
+                                             "draft_token_limit_hint": 0,
+                                             "draft_predictor_path": None, "reason": None}
+                self.resolved_target_kind = "cpu"
+                self.requests = 0
+                self.closed = False
+                sessions.append(self)
+
+            def open_tokenizer(self):
+                pass
+
+            def load(self, *, context_length, eos_token_ids=None):
+                assert (context_length, eos_token_ids) == (16, ())
+                self.context_length = context_length
+                self.effective_device = "cpu"
+
+            def check_prompt_ids(self, token_ids):
+                assert list(token_ids) == [1, 2, 3, 4]
+
+            def greedy_options(self, max_new_tokens):
+                return Options(max_new_tokens=max_new_tokens)
+
+            def run_request(self, token_ids, *, options, clock_ns):
+                start = clock_ns()
+                times = [start + 1000 * step for step in range(9)]
+                tokens = tuple(range(10, 10 + options.max_new_tokens))
+                self.requests += 1
+                return LlamaRequestRecord(
+                    input_ids=tuple(token_ids), reset_start_ns=times[0],
+                    reset_end_ns=times[1],
+                    reset_disclosure={
+                        "state": "EMPTY",
+                        "sequence_state": {"disclosure": "NONE", "session_state": "EMPTY",
+                                           "evaluated_token_count": 0,
+                                           "retained_token_count": 0},
+                        "retained_token_ids": [],
+                    },
+                    submit_ns=times[2], stream_created_ns=times[3],
+                    events=tuple(zip(times[4:7], tokens)), completed_ns=times[7],
+                    result_fetched_ns=times[8], result_token_ids=tokens,
+                    prompt_token_count=len(token_ids), finish_reason="MAX_TOKENS",
+                    error_code=0,
+                    speculative_statistics={"method": "NONE", "verification_step_count": 0,
+                                            "draft_token_count": 0,
+                                            "accepted_draft_token_count": 0},
+                    response_text="abc",
+                )
+
+            def close(self):
+                self.closed = True
+
+        # Only the native session is replaced; evidence identity, native log
+        # capture, request rows and the atomic writer execute their real code.
+        _perf_gguf.WinMLLlamaSession = FakeSession
+        args = ["perf", "-m", str(model), "--prompt-ids-file", str(ids),
+                "--context-length", "16", "--ignore-eos", "--evidence", str(evidence),
+                "--warmup", "1", "--iterations", "2", "--max-new-tokens", "3",
+                "--output", str(output)]
+        result = CliRunner().invoke(main, args)
+        assert result.exit_code == 0, (result.output, repr(result.exception))
+        assert not attempts, attempts
+        assert not [name for name in sys.modules if is_blocked(name)]
+        assert "windowsml" not in sys.modules
+        assert len(sessions) == 1 and sessions[0].requests == 3 and sessions[0].closed
+        document = json.loads(evidence.read_text(encoding="utf-8"))
+        rows = (root / "task-events.rows.jsonl").read_text(encoding="utf-8").splitlines()
+        report = json.loads(output.read_text(encoding="utf-8"))
+        assert report["benchmark_info"]["evidence_status"] == document["status"]
+        print(json.dumps({"status": document["status"], "rows": len(rows),
+                          "imports": attempts}))
+        """,
+        str(tmp_path),
+    )
+    assert outcome == {"status": "complete", "rows": 3, "imports": []}
