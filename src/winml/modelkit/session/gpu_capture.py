@@ -145,6 +145,7 @@ def analyze_trace(directory: Path) -> dict:
     result["mean_ms"] = mean(ordered)
     result["aggregation"] = "per-run; single-window median"
     result["trace_directory"] = str(directory.resolve())
+    result["execution_path"] = markers.get("execution_path", "runtime-api")
     result["collection_profile"] = markers.get("collection_profile", "runtime-gpu-timing")
     result["unavailable_providers"] = markers.get("unavailable_providers", [])
     return result
@@ -158,6 +159,8 @@ class GpuCapture:
     def __init__(self, directory: Path) -> None:
         """Runtime ETW __init__."""
         self.directory = directory
+        self.execution_path = "runtime-api"
+        self.lowering_target = "auto"
         self.name = "WinMLCLI-" + uuid.uuid4().hex
         self.windows: list[tuple[int, int, int]] = []
         self.started = False
@@ -261,6 +264,7 @@ class GpuCapture:
             json.dumps(
                 {
                     "pid": os.getpid(),
+                    "execution_path": self.execution_path,
                     "windows": self.windows,
                     "collection_profile": "runtime-ort-gpu-diagnostics-verbose",
                     "unavailable_providers": self.unavailable_providers,

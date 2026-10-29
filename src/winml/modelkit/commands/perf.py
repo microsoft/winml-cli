@@ -1429,7 +1429,11 @@ class PerfBenchmark:
             "no_compile": self.config.no_compile,
             "runtime": self.config.runtime,
             "backend": self._runtime_backend,
-            "cgc_lowering_target": self.config.cgc_lowering_target,
+            # ORT CGEP lowering is applied to SessionOptions by the ETW collector.
+            "cgc_lowering_target": (
+                self.config.cgc_lowering_target
+                if self.config.runtime == "winml-runtime" else None
+            ),
             # optimize/analyze/max-optim toggles, forwarded by WinMLAutoModel to
             # build_hf_model / build_onnx_model. Shared mapping with build/eval.
             **cli_utils.build_pipeline_extra_kwargs(
@@ -3460,7 +3464,10 @@ def perf(
     model = hf_model
     runtime = _resolve_runtime(runtime, model)
     is_gguf = Path(model).suffix.lower() == ".gguf"
-    if etw_tracing is not None and (runtime != "winml-runtime" or backend not in (None, "cgc")
+    cgep_trace = (runtime == "winml-ort" and ep is not None
+                  and ep[0].lower() in ("winmlcg", "winmlcgexecutionprovider"))
+    if etw_tracing is not None and (
+            (not cgep_trace and (runtime != "winml-runtime" or backend not in (None, "cgc")))
             or device.lower() != "gpu" or Path(model).suffix.lower() not in (".onnx", ".mlir")
             or monitor or op_tracing or module_class or compare_devices):
         raise click.UsageError(
@@ -3471,7 +3478,7 @@ def perf(
     except ValueError as error:
         raise click.UsageError(str(error)) from error
     if cgc_lowering_target is not None and (
-        runtime != "winml-runtime" or effective_backend != "cgc"
+        not cgep_trace and (runtime != "winml-runtime" or effective_backend != "cgc")
     ):
         raise click.UsageError(
             "--cgc-lowering-target requires --runtime winml-runtime with the CGC backend."
@@ -3942,6 +3949,15 @@ def perf(
 
                 try:
                     with GpuCapture(etw_tracing.resolve()) as capture:
+                        capture.execution_path = "winmlcgep" if cgep_trace else "runtime-api"
+                        capture.lowering_target = cgc_lowering_target or "auto"
+                        if cgep_trace and (
+                            capture.lowering_target == "d3d12"
+                            or Path(model).suffix.lower() != ".onnx"
+                        ):
+                            raise click.UsageError(
+                                "WinMLCG EP tracing requires ONNX and auto/dml lowering."
+                            )
                         try:
                             result = benchmark.run()
                         finally:
