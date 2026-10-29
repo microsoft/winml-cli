@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import statistics
 import sys
 import threading
 import time
@@ -18,6 +19,7 @@ import psutil
 
 
 if TYPE_CHECKING:
+    from ._dxgi_memory import DxgiMemoryReader
     from ._gpu_baseline import GpuBaselineDevice
 
 logger = logging.getLogger(__name__)
@@ -339,7 +341,13 @@ class ProcessMemoryTracker:
         adapter_luid: str | None = None,
         scope: str = "before_model_load_through_inference",
         interval: float = 0.05,
+        backend: str = "pdh",
     ) -> None:
+        self.backend = backend
+        self._dxgi_reader: DxgiMemoryReader | None = None
+        self._phase = "startup"
+        self._phase_samples: dict[str, dict[str, list[float]]] = {}
+        self._phase_errors: dict[str, int] = {}
         self.adapter_luid = adapter_luid
         self.scope = scope
         self.interval = interval
@@ -370,9 +378,25 @@ class ProcessMemoryTracker:
         self._baseline_owner: MemoryTracker | None = None
 
     def _observe(self) -> tuple[dict[str, float | None], dict[str, str]]:
-        values, errors = _device_memory(self.adapter_luid)
+        if self.backend == "dxgi":
+            values: dict[str, float | None] = {"vram_local": None, "vram_shared": None}
+            errors = {}
+            if self._dxgi_reader is not None:
+                readings = self._dxgi_reader.sample()
+                for name, field in (("local", "vram_local"), ("nonlocal", "vram_shared")):
+                    value = readings[name]["value_bytes"]
+                    values[field] = value / MIB if value is not None else None
+                    if value is None:
+                        errors[field] = readings[name]["hresult"]
+            else:
+                errors = dict.fromkeys(values, "DXGI adapter not bound")
+        else:
+            values, errors = _device_memory(self.adapter_luid)
         try:
+            info = psutil.Process(os.getpid()).memory_info()
             values["rss"] = get_rss_mb()
+            private = getattr(info, "private", None)
+            values["private_commit"] = private / MIB if private is not None else None
         except psutil.Error as exc:
             values["rss"] = None
             errors["rss"] = f"query_failed:{type(exc).__name__}"
@@ -384,6 +408,7 @@ class ProcessMemoryTracker:
         values, errors = self._observe()
         self.checkpoints[phase] = values
         self.availability[phase] = errors
+        self._phase = phase
         # Explicit observations belong to the load peak, but are not polling samples.
         with self._lock:
             if during_load and self._load_active:
@@ -397,6 +422,10 @@ class ProcessMemoryTracker:
             return
         self.adapter_luid = adapter_luid
         self._binding_before_load = True
+        if self.backend == "dxgi" and adapter_luid is not None:
+            from ._dxgi_memory import DxgiMemoryReader
+
+            self._dxgi_reader = DxgiMemoryReader(adapter_luid)
         self._baseline_owner = MemoryTracker(
             adapter_luid, baseline="before_model_load", device=device
         )
@@ -437,9 +466,12 @@ class ProcessMemoryTracker:
     def _sample(self) -> None:
         while not self._stop.is_set():
             during_load = self._load_active
-            values, _ = self._observe()
+            phase = self._phase
+            values, query_errors = self._observe()
             sampled_at = time.monotonic()
             with self._lock:
+                if self.backend == "dxgi" and phase == self._phase and query_errors:
+                    self._phase_errors[phase] = self._phase_errors.get(phase, 0) + 1
                 if self._last_sample_at is not None:
                     elapsed = sampled_at - self._last_sample_at
                     self._sample_interval_count += 1
@@ -450,6 +482,9 @@ class ProcessMemoryTracker:
                     if value is not None:
                         self._counts[key] = self._counts.get(key, 0) + 1
                         self._peaks[key] = max(value, self._peaks.get(key, value))
+                        if self.backend == "dxgi" and phase == self._phase:
+                            phase_values = self._phase_samples.setdefault(phase, {})
+                            phase_values.setdefault(key, []).append(value)
                         if during_load and self._load_active:
                             self._load_counts[key] = self._load_counts.get(key, 0) + 1
                             self._load_peaks[key] = max(value, self._load_peaks.get(key, value))
@@ -467,6 +502,9 @@ class ProcessMemoryTracker:
 
     def close(self) -> None:
         """Release retained baseline preparation after sampling has stopped."""
+        if self._dxgi_reader is not None:
+            self._dxgi_reader.close()
+            self._dxgi_reader = None
         if self._baseline_owner is not None:
             self._baseline_owner.close()
 
@@ -586,6 +624,14 @@ class ProcessMemoryTracker:
                 "pid": os.getpid(),
                 "adapter_luid": self.adapter_luid,
                 "unit": "MiB",
+                "counter_backend": self.backend,
+                "phase_query_errors": dict(self._phase_errors),
+                "phase_statistics": {
+                    phase: {key: {"median_mib": statistics.median(values),
+                                  "peak_mib": max(values), "samples": len(values)}
+                            for key, values in counters.items()}
+                    for phase, counters in self._phase_samples.items()
+                },
                 "configured_poll_delay_sec": self.interval,
                 "observed_mean_interval_sec": (
                     self._sample_interval_total / self._sample_interval_count

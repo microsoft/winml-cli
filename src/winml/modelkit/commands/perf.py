@@ -573,6 +573,7 @@ class BenchmarkConfig:
     precision: str = "auto"
     iterations: int = 100
     warmup: int = 10
+    warmup_seconds: float = 0.0
     # When set, the benchmark phase runs for this many wall-clock seconds (after
     # warmup) instead of a fixed ``iterations`` count. Ideal with --monitor,
     # whose PDH counters need time to emit real utilization data.
@@ -590,6 +591,7 @@ class BenchmarkConfig:
     allow_unsupported_nodes: bool = False
     monitor: bool = False
     memory: bool = True
+    memory_backend: str = "pdh"
     ep: EPNameOrAlias | None = None
     ep_source: str | None = None  # parsed from '--ep <name>@<source>' syntax
     device_luid: str | None = None
@@ -638,6 +640,7 @@ class BenchmarkResult:
     # Raw samples (for advanced analysis)
     raw_samples_ms: list[float] = field(default_factory=list)
     gpu_execution: dict[str, Any] | None = None
+    warmup_measurement: dict[str, Any] | None = None
 
     # Throughput
     samples_per_sec: float = 0.0
@@ -672,6 +675,7 @@ class BenchmarkResult:
         result: dict[str, Any] = {
             "schema_version": 2,
             **({"gpu_execution": self.gpu_execution} if self.gpu_execution is not None else {}),
+            **({"warmup_measurement": self.warmup_measurement} if self.warmup_measurement else {}),
             "benchmark_info": {
                 "runtime": self.config.runtime,
                 "timing_scope": (
@@ -1190,7 +1194,10 @@ class PerfBenchmark:
         if self.config.memory:
             from ..session.monitor import ProcessMemoryTracker
 
-            self._memory_tracker = ProcessMemoryTracker()
+            self._memory_tracker = ProcessMemoryTracker(
+                backend=self.config.memory_backend,
+                interval=0.01 if self.config.memory_backend == "dxgi" else 0.05,
+            )
             self._memory_tracker.start()
         try:
             # [1] Load model (build pipeline: optimize, cache, etc.)
@@ -1262,6 +1269,7 @@ class PerfBenchmark:
             self._memory_tracker = ProcessMemoryTracker(
                 adapter_luid=self._resolve_adapter_luid(),
                 scope="already_loaded_component_through_inference",
+                backend=self.config.memory_backend,
             )
             self._memory_tracker.start()
             self._memory_tracker.checkpoint("after_load")
@@ -1558,13 +1566,39 @@ class PerfBenchmark:
 
         session = self._single._session
         with _native_warning_filtered_perf(session, warmup=self.config.warmup) as ctx:
-            _run_simple_loop(
-                session,
-                self._inputs,
-                total_iterations,
-                warmup=self.config.warmup,
-                duration_sec=self.config.duration,
-            )
+            if self.config.warmup_seconds > 0:
+                started = time.perf_counter()
+                count = 0
+                while (count < self.config.warmup or
+                       time.perf_counter() - started < self.config.warmup_seconds):
+                    ctx.stats.warmup = count + 1
+                    session.run(self._inputs)
+                    count += 1
+                self._timed_warmup = {
+                    "count": count, "duration_ms": (time.perf_counter() - started) * 1000,
+                    "minimum_count": self.config.warmup,
+                    "minimum_seconds": self.config.warmup_seconds,
+                }
+                total_iterations = self.config.iterations
+                if self._memory_tracker is not None:
+                    self._memory_tracker.checkpoint("steady_inference")
+            if self.config.memory_backend == "dxgi":
+                steady_start = time.perf_counter()
+                measured = 0
+                while measured < self.config.iterations or time.perf_counter() - steady_start < 10:
+                    session.run(self._inputs)
+                    measured += 1
+                self._steady_measurement = {
+                    "count": measured, "duration_ms": (time.perf_counter() - steady_start) * 1000
+                }
+            else:
+                _run_simple_loop(
+                    session,
+                    self._inputs,
+                    total_iterations,
+                    warmup=0 if self.config.warmup_seconds > 0 else self.config.warmup,
+                    duration_sec=self.config.duration,
+                )
 
         # Expose ctx for post-benchmark reporting (parity with monitored path).
         self._perf_ctx = ctx
@@ -1693,11 +1727,12 @@ class PerfBenchmark:
         std_ms = float(np.std(samples)) if samples else 0.0
 
         # Calculate warmup mean latency
-        warmup_samples = stats.all_samples_ms[: self.config.warmup]
+        warmup_samples = stats.all_samples_ms[: stats.warmup]
         warmup_mean_ms = float(np.mean(warmup_samples)) if warmup_samples else 0.0
 
         return BenchmarkResult(
             config=self.config,
+            warmup_measurement=getattr(self, "_timed_warmup", None),
             # Model info
             input_names=io_config["input_names"],
             input_shapes=[list(s) if s else [] for s in io_config["input_shapes"]],
@@ -3317,6 +3352,10 @@ def _validate_duration(
 @cli_utils.verbosity_options()
 @cli_utils.no_color_option()
 @click.pass_context
+@click.option("--memory-backend", type=click.Choice(["pdh", "dxgi"]), default="pdh",
+              help="GPU memory counter backend; dxgi queries in-process application usage.")
+@click.option("--warmup-seconds", type=click.FloatRange(min=0), default=0.0,
+              help="Minimum warmup duration in seconds, in addition to --warmup count.")
 @click.option(
     "--etw-tracing", type=click.Path(path_type=Path), default=None,
     help="Collect Runtime ETW events to a new directory and report GPU execution timing "
@@ -3324,6 +3363,8 @@ def _validate_duration(
 )
 def perf(
     ctx: click.Context,
+    memory_backend: str,
+    warmup_seconds: float,
     etw_tracing: Path | None,
     model: str | None,
     runtime: RuntimeName | Literal["dxcgc"],
@@ -3422,6 +3463,10 @@ def perf(
         raise click.UsageError("A model is required via -m/--model.")
 
     if runtime == "dxcgc":
+        if memory_backend == "dxgi" or warmup_seconds > 0:
+            raise click.UsageError(
+                "DXGI memory and timed warmup options are not supported by the raw CLI route."
+            )
         from ._perf_dxcgc import run_dxcgc
 
         run_dxcgc(ctx)
@@ -3463,6 +3508,16 @@ def perf(
         raise click.ClickException(f"Failed to resolve Hub-hosted ONNX path {model!r}: {e}") from e
     model = hf_model
     runtime = _resolve_runtime(runtime, model)
+    if memory_backend == "dxgi":
+        if not etw_tracing or not memory or device.lower() != "gpu":
+            raise click.UsageError(
+                "DXGI memory measurement requires GPU, memory and --etw-tracing."
+            )
+        warmup_seconds = max(2.0, warmup_seconds)
+        warmup = max(10, warmup)
+        iterations = max(200, iterations)
+    if warmup_seconds > 0 and (monitor or op_tracing or module_class or runtime == "ort-genai"):
+        raise click.UsageError("--warmup-seconds supports unmonitored single-model inference.")
     is_gguf = Path(model).suffix.lower() == ".gguf"
     # Apply build config defaults (CLI explicit options take precedence).
     # Read raw JSON so missing keys are distinguishable from dataclass defaults.
@@ -3858,6 +3913,8 @@ def perf(
     # ``ep_source_part`` were unpacked once from the --ep tuple above.
     config = BenchmarkConfig(
         model_id=hf_model,
+        memory_backend=memory_backend,
+        warmup_seconds=warmup_seconds,
         runtime=runtime,
         backend=effective_backend,
         cgc_lowering_target=cgc_lowering_target,
@@ -3969,6 +4026,34 @@ def perf(
                     if isinstance(result, dict):
                         raise click.UsageError("--etw-tracing does not support composite models.")
                     result.gpu_execution = capture.finish()
+                    if memory_backend == "dxgi":
+                        gpu_ms = sum(result.gpu_execution["samples_ms"])
+                        if gpu_ms < 2000:
+                            raise click.ClickException(
+                                "Below 2 GPU seconds; increase --iterations."
+                                " Trace retained; steady-memory result is invalid."
+                            )
+                        result.process_memory = result.process_memory or {}
+                        steady = result.process_memory.get("phase_statistics", {}).get(
+                            "steady_inference", {}
+                        )
+                        required = ("rss", "private_commit", "vram_local", "vram_shared")
+                        if any(key not in steady for key in required) or result.process_memory.get(
+                            "phase_query_errors", {}
+                        ).get("steady_inference", 0):
+                            raise click.ClickException("Incomplete steady memory samples.")
+                        result.process_memory["steady_validation"] = {
+                            **benchmark._steady_measurement, "gpu_time_ms": gpu_ms,
+                            "status": "valid", "performance_acceptance": False,
+                            "resource_lifetime_tracking": "unavailable",
+                        }
+                        result.process_memory["steady_bytes"] = {
+                            name: steady[key]["median_mib"] * 1048576
+                            for name, key in (("working_set", "rss"),
+                                              ("private_commit", "private_commit"),
+                                              ("local_usage", "vram_local"),
+                                              ("nonlocal_usage", "vram_shared"))
+                        }
                 except (OSError, RuntimeError) as exc:
                     raise click.ClickException(str(exc)) from exc
 
