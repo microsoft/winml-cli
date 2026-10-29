@@ -132,6 +132,76 @@ class LlamaGenerationTiming:
     stop_reason: str
 
 
+# Task finish reasons that end a generation normally, with the stop-reason
+# names reported by the benchmark. ERROR and unknown reasons are failures.
+_TASK_STOP_REASONS: dict[str, str] = {
+    "EOS_TOKEN": "EOS",
+    "STOP_TOKEN": "STOP_TOKEN",
+    "MAX_TOKENS": "MAX_TOKENS",
+    "SEQUENCE_CAPACITY": "CAPACITY",
+    "CANCELED": "CANCELED",
+}
+
+
+@dataclass(frozen=True)
+class LlamaRequestRecord:
+    """Caller-observed ``time.perf_counter_ns`` points and Task outputs of one request.
+
+    Every time point is read by the caller immediately around the Task call it
+    names; no backend timing is involved. Failures are recorded rather than
+    raised so a benchmark can keep every planned request.
+
+    Attributes:
+        input_ids: Token IDs passed to ``generate_tokens``.
+        reset_start_ns: Immediately before the session reset.
+        reset_end_ns: After the reset returned; ``None`` when it raised.
+        reset_error: The reset failure; no request was submitted.
+        reset_disclosure: Session state after the reset: ``state``,
+            ``sequence_state`` (``disclosure``, ``session_state``,
+            ``evaluated_token_count``, ``retained_token_count``) and
+            ``retained_token_ids``, with enums as their names.
+        disclosure_error: Why the state disclosure could not be read.
+        submit_ns: Immediately before ``generate_tokens``.
+        stream_created_ns: After ``generate_tokens`` returned the stream.
+        events: ``(observed_ns, token_id)`` for each ``read_next()`` update.
+        completed_ns: When ``read_next()`` returned the end of the stream.
+        result_fetched_ns: After the terminal result was read and checked.
+        result_token_ids: Token IDs reported by the Task result.
+        prompt_token_count: Prompt token count reported by the Task result.
+        finish_reason: Name of the Task finish reason.
+        error_code: Task result error code.
+        speculative_statistics: ``method`` name and the three draft counts.
+        response_text: Canonical text returned by the Task result.
+        error: The first failure after submission.
+    """
+
+    input_ids: tuple[int, ...]
+    reset_start_ns: int
+    reset_end_ns: int | None = None
+    reset_error: BaseException | None = None
+    reset_disclosure: dict[str, Any] | None = None
+    disclosure_error: BaseException | None = None
+    submit_ns: int | None = None
+    stream_created_ns: int | None = None
+    events: tuple[tuple[int, int], ...] = ()
+    completed_ns: int | None = None
+    result_fetched_ns: int | None = None
+    result_token_ids: tuple[int, ...] | None = None
+    prompt_token_count: int | None = None
+    finish_reason: str | None = None
+    error_code: int | None = None
+    speculative_statistics: dict[str, Any] | None = None
+    response_text: str | None = None
+    error: BaseException | None = None
+
+    @property
+    def task_stop_reason(self) -> str | None:
+        """Normalized stop reason; ``None`` for ``ERROR``, unknown reasons, or no result."""
+        if self.finish_reason is None:
+            return None
+        return _TASK_STOP_REASONS.get(self.finish_reason)
+
+
 @dataclass(frozen=True)
 class LlamaPayload:
     """llama.cpp payload discovered beside the installed Runtime.
@@ -320,6 +390,56 @@ def _translate_native_errors(phase: str, *, device: str) -> Iterator[None]:
         if phase == "run":
             raise LlamaSessionError(f"GGUF inference failed ({hex_hr}): {exc}") from exc
         raise LlamaLoadError(f"GGUF {phase} failed ({hex_hr}): {exc}") from exc
+
+
+def _enum_name(value: Any) -> str:
+    """Return a projected enum's name (or the value itself as text)."""
+    return str(getattr(value, "name", value))
+
+
+def _read_reset_disclosure(session: Any) -> tuple[dict[str, Any] | None, BaseException | None]:
+    """Read the Task session state right after a reset.
+
+    Returns ``(disclosure, None)``, or ``(None, error)`` when the projection or
+    the native session cannot disclose its state; generation still proceeds.
+    """
+    try:
+        state = _enum_name(session.state)
+        sequence = session.sequence_state
+        retained = [int(token) for token in session.retained_token_ids]
+        disclosure = {
+            "state": state,
+            "sequence_state": {
+                "disclosure": _enum_name(sequence.disclosure),
+                "session_state": _enum_name(sequence.session_state),
+                "evaluated_token_count": int(sequence.evaluated_token_count),
+                "retained_token_count": int(sequence.retained_token_count),
+            },
+            "retained_token_ids": retained,
+        }
+    except Exception as exc:  # disclosure is diagnostic evidence
+        return None, exc
+    return disclosure, None
+
+
+def _result_fields(result: Any) -> dict[str, Any]:
+    """Copy the terminal Task result fields that a request record keeps."""
+    statistics = getattr(result, "speculative_statistics", None)
+    return {
+        "result_token_ids": tuple(int(token) for token in result.token_ids),
+        "prompt_token_count": int(result.prompt_token_count),
+        "finish_reason": _enum_name(result.finish_reason),
+        "error_code": int(result.error_code),
+        "speculative_statistics": None
+        if statistics is None
+        else {
+            "method": _enum_name(statistics.method),
+            "verification_step_count": int(statistics.verification_step_count),
+            "draft_token_count": int(statistics.draft_token_count),
+            "accepted_draft_token_count": int(statistics.accepted_draft_token_count),
+        },
+        "response_text": str(result.text),
+    }
 
 
 def _close_quietly(resource: Any) -> None:
@@ -846,20 +966,86 @@ class WinMLLlamaSession:
             stop_reason=stop_reason,
         )
 
+    def run_request(
+        self,
+        token_ids: Sequence[int],
+        *,
+        options: Any,
+        clock_ns: Callable[[], int] = time.perf_counter_ns,
+    ) -> LlamaRequestRecord:
+        """Run one Task request and record caller-observed evidence.
+
+        The order of clock reads is the measurement definition: the reset and
+        the state disclosure happen before ``submit_ns``, which is read
+        immediately before ``generate_tokens``; each ``read_next()`` update is
+        one event stamped as soon as the call returns; ``completed_ns`` marks
+        the end of the stream and ``result_fetched_ns`` the checked result.
+
+        Args:
+            token_ids: Prompt token IDs, submitted unchanged.
+            options: Task generation options, e.g. from :meth:`greedy_options`.
+            clock_ns: Monotonic integer-nanosecond clock (injectable for tests).
+
+        Returns:
+            The record. Reset, stream and result failures are recorded in it
+            instead of raised, so the caller can keep every planned request.
+
+        Raises:
+            LlamaSessionError: :meth:`load` has not been called.
+        """
+        if self._task_session is None:
+            raise LlamaSessionError("WinMLLlamaSession.load() must be called before generation.")
+        session = self._task_session
+        ids = tuple(int(token) for token in token_ids)
+        reset_start_ns = clock_ns()
+        try:
+            session.reset()
+        except Exception as exc:  # recorded: the session cannot take this request
+            return LlamaRequestRecord(
+                input_ids=ids, reset_start_ns=reset_start_ns, reset_error=exc
+            )
+        reset_end_ns = clock_ns()
+        disclosure, disclosure_error = _read_reset_disclosure(session)
+
+        fields: dict[str, Any] = {}
+        events: list[tuple[int, int]] = []
+        stream = None
+        try:
+            fields["submit_ns"] = clock_ns()
+            stream = session.generate_tokens(ids, options)
+            fields["stream_created_ns"] = clock_ns()
+            while True:
+                update = stream.read_next()
+                observed_ns = clock_ns()
+                if update is None:
+                    fields["completed_ns"] = observed_ns
+                    break
+                events.append((observed_ns, int(update.token_id)))
+            result = stream.result
+            fields.update(_result_fields(result))
+            result.raise_for_error()
+            fields["result_fetched_ns"] = clock_ns()
+        except Exception as exc:  # recorded: the caller decides what a failure means
+            fields["error"] = exc
+        finally:
+            _close_quietly(stream)
+        return LlamaRequestRecord(
+            input_ids=ids,
+            reset_start_ns=reset_start_ns,
+            reset_end_ns=reset_end_ns,
+            reset_disclosure=disclosure,
+            disclosure_error=disclosure_error,
+            events=tuple(events),
+            **fields,
+        )
+
     # -- internals --------------------------------------------------------------
     @staticmethod
     def _task_stop_reason(reason: Any) -> str:
         name = str(getattr(reason, "name", ""))
-        normalized = {
-            "EOS_TOKEN": "EOS",
-            "STOP_TOKEN": "STOP_TOKEN",
-            "MAX_TOKENS": "MAX_TOKENS",
-            "SEQUENCE_CAPACITY": "CAPACITY",
-            "CANCELED": "CANCELED",
-        }
-        if name not in normalized:
+        if name not in _TASK_STOP_REASONS:
             raise LlamaSessionError(f"The Task ended with an unsuccessful finish reason: {name}.")
-        return normalized[name]
+        return _TASK_STOP_REASONS[name]
 
     def _runtime_errors(self) -> tuple[type[BaseException], ...]:
         errors = tuple(
@@ -944,6 +1130,7 @@ __all__ = [
     "LlamaLoadError",
     "LlamaNotInstalledError",
     "LlamaPayload",
+    "LlamaRequestRecord",
     "LlamaSessionError",
     "WinMLLlamaSession",
     "llama_package_versions",
