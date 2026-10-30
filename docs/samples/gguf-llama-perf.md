@@ -105,9 +105,16 @@ These options apply to GGUF models:
 | `--prompt`, `--prompt-file` | The prompt for every generation. |
 | `--apply-template/--no-apply-template` | Render the prompt with the chat template stored in the GGUF file. Without a template, the raw prompt is used and the report sets `chat_template_applied` to `false`. |
 | `--max-new-tokens` | Upper bound on generated tokens per generation. |
+| `--prompt-ids-file` | A JSON array of token IDs (UTF-8 with or without a byte order mark, or UTF-16 as Windows PowerShell 5.1 writes it) submitted unchanged on every generation, with no chat template and no tokenization. Cannot be combined with `--prompt`, `--prompt-file`, or `--apply-template`. |
+| `--context-length` | Sequence capacity to load the model with, instead of the prompt tokens plus `--max-new-tokens`. The run fails before the first generation unless the Runtime reports exactly this capacity. |
+| `--ignore-eos/--no-ignore-eos` | Create the Task with an empty end-of-sequence set, so each generation runs to `--max-new-tokens` unless it reaches the sequence capacity. The run fails if the Task still reports end-of-sequence tokens. |
+| `--evidence` | Write raw `gguf-task-events-1.1` request evidence to this JSON file and to a `.rows.jsonl` file next to it. Both must be new unless you pass `--overwrite`. Neither can be the `--output` file, the model, or the `--prompt-ids-file` file; `--output` cannot be either input either. Needs `--warmup` of at least `1` and turns off `--memory`; an explicit `--memory` is an error. |
 | `--iterations`, `--warmup` | Timed and warmup generations (defaults `10` and `2`). |
 | `--memory/--no-memory` | Process RAM at the load and inference checkpoints. |
 | `--output`, `--overwrite`, `--format json` | Same as for the other runtimes. |
+
+`--prompt-ids-file`, `--context-length`, `--ignore-eos`, and `--evidence` apply only
+to GGUF models; `winml perf` rejects them for other inputs.
 
 Options that select another benchmark target are rejected: `--ep`, `--ep-options`,
 `--backend`, `--device-luid`, `--input-data`, `--module`, and `--submodel`.
@@ -127,6 +134,81 @@ capacity. The stop reason of the first timed generation is saved as
 `benchmark_info.stop_reason`, and `aggregate.stop_reason_counts` counts all timed
 generations. The Task session is reset before every warmup and timed request, so
 each generation evaluates its prompt independently.
+
+## Protocol runs with exact token IDs
+
+To compare the Task API with another llama.cpp host on the same workload, fix the
+prompt tokens, the sequence capacity, and the output length, and record raw
+per-request evidence:
+
+```powershell
+winml perf -m models\qwen2.5-0.5b-instruct-q4_k_m.gguf --device gpu `
+  --prompt-ids-file prompt-ids.json --max-new-tokens 128 --context-length 4096 `
+  --ignore-eos --warmup 10 --iterations 25 `
+  --evidence runs\task-events.json --format json --output runs\winml-perf.json
+```
+
+`prompt-ids.json` holds a JSON array of token IDs, for example `[151644, 872, 198]`.
+The IDs are checked against the model vocabulary after load and submitted unchanged
+on every request. `--context-length` must hold the prompt plus `--max-new-tokens`,
+and `--ignore-eos` makes every request generate exactly `--max-new-tokens` tokens
+unless it reaches the capacity. Each request uses greedy Task options with every
+field set explicitly.
+
+`--evidence PATH` writes the `gguf-task-events-1.1` format:
+
+| File | Contents |
+|---|---|
+| `PATH` | One JSON document: run status, workload, effective configuration, initialization spans, every request row, and the captured native log. |
+| `PATH` with `.rows.jsonl` in place of `.json` | One request row per line, appended and flushed after each request. |
+| `PATH.tmp` | Present only while the evidence document is being replaced. Every write goes to this file first, so a reader never sees a partial document. |
+
+The effective configuration includes every environment variable whose name starts
+with `WINML_`, `GGML_`, `LLAMA_`, or `CUDA_`. Evidence is meant to be shared, so the
+value of a variable whose name contains `KEY`, `TOKEN`, `SECRET`, `PASSWORD`,
+`PASSWD`, `CREDENTIAL`, or `AUTH` (for example `LLAMA_API_KEY`) is written as
+`<redacted>`. The same applies to credentials in the URL winml-cli was installed
+from: its user information and every query value, such as a signed link's `sig=`.
+
+The document is first written with status `running` before the model is hashed and
+before the Runtime is imported, and it is rewritten with a final status when the run
+ends:
+
+| Status | Meaning | Exit code |
+|---|---|---|
+| `running` | The process did not finish; treat the run as failed and read completed rows from the `.rows.jsonl` file. | — |
+| `complete` | Every planned request succeeded. | 0 |
+| `partial` | Every planned request ran, but at least one did not succeed. The schema 3 report is still saved. | 1 |
+| `failed` | Configuration, initialization, or finalization failed, a session reset failed, or a request raised an unexpected error. Requests that never ran are recorded as `incomplete`, and no schema 3 report is saved. | 1 |
+
+A request that fails after it was submitted is kept in the evidence and the run
+continues, because a reset before the next request starts it from a clean session.
+A failed reset ends the run. On a `partial` run, the schema 3 report's `requests`
+and `aggregate` include only the requests that succeeded, so
+`aggregate.timed_request_count` can be lower than `--iterations`; the evidence rows
+hold every request. Its cold-start fields come from the first request that succeeded,
+which is not a cold start when warmup 0 failed. `benchmark_info.stop_reason`,
+`prompt_tokens`, and `generated_tokens` come from the first measured request that
+succeeded, and are `null` or `0` when none did.
+
+Timestamps are `time.perf_counter_ns()` readings in the machine-wide QPC domain, so
+another process on the same machine can align its own samples with them. During an
+evidence run:
+
+- Native llama.cpp log lines are captured from model load through warmup 0, then
+  the Runtime's own log callback is restored. Backend registration lines that the
+  Runtime writes before its logger is installed are not captured.
+- Python garbage collection is off during measured requests and runs between them.
+- No in-process resource sampling runs; an explicit `--memory` is an error.
+- `load` and `initialization.ready` are `null`, because Windows ML 2.7.2021a0
+  exposes no initialization-to-ready signal and creates the native context lazily
+  on the first request. Each row's `prefill` is `null`, because the Task API does
+  not expose synchronized prefill timing. `missing_reasons` records these reasons.
+
+With any of `--prompt-ids-file`, `--context-length`, `--ignore-eos`, or
+`--evidence`, the schema 3 report adds `benchmark_info.input_mode`,
+`prompt_ids_sha256`, `context_length_requested`, `eos_policy`, `evidence_path`, and
+`evidence_status`. With `--prompt-ids-file`, `benchmark_info.prompt` is `null`.
 
 ## Run on a GPU
 
@@ -269,6 +351,9 @@ present, are `null` rather than estimated from stream timing:
 - Local `.gguf` files only; Hugging Face Hub references are not resolved.
 - Greedy decoding with batch size 1; Task sampling and speculation options are
   not exposed by this command.
+- Speculative decoding keeps the Runtime default (off). An evidence run records the
+  draft-prediction settings the stage reports and the per-request speculative
+  statistics, but does not change them.
 - Task stream timings include native sampling and detokenization; separate model
   phase timings are unavailable.
 - No NPU target, `--monitor`, or operator tracing.
@@ -284,6 +369,9 @@ present, are `null` rather than estimated from stream timing:
 | `--device gpu needs a llama.cpp GPU backend`, or HRESULT `0x80070032` | Build a matching backend and provide its vendor runtime DLLs (see [Run on a GPU](#run-on-a-gpu)), or use `--device cpu`. For CUDA, check that the toolkit dependencies are present under `LlamaBackends\cuda` and the driver supports that toolkit. |
 | `the prompt (...) does not fit the model sequence capacity` | The model's maximum context is smaller than the prompt plus `--max-new-tokens`. Shorten the prompt or lower `--max-new-tokens`. |
 | `The installed 'windowsml' package does not ship the Runtime native library` | The installed `windowsml` is not a preview build with the Runtime API. Reinstall the preview version. |
+| `--context-length N resolved to an effective sequence capacity of M` | The Runtime did not apply the requested capacity, for example because the model supports less. Both values are in the evidence under `configuration.context`. Use a `--context-length` the model supports. |
+| `--ignore-eos requested an empty EOS set, but the Task reports EOS token IDs` | The installed Runtime does not honor an explicit empty EOS set. Use a Windows ML version that does, or run without `--ignore-eos`. |
+| `prompt token ... is outside the model vocabulary` | A token ID in `--prompt-ids-file` is not valid for this model. Regenerate the IDs with this model's tokenizer. |
 
 To leave the experimental setup, delete the `.venv-gguf` environment. Your regular
 environment is unchanged.

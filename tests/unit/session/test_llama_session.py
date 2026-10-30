@@ -11,6 +11,7 @@ but must not be used for a Python-managed generation loop.
 
 from __future__ import annotations
 
+import dataclasses
 import sys
 from dataclasses import dataclass
 from enum import IntEnum
@@ -42,6 +43,8 @@ _BOS = 1
 _RAW_PROMPT = [1, 2]
 _TEMPLATED_PROMPT = [1, 2, 3]
 _DYNAMIC = 0xFFFFFFFFFFFFFFFF
+# Sentinel: the stage reports the kind of the target it was built on.
+_KEEP_TARGET_KIND = object()
 
 
 # ---------------------------------------------------------------------------
@@ -80,9 +83,9 @@ class _DataTypes:
 
 
 class _Target(_Closable):
-    def __init__(self, kind: str) -> None:
+    def __init__(self, kind: str | None) -> None:
         super().__init__()
-        self.kind = SimpleNamespace(name=kind)
+        self.kind = SimpleNamespace(name=kind) if kind is not None else None
 
 
 class _Schema(_Closable):
@@ -104,11 +107,29 @@ class _Schema(_Closable):
 class _Stage(_Closable):
     """Runtime metadata consumed by the Task configuration."""
 
-    def __init__(self, target: _Target, *, token_type: Any, token_rank: int) -> None:
+    # Stateful-stage draft options; class attributes so a test can delete one
+    # to model an older projection.
+    draft_token_limit_hint = 0
+    model_draft_predictor_enabled = False
+    draft_predictor_path = None
+
+    def __init__(
+        self,
+        target: _Target,
+        *,
+        token_type: Any,
+        token_rank: int,
+        declared_capacity: int | None = None,
+        reported_kind: Any = _KEEP_TARGET_KIND,
+    ) -> None:
         super().__init__()
         self._target_kind = target.kind.name
+        self._reported_kind = (
+            self._target_kind if reported_kind is _KEEP_TARGET_KIND else reported_kind
+        )
         self._token_type = token_type
         self._token_rank = token_rank
+        self._declared_capacity = declared_capacity
         self.requested_outputs: set[int] = set()
         self.capacity_hint: int | None = None
         self.default_capacity = 64
@@ -119,8 +140,12 @@ class _Stage(_Closable):
         return self.capacity_hint or self.default_capacity
 
     @property
+    def declared_sequence_capacity(self) -> int | None:
+        return self._declared_capacity
+
+    @property
     def execution_target(self) -> _Target:
-        return _Target(self._target_kind)
+        return _Target(self._reported_kind)
 
     def request_output(self, index: int) -> None:
         self.requested_outputs.add(index)
@@ -156,6 +181,8 @@ class _Builder(_Closable):
             target,
             token_type=self._runtime.token_type,
             token_rank=self._runtime.token_rank,
+            declared_capacity=self._runtime._api.declared_capacity,
+            reported_kind=self._runtime._api.target_kind,
         )
         return self._runtime.stage
 
@@ -294,21 +321,35 @@ class _Tasks(_Closable):
     def create_text_generation_task(
         self, tokenizer: _Tokenizer, eos_token_ids: Any = None, **kwargs: Any
     ) -> _GenerationTask:
-        assert eos_token_ids is None
-        task = _GenerationTask(self, tokenizer, kwargs.get("default_configuration"))
+        self.api.eos_arguments.append(eos_token_ids)
+        task = _GenerationTask(
+            self, tokenizer, kwargs.get("default_configuration"), eos_token_ids
+        )
         self.api.generation_tasks.append(task)
         return task
 
 
 class _GenerationTask(_Closable):
     def __init__(
-        self, owner: _Tasks, tokenizer: _Tokenizer, configuration: _TaskConfiguration | None
+        self,
+        owner: _Tasks,
+        tokenizer: _Tokenizer,
+        configuration: _TaskConfiguration | None,
+        eos_token_ids: Any = None,
     ) -> None:
         super().__init__()
         self.owner = owner
         self.tokenizer = tokenizer
         self.configuration = configuration
+        self._explicit_eos = None if eos_token_ids is None else tuple(eos_token_ids)
         self._default_session: _GenerationSession | None = None
+
+    @property
+    def default_eos_token_ids(self) -> tuple[int, ...]:
+        """An explicit set (even an empty one) replaces the tokenizer's EOS IDs."""
+        if self._explicit_eos is not None:
+            return self._explicit_eos
+        return tuple(self.tokenizer.eos_token_ids)
 
     def create_session(self, configuration: _TaskConfiguration) -> _GenerationSession:
         assert configuration.validated
@@ -336,13 +377,40 @@ class _GenerationSession(_Closable):
         self.api = task.owner.api
         self.reset_count = 0
         self.streams: list[_TaskStream] = []
+        self._retained: list[int] = []
 
     def reset(self) -> None:
+        if self.api.reset_hresult is not None:
+            raise _WinMLError("Session reset failed", self.api.reset_hresult)
         assert not self.closed
         assert all(stream.closed for stream in self.streams)
         self.reset_count += 1
         self.api.clock.advance(2.0)
         self.task.owner.runtime.stage.sequence_position = 0
+        if self.api.reset_keeps_tokens and self.streams:
+            last = self.streams[-1]
+            self._retained = [*last.prompt, *last.tokens]
+        else:
+            self._retained = []
+
+    @property
+    def state(self) -> SimpleNamespace:
+        return SimpleNamespace(name="READY" if self._retained else "EMPTY")
+
+    @property
+    def sequence_state(self) -> SimpleNamespace:
+        if self.api.disclosure_unsupported:
+            raise _NotSupportedError("sequence state disclosure is not supported")
+        return SimpleNamespace(
+            disclosure=SimpleNamespace(name="RETAINED" if self._retained else "NONE"),
+            session_state=self.state,
+            evaluated_token_count=len(self._retained),
+            retained_token_count=len(self._retained),
+        )
+
+    @property
+    def retained_token_ids(self) -> tuple[int, ...]:
+        return tuple(self._retained)
 
     def generate_tokens(self, token_ids: Any, options: _TaskOptions) -> _TaskStream:
         assert not self.closed
@@ -374,7 +442,12 @@ class _TaskResult:
         self.text = "".join(stream.fragments) + api.result_suffix
         self.finish_reason = api.finish_override or stream.finish_reason
         self.error_code = api.result_hresult or 0
-        self.speculative_statistics = None
+        self.speculative_statistics = SimpleNamespace(
+            method=SimpleNamespace(name="NONE"),
+            verification_step_count=0,
+            draft_token_count=0,
+            accepted_draft_token_count=0,
+        )
 
     def raise_for_error(self) -> None:
         if self.error_code:
@@ -397,7 +470,7 @@ class _TaskStream(_Closable):
         self.finish_reason = _FinishReason.MAX_TOKENS
         for _ in range(options.max_new_tokens):
             token = (previous + 1) % _VOCABULARY
-            if token in session.task.tokenizer.eos_token_ids:
+            if token in session.task.default_eos_token_ids:
                 self.finish_reason = _FinishReason.EOS_TOKEN
                 break
             if len(prompt) + len(self.tokens) >= capacity:
@@ -453,6 +526,8 @@ def _runtime_api(
     load_hresult: int | None = None,
     token_type: Any = _DataTypes.INT32,
     token_rank: int = 2,
+    declared_capacity: int | None = None,
+    target_kind: Any = _KEEP_TARGET_KIND,
 ) -> SimpleNamespace:
     api = SimpleNamespace(
         WinMLError=_WinMLError,
@@ -470,6 +545,9 @@ def _runtime_api(
         load_hresult=load_hresult,
         token_type=token_type,
         token_rank=token_rank,
+        declared_capacity=declared_capacity,
+        target_kind=target_kind,
+        eos_arguments=[],
         runtimes=[],
         tokenizers=[],
         tasks=[],
@@ -486,6 +564,9 @@ def _runtime_api(
         result_count_mismatch=False,
         result_prompt_offset=0,
         finish_override=None,
+        reset_hresult=None,
+        disclosure_unsupported=False,
+        reset_keeps_tokens=False,
     )
     api.Runtime = lambda: _Runtime(api)
 
@@ -647,6 +728,99 @@ class TestLoad:
         assert "Reinstall the matching preview" in str(excinfo.value)
         assert api.runtimes[0].pipeline.closed
         assert api.runtimes[0].stage.closed
+
+
+class TestLoadReadback:
+    def test_default_eos_policy_is_unchanged(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path)
+        session.load(context_length=32)
+        assert api.eos_arguments == [None]
+        assert session.task_default_eos_token_ids == session.tokenizer_eos_token_ids == (_EOS,)
+
+    def test_explicit_empty_eos_set_is_read_back(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path)
+        session.load(context_length=32, eos_token_ids=())
+        assert api.eos_arguments == [()]
+        assert session.task_default_eos_token_ids == ()
+
+    def test_readback_before_load_raises(self, tmp_path: Path) -> None:
+        session, _api = _session(tmp_path)
+        with pytest.raises(LlamaSessionError, match="load"):
+            _ = session.task_default_eos_token_ids
+
+    def test_declared_capacity_and_speculative_readback(self, tmp_path: Path) -> None:
+        session, _api = _session(tmp_path, declared_capacity=128)
+        session.load(context_length=32)
+        assert session.declared_context_length == 128
+        assert session.speculative_readback == {
+            "model_draft_predictor_enabled": False,
+            "draft_token_limit_hint": 0,
+            "draft_predictor_path": None,
+            "reason": None,
+        }
+
+    def test_missing_stage_draft_property_is_reported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delattr(_Stage, "draft_predictor_path")  # older projection
+        session, _api = _session(tmp_path)
+        session.load(context_length=32)
+        readback = session.speculative_readback
+        assert readback["draft_predictor_path"] is None
+        assert "draft_predictor_path" in readback["reason"]
+
+    def test_resolved_target_kind_has_no_requested_fallback(self, tmp_path: Path) -> None:
+        session, _api = _session(tmp_path, device="gpu", target_kind=None)
+        session.load(context_length=16)
+        assert session.resolved_target_kind is None
+        assert session.effective_device == "gpu"
+
+    def test_initialization_spans_follow_execution_order(self, tmp_path: Path) -> None:
+        session, _api = _session(tmp_path)
+        session.load(context_length=32)
+        spans = session.initialization_spans
+        assert [name for name, _, _ in spans] == [
+            "runtime_create",
+            "tokenizer_open",
+            "model_load",
+            "pipeline_build",
+            "task_create",
+            "session_create",
+        ]
+        bounds = [value for _, start, end in spans for value in (start, end)]
+        assert bounds == sorted(bounds)
+        by_name = {name: (start, end) for name, start, end in spans}
+        assert session.load_timings_ms["task_create_duration_ms"] == (
+            (by_name["session_create"][1] - by_name["task_create"][0]) / 1e6
+        )
+
+    def test_greedy_options_set_all_eleven_fields(self, tmp_path: Path) -> None:
+        session, _api = _session(tmp_path)
+        session.load(context_length=32)
+        assert dataclasses.asdict(session.greedy_options(128)) == {
+            "max_new_tokens": 128,
+            "stop_token_ids": (),
+            "temperature": 0.0,
+            "top_k": 0,
+            "top_p": 1.0,
+            "min_p": 0.0,
+            "repetition_penalty": 1.0,
+            "repetition_penalty_window": 0,
+            "presence_penalty": 0.0,
+            "frequency_penalty": 0.0,
+            "seed": 0,
+        }
+
+    @pytest.mark.parametrize(
+        ("ids", "match"), [([_VOCABULARY], "vocabulary"), ([1] * 32, "capacity")]
+    )
+    def test_check_prompt_ids_rejects_ids_the_session_cannot_run(
+        self, tmp_path: Path, ids: list[int], match: str
+    ) -> None:
+        session, _api = _session(tmp_path)
+        session.load(context_length=32)
+        with pytest.raises(LlamaSessionError, match=match):
+            session.check_prompt_ids(ids)
 
 
 # ---------------------------------------------------------------------------
@@ -825,6 +999,112 @@ class TestGenerateTimed:
         session.load(context_length=32)
         with pytest.raises(LlamaSessionError, match="vocabulary"):
             session.generate_timed([_VOCABULARY], max_new_tokens=4)
+
+
+def _ns(api: SimpleNamespace) -> Any:
+    """Integer-nanosecond view of the fake clock (which advances in seconds)."""
+    return lambda: round(api.clock.value * 1_000_000_000)
+
+
+class TestRunRequest:
+    def test_records_reset_disclosure_and_one_event_per_update(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path)
+        session.load(context_length=32)
+        record = session.run_request(
+            _TEMPLATED_PROMPT, options=session.greedy_options(16), clock_ns=_ns(api)
+        )
+        s = 1_000_000_000
+        stream = api.generation_sessions[0].streams[0]
+        assert record.reset_end_ns - record.reset_start_ns == 2 * s
+        assert record.reset_disclosure == {
+            "state": "EMPTY",
+            "sequence_state": {
+                "disclosure": "NONE",
+                "session_state": "EMPTY",
+                "evaluated_token_count": 0,
+                "retained_token_count": 0,
+            },
+            "retained_token_ids": [],
+        }
+        assert record.stream_created_ns - record.submit_ns == 3 * s
+        assert record.events == tuple(
+            (record.submit_ns + (3 + 5 * (i + 1)) * s, token)
+            for i, token in enumerate(stream.tokens)
+        )
+        assert record.completed_ns - record.events[-1][0] == 7 * s
+        assert record.result_fetched_ns - record.completed_ns == 11 * s
+        assert (
+            record.result_token_ids,
+            record.prompt_token_count,
+            record.finish_reason,
+            record.error_code,
+        ) == (tuple(stream.tokens), len(_TEMPLATED_PROMPT), "EOS_TOKEN", 0)
+        assert record.speculative_statistics == {
+            "method": "NONE",
+            "verification_step_count": 0,
+            "draft_token_count": 0,
+            "accepted_draft_token_count": 0,
+        }
+        assert record.task_stop_reason == "EOS"
+        assert record.error is None
+        assert stream.closed
+
+    def test_explicit_empty_eos_set_runs_to_the_limit(self, tmp_path: Path) -> None:
+        session, _api = _session(tmp_path)
+        session.load(context_length=32, eos_token_ids=())
+        record = session.run_request([_EOS - 1], options=session.greedy_options(4))
+        assert record.finish_reason == "MAX_TOKENS"
+        assert record.result_token_ids[0] == _EOS
+        assert len(record.result_token_ids) == 4
+
+    @pytest.mark.parametrize("failure_source", ["read_hresult", "result_hresult"])
+    def test_task_failures_are_recorded_not_raised(
+        self, tmp_path: Path, failure_source: str
+    ) -> None:
+        session, api = _session(tmp_path)
+        setattr(api, failure_source, 0x80004005)
+        session.load(context_length=32)
+        record = session.run_request(_TEMPLATED_PROMPT, options=session.greedy_options(16))
+        assert record.error.hresult == 0x80004005
+        assert record.result_fetched_ns is None
+        assert api.generation_sessions[0].streams[0].closed
+
+    def test_reset_failure_returns_before_submit(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path)
+        session.load(context_length=32)
+        api.reset_hresult = 0x80004005
+        record = session.run_request(_TEMPLATED_PROMPT, options=session.greedy_options(16))
+        assert record.reset_error.hresult == 0x80004005
+        assert (record.reset_end_ns, record.submit_ns, record.events) == (None, None, ())
+        assert api.generation_sessions[0].streams == []
+
+    def test_unsupported_disclosure_is_recorded_and_generation_continues(
+        self, tmp_path: Path
+    ) -> None:
+        session, api = _session(tmp_path)
+        api.disclosure_unsupported = True
+        session.load(context_length=32)
+        record = session.run_request(_TEMPLATED_PROMPT, options=session.greedy_options(16))
+        assert record.reset_disclosure is None
+        assert isinstance(record.disclosure_error, _NotSupportedError)
+        assert record.finish_reason == "EOS_TOKEN"
+
+    def test_retained_tokens_after_reset_are_disclosed(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path)
+        api.reset_keeps_tokens = True
+        session.load(context_length=32)
+        options = session.greedy_options(16)
+        session.run_request(_TEMPLATED_PROMPT, options=options)
+        second = session.run_request(_TEMPLATED_PROMPT, options=options)
+        first = api.generation_sessions[0].streams[0]
+        retained = [*first.prompt, *first.tokens]
+        assert second.reset_disclosure["sequence_state"]["retained_token_count"] == len(retained)
+        assert second.reset_disclosure["retained_token_ids"] == retained
+
+    def test_requires_load(self, tmp_path: Path) -> None:
+        session, _api = _session(tmp_path)
+        with pytest.raises(LlamaSessionError, match="load"):
+            session.run_request(_TEMPLATED_PROMPT, options=None)
 
 
 class TestClose:

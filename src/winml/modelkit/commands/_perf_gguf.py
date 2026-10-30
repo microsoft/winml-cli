@@ -21,19 +21,22 @@ The ``perf`` command validates the ``.gguf`` input and delegates here via
 
 from __future__ import annotations
 
+import gc
 import json
 import logging
+import reprlib
 import time
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from itertools import pairwise
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import click
 from rich.markup import escape
 
-from ..session import LlamaSessionError, WinMLLlamaSession, llama_package_versions
+from ..session import LlamaLoadError, LlamaSessionError, WinMLLlamaSession, llama_package_versions
 from ._generation_metrics import (
     DEFAULT_PROMPT as _DEFAULT_PROMPT,
 )
@@ -42,13 +45,16 @@ from ._generation_metrics import (
     _round_stats,
     _stats,
 )
+from ._gguf_evidence import EvidenceRecorder, planned_requests, token_ids_sha256
+from ._gguf_native_log import NativeLogCapture
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     from rich.console import Console
 
+    from ..session import LlamaRequestRecord
     from ..utils.constants import RuntimeName
 
 logger = logging.getLogger(__name__)
@@ -87,11 +93,74 @@ _MEASURED_REQUEST_METRICS = (
     "steady_state_tpot_ms",
     "steady_state_decode_tokens_per_second",
 )
+# Evidence failure phases that read better as words in an error message.
+_FAILURE_PHASE_WORDS = {"warmup": "a warmup request", "measured": "a measured request"}
 
 
 def is_gguf_model(model: str | Path) -> bool:
     """Return whether a ``-m/--model`` value names a GGUF file (by extension)."""
     return Path(model).suffix.lower() == GGUF_SUFFIX
+
+
+class GGUFEvidenceError(LlamaSessionError):
+    """An evidence run failed; the evidence file records the phase and the cause.
+
+    The message leaves out the evidence path, which the CLI prints on the line
+    before the error; programmatic callers read it from :attr:`path`.
+
+    Attributes:
+        phase: The ``failure_phase`` written to the evidence.
+        path: The evidence file.
+        status: Always ``failed``.
+    """
+
+    def __init__(self, phase: str, cause: BaseException | None, path: Path) -> None:
+        # Native messages can carry trailing newlines or their own end punctuation.
+        detail = str(cause).strip() if cause is not None else ""
+        if not detail:
+            detail = type(cause).__name__ if cause is not None else "unknown failure"
+        end = "" if detail.endswith((".", "?", "!")) else "."
+        during = _FAILURE_PHASE_WORDS.get(phase, phase)
+        super().__init__(f"GGUF evidence run failed during {during}: {detail}{end}")
+        self.phase = phase
+        self.path = path
+        self.status = "failed"
+
+
+def read_prompt_ids_file(path: Path) -> tuple[int, ...]:
+    """Read exact prompt token IDs from a JSON array file.
+
+    The file can be UTF-8 (with or without a byte order mark), or UTF-16 as
+    Windows PowerShell 5.1 writes it; ``json.loads`` detects the encoding.
+
+    Raises:
+        TypeError: The JSON document is not an array.
+        ValueError: The file cannot be read, is not JSON, is an empty array, or
+            holds an element that is not a non-negative integer.
+    """
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise ValueError(f"could not be read: {exc}") from exc
+    try:
+        data = json.loads(raw)
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"not valid JSON (expected UTF-8 or UTF-16 text): {exc}") from exc
+    except (json.JSONDecodeError, RecursionError) as exc:  # RecursionError: nested too deeply
+        raise ValueError(f"not valid JSON: {exc}") from exc
+    except ValueError as exc:  # Python's limit on integer digits
+        raise ValueError("holds a number too long to be a token ID") from exc
+    if not isinstance(data, list):
+        raise TypeError("expected a JSON array of token IDs")
+    if not data:
+        raise ValueError("expected at least one token ID")
+    for index, value in enumerate(data):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(
+                f"element {index} is not a non-negative integer token ID: "
+                f"{reprlib.repr(value)}"
+            )
+    return tuple(data)
 
 
 def gguf_output_path(model_path: str | Path) -> Path:
@@ -126,6 +195,13 @@ class GGUFPerfConfig:
         warmup: Warmup requests excluded from statistics.
         memory: Record process RAM at the load and inference checkpoints.
         output_path: JSON report path (default: :func:`gguf_output_path`).
+        prompt_ids: Exact prompt token IDs submitted on every request instead of
+            encoding ``prompt``.
+        context_length: Fixed sequence capacity; the run fails unless the Runtime
+            reports exactly this capacity after load.
+        ignore_eos: Create the Task with an empty EOS set so every request runs to
+            ``max_new_tokens`` or the sequence capacity.
+        evidence_path: Raw ``gguf-task-events-1.1`` evidence file.
     """
 
     model_path: Path
@@ -138,6 +214,20 @@ class GGUFPerfConfig:
     warmup: int = 2
     memory: bool = False
     output_path: Path | None = None
+    prompt_ids: tuple[int, ...] | None = None
+    context_length: int | None = None
+    ignore_eos: bool = False
+    evidence_path: Path | None = None
+
+    @property
+    def uses_protocol_options(self) -> bool:
+        """Whether any exact-workload option (IDs, context, EOS, evidence) is set."""
+        return (
+            self.prompt_ids is not None
+            or self.context_length is not None
+            or self.ignore_eos
+            or self.evidence_path is not None
+        )
 
 
 @dataclass
@@ -213,6 +303,44 @@ class _GGUFRequestSample:
         return result
 
 
+def _sample_from_record(record: LlamaRequestRecord, *, kind: str, index: int) -> _GGUFRequestSample:
+    """Convert the QPC time points of a completed request to a schema 3 sample.
+
+    The spans match :meth:`WinMLLlamaSession.generate_timed`; exact token IDs
+    are not tokenized, so the template and tokenization spans are ``0``.
+
+    Raises:
+        ValueError: The record lacks a time point a completed request has.
+    """
+    reset_end = record.reset_end_ns
+    submit = record.submit_ns
+    created = record.stream_created_ns
+    completed = record.completed_ns
+    fetched = record.result_fetched_ns
+    if reset_end is None or submit is None or created is None or completed is None:
+        raise ValueError("Only a completed request record has a timing sample.")
+    if fetched is None:
+        raise ValueError("Only a completed request record has a timing sample.")
+    arrivals = [observed_ns for observed_ns, _ in record.events]
+    return _GGUFRequestSample(
+        kind=kind,
+        index=index,
+        prompt_tokens=record.prompt_token_count or 0,
+        generated_tokens=len(arrivals),
+        template_duration_ms=0.0,
+        tokenization_duration_ms=0.0,
+        generator_create_duration_ms=(reset_end - record.reset_start_ns) / 1e6,
+        task_ttft_duration_ms=(arrivals[0] - submit) / 1e6 if arrivals else None,
+        task_generation_duration_ms=(fetched - submit) / 1e6,
+        task_stream_create_duration_ms=(created - submit) / 1e6,
+        task_stream_completion_duration_ms=(completed - (arrivals[-1] if arrivals else created))
+        / 1e6,
+        result_fetch_duration_ms=(fetched - completed) / 1e6,
+        decode_token_durations_ms=[(end - start) / 1e6 for start, end in pairwise(arrivals)],
+        response_text=record.response_text or "",
+    )
+
+
 @dataclass
 class GGUFBenchmarkResult:
     """Canonical results from a GGUF generation benchmark."""
@@ -232,38 +360,50 @@ class GGUFBenchmarkResult:
     requests: list[_GGUFRequestSample] = field(default_factory=list)
     aggregate: dict[str, Any] = field(default_factory=dict)
     memory_profile: dict[str, float | None] | None = None
+    prompt_ids_sha256: str | None = None
+    evidence_status: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to a JSON-serializable Task timing report."""
         cfg = self.config
+        benchmark_info: dict[str, Any] = {
+            "runtime": RUNTIME_TYPE,
+            "backend": BACKEND_NAME,
+            "api": "windowsml.tasks",
+            "timing_source": "task-stream",
+            "model_format": MODEL_FORMAT,
+            "experimental": True,
+            "model_id": str(cfg.model_path),
+            "running_model_path": str(cfg.model_path),
+            "ep": None,
+            "device": cfg.requested_device,
+            "effective_device": self.effective_device,
+            "iterations": cfg.iterations,
+            "warmup": cfg.warmup,
+            "max_new_tokens": cfg.max_new_tokens,
+            "apply_template": cfg.apply_template,
+            "chat_template_applied": self.chat_template_applied,
+            "prompt": cfg.prompt if cfg.prompt_ids is None else None,
+            "prompt_tokens": self.prompt_tokens,
+            "generated_tokens": self.generated_tokens,
+            "stop_reason": self.stop_reason,
+            "context_length": self.context_length,
+            "packages": dict(self.packages),
+            "llama_backends": list(self.llama_backends),
+            "timestamp": self.timestamp,
+        }
+        if cfg.uses_protocol_options:
+            benchmark_info.update(
+                input_mode="token_ids" if cfg.prompt_ids is not None else "text",
+                prompt_ids_sha256=self.prompt_ids_sha256,
+                context_length_requested=cfg.context_length,
+                eos_policy="ignore" if cfg.ignore_eos else "default",
+                evidence_path=str(cfg.evidence_path) if cfg.evidence_path is not None else None,
+                evidence_status=self.evidence_status,
+            )
         result: dict[str, Any] = {
             "schema_version": 3,
-            "benchmark_info": {
-                "runtime": RUNTIME_TYPE,
-                "backend": BACKEND_NAME,
-                "api": "windowsml.tasks",
-                "timing_source": "task-stream",
-                "model_format": MODEL_FORMAT,
-                "experimental": True,
-                "model_id": str(cfg.model_path),
-                "running_model_path": str(cfg.model_path),
-                "ep": None,
-                "device": cfg.requested_device,
-                "effective_device": self.effective_device,
-                "iterations": cfg.iterations,
-                "warmup": cfg.warmup,
-                "max_new_tokens": cfg.max_new_tokens,
-                "apply_template": cfg.apply_template,
-                "chat_template_applied": self.chat_template_applied,
-                "prompt": cfg.prompt,
-                "prompt_tokens": self.prompt_tokens,
-                "generated_tokens": self.generated_tokens,
-                "stop_reason": self.stop_reason,
-                "context_length": self.context_length,
-                "packages": dict(self.packages),
-                "llama_backends": list(self.llama_backends),
-                "timestamp": self.timestamp,
-            },
+            "benchmark_info": benchmark_info,
             "load": {
                 key: round(value, 3) if isinstance(value, float) else value
                 for key, value in self.load.items()
@@ -307,6 +447,9 @@ class GGUFPerfBenchmark:
             ``None`` a :class:`WinMLLlamaSession` is created from ``config`` and
             closed after the run.
         clock: Monotonic clock in seconds (injectable for tests).
+        clock_ns: Integer-nanosecond QPC clock for evidence time points.
+        log_capture: Native log capture for an evidence run (default: one bound
+            to the loaded ``WinMLllama.dll``).
     """
 
     def __init__(
@@ -315,25 +458,130 @@ class GGUFPerfBenchmark:
         *,
         session: WinMLLlamaSession | None = None,
         clock: Callable[[], float] = time.perf_counter,
+        clock_ns: Callable[[], int] = time.perf_counter_ns,
+        log_capture: NativeLogCapture | None = None,
     ) -> None:
         self._config = config
         self._session = session
         self._owns_session = session is None
         self._clock = clock
+        self._clock_ns = clock_ns
+        self._log_capture = log_capture
         self._stop_reasons: list[tuple[str, str]] = []
+        self._prompt_ids_sha256: str | None = None
 
     def run(self) -> GGUFBenchmarkResult:
-        """Execute the benchmark and return aggregated metrics."""
+        """Execute the benchmark and return aggregated metrics.
+
+        Raises:
+            GGUFEvidenceError: An evidence run failed (the evidence records why).
+        """
         if self._session is None:
             self._session = WinMLLlamaSession(
                 self._config.model_path,
                 device=self._config.device,
             )
         try:
+            if self._config.evidence_path is not None:
+                return self._run_protocol_body(self._session)
             return self._run_benchmark_body(self._session)
         finally:
             if self._owns_session:
                 self._session.close()
+
+    def _run_protocol_body(self, session: WinMLLlamaSession) -> GGUFBenchmarkResult:
+        """Run every planned request while recording ``gguf-task-events-1.1`` evidence.
+
+        The order is the evidence definition: the model is hashed before any
+        initialization; native log lines are captured from the tokenizer open
+        through warmup 0; garbage collection is off during measured requests and
+        runs between them; a failed request is kept and the run continues unless
+        the session can no longer reset. The Runtime log callback is restored
+        before the caller closes the session.
+        """
+        config = self._config
+        recorder = EvidenceRecorder(config, clock_ns=self._clock_ns)
+        capture = self._log_capture or NativeLogCapture(clock_ns=self._clock_ns)
+        gc_was_enabled = gc.isenabled()
+        collections = 0
+        samples: list[_GGUFRequestSample] = []
+        session_load_ms = 0.0
+        phase = "configuration"
+        try:
+            recorder.record_configuration()
+            phase = "initialization"
+            recorder.begin_initialization()
+            load_start = self._clock()
+            session.open_tokenizer()
+            tokenizer_ready = self._clock()
+            capture.install()
+            prompt_ids = self._prompt_ids(session)
+            recorder.record_prompt(prompt_ids)
+            self._prompt_ids_sha256 = token_ids_sha256(prompt_ids)
+            model_start = self._clock()
+            context = self._load(session, prompt_ids)
+            load_end = self._clock()
+            # While the capture is installed, Ctrl+C can land in the log callback,
+            # which only records it; raise it once each native call returns.
+            capture.raise_if_interrupted()
+            session_load_ms = ((tokenizer_ready - load_start) + (load_end - model_start)) * 1000.0
+            # Record what the Runtime reports before verifying it, so a mismatch
+            # leaves both values in the evidence.
+            recorder.record_load(session, requested_context=context)
+            self._verify_load(session, prompt_ids)
+            options = session.greedy_options(config.max_new_tokens)
+            recorder.record_options(options)
+            capture.raise_if_interrupted()
+            planned = planned_requests(config.warmup, config.iterations)
+            for position, (kind, index) in enumerate(planned):
+                phase = kind
+                if (kind, index) == ("measured", 0):
+                    gc.collect()
+                    gc.disable()
+                record = session.run_request(prompt_ids, options=options, clock_ns=self._clock_ns)
+                if position == 0:
+                    capture.restore()
+                if record.reset_error is not None:
+                    # Nothing was submitted and the session can no longer reset.
+                    recorder.fail(kind, record.reset_error)
+                    break
+                row = recorder.record_request(kind, index, record)
+                if position == 0:
+                    recorder.record_loaded_modules("after_warmup0")
+                    capture.raise_if_interrupted()
+                if kind == "measured":
+                    gc.collect()
+                    collections += 1
+                if row["status"] == "succeeded":
+                    sample_kind = "warmup" if kind == "warmup" else "timed"
+                    samples.append(_sample_from_record(record, kind=sample_kind, index=position))
+                    stop_reason = record.task_stop_reason or str(record.finish_reason)
+                    self._stop_reasons.append((sample_kind, stop_reason))
+            if recorder.failure_phase is None:
+                phase = "finalization"
+                recorder.record_loaded_modules("at_end")
+                recorder.record_hashed_modules()
+        except Exception as exc:
+            recorder.fail(phase, exc)
+        except BaseException as exc:
+            recorder.fail(phase, exc)
+            raise
+        finally:
+            capture.restore()
+            if gc_was_enabled:
+                gc.enable()
+            recorder.finish(
+                capture=capture,
+                initialization_spans=session.initialization_spans,
+                gc_collections=collections,
+            )
+        if recorder.status == "failed":
+            raise GGUFEvidenceError(
+                recorder.failure_phase or phase, recorder.cause, recorder.path
+            ) from recorder.cause
+        result = self._aggregate(samples, session_load_ms=session_load_ms)
+        result.evidence_status = recorder.status
+        return result
 
     def _run_benchmark_body(self, session: WinMLLlamaSession) -> GGUFBenchmarkResult:
         config = self._config
@@ -348,10 +596,12 @@ class GGUFPerfBenchmark:
         session.open_tokenizer()
         tokenizer_ready = self._clock()
         # Size the context to this benchmark (excluded from the load span).
-        prompt_ids = session.encode_prompt(config.prompt, apply_template=config.apply_template)
+        prompt_ids = self._prompt_ids(session)
+        self._prompt_ids_sha256 = token_ids_sha256(prompt_ids)
         model_start = self._clock()
-        session.load(context_length=len(prompt_ids) + config.max_new_tokens)
+        self._load(session, prompt_ids)
         load_end = self._clock()
+        self._verify_load(session, prompt_ids)
         session_load_ms = ((tokenizer_ready - load_start) + (load_end - model_start)) * 1000.0
         if memory_tracker is not None:
             memory_tracker.record_after_load()
@@ -378,6 +628,56 @@ class GGUFPerfBenchmark:
             result.memory_profile = memory_tracker.to_dict()
         return result
 
+    def _prompt_ids(self, session: WinMLLlamaSession) -> list[int]:
+        """Return the exact prompt IDs, or encode the prompt text."""
+        config = self._config
+        if config.prompt_ids is not None:
+            return list(config.prompt_ids)
+        return session.encode_prompt(config.prompt, apply_template=config.apply_template)
+
+    def _load(self, session: WinMLLlamaSession, prompt_ids: Sequence[int]) -> int:
+        """Load the model and return the sequence capacity hint passed to the Runtime.
+
+        Raises:
+            LlamaSessionError: The prompt plus ``max_new_tokens`` exceeds
+                ``--context-length`` (checked before loading).
+        """
+        config = self._config
+        needed = len(prompt_ids) + config.max_new_tokens
+        context = needed if config.context_length is None else config.context_length
+        if needed > context:
+            raise LlamaSessionError(
+                f"--context-length {context} is smaller than the {len(prompt_ids)} prompt "
+                f"tokens plus --max-new-tokens {config.max_new_tokens}."
+            )
+        session.load(context_length=context, eos_token_ids=() if config.ignore_eos else None)
+        return context
+
+    def _verify_load(self, session: WinMLLlamaSession, prompt_ids: Sequence[int]) -> None:
+        """Check the loaded session honors the protocol options before any request.
+
+        Raises:
+            LlamaLoadError: The effective capacity differs from ``--context-length``,
+                or the Task kept EOS IDs under ``--ignore-eos``.
+            LlamaSessionError: Exact prompt IDs cannot be submitted to this model.
+        """
+        config = self._config
+        if config.context_length is not None and session.context_length != config.context_length:
+            raise LlamaLoadError(
+                f"--context-length {config.context_length} resolved to an effective sequence "
+                f"capacity of {session.context_length}; the Runtime did not apply the "
+                "requested capacity."
+            )
+        if config.ignore_eos:
+            eos_token_ids = session.task_default_eos_token_ids
+            if eos_token_ids:
+                raise LlamaLoadError(
+                    "--ignore-eos requested an empty EOS set, but the Task reports EOS "
+                    f"token IDs {list(eos_token_ids)}."
+                )
+        if config.prompt_ids is not None:
+            session.check_prompt_ids(prompt_ids)
+
     def _time_one_generation(
         self,
         session: WinMLLlamaSession,
@@ -389,13 +689,17 @@ class GGUFPerfBenchmark:
 
         The tokenizer renders the chat template and tokenizes in one call, so that
         span is reported as ``tokenization_duration_ms``; ``template_duration_ms``
-        is ``0``. Resetting the sequence state for a new request is reported as
+        is ``0``. Exact prompt IDs are not tokenized, so that span is ``0`` too.
+        Resetting the sequence state for a new request is reported as
         ``generator_create_duration_ms``.
         """
         config = self._config
         tokenize_start = self._clock()
-        prompt_ids = session.encode_prompt(config.prompt, apply_template=config.apply_template)
+        prompt_ids = self._prompt_ids(session)
         tokenize_end = self._clock()
+        tokenization_ms = (
+            (tokenize_end - tokenize_start) * 1000.0 if config.prompt_ids is None else 0.0
+        )
         timing = session.generate_timed(
             prompt_ids,
             max_new_tokens=config.max_new_tokens,
@@ -412,7 +716,7 @@ class GGUFPerfBenchmark:
             prompt_tokens=timing.input_tokens,
             generated_tokens=timing.generated_tokens,
             template_duration_ms=0.0,
-            tokenization_duration_ms=(tokenize_end - tokenize_start) * 1000.0,
+            tokenization_duration_ms=tokenization_ms,
             generator_create_duration_ms=timing.reset_s * 1000.0,
             task_ttft_duration_ms=(
                 timing.first_token_s * 1000.0 if timing.first_token_s is not None else None
@@ -466,6 +770,7 @@ class GGUFPerfBenchmark:
             load=self._load_metrics(session_load_ms),
             requests=samples,
             aggregate=aggregate,
+            prompt_ids_sha256=self._prompt_ids_sha256,
         )
 
     def _load_metrics(self, session_load_ms: float) -> dict[str, float | str | None]:
@@ -490,6 +795,19 @@ class GGUFPerfBenchmark:
 # =============================================================================
 # Reporting
 # =============================================================================
+
+
+def _zero_token_advice(result: GGUFBenchmarkResult) -> str:
+    """Suggest the input changes that can avoid an immediate end-of-sequence stop."""
+    cfg = result.config
+    choices = ["different token IDs" if cfg.prompt_ids is not None else "another --prompt"]
+    if cfg.prompt_ids is None and result.chat_template_applied:
+        choices.append("--no-apply-template")
+    if not cfg.ignore_eos:
+        choices.append("--ignore-eos")
+    if len(choices) > 2:
+        return f"Try {', '.join(choices[:-1])}, or {choices[-1]}."
+    return f"Try {' or '.join(choices)}."
 
 
 def display_gguf_report(result: GGUFBenchmarkResult, console: Console) -> None:
@@ -570,10 +888,17 @@ def display_gguf_report(result: GGUFBenchmarkResult, console: Console) -> None:
         console.print(
             f"  [dim]Excluded first {cfg.warmup} warmup generation(s) from statistics[/dim]"
         )
-    if result.generated_tokens == 0:
+    if not aggregate.get("timed_request_count"):
+        # Only an evidence run keeps going after a request fails.
+        console.print(
+            "[yellow]Warning:[/yellow] no measured request succeeded, so there are no TTFT, "
+            "decode or warm-start statistics. The evidence file records each failed "
+            "request's error."
+        )
+    elif result.generated_tokens == 0:
         console.print(
             "[yellow]Warning:[/yellow] the model stopped before generating a token, so "
-            "decode metrics are empty. Try another --prompt or --no-apply-template."
+            f"decode metrics are empty. {_zero_token_advice(result)}"
         )
 
     if result.memory_profile:
@@ -611,11 +936,16 @@ def run_gguf_perf(
     """Run a GGUF benchmark, print the report, and persist JSON.
 
     Translates session failures into ``click`` errors so the CLI exits cleanly
-    instead of dumping a traceback.
+    instead of dumping a traceback. An evidence run exits non-zero unless every
+    planned request succeeded: a ``partial`` run still reports and saves its
+    schema 3 results; a ``failed`` run saves only its evidence.
     """
     benchmark = GGUFPerfBenchmark(config)
     try:
         result = benchmark.run()
+    except GGUFEvidenceError as exc:
+        _print_evidence_line(console, exc.path, exc.status)
+        raise click.ClickException(str(exc)) from exc
     except (LlamaSessionError, FileNotFoundError) as exc:  # incl. not-installed and load errors
         raise click.ClickException(str(exc)) from exc
 
@@ -627,4 +957,16 @@ def run_gguf_perf(
     output_path = config.output_path or gguf_output_path(config.model_path)
     write_gguf_report(result, output_path)
     console.print(f"[green]Results saved to:[/green] {output_path}")
+    if config.evidence_path is not None:
+        _print_evidence_line(console, config.evidence_path, result.evidence_status)
+        if result.evidence_status != "complete":
+            raise click.ClickException(
+                f"GGUF evidence status {result.evidence_status}: at least one request did not "
+                "succeed; the evidence file above records which."
+            )
     return result
+
+
+def _print_evidence_line(console: Console, path: Path, status: str | None) -> None:
+    """Print where the evidence was saved, with its status in words."""
+    console.print(f"Evidence saved to: {escape(str(path))} (status: {status})", soft_wrap=True)

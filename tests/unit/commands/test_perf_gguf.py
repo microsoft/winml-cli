@@ -11,7 +11,10 @@ makes aggregation deterministic without importing Windows ML Tasks. The session 
 
 from __future__ import annotations
 
+import dataclasses
+import gc
 import json
+import os
 from io import StringIO
 from itertools import accumulate, count, pairwise
 from pathlib import Path
@@ -25,11 +28,23 @@ import pytest
 from click.testing import CliRunner
 from rich.console import Console
 
+from tests.unit.test_helpers import (
+    RUNTIME_CALLBACK,
+    FakeLogApi,
+    FakeOptions,
+    HResultError,
+    make_record,
+)
+from winml.modelkit.commands import _gguf_evidence
 from winml.modelkit.commands import _perf_gguf as perf_gguf
+from winml.modelkit.commands._gguf_evidence import rows_path, token_ids_sha256
+from winml.modelkit.commands._gguf_native_log import NATIVE_VALUE_KEYS, NativeLogCapture
 from winml.modelkit.commands._perf_gguf import (
     GGUFBenchmarkResult,
+    GGUFEvidenceError,
     GGUFPerfBenchmark,
     GGUFPerfConfig,
+    _sample_from_record,
     display_gguf_report,
     gguf_output_path,
     is_gguf_model,
@@ -41,6 +56,7 @@ from winml.modelkit.session import (
     LlamaGenerationTiming,
     LlamaLoadError,
     LlamaNotInstalledError,
+    LlamaRequestRecord,
     LlamaSessionError,
 )
 
@@ -87,10 +103,19 @@ class _FakeLlamaSession:
         *,
         prompt_ids: list[int] | None = None,
         chat_template: bool = True,
+        effective_context: int | None = None,
+        eos_readback: tuple[int, ...] | None = None,
+        check_error: Exception | None = None,
     ) -> None:
         self._timings = list(timings)
         self._prompt_ids = prompt_ids if prompt_ids is not None else list(range(4))
         self._chat_template = chat_template
+        self._effective_context = effective_context
+        self._eos_readback = eos_readback
+        self._check_error = check_error
+        self.load_kwargs: dict[str, Any] = {}
+        self.checked_ids: list[int] | None = None
+        self.submitted_ids: list[list[int]] = []
         self.chat_template_applied: bool | None = None
         self.context_length: int | None = None
         self.effective_device: str | None = None
@@ -120,13 +145,30 @@ class _FakeLlamaSession:
         self.chat_template_applied = apply_template and self._chat_template
         return list(self._prompt_ids)
 
-    def load(self, *, context_length: int | None = None) -> None:
+    def load(
+        self, *, context_length: int | None = None, eos_token_ids: tuple[int, ...] | None = None
+    ) -> None:
         self.calls.append("load")
-        self.context_length = context_length
+        self.load_kwargs = {"context_length": context_length, "eos_token_ids": eos_token_ids}
+        self.context_length = (
+            self._effective_context if self._effective_context is not None else context_length
+        )
         self.effective_device = "cpu"
+
+    @property
+    def task_default_eos_token_ids(self) -> tuple[int, ...]:
+        if self._eos_readback is not None:
+            return self._eos_readback
+        return () if self.load_kwargs.get("eos_token_ids") == () else (7,)
+
+    def check_prompt_ids(self, token_ids: list[int]) -> None:
+        self.checked_ids = list(token_ids)
+        if self._check_error is not None:
+            raise self._check_error
 
     def generate_timed(self, prompt_token_ids: list[int], **kwargs: Any) -> LlamaGenerationTiming:
         self.generate_kwargs.append(kwargs)
+        self.submitted_ids.append(list(prompt_token_ids))
         return self._timings.pop(0)
 
     def close(self) -> None:
@@ -162,9 +204,610 @@ def _gguf(tmp_path: Path, name: str = "model.gguf") -> Path:
     return model
 
 
+def _ids_file(tmp_path: Path, content: bytes) -> Path:
+    path = tmp_path / "ids.json"
+    path.write_bytes(content)
+    return path
+
+
+_INITIALIZATION_SPANS = [
+    (name, 100 + 10 * index, 110 + 10 * index)
+    for index, name in enumerate(
+        (
+            "runtime_create",
+            "tokenizer_open",
+            "model_load",
+            "pipeline_build",
+            "task_create",
+            "session_create",
+        )
+    )
+]
+
+
+def _line_count(path: Path) -> int:
+    return len(path.read_text(encoding="utf-8").splitlines()) if path.exists() else 0
+
+
+class _FakeProtocolSession(_FakeLlamaSession):
+    """Session double for evidence runs; ``failures`` maps a request position to a fault.
+
+    ``ctrl_c_in_log`` ("load" or "warmup-0") makes llama.cpp log one line at that point
+    while a Ctrl+C arrives, so the capture's log callback runs into the KeyboardInterrupt.
+    """
+
+    def __init__(
+        self,
+        *,
+        failures: dict[int, str] | None = None,
+        log_api: FakeLogApi | None = None,
+        evidence_path: Path | None = None,
+        effective_context: int | None = None,
+        eos_readback: tuple[int, ...] | None = None,
+        ctrl_c_in_log: str | None = None,
+    ) -> None:
+        super().__init__([], effective_context=effective_context, eos_readback=eos_readback)
+        self._failures = dict(failures or {})
+        self._ctrl_c_in_log = ctrl_c_in_log
+        self.ctrl_c_pending = False
+        self._log_api = log_api
+        self._evidence_path = evidence_path
+        self.initialization_spans = list(_INITIALIZATION_SPANS)
+        self.declared_context_length = None
+        self.tokenizer_eos_token_ids = (7,)
+        self.speculative_readback = {
+            "model_draft_predictor_enabled": False,
+            "draft_token_limit_hint": 0,
+            "draft_predictor_path": None,
+            "reason": None,
+        }
+        self.resolved_target_kind = "cpu"
+        self.callback_at_load: int | None = None
+        self.callback_at_close: int | None = None
+        self.callback_at_request: list[int | None] = []
+        self.gc_enabled_at_request: list[bool] = []
+        self.rows_at_request: list[int | None] = []
+
+    def _log_callback(self) -> int | None:
+        return self._log_api.callback if self._log_api is not None else None
+
+    def _log_during_ctrl_c(self, point: str) -> None:
+        if self._ctrl_c_in_log == point and self._log_api is not None:
+            self.ctrl_c_pending = True
+            self._log_api.emit(2, b"llama_context: n_ctx = 16\n")
+
+    def load(self, **kwargs: Any) -> None:
+        super().load(**kwargs)
+        self.callback_at_load = self._log_callback()
+        self._log_during_ctrl_c("load")
+
+    def greedy_options(self, max_new_tokens: int) -> FakeOptions:
+        return FakeOptions(max_new_tokens=max_new_tokens)
+
+    def run_request(
+        self, token_ids: list[int], *, options: FakeOptions, clock_ns: Any
+    ) -> LlamaRequestRecord:
+        position = len(self.gc_enabled_at_request)
+        self.calls.append("run_request")
+        self.gc_enabled_at_request.append(gc.isenabled())
+        self.callback_at_request.append(self._log_callback())
+        evidence = self._evidence_path
+        self.rows_at_request.append(_line_count(rows_path(evidence)) if evidence else None)
+        failure = self._failures.get(position)
+        if failure == "raise":
+            raise RuntimeError("native session crashed")
+        if failure == "interrupt":
+            raise KeyboardInterrupt
+        record = make_record(
+            input_ids=token_ids, tokens=range(options.max_new_tokens), start_ns=clock_ns()
+        )
+        if position == 0:
+            self._log_during_ctrl_c("warmup-0")
+        if failure == "error":
+            return dataclasses.replace(
+                record, finish_reason="ERROR", error=HResultError(0x80004005)
+            )
+        if failure == "reset":
+            return LlamaRequestRecord(
+                input_ids=tuple(token_ids),
+                reset_start_ns=record.reset_start_ns,
+                reset_error=HResultError(0x80004005),
+            )
+        return record
+
+    def close(self) -> None:
+        super().close()
+        self.callback_at_close = self._log_callback()
+
+
+def _protocol_benchmark(
+    tmp_path: Path,
+    *,
+    failures: dict[int, str] | None = None,
+    effective_context: int | None = None,
+    eos_readback: tuple[int, ...] | None = None,
+    owned: bool = False,
+    ctrl_c_in_log: str | None = None,
+    **config_overrides: Any,
+) -> tuple[GGUFPerfBenchmark, _FakeProtocolSession, FakeLogApi]:
+    """Build an evidence benchmark; ``owned`` leaves session creation to the benchmark."""
+    values: dict[str, Any] = {
+        "prompt_ids": (1, 2, 3, 4),
+        "context_length": 16,
+        "ignore_eos": True,
+        "warmup": 1,
+        "iterations": 2,
+        "max_new_tokens": 3,
+        "evidence_path": tmp_path / "ev.json",
+        **config_overrides,
+    }
+    config = _config(tmp_path, **values)
+    config.model_path.write_bytes(b"GGUF")
+    api = FakeLogApi()
+    session = _FakeProtocolSession(
+        failures=failures,
+        log_api=api,
+        evidence_path=config.evidence_path,
+        effective_context=effective_context,
+        eos_readback=eos_readback,
+        ctrl_c_in_log=ctrl_c_in_log,
+    )
+    ticks = count(1_000, 1_000)
+
+    def clock_ns() -> int:
+        return next(ticks)
+
+    def capture_clock_ns() -> int:
+        if session.ctrl_c_pending:
+            session.ctrl_c_pending = False
+            raise KeyboardInterrupt
+        return clock_ns()
+
+    benchmark = GGUFPerfBenchmark(
+        config,
+        session=None if owned else session,
+        clock=lambda: clock_ns() / 1e9,
+        clock_ns=clock_ns,
+        log_capture=NativeLogCapture(
+            load_api=lambda: ("C:/lib/WinMLllama.dll", api), clock_ns=capture_clock_ns
+        ),
+    )
+    return benchmark, session, api
+
+
+def _protocol_run(
+    tmp_path: Path, **kwargs: Any
+) -> tuple[dict[str, Any], _FakeProtocolSession, FakeLogApi]:
+    benchmark, session, api = _protocol_benchmark(tmp_path, **kwargs)
+    benchmark.run()
+    return _read(tmp_path / "ev.json"), session, api
+
+
+def _read(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _explode(*_args: Any, **_kwargs: Any) -> None:
+    raise AssertionError("must not be called on the evidence path")
+
+
 # ---------------------------------------------------------------------------
 # Benchmark engine
 # ---------------------------------------------------------------------------
+
+
+ADDITIVE_KEYS = {
+    "input_mode",
+    "prompt_ids_sha256",
+    "context_length_requested",
+    "eos_policy",
+    "evidence_path",
+    "evidence_status",
+}
+
+
+class TestProtocolOptions:
+    def test_prompt_ids_skip_encoding_and_size_the_context(self, tmp_path: Path) -> None:
+        ids = (5, 6, 7, 8, 9)
+        result, session = _run_fake(
+            tmp_path,
+            [_timing(input_tokens=len(ids)) for _ in range(3)],
+            prompt_ids=ids,
+            apply_template=False,
+        )
+        assert "encode_prompt" not in session.calls
+        assert session.submitted_ids == [list(ids)] * 3
+        assert session.load_kwargs == {
+            "context_length": len(ids) + result.config.max_new_tokens,
+            "eos_token_ids": None,
+        }
+        assert session.checked_ids == list(ids)
+        assert all(sample.tokenization_duration_ms == 0.0 for sample in result.requests)
+
+    def test_context_length_overrides_the_derived_capacity(self, tmp_path: Path) -> None:
+        _, session = _run_fake(tmp_path, [_timing()] * 3, context_length=64)
+        assert session.load_kwargs["context_length"] == 64
+
+    def test_context_length_mismatch_fails_before_any_request(self, tmp_path: Path) -> None:
+        session = _FakeLlamaSession([_timing()] * 3, effective_context=32)
+        with pytest.raises(LlamaLoadError, match="--context-length 64"):
+            GGUFPerfBenchmark(_config(tmp_path, context_length=64), session=session).run()
+        assert session.generate_kwargs == []
+
+    def test_prompt_longer_than_context_length_fails_before_load(self, tmp_path: Path) -> None:
+        session = _FakeLlamaSession([_timing()] * 3, prompt_ids=list(range(8)))
+        with pytest.raises(LlamaSessionError, match="--context-length 10"):
+            GGUFPerfBenchmark(
+                _config(tmp_path, context_length=10, max_new_tokens=3), session=session
+            ).run()
+        assert "load" not in session.calls
+
+    def test_ignore_eos_requests_and_verifies_an_empty_set(self, tmp_path: Path) -> None:
+        _, session = _run_fake(tmp_path, [_timing()] * 3, ignore_eos=True)
+        assert session.load_kwargs["eos_token_ids"] == ()
+        bad = _FakeLlamaSession([_timing()] * 3, eos_readback=(7,))
+        with pytest.raises(LlamaLoadError, match="--ignore-eos"):
+            GGUFPerfBenchmark(_config(tmp_path, ignore_eos=True), session=bad).run()
+        assert bad.generate_kwargs == []
+
+    def test_out_of_vocabulary_ids_fail_before_any_request(self, tmp_path: Path) -> None:
+        session = _FakeLlamaSession(
+            [_timing()] * 3, check_error=LlamaSessionError("outside the model vocabulary")
+        )
+        with pytest.raises(LlamaSessionError, match="vocabulary"):
+            GGUFPerfBenchmark(_config(tmp_path, prompt_ids=(1, 2)), session=session).run()
+        assert session.generate_kwargs == []
+
+    def test_schema3_adds_fields_only_with_protocol_options(self, tmp_path: Path) -> None:
+        stock = _run_fake(tmp_path, [_timing()] * 3)[0].to_dict()["benchmark_info"]
+        ids = (1, 2, 3, 4)
+        protocol = _run_fake(
+            tmp_path,
+            [_timing()] * 3,
+            prompt_ids=ids,
+            context_length=16,
+            ignore_eos=True,
+            apply_template=False,
+        )[0].to_dict()["benchmark_info"]
+        assert ADDITIVE_KEYS.isdisjoint(stock)
+        assert set(protocol) == set(stock) | ADDITIVE_KEYS
+        assert {key: protocol[key] for key in ADDITIVE_KEYS} == {
+            "input_mode": "token_ids",
+            "prompt_ids_sha256": token_ids_sha256(ids),
+            "context_length_requested": 16,
+            "eos_policy": "ignore",
+            "evidence_path": None,
+            "evidence_status": None,
+        }
+        assert protocol["prompt"] is None
+        assert stock["prompt"] == GGUFPerfConfig(model_path=Path("m.gguf")).prompt
+
+    def test_text_mode_reports_the_digest_of_the_encoded_prompt(self, tmp_path: Path) -> None:
+        info = _run_fake(tmp_path, [_timing()] * 3, context_length=64)[0].to_dict()
+        benchmark_info = info["benchmark_info"]
+        assert benchmark_info["input_mode"] == "text"
+        assert benchmark_info["prompt_ids_sha256"] == token_ids_sha256(range(4))
+        assert benchmark_info["prompt"] == GGUFPerfConfig(model_path=Path("m.gguf")).prompt
+
+
+class TestEvidenceRun:
+    def test_complete_run_writes_contract_evidence(self, tmp_path: Path) -> None:
+        doc, session, _ = _protocol_run(tmp_path)
+
+        assert (doc["status"], doc["failure_phase"], doc["error"]) == ("complete", None, None)
+        assert [row["id"] for row in doc["requests"]] == ["warmup-0", "measured-0", "measured-1"]
+        assert all(
+            row["status"] == "succeeded" and row["stop_reason"] == "limit"
+            for row in doc["requests"]
+        )
+        assert session.calls[:2] == ["open_tokenizer", "load"]
+        assert session.load_kwargs == {"context_length": 16, "eos_token_ids": ()}
+        assert [span["name"] for span in doc["initialization"]["spans"]] == [
+            name for name, _, _ in session.initialization_spans
+        ]
+        assert doc["requests"] == [
+            json.loads(line)
+            for line in rows_path(tmp_path / "ev.json").read_text(encoding="utf-8").splitlines()
+        ]
+
+    def test_run_returns_schema3_samples_and_status(self, tmp_path: Path) -> None:
+        benchmark, _, _ = _protocol_benchmark(tmp_path)
+        result = benchmark.run()
+
+        assert result.evidence_status == "complete"
+        assert [(sample.kind, sample.index) for sample in result.requests] == [
+            ("warmup", 0),
+            ("timed", 1),
+            ("timed", 2),
+        ]
+        assert result.aggregate["stop_reason_counts"] == {"MAX_TOKENS": 2}
+        info = result.to_dict()["benchmark_info"]
+        assert info["evidence_status"] == "complete"
+        assert info["prompt_ids_sha256"] == token_ids_sha256((1, 2, 3, 4))
+
+    def test_provisional_evidence_exists_before_model_hashing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: dict[str, Any] = {}
+        real = _gguf_evidence.model_inventory
+
+        def inventory(path: Path) -> dict[str, Any]:
+            seen.update(_read(tmp_path / "ev.json"))
+            return real(path)
+
+        monkeypatch.setattr(_gguf_evidence, "model_inventory", inventory)
+        _protocol_run(tmp_path)
+
+        assert seen["status"] == "running"
+        assert seen["process"]["pid"] == os.getpid()
+
+    def test_log_capture_spans_load_through_warmup0_only(self, tmp_path: Path) -> None:
+        doc, session, _ = _protocol_run(tmp_path)
+
+        assert session.callback_at_load not in (None, RUNTIME_CALLBACK)
+        assert session.callback_at_request == [
+            session.callback_at_load,
+            RUNTIME_CALLBACK,
+            RUNTIME_CALLBACK,
+        ]
+        assert doc["native_log"]["after_capture"]["restored"] is True
+
+    def test_gc_is_disabled_only_for_measured_requests(self, tmp_path: Path) -> None:
+        doc, session, _ = _protocol_run(tmp_path)
+
+        assert session.gc_enabled_at_request == [True, False, False]
+        assert gc.isenabled()
+        assert doc["harness"]["gc"]["collections_between_requests"] == 2
+
+    def test_rows_reach_disk_before_the_next_request(self, tmp_path: Path) -> None:
+        _, session, _ = _protocol_run(tmp_path)
+
+        assert session.rows_at_request == [0, 1, 2]
+
+    def test_text_prompt_is_encoded_once(self, tmp_path: Path) -> None:
+        doc, session, _ = _protocol_run(tmp_path, prompt_ids=None, context_length=None)
+
+        assert session.calls.count("encode_prompt") == 1
+        assert doc["workload"]["input_mode"] == "text"
+        assert all(row["input_ids"] == session._prompt_ids for row in doc["requests"])
+
+    def test_memory_tracker_is_never_used(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(perf_gguf, "_GenerationMemoryTracker", _explode)
+
+        assert _protocol_run(tmp_path, memory=True)[0]["status"] == "complete"
+
+    def test_schema3_samples_derive_from_qpc_records(self) -> None:
+        record = make_record()
+        sample = _sample_from_record(record, kind="timed", index=1)
+        assert record.submit_ns is not None
+        assert record.stream_created_ns is not None
+        assert record.completed_ns is not None
+        assert record.result_fetched_ns is not None
+        assert record.reset_end_ns is not None
+
+        assert (sample.kind, sample.index) == ("timed", 1)
+        assert sample.prompt_tokens == record.prompt_token_count
+        assert sample.generated_tokens == len(record.events)
+        assert (sample.template_duration_ms, sample.tokenization_duration_ms) == (0.0, 0.0)
+        assert sample.generator_create_duration_ms == (
+            (record.reset_end_ns - record.reset_start_ns) / 1e6
+        )
+        assert sample.task_stream_create_duration_ms == (
+            (record.stream_created_ns - record.submit_ns) / 1e6
+        )
+        assert sample.task_ttft_duration_ms == (record.events[0][0] - record.submit_ns) / 1e6
+        assert sample.decode_token_durations_ms == [
+            (later[0] - earlier[0]) / 1e6 for earlier, later in pairwise(record.events)
+        ]
+        assert sample.task_stream_completion_duration_ms == (
+            (record.completed_ns - record.events[-1][0]) / 1e6
+        )
+        assert sample.result_fetch_duration_ms == (
+            (record.result_fetched_ns - record.completed_ns) / 1e6
+        )
+        assert sample.task_generation_duration_ms == (
+            (record.result_fetched_ns - record.submit_ns) / 1e6
+        )
+        assert sample.response_text == record.response_text
+
+    def test_sample_without_updates_has_no_ttft(self) -> None:
+        record = make_record(tokens=())
+        sample = _sample_from_record(record, kind="warmup", index=0)
+        assert record.completed_ns is not None
+        assert record.stream_created_ns is not None
+
+        assert sample.task_ttft_duration_ms is None
+        assert sample.decode_token_durations_ms == []
+        assert sample.task_stream_completion_duration_ms == (
+            (record.completed_ns - record.stream_created_ns) / 1e6
+        )
+
+
+class TestEvidenceFailures:
+    def test_failed_request_is_retained_and_later_requests_run(self, tmp_path: Path) -> None:
+        doc, _, _ = _protocol_run(tmp_path, failures={1: "error"})
+
+        assert doc["status"] == "partial"
+        assert [row["status"] for row in doc["requests"]] == ["succeeded", "failed", "succeeded"]
+
+    def test_reset_failure_marks_the_remaining_requests_incomplete(self, tmp_path: Path) -> None:
+        with pytest.raises(GGUFEvidenceError, match="during a measured request"):
+            _protocol_run(tmp_path, failures={1: "reset"})
+
+        doc = _read(tmp_path / "ev.json")
+        assert (doc["status"], doc["failure_phase"]) == ("failed", "measured")
+        assert [row["status"] for row in doc["requests"]] == [
+            "succeeded",
+            "incomplete",
+            "incomplete",
+        ]
+        assert doc["requests"][1]["error"]["hresult"] == "0x80004005"
+
+    def test_context_mismatch_records_both_values_then_fails(self, tmp_path: Path) -> None:
+        with pytest.raises(GGUFEvidenceError, match="during initialization"):
+            _protocol_run(tmp_path, effective_context=32)
+
+        doc = _read(tmp_path / "ev.json")
+        assert doc["configuration"]["context"] == {
+            "requested": 16,
+            "effective": 32,
+            "declared": None,
+        }
+        assert {row["status"] for row in doc["requests"]} == {"incomplete"}
+
+    def test_missing_shard_is_a_configuration_failure(self, tmp_path: Path) -> None:
+        benchmark, session, _ = _protocol_benchmark(
+            tmp_path, model_path=tmp_path / "m-00001-of-00002.gguf"
+        )
+
+        with pytest.raises(GGUFEvidenceError, match="during configuration"):
+            benchmark.run()
+
+        assert _read(tmp_path / "ev.json")["failure_phase"] == "configuration"
+        assert session.calls == []
+
+    def test_failure_before_the_capture_explains_the_missing_native_log(
+        self, tmp_path: Path
+    ) -> None:
+        benchmark, _, _ = _protocol_benchmark(
+            tmp_path, model_path=tmp_path / "m-00001-of-00002.gguf"
+        )
+        with pytest.raises(GGUFEvidenceError):
+            benchmark.run()
+
+        doc = _read(tmp_path / "ev.json")
+        reason = "The run ended before the native log capture was installed."
+        capture = doc["native_log"]["capture"]
+        assert (capture["installed"], capture["reason"]) == (False, reason)
+        unknown = doc["configuration"]["native"]["unknown"]
+        assert {key: value for key, value in unknown.items() if key != "threads"} == (
+            dict.fromkeys(NATIVE_VALUE_KEYS, reason)
+        )
+
+    def test_unexpected_exception_restores_runtime_callback_before_close(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        benchmark, session, _ = _protocol_benchmark(tmp_path, failures={0: "raise"}, owned=True)
+        monkeypatch.setattr(perf_gguf, "WinMLLlamaSession", lambda *_a, **_k: session)
+
+        with pytest.raises(GGUFEvidenceError, match="during a warmup request"):
+            benchmark.run()
+
+        assert session.closed
+        assert session.callback_at_close == RUNTIME_CALLBACK
+
+    @pytest.mark.parametrize(
+        ("phase", "cause", "message"),
+        [
+            ("warmup", RuntimeError(), "during a warmup request: RuntimeError."),
+            (
+                "measured",
+                RuntimeError("native failure."),
+                "during a measured request: native failure.",
+            ),
+            ("initialization", LlamaLoadError("no backend"), "during initialization: no backend."),
+            (
+                "initialization",
+                LlamaLoadError("Could not load the model. Is the backend installed?"),
+                "during initialization: Could not load the model. Is the backend installed?",
+            ),
+            ("finalization", OSError("disk went away\r\n"), "during finalization: disk went away."),
+            ("configuration", RuntimeError(" "), "during configuration: RuntimeError."),
+        ],
+    )
+    def test_error_message_reads_as_one_sentence(
+        self, phase: str, cause: BaseException, message: str
+    ) -> None:
+        error = GGUFEvidenceError(phase, cause, Path("ev.json"))
+
+        # The path is printed on the "Evidence saved to" line above the error.
+        assert str(error) == f"GGUF evidence run failed {message}"
+        assert error.path == Path("ev.json")
+
+    def test_ctrl_c_during_load_logging_stops_the_run_after_load(self, tmp_path: Path) -> None:
+        benchmark, session, api = _protocol_benchmark(tmp_path, ctrl_c_in_log="load")
+
+        with pytest.raises(KeyboardInterrupt):
+            benchmark.run()
+
+        doc = _read(tmp_path / "ev.json")
+        assert (doc["status"], doc["failure_phase"]) == ("failed", "initialization")
+        assert doc["error"]["type"] == "KeyboardInterrupt"
+        assert {row["status"] for row in doc["requests"]} == {"incomplete"}
+        assert "run_request" not in session.calls
+        assert api.callback == RUNTIME_CALLBACK
+
+    def test_ctrl_c_during_warmup0_logging_keeps_its_row_and_stops(self, tmp_path: Path) -> None:
+        benchmark, session, api = _protocol_benchmark(tmp_path, ctrl_c_in_log="warmup-0")
+
+        with pytest.raises(KeyboardInterrupt):
+            benchmark.run()
+
+        doc = _read(tmp_path / "ev.json")
+        assert (doc["status"], doc["failure_phase"]) == ("failed", "warmup")
+        assert [row["status"] for row in doc["requests"]] == [
+            "succeeded",
+            "incomplete",
+            "incomplete",
+        ]
+        assert session.gc_enabled_at_request == [True]
+        assert api.callback == RUNTIME_CALLBACK
+
+    def test_interrupt_writes_failed_evidence_and_propagates(self, tmp_path: Path) -> None:
+        with pytest.raises(KeyboardInterrupt):
+            _protocol_run(tmp_path, failures={1: "interrupt"})
+
+        assert _read(tmp_path / "ev.json")["status"] == "failed"
+        assert gc.isenabled()
+
+
+class TestEvidenceCli:
+    @pytest.mark.parametrize(
+        ("failures", "exit_code", "status"),
+        [({}, 0, "complete"), ({1: "error"}, 1, "partial"), ({1: "reset"}, 1, "failed")],
+    )
+    def test_exit_code_follows_the_evidence_status(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        failures: dict[int, str],
+        exit_code: int,
+        status: str,
+    ) -> None:
+        evidence = tmp_path / "ev.json"
+        report = tmp_path / "report.json"
+        session = _FakeProtocolSession(failures=failures, evidence_path=evidence)
+        monkeypatch.setattr(perf_gguf, "WinMLLlamaSession", lambda *_a, **_k: session)
+        args = [
+            "-m",
+            str(_gguf(tmp_path)),
+            "--prompt-ids-file",
+            str(_ids_file(tmp_path, b"[1, 2, 3, 4]")),
+            "--context-length",
+            "16",
+            "--ignore-eos",
+            "--evidence",
+            str(evidence),
+            "--warmup",
+            "1",
+            "--iterations",
+            "2",
+            "--max-new-tokens",
+            "3",
+            "-o",
+            str(report),
+        ]
+        result = CliRunner().invoke(perf, args)
+
+        assert result.exit_code == exit_code, result.output
+        assert _read(evidence)["status"] == status
+        assert report.exists() is (status != "failed")
+        assert f"(status: {status})" in result.output
+        assert session.closed
+        # The "Evidence saved to" line names the file; the error does not repeat it.
+        assert result.output.count(str(evidence)) == 1
 
 
 class TestBenchmark:
@@ -413,6 +1056,60 @@ class TestReporting:
         assert "n/a tokens/sec" in output
         assert "n/a ms/token" in output
 
+    @pytest.mark.parametrize(
+        ("ignore_eos", "advice"),
+        [(False, "Try different token IDs or --ignore-eos."), (True, "Try different token IDs.")],
+    )
+    def test_zero_token_advice_fits_exact_token_ids(
+        self, tmp_path: Path, ignore_eos: bool, advice: str
+    ) -> None:
+        empty = _timing(generated_tokens=0, stop_reason="EOS")
+        result, _session = _run_fake(
+            tmp_path,
+            [empty] * 3,
+            prompt_ids=(1, 2, 3, 4),
+            apply_template=False,
+            ignore_eos=ignore_eos,
+        )
+        buffer = StringIO()
+        display_gguf_report(result, Console(file=buffer, width=200, color_system=None))
+
+        output = buffer.getvalue()
+        assert advice in output
+        assert "--prompt" not in output
+
+    @pytest.mark.parametrize(
+        ("apply_template", "ignore_eos", "advice"),
+        [
+            (True, False, "Try another --prompt, --no-apply-template, or --ignore-eos."),
+            (False, False, "Try another --prompt or --ignore-eos."),
+            (True, True, "Try another --prompt or --no-apply-template."),
+            (False, True, "Try another --prompt."),
+        ],
+    )
+    def test_zero_token_advice_offers_only_options_not_in_use(
+        self, tmp_path: Path, apply_template: bool, ignore_eos: bool, advice: str
+    ) -> None:
+        empty = _timing(generated_tokens=0, stop_reason="EOS")
+        result, _session = _run_fake(
+            tmp_path, [empty] * 3, apply_template=apply_template, ignore_eos=ignore_eos
+        )
+        buffer = StringIO()
+        display_gguf_report(result, Console(file=buffer, width=200, color_system=None))
+
+        assert advice in buffer.getvalue()
+
+    def test_report_says_when_no_measured_request_succeeded(self, tmp_path: Path) -> None:
+        benchmark, _, _ = _protocol_benchmark(tmp_path, failures={1: "error", 2: "error"})
+        result = benchmark.run()
+        buffer = StringIO()
+        display_gguf_report(result, Console(file=buffer, width=200, color_system=None))
+
+        output = buffer.getvalue()
+        assert result.evidence_status == "partial"
+        assert "no measured request succeeded, so there are no TTFT, decode" in output
+        assert "stopped before generating a token" not in output
+
     def test_write_report_round_trips(self, tmp_path: Path) -> None:
         timings = [_timing() for _ in range(3)]
         result, _session = _run_fake(tmp_path, timings)
@@ -643,6 +1340,332 @@ class TestCliDispatch:
 
         assert result.exit_code == 2, result.output
         assert "mutually exclusive" in result.output
+
+    def test_protocol_options_are_forwarded(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        ids = list(range(10))
+        evidence = tmp_path / "run" / "task-events.json"
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                str(_gguf(tmp_path)),
+                "--prompt-ids-file",
+                str(_ids_file(tmp_path, json.dumps(ids).encode())),
+                "--context-length",
+                "64",
+                "--ignore-eos",
+                "--evidence",
+                str(evidence),
+                "--max-new-tokens",
+                "8",
+                "-o",
+                str(tmp_path / "r.json"),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        config = capture_run["config"]
+        assert (
+            config.prompt_ids,
+            config.context_length,
+            config.ignore_eos,
+            config.evidence_path,
+            config.memory,
+            config.apply_template,
+        ) == (tuple(ids), 64, True, evidence, False, False)
+
+    def test_prompt_ids_file_accepts_a_utf8_bom(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        path = _ids_file(tmp_path, b"\xef\xbb\xbf" + json.dumps([1, 2]).encode())
+        result = runner.invoke(perf, ["-m", str(_gguf(tmp_path)), "--prompt-ids-file", str(path)])
+
+        assert result.exit_code == 0, result.output
+        assert capture_run["config"].prompt_ids == (1, 2)
+
+    @pytest.mark.parametrize(
+        ("content", "message"),
+        [
+            (b"[]", "at least one token ID"),
+            (b"[true]", "element 0"),
+            (b"[1, 1.5]", "element 1"),
+            (b"[-1]", "element 0"),
+            (b'{"ids": [1]}', "JSON array of token IDs"),
+            (b"1,2", "not valid JSON"),
+            (b"\xff[1]", "not valid JSON"),
+            pytest.param(b"[" * 100_000 + b"]" * 100_000, "not valid JSON", id="deeply-nested"),
+            pytest.param(b"[" + b"9" * 5000 + b"]", "too long to be a token ID", id="huge-integer"),
+        ],
+    )
+    def test_prompt_ids_file_rejects_malformed_content(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict, content: bytes, message: str
+    ) -> None:
+        path = _ids_file(tmp_path, content)
+        result = runner.invoke(perf, ["-m", str(_gguf(tmp_path)), "--prompt-ids-file", str(path)])
+
+        assert result.exit_code == 2, result.output
+        assert f"--prompt-ids-file {path}" in result.output
+        assert message in result.output
+        assert "config" not in capture_run
+
+    @pytest.mark.parametrize(
+        ("extra", "message"),
+        [
+            (["--prompt", "hi"], "cannot be combined"),
+            (["--prompt-file", "<file>"], "cannot be combined"),
+            (["--apply-template"], "--apply-template cannot be used with --prompt-ids-file"),
+        ],
+    )
+    def test_prompt_ids_conflicts_are_usage_errors(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        capture_run: dict,
+        extra: list[str],
+        message: str,
+    ) -> None:
+        prompt_file = tmp_path / "prompt.txt"
+        prompt_file.write_text("hello", encoding="utf-8")
+        extra = [str(prompt_file) if value == "<file>" else value for value in extra]
+        ids = _ids_file(tmp_path, b"[1, 2]")
+        result = runner.invoke(
+            perf, ["-m", str(_gguf(tmp_path)), "--prompt-ids-file", str(ids), *extra]
+        )
+
+        assert result.exit_code == 2, result.output
+        assert message in result.output
+        assert "config" not in capture_run
+
+    def test_explicit_no_apply_template_is_allowed_with_prompt_ids(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        ids = _ids_file(tmp_path, b"[1, 2]")
+        result = runner.invoke(
+            perf,
+            ["-m", str(_gguf(tmp_path)), "--prompt-ids-file", str(ids), "--no-apply-template"],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert capture_run["config"].apply_template is False
+
+    def test_prompt_ids_element_errors_stay_short(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        # Nested just under the recursion limit: parsed, then rejected element by element.
+        path = _ids_file(tmp_path, b"[" * 900 + b"]" * 900)
+        result = runner.invoke(perf, ["-m", str(_gguf(tmp_path)), "--prompt-ids-file", str(path)])
+
+        assert result.exit_code == 2, result.output
+        assert "element 0 is not a non-negative integer token ID" in result.output
+        assert result.output.count("[") < 50
+
+    def test_prompt_ids_file_accepts_utf16_from_windows_powershell(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        # Windows PowerShell 5.1 writes UTF-16 with a byte order mark for `>` redirection.
+        path = _ids_file(tmp_path, "[1, 2]\r\n".encode("utf-16"))
+        result = runner.invoke(perf, ["-m", str(_gguf(tmp_path)), "--prompt-ids-file", str(path)])
+
+        assert result.exit_code == 0, result.output
+        assert capture_run["config"].prompt_ids == (1, 2)
+
+    def test_context_length_must_leave_room_for_a_text_prompt(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        evidence = tmp_path / "ev.json"
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                str(_gguf(tmp_path)),
+                "--context-length",
+                "64",
+                "--max-new-tokens",
+                "64",
+                "--evidence",
+                str(evidence),
+            ],
+        )
+
+        assert result.exit_code == 2, result.output
+        assert "--context-length 64" in result.output
+        assert "config" not in capture_run
+        assert not evidence.exists()
+
+    def test_prompt_ids_plus_max_new_tokens_must_fit_context_length(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        ids = _ids_file(tmp_path, json.dumps(list(range(10))).encode())
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                str(_gguf(tmp_path)),
+                "--prompt-ids-file",
+                str(ids),
+                "--max-new-tokens",
+                "8",
+                "--context-length",
+                "16",
+            ],
+        )
+
+        assert result.exit_code == 2, result.output
+        assert "--context-length 16" in result.output
+        assert "config" not in capture_run
+
+    @pytest.mark.parametrize(
+        ("extra", "message"),
+        [
+            (["--memory"], "--memory cannot be used with --evidence"),
+            (["--warmup", "0"], "--evidence needs at least one warmup request"),
+        ],
+    )
+    def test_evidence_rejects_in_process_memory_and_zero_warmup(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        capture_run: dict,
+        extra: list[str],
+        message: str,
+    ) -> None:
+        evidence = tmp_path / "ev.json"
+        result = runner.invoke(
+            perf, ["-m", str(_gguf(tmp_path)), "--evidence", str(evidence), *extra]
+        )
+
+        assert result.exit_code == 2, result.output
+        assert message in result.output
+        assert "config" not in capture_run
+
+    @pytest.mark.parametrize("extra", [[], ["--no-memory"]])
+    def test_evidence_turns_off_default_memory_sampling(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict, extra: list[str]
+    ) -> None:
+        evidence = tmp_path / "ev.json"
+        result = runner.invoke(
+            perf, ["-m", str(_gguf(tmp_path)), "--evidence", str(evidence), *extra]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert capture_run["config"].memory is False
+
+    @pytest.mark.parametrize("existing", ["ev.json", "ev.rows.jsonl"])
+    def test_evidence_must_be_new_unless_overwrite(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict, existing: str
+    ) -> None:
+        (tmp_path / existing).write_text("{}", encoding="utf-8")
+        args = ["-m", str(_gguf(tmp_path)), "--evidence", str(tmp_path / "ev.json")]
+
+        result = runner.invoke(perf, args)
+        assert result.exit_code == 1, result.output
+        assert "already exists" in result.output
+        assert "config" not in capture_run
+
+        result = runner.invoke(perf, [*args, "--overwrite"])
+        assert result.exit_code == 0, result.output
+        assert capture_run["config"].evidence_path == tmp_path / "ev.json"
+
+    @pytest.mark.parametrize("output", ["x.json", "x.rows.jsonl", "X.JSON", "x.json.tmp"])
+    def test_evidence_and_output_must_differ(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict, output: str
+    ) -> None:
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                str(_gguf(tmp_path)),
+                "--evidence",
+                str(tmp_path / "x.json"),
+                "-o",
+                str(tmp_path / output),
+            ],
+        )
+
+        assert result.exit_code == 2, result.output
+        assert "--evidence and --output must name different files" in result.output
+        assert "config" not in capture_run
+
+    @pytest.mark.parametrize(
+        ("option", "victim", "message"),
+        [
+            ("--evidence", "model.gguf", "--evidence would overwrite the --model input"),
+            ("--evidence", "MODEL.GGUF", "--evidence would overwrite the --model input"),
+            ("--evidence", "ids.json", "--evidence would overwrite the --prompt-ids-file input"),
+            ("--evidence", "ids", "--evidence rows file would overwrite the --prompt-ids-file"),
+            ("-o", "model.gguf", "--output would overwrite the --model input"),
+            ("-o", "ids.json", "--output would overwrite the --prompt-ids-file input"),
+        ],
+    )
+    def test_outputs_never_overwrite_the_model_or_the_ids_file(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        capture_run: dict,
+        option: str,
+        victim: str,
+        message: str,
+    ) -> None:
+        model = _gguf(tmp_path)
+        ids = _ids_file(tmp_path, b"[1, 2]")
+        target = tmp_path / victim
+        if victim == "ids":
+            # The evidence rows file (ids.rows.jsonl) is the IDs file.
+            ids = ids.rename(tmp_path / "ids.rows.jsonl")
+            target = tmp_path / "ids.json"
+        protected = {path: path.read_bytes() for path in (model, ids)}
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                str(model),
+                "--prompt-ids-file",
+                str(ids),
+                option,
+                str(target),
+                "--overwrite",
+            ],
+        )
+
+        assert result.exit_code == 2, result.output
+        assert message in result.output
+        assert "config" not in capture_run
+        assert {path: path.read_bytes() for path in protected} == protected
+
+    @pytest.mark.parametrize(
+        "flag",
+        [
+            ["--prompt-ids-file", "<ids>"],
+            ["--context-length", "8"],
+            ["--ignore-eos"],
+            ["--evidence", "<ev>"],
+        ],
+    )
+    @pytest.mark.parametrize("kind", ["onnx", "genai"])
+    def test_gguf_only_options_are_rejected_for_other_runtimes(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        capture_run: dict,
+        flag: list[str],
+        kind: str,
+    ) -> None:
+        if kind == "onnx":
+            model = tmp_path / "model.onnx"
+            model.write_bytes(b"")
+        else:
+            model = tmp_path / "bundle"
+            model.mkdir()
+            (model / "genai_config.json").write_text("{}", encoding="utf-8")
+        values = {"<ids>": str(_ids_file(tmp_path, b"[1]")), "<ev>": str(tmp_path / "ev.json")}
+        flag = [values.get(value, value) for value in flag]
+        result = runner.invoke(perf, ["-m", str(model), *flag])
+
+        assert result.exit_code == 2, result.output
+        assert "only apply to GGUF models" in result.output
+        assert "config" not in capture_run
 
 
 class TestAutoRuntime:

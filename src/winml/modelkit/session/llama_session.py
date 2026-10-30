@@ -132,6 +132,76 @@ class LlamaGenerationTiming:
     stop_reason: str
 
 
+# Task finish reasons that end a generation normally, with the stop-reason
+# names reported by the benchmark. ERROR and unknown reasons are failures.
+_TASK_STOP_REASONS: dict[str, str] = {
+    "EOS_TOKEN": "EOS",
+    "STOP_TOKEN": "STOP_TOKEN",
+    "MAX_TOKENS": "MAX_TOKENS",
+    "SEQUENCE_CAPACITY": "CAPACITY",
+    "CANCELED": "CANCELED",
+}
+
+
+@dataclass(frozen=True)
+class LlamaRequestRecord:
+    """Caller-observed ``time.perf_counter_ns`` points and Task outputs of one request.
+
+    Every time point is read by the caller immediately around the Task call it
+    names; no backend timing is involved. Failures are recorded rather than
+    raised so a benchmark can keep every planned request.
+
+    Attributes:
+        input_ids: Token IDs passed to ``generate_tokens``.
+        reset_start_ns: Immediately before the session reset.
+        reset_end_ns: After the reset returned; ``None`` when it raised.
+        reset_error: The reset failure; no request was submitted.
+        reset_disclosure: Session state after the reset: ``state``,
+            ``sequence_state`` (``disclosure``, ``session_state``,
+            ``evaluated_token_count``, ``retained_token_count``) and
+            ``retained_token_ids``, with enums as their names.
+        disclosure_error: Why the state disclosure could not be read.
+        submit_ns: Immediately before ``generate_tokens``.
+        stream_created_ns: After ``generate_tokens`` returned the stream.
+        events: ``(observed_ns, token_id)`` for each ``read_next()`` update.
+        completed_ns: When ``read_next()`` returned the end of the stream.
+        result_fetched_ns: After the terminal result was read and checked.
+        result_token_ids: Token IDs reported by the Task result.
+        prompt_token_count: Prompt token count reported by the Task result.
+        finish_reason: Name of the Task finish reason.
+        error_code: Task result error code.
+        speculative_statistics: ``method`` name and the three draft counts.
+        response_text: Canonical text returned by the Task result.
+        error: The first failure after submission.
+    """
+
+    input_ids: tuple[int, ...]
+    reset_start_ns: int
+    reset_end_ns: int | None = None
+    reset_error: BaseException | None = None
+    reset_disclosure: dict[str, Any] | None = None
+    disclosure_error: BaseException | None = None
+    submit_ns: int | None = None
+    stream_created_ns: int | None = None
+    events: tuple[tuple[int, int], ...] = ()
+    completed_ns: int | None = None
+    result_fetched_ns: int | None = None
+    result_token_ids: tuple[int, ...] | None = None
+    prompt_token_count: int | None = None
+    finish_reason: str | None = None
+    error_code: int | None = None
+    speculative_statistics: dict[str, Any] | None = None
+    response_text: str | None = None
+    error: BaseException | None = None
+
+    @property
+    def task_stop_reason(self) -> str | None:
+        """Normalized stop reason; ``None`` for ``ERROR``, unknown reasons, or no result."""
+        if self.finish_reason is None:
+            return None
+        return _TASK_STOP_REASONS.get(self.finish_reason)
+
+
 @dataclass(frozen=True)
 class LlamaPayload:
     """llama.cpp payload discovered beside the installed Runtime.
@@ -322,6 +392,56 @@ def _translate_native_errors(phase: str, *, device: str) -> Iterator[None]:
         raise LlamaLoadError(f"GGUF {phase} failed ({hex_hr}): {exc}") from exc
 
 
+def _enum_name(value: Any) -> str:
+    """Return a projected enum's name (or the value itself as text)."""
+    return str(getattr(value, "name", value))
+
+
+def _read_reset_disclosure(session: Any) -> tuple[dict[str, Any] | None, BaseException | None]:
+    """Read the Task session state right after a reset.
+
+    Returns ``(disclosure, None)``, or ``(None, error)`` when the projection or
+    the native session cannot disclose its state; generation still proceeds.
+    """
+    try:
+        state = _enum_name(session.state)
+        sequence = session.sequence_state
+        retained = [int(token) for token in session.retained_token_ids]
+        disclosure = {
+            "state": state,
+            "sequence_state": {
+                "disclosure": _enum_name(sequence.disclosure),
+                "session_state": _enum_name(sequence.session_state),
+                "evaluated_token_count": int(sequence.evaluated_token_count),
+                "retained_token_count": int(sequence.retained_token_count),
+            },
+            "retained_token_ids": retained,
+        }
+    except Exception as exc:  # disclosure is diagnostic evidence
+        return None, exc
+    return disclosure, None
+
+
+def _result_fields(result: Any) -> dict[str, Any]:
+    """Copy the terminal Task result fields that a request record keeps."""
+    statistics = getattr(result, "speculative_statistics", None)
+    return {
+        "result_token_ids": tuple(int(token) for token in result.token_ids),
+        "prompt_token_count": int(result.prompt_token_count),
+        "finish_reason": _enum_name(result.finish_reason),
+        "error_code": int(result.error_code),
+        "speculative_statistics": None
+        if statistics is None
+        else {
+            "method": _enum_name(statistics.method),
+            "verification_step_count": int(statistics.verification_step_count),
+            "draft_token_count": int(statistics.draft_token_count),
+            "accepted_draft_token_count": int(statistics.accepted_draft_token_count),
+        },
+        "response_text": str(result.text),
+    }
+
+
 def _close_quietly(resource: Any) -> None:
     close = getattr(resource, "close", None)
     if not callable(close):
@@ -337,6 +457,26 @@ def _fixed_size(dimension: int) -> int | None:
     if dimension in (0, _DYNAMIC_DIMENSION):
         return None
     return int(dimension)
+
+
+# Stateful-stage draft-prediction options and the type each read-back takes.
+_DRAFT_READBACKS: tuple[tuple[str, Callable[[Any], Any]], ...] = (
+    ("model_draft_predictor_enabled", bool),
+    ("draft_token_limit_hint", int),
+    ("draft_predictor_path", str),
+)
+
+
+def _stage_readback(stage: Any, name: str) -> tuple[Any, str | None]:
+    """Read one stage property, returning ``(value, None)`` or ``(None, reason)``.
+
+    Read-backs are diagnostics, so any failure (a missing projection property,
+    an unsupported native getter) is reported instead of raised.
+    """
+    try:
+        return getattr(stage, name), None
+    except Exception as exc:  # diagnostics never fail the run
+        return None, f"{name}: {type(exc).__name__}: {exc}"
 
 
 # =============================================================================
@@ -397,6 +537,8 @@ class WinMLLlamaSession:
         self._vocabulary_size: int | None = None
         self._sequence_capacity = 0
         self._effective_device: str | None = None
+        self._resolved_target_kind: str | None = None
+        self._initialization_spans: list[tuple[str, int, int]] = []
 
     # -- metadata -----------------------------------------------------------
     @property
@@ -419,6 +561,74 @@ class WinMLLlamaSession:
         """Sequence capacity reported by the built stage, or ``None`` before :meth:`load`."""
         return self._sequence_capacity or None
 
+    @property
+    def declared_context_length(self) -> int | None:
+        """Sequence capacity the model declares, or ``None`` when the stage cannot report it."""
+        unavailable: tuple[type[BaseException], ...] = (
+            AttributeError,
+            TypeError,
+            *self._runtime_errors(),
+        )
+        try:
+            return int(self._stage.declared_sequence_capacity)
+        except unavailable:
+            return None
+
+    @property
+    def task_default_eos_token_ids(self) -> tuple[int, ...]:
+        """EOS IDs the native Task stops on, read back after :meth:`load`.
+
+        Raises:
+            LlamaSessionError: The session is not loaded.
+        """
+        if self._task is None:
+            raise LlamaSessionError(
+                "WinMLLlamaSession.load() must be called before reading the Task EOS set."
+            )
+        with _translate_native_errors("EOS read-back", device=self._device):
+            return tuple(int(token) for token in self._task.default_eos_token_ids)
+
+    @property
+    def tokenizer_eos_token_ids(self) -> tuple[int, ...]:
+        """EOS IDs declared by the GGUF tokenizer metadata.
+
+        Raises:
+            LlamaSessionError: The tokenizer is not open.
+        """
+        if self._tokenizer is None:
+            raise LlamaSessionError(
+                "WinMLLlamaSession.open_tokenizer() must be called before reading "
+                "tokenizer EOS IDs."
+            )
+        return tuple(int(token) for token in self._tokenizer.eos_token_ids)
+
+    @property
+    def speculative_readback(self) -> dict[str, Any]:
+        """Draft-prediction settings of the built stage; the CLI never sets them.
+
+        Each value is ``None`` when its read fails, and ``reason`` joins the
+        failures (``None`` when every read succeeded).
+        """
+        readback: dict[str, Any] = {}
+        reasons: list[str] = []
+        for name, convert in _DRAFT_READBACKS:
+            value, reason = _stage_readback(self._stage, name)
+            readback[name] = None if value is None else convert(value)
+            if reason:
+                reasons.append(reason)
+        readback["reason"] = "; ".join(reasons) or None
+        return readback
+
+    @property
+    def resolved_target_kind(self) -> str | None:
+        """Execution-target kind the stage reports, without the requested-device fallback."""
+        return self._resolved_target_kind
+
+    @property
+    def initialization_spans(self) -> list[tuple[str, int, int]]:
+        """``(name, start_ns, end_ns)`` for each initialization step that completed."""
+        return list(self._initialization_spans)
+
     # -- lifecycle ----------------------------------------------------------
     def open_tokenizer(self) -> None:
         """Import the Runtime, check the llama.cpp payload, and load the GGUF tokenizer.
@@ -437,27 +647,35 @@ class WinMLLlamaSession:
         if self._check_payload:
             self.payload = _require_llama_backend(self._device)
 
-        runtime_start = time.perf_counter()
+        runtime_start = time.perf_counter_ns()
         with _translate_native_errors("runtime creation", device=self._device):
             self._runtime = self._wr.Runtime()
-        tokenizer_start = time.perf_counter()
+        tokenizer_start = time.perf_counter_ns()
+        self._initialization_spans.append(("runtime_create", runtime_start, tokenizer_start))
         with _translate_native_errors("tokenizer load", device=self._device):
             self._tokenizer = self._wr.Tokenizer.from_file(str(self._model_path))
-        tokenizer_end = time.perf_counter()
-        self.load_timings_ms["runtime_create_duration_ms"] = (
-            tokenizer_start - runtime_start
-        ) * 1000.0
+        tokenizer_end = time.perf_counter_ns()
+        self._initialization_spans.append(("tokenizer_open", tokenizer_start, tokenizer_end))
+        self.load_timings_ms["runtime_create_duration_ms"] = (tokenizer_start - runtime_start) / 1e6
         self.load_timings_ms["tokenizer_create_duration_ms"] = (
             tokenizer_end - tokenizer_start
-        ) * 1000.0
+        ) / 1e6
 
-    def load(self, *, context_length: int | None = None) -> None:
+    def load(
+        self,
+        *,
+        context_length: int | None = None,
+        eos_token_ids: Sequence[int] | None = None,
+    ) -> None:
         """Load GGUF, build the decoder pipeline, and create its native Task session.
 
         Args:
             context_length: Sequence capacity hint (prompt plus generated tokens).
                 ``None`` keeps the backend default, which can be the model's full
                 training context and reserve a large KV cache.
+            eos_token_ids: Explicit EOS set for the Task. ``None`` keeps the
+                tokenizer's EOS IDs; an empty sequence disables EOS stopping so
+                generation runs to its token limit or the sequence capacity.
 
         Raises:
             LlamaLoadError: Loading the model or building the pipeline failed.
@@ -474,10 +692,11 @@ class WinMLLlamaSession:
         try:
             with _translate_native_errors("target creation", device=self._device):
                 stage_target = self._create_target(wr, runtime)
-            model_start = time.perf_counter()
+            model_start = time.perf_counter_ns()
             with _translate_native_errors("model load", device=self._device):
                 model = runtime.load_model(str(self._model_path))
-            build_start = time.perf_counter()
+            build_start = time.perf_counter_ns()
+            self._initialization_spans.append(("model_load", model_start, build_start))
             with _translate_native_errors("pipeline build", device=self._device):
                 builder = runtime.create_pipeline_builder()
                 stage = builder.add_model_stage(model, stage_target, "decoder")
@@ -486,15 +705,17 @@ class WinMLLlamaSession:
                 if context_length:
                     stage.set_sequence_capacity_hint(int(context_length))
                 pipeline = builder.build()
-            build_end = time.perf_counter()
+            build_end = time.perf_counter_ns()
+            self._initialization_spans.append(("pipeline_build", build_start, build_end))
             _close_quietly(builder)
             builder = None
 
             self._token_input_contract(wr, stage)
             self._sequence_capacity = self._probe_sequence_capacity(wr, stage)
             self._vocabulary_size = self._discover_vocabulary(stage)
-            effective_device = self._resolved_device(stage) or self._device
-            task_start = time.perf_counter()
+            resolved_target_kind = self._resolved_device(stage)
+            effective_device = resolved_target_kind or self._device
+            task_start = time.perf_counter_ns()
             with _translate_native_errors("Task creation", device=self._device):
                 try:
                     tasks = wt.Tasks(runtime)
@@ -516,9 +737,17 @@ class WinMLLlamaSession:
                     tokenizer=self._tokenizer,
                 )
                 configuration.validate()
-                task = tasks.create_text_generation_task(self._tokenizer)
+                if eos_token_ids is None:
+                    task = tasks.create_text_generation_task(self._tokenizer)
+                else:
+                    task = tasks.create_text_generation_task(
+                        self._tokenizer, tuple(int(token) for token in eos_token_ids)
+                    )
+                task_created = time.perf_counter_ns()
+                self._initialization_spans.append(("task_create", task_start, task_created))
                 task_session = task.create_session(configuration)
-            task_end = time.perf_counter()
+            task_end = time.perf_counter_ns()
+            self._initialization_spans.append(("session_create", task_created, task_end))
         except Exception:
             for resource in (
                 task_session,
@@ -543,9 +772,10 @@ class WinMLLlamaSession:
         self._task = task
         self._task_session = task_session
         self._effective_device = effective_device
-        self.load_timings_ms["model_create_duration_ms"] = (build_start - model_start) * 1000.0
-        self.load_timings_ms["pipeline_build_duration_ms"] = (build_end - build_start) * 1000.0
-        self.load_timings_ms["task_create_duration_ms"] = (task_end - task_start) * 1000.0
+        self._resolved_target_kind = resolved_target_kind
+        self.load_timings_ms["model_create_duration_ms"] = (build_start - model_start) / 1e6
+        self.load_timings_ms["pipeline_build_duration_ms"] = (build_end - build_start) / 1e6
+        self.load_timings_ms["task_create_duration_ms"] = (task_end - task_start) / 1e6
 
     def close(self) -> None:
         """Release native handles (best-effort; safe to call more than once)."""
@@ -615,6 +845,40 @@ class WinMLLlamaSession:
             return [int(token) for token in formatted.token_ids]
 
     # -- generation -----------------------------------------------------------
+    def greedy_options(self, max_new_tokens: int) -> Any:
+        """Greedy Task options with all eleven fields explicit (neutral filters, no stops)."""
+        if self._wt is None:
+            self._wt = _import_tasks_api()
+        return self._wt.TextGenerationOptions(
+            max_new_tokens=max_new_tokens,
+            stop_token_ids=(),
+            temperature=0.0,
+            top_k=0,
+            top_p=1.0,
+            min_p=0.0,
+            repetition_penalty=1.0,
+            repetition_penalty_window=0,
+            presence_penalty=0.0,
+            frequency_penalty=0.0,
+            seed=0,
+        )
+
+    def check_prompt_ids(self, token_ids: Sequence[int]) -> None:
+        """Reject prompt IDs that are empty, outside the vocabulary, or too long.
+
+        Raises:
+            LlamaSessionError: The IDs cannot be submitted to this session.
+        """
+        if not token_ids:
+            raise LlamaSessionError("the tokenizer produced an empty prompt")
+        self._validate_token_ids(token_ids, "prompt")
+        capacity = self._sequence_capacity
+        if capacity and len(token_ids) >= capacity:
+            raise LlamaSessionError(
+                f"the prompt ({len(token_ids)} tokens) does not fit the model sequence "
+                f"capacity ({capacity} tokens)"
+            )
+
     def generate_timed(
         self,
         prompt_token_ids: Iterable[int],
@@ -642,17 +906,9 @@ class WinMLLlamaSession:
         if self._task_session is None:
             raise LlamaSessionError("WinMLLlamaSession.load() must be called before generation.")
         token_ids = [int(token) for token in prompt_token_ids]
-        if not token_ids:
-            raise LlamaSessionError("the tokenizer produced an empty prompt")
-        self._validate_token_ids(token_ids, "prompt")
-        capacity = self._sequence_capacity
-        if capacity and len(token_ids) >= capacity:
-            raise LlamaSessionError(
-                f"the prompt ({len(token_ids)} tokens) does not fit the model sequence "
-                f"capacity ({capacity} tokens)"
-            )
+        self.check_prompt_ids(token_ids)
 
-        options = self._wt.TextGenerationOptions(max_new_tokens=max_new_tokens, temperature=0.0)
+        options = self.greedy_options(max_new_tokens)
         with _translate_native_errors("run", device=self._device):
             reset_start = clock()
             self._task_session.reset()
@@ -710,20 +966,86 @@ class WinMLLlamaSession:
             stop_reason=stop_reason,
         )
 
+    def run_request(
+        self,
+        token_ids: Sequence[int],
+        *,
+        options: Any,
+        clock_ns: Callable[[], int] = time.perf_counter_ns,
+    ) -> LlamaRequestRecord:
+        """Run one Task request and record caller-observed evidence.
+
+        The order of clock reads is the measurement definition: the reset and
+        the state disclosure happen before ``submit_ns``, which is read
+        immediately before ``generate_tokens``; each ``read_next()`` update is
+        one event stamped as soon as the call returns; ``completed_ns`` marks
+        the end of the stream and ``result_fetched_ns`` the checked result.
+
+        Args:
+            token_ids: Prompt token IDs, submitted unchanged.
+            options: Task generation options, e.g. from :meth:`greedy_options`.
+            clock_ns: Monotonic integer-nanosecond clock (injectable for tests).
+
+        Returns:
+            The record. Reset, stream and result failures are recorded in it
+            instead of raised, so the caller can keep every planned request.
+
+        Raises:
+            LlamaSessionError: :meth:`load` has not been called.
+        """
+        if self._task_session is None:
+            raise LlamaSessionError("WinMLLlamaSession.load() must be called before generation.")
+        session = self._task_session
+        ids = tuple(int(token) for token in token_ids)
+        reset_start_ns = clock_ns()
+        try:
+            session.reset()
+        except Exception as exc:  # recorded: the session cannot take this request
+            return LlamaRequestRecord(
+                input_ids=ids, reset_start_ns=reset_start_ns, reset_error=exc
+            )
+        reset_end_ns = clock_ns()
+        disclosure, disclosure_error = _read_reset_disclosure(session)
+
+        fields: dict[str, Any] = {}
+        events: list[tuple[int, int]] = []
+        stream = None
+        try:
+            fields["submit_ns"] = clock_ns()
+            stream = session.generate_tokens(ids, options)
+            fields["stream_created_ns"] = clock_ns()
+            while True:
+                update = stream.read_next()
+                observed_ns = clock_ns()
+                if update is None:
+                    fields["completed_ns"] = observed_ns
+                    break
+                events.append((observed_ns, int(update.token_id)))
+            result = stream.result
+            fields.update(_result_fields(result))
+            result.raise_for_error()
+            fields["result_fetched_ns"] = clock_ns()
+        except Exception as exc:  # recorded: the caller decides what a failure means
+            fields["error"] = exc
+        finally:
+            _close_quietly(stream)
+        return LlamaRequestRecord(
+            input_ids=ids,
+            reset_start_ns=reset_start_ns,
+            reset_end_ns=reset_end_ns,
+            reset_disclosure=disclosure,
+            disclosure_error=disclosure_error,
+            events=tuple(events),
+            **fields,
+        )
+
     # -- internals --------------------------------------------------------------
     @staticmethod
     def _task_stop_reason(reason: Any) -> str:
         name = str(getattr(reason, "name", ""))
-        normalized = {
-            "EOS_TOKEN": "EOS",
-            "STOP_TOKEN": "STOP_TOKEN",
-            "MAX_TOKENS": "MAX_TOKENS",
-            "SEQUENCE_CAPACITY": "CAPACITY",
-            "CANCELED": "CANCELED",
-        }
-        if name not in normalized:
+        if name not in _TASK_STOP_REASONS:
             raise LlamaSessionError(f"The Task ended with an unsuccessful finish reason: {name}.")
-        return normalized[name]
+        return _TASK_STOP_REASONS[name]
 
     def _runtime_errors(self) -> tuple[type[BaseException], ...]:
         errors = tuple(
@@ -808,6 +1130,7 @@ __all__ = [
     "LlamaLoadError",
     "LlamaNotInstalledError",
     "LlamaPayload",
+    "LlamaRequestRecord",
     "LlamaSessionError",
     "WinMLLlamaSession",
     "llama_package_versions",
