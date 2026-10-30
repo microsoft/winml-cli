@@ -356,23 +356,40 @@ class EvidenceRunConfig(Protocol):
     """The benchmark configuration fields an evidence run reads."""
 
     @property
-    def model_path(self) -> Path: ...
+    def model_path(self) -> Path:
+        """The ``.gguf`` entry file (the first shard of a split model)."""
+
     @property
-    def device(self) -> str: ...
+    def device(self) -> str:
+        """The device the llama.cpp backend targets (``cpu`` or ``gpu``)."""
+
     @property
-    def evidence_path(self) -> Path | None: ...
+    def evidence_path(self) -> Path | None:
+        """The evidence file to write."""
+
     @property
-    def prompt_ids(self) -> tuple[int, ...] | None: ...
+    def prompt_ids(self) -> tuple[int, ...] | None:
+        """Exact prompt token IDs, or ``None`` when the prompt text is encoded."""
+
     @property
-    def context_length(self) -> int | None: ...
+    def context_length(self) -> int | None:
+        """The ``--context-length`` value, or ``None`` when it was not given."""
+
     @property
-    def ignore_eos(self) -> bool: ...
+    def ignore_eos(self) -> bool:
+        """Whether the Task is created with an empty EOS set."""
+
     @property
-    def warmup(self) -> int: ...
+    def warmup(self) -> int:
+        """Planned warmup requests."""
+
     @property
-    def iterations(self) -> int: ...
+    def iterations(self) -> int:
+        """Planned measured requests."""
+
     @property
-    def max_new_tokens(self) -> int: ...
+    def max_new_tokens(self) -> int:
+        """Token limit of each request."""
 
 
 def _ordered(values: Mapping[str, Any], keys: Sequence[str]) -> dict[str, Any]:

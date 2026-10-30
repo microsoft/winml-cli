@@ -197,13 +197,15 @@ def test_parse_native_values_reads_contract_keys_first_match_wins() -> None:
     values = {"n_ctx": 4096, "n_batch": 4096, "n_ubatch": 512, "flash_attn": "auto"}
     texts = [f"llama_context: {'n_ctx_seq':<21} = 1"]
     texts += [f"llama_context: {key:<21} = {value}" for key, value in values.items()]
-    texts += [
-        "load_tensors: offloaded 27/27 layers to GPU",
+    first_cache = (
         "llama_kv_cache: size =   16.00 MiB (  4096 cells,   4 layers,  1/1 seqs), "
-        "K (f16):    8.00 MiB, V (q8_0):    8.00 MiB",
+        "K (f16):    8.00 MiB, V (q8_0):    8.00 MiB"
+    )
+    second_cache = (
         "llama_kv_cache: size =   22.00 MiB (  1024 cells,  22 layers,  1/1 seqs), "
-        "K (q4_0):   11.00 MiB, V (q4_0):   11.00 MiB",
-    ]
+        "K (q4_0):   11.00 MiB, V (q4_0):   11.00 MiB"
+    )
+    texts += ["load_tensors: offloaded 27/27 layers to GPU", first_cache, second_cache]
     parsed = parse_native_values([{"text": text} for text in texts])
     expected = {
         key: {"value": value, "line": index + 1}

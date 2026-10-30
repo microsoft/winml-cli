@@ -62,11 +62,9 @@ class LlamaLogApi(Protocol):
 
     def get(self) -> tuple[int | None, int | None]:
         """Return the installed ``(callback, user_data)``."""
-        ...
 
     def set(self, callback: int | None, user_data: int | None) -> None:
         """Install ``callback`` with ``user_data``."""
-        ...
 
 
 class _CtypesLlamaLogApi:

@@ -13,6 +13,7 @@ Windows ML Runtime is never imported.
 from __future__ import annotations
 
 import ctypes
+import ctypes.wintypes as wintypes
 import functools
 import hashlib
 import importlib.metadata
@@ -21,7 +22,6 @@ import json
 import os
 import re
 import time
-from ctypes import wintypes
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
