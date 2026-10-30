@@ -270,6 +270,8 @@ class InputDataCalibrationReader:
         *,
         max_samples: int | None = None,
     ) -> None:
+        if max_samples is not None and max_samples <= 0:
+            raise ValueError("max_samples must be greater than zero when provided.")
         self._dataset = InputDataDataset(path, io_config)
         self._num_samples = min(len(self._dataset), max_samples or len(self._dataset))
         self._index = 0

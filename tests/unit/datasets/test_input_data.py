@@ -154,6 +154,14 @@ class TestInputDataCalibrationReader:
         reader.rewind()
         assert reader.get_next()["x"].tolist() == [[0.0, 1.0, 2.0, 3.0]]
 
+    @pytest.mark.parametrize("max_samples", [0, -1])
+    def test_rejects_non_positive_sample_limit(self, tmp_path, max_samples) -> None:
+        path = tmp_path / "inputs.npz"
+        np.savez(path, x=np.ones((1, 4), dtype=np.float32))
+
+        with pytest.raises(ValueError, match="greater than zero"):
+            InputDataCalibrationReader(path, self._IO, max_samples=max_samples)
+
 
 class TestStaticBatchHonoring:
     """The dataset chunks the sample axis to the candidate's static batch dim."""
