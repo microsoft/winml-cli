@@ -48,6 +48,9 @@ _SPLIT_SHARD = re.compile(
 _ENVIRONMENT_PREFIXES = ("WINML_", "GGML_", "LLAMA_", "CUDA_")
 # Read natively by the llama.cpp adapter; recorded even when unset.
 _FIXED_ENVIRONMENT = ("WINML_LLAMA_USE_MMAP", "WINML_LLAMA_SWA_FULL")
+# Evidence is published, so values of names like these (LLAMA_API_KEY, ...) are hidden.
+_SECRET_NAME_PARTS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL", "AUTH")
+REDACTED = "<redacted>"
 _CORE_MANIFEST = "WinMLLlamaCoreManifest.json"
 _BACKEND_MANIFEST = "WinMLLlamaBackendManifest.json"
 _PAIRING_MANIFEST = "WinMLLlamaPythonPairing.json"
@@ -178,11 +181,13 @@ def environment_snapshot(environ: Mapping[str, str]) -> dict[str, str | None]:
 
     Keeps every variable starting with ``WINML_``, ``GGML_``, ``LLAMA_`` or
     ``CUDA_``, plus the adapter's own settings (``None`` when unset), sorted.
+    Names that look like credentials (``KEY``, ``TOKEN``, ``SECRET``, ...) keep
+    only the fact that they are set: their value is :data:`REDACTED`.
     """
     snapshot: dict[str, str | None] = dict.fromkeys(_FIXED_ENVIRONMENT)
     snapshot.update(
         {
-            name: value
+            name: REDACTED if any(part in name.upper() for part in _SECRET_NAME_PARTS) else value
             for name, value in environ.items()
             if name.upper().startswith(_ENVIRONMENT_PREFIXES)
         }

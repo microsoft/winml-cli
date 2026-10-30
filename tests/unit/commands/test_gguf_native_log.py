@@ -120,6 +120,31 @@ def test_callback_tolerates_invalid_utf8_and_null_text(
     assert raised == []
 
 
+def test_ctrl_c_in_the_callback_is_kept_for_the_caller(
+    api: FakeLogApi, monkeypatch: pytest.MonkeyPatch
+) -> None:  # Review Focus 5
+    raised: list[Any] = []
+    monkeypatch.setattr(sys, "unraisablehook", raised.append)
+    ticks = itertools.count(100, 10)
+
+    def clock() -> int:
+        tick = next(ticks)
+        if tick == 110:  # Ctrl+C lands while the second line is being recorded
+            raise KeyboardInterrupt
+        return tick
+
+    capture = NativeLogCapture(load_api=lambda: ("C:/lib/WinMLllama.dll", api), clock_ns=clock)
+    capture.install()
+    for index in range(3):
+        api.emit(2, f"l{index}\n".encode())
+
+    assert raised == []
+    assert [line["text"] for line in capture.lines(None)] == ["l0", "l2"]
+    with pytest.raises(KeyboardInterrupt):
+        capture.raise_if_interrupted()
+    capture.raise_if_interrupted()  # each Ctrl+C is raised once
+
+
 @pytest.mark.parametrize(
     ("loader", "reason"),
     [

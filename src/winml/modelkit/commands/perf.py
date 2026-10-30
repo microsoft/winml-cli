@@ -55,7 +55,7 @@ from ._pre_bench import print_pre_bench_block
 
 if TYPE_CHECKING:
     import contextlib
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Sequence
 
     import numpy as np
     from rich.console import Console
@@ -2982,11 +2982,36 @@ def _resolve_gguf_prompt_ids(ctx: click.Context) -> tuple[int, ...] | None:
     return prompt_ids
 
 
+def _same_file(first: str | Path, second: str | Path) -> bool:
+    """Whether two paths name one file: by identity when either exists, else by path."""
+    first, second = Path(first), Path(second)
+    if first.exists() or second.exists():
+        return first.exists() and second.exists() and first.samefile(second)
+    return first.resolve() == second.resolve()
+
+
+def _reject_input_overwrite(
+    outputs: Sequence[tuple[str, Path]], inputs: Sequence[tuple[str, Path | None]]
+) -> None:
+    """Refuse an output that names an input file; ``--overwrite`` never allows this."""
+    for label, output in outputs:
+        for flag, source in inputs:
+            if source is not None and _same_file(output, source):
+                raise click.UsageError(
+                    f"{label} would overwrite the {flag} input '{source}'. "
+                    "Choose a different path."
+                )
+
+
 def _resolve_gguf_evidence(
-    ctx: click.Context, *, warmup: int, output: str | Path
+    ctx: click.Context,
+    *,
+    warmup: int,
+    output: str | Path,
+    inputs: Sequence[tuple[str, Path | None]],
 ) -> Path | None:
-    """Check ``--evidence`` against the in-process options and the report path."""
-    from ._gguf_evidence import rows_path
+    """Check ``--evidence`` against the in-process options, the inputs and the report path."""
+    from ._gguf_evidence import rows_path, temporary_path
 
     p = ctx.params
     evidence: Path | None = p.get("evidence")
@@ -3002,7 +3027,13 @@ def _resolve_gguf_evidence(
             "--evidence needs at least one warmup request: native log capture and "
             "external GPU attribution use warmup 0."
         )
-    if Path(output).resolve() in {evidence.resolve(), rows_path(evidence).resolve()}:
+    written = (
+        ("--evidence", evidence),
+        ("--evidence rows file", rows_path(evidence)),
+        ("--evidence temporary file", temporary_path(evidence)),
+    )
+    _reject_input_overwrite(written, inputs)
+    if any(_same_file(output, path) for _, path in written):
         raise click.UsageError("--evidence and --output must name different files.")
     cli_utils.guard_output(evidence, p["overwrite"], label="Evidence")
     cli_utils.guard_output(rows_path(evidence), p["overwrite"], label="Evidence rows")
@@ -3067,7 +3098,9 @@ def _run_gguf_runtime(
     warmup = p["warmup"] if cli_utils.is_cli_provided(ctx, "warmup") else 2
     output = p.get("output") or generate_output_path(str(model_path))
     prompt_ids = _resolve_gguf_prompt_ids(ctx)
-    evidence = _resolve_gguf_evidence(ctx, warmup=warmup, output=output)
+    inputs = (("--model", model_path), ("--prompt-ids-file", p.get("prompt_ids_file")))
+    _reject_input_overwrite((("--output", Path(output)),), inputs)
+    evidence = _resolve_gguf_evidence(ctx, warmup=warmup, output=output, inputs=inputs)
     cli_utils.guard_output(output, p["overwrite"])
     # Exact token IDs bypass the text prompt and its chat template.
     prompt = _resolve_prompt(ctx) if prompt_ids is None else p["prompt"]

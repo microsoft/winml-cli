@@ -230,7 +230,11 @@ def _line_count(path: Path) -> int:
 
 
 class _FakeProtocolSession(_FakeLlamaSession):
-    """Session double for evidence runs; ``failures`` maps a request position to a fault."""
+    """Session double for evidence runs; ``failures`` maps a request position to a fault.
+
+    ``ctrl_c_in_log`` ("load" or "warmup-0") makes llama.cpp log one line at that point
+    while a Ctrl+C arrives, so the capture's log callback runs into the KeyboardInterrupt.
+    """
 
     def __init__(
         self,
@@ -240,9 +244,12 @@ class _FakeProtocolSession(_FakeLlamaSession):
         evidence_path: Path | None = None,
         effective_context: int | None = None,
         eos_readback: tuple[int, ...] | None = None,
+        ctrl_c_in_log: str | None = None,
     ) -> None:
         super().__init__([], effective_context=effective_context, eos_readback=eos_readback)
         self._failures = dict(failures or {})
+        self._ctrl_c_in_log = ctrl_c_in_log
+        self.ctrl_c_pending = False
         self._log_api = log_api
         self._evidence_path = evidence_path
         self.initialization_spans = list(_INITIALIZATION_SPANS)
@@ -264,9 +271,15 @@ class _FakeProtocolSession(_FakeLlamaSession):
     def _log_callback(self) -> int | None:
         return self._log_api.callback if self._log_api is not None else None
 
+    def _log_during_ctrl_c(self, point: str) -> None:
+        if self._ctrl_c_in_log == point and self._log_api is not None:
+            self.ctrl_c_pending = True
+            self._log_api.emit(2, b"llama_context: n_ctx = 16\n")
+
     def load(self, **kwargs: Any) -> None:
         super().load(**kwargs)
         self.callback_at_load = self._log_callback()
+        self._log_during_ctrl_c("load")
 
     def greedy_options(self, max_new_tokens: int) -> FakeOptions:
         return FakeOptions(max_new_tokens=max_new_tokens)
@@ -288,6 +301,8 @@ class _FakeProtocolSession(_FakeLlamaSession):
         record = make_record(
             input_ids=token_ids, tokens=range(options.max_new_tokens), start_ns=clock_ns()
         )
+        if position == 0:
+            self._log_during_ctrl_c("warmup-0")
         if failure == "error":
             return dataclasses.replace(
                 record, finish_reason="ERROR", error=HResultError(0x80004005)
@@ -312,6 +327,7 @@ def _protocol_benchmark(
     effective_context: int | None = None,
     eos_readback: tuple[int, ...] | None = None,
     owned: bool = False,
+    ctrl_c_in_log: str | None = None,
     **config_overrides: Any,
 ) -> tuple[GGUFPerfBenchmark, _FakeProtocolSession, FakeLogApi]:
     """Build an evidence benchmark; ``owned`` leaves session creation to the benchmark."""
@@ -334,11 +350,18 @@ def _protocol_benchmark(
         evidence_path=config.evidence_path,
         effective_context=effective_context,
         eos_readback=eos_readback,
+        ctrl_c_in_log=ctrl_c_in_log,
     )
     ticks = count(1_000, 1_000)
 
     def clock_ns() -> int:
         return next(ticks)
+
+    def capture_clock_ns() -> int:
+        if session.ctrl_c_pending:
+            session.ctrl_c_pending = False
+            raise KeyboardInterrupt
+        return clock_ns()
 
     benchmark = GGUFPerfBenchmark(
         config,
@@ -346,7 +369,7 @@ def _protocol_benchmark(
         clock=lambda: clock_ns() / 1e9,
         clock_ns=clock_ns,
         log_capture=NativeLogCapture(
-            load_api=lambda: ("C:/lib/WinMLllama.dll", api), clock_ns=clock_ns
+            load_api=lambda: ("C:/lib/WinMLllama.dll", api), clock_ns=capture_clock_ns
         ),
     )
     return benchmark, session, api
@@ -663,6 +686,35 @@ class TestEvidenceFailures:
         assert str(error) == (
             "GGUF evidence run failed during warmup: RuntimeError Evidence: ev.json"
         )
+
+    def test_ctrl_c_during_load_logging_stops_the_run_after_load(self, tmp_path: Path) -> None:
+        benchmark, session, api = _protocol_benchmark(tmp_path, ctrl_c_in_log="load")
+
+        with pytest.raises(KeyboardInterrupt):
+            benchmark.run()
+
+        doc = _read(tmp_path / "ev.json")
+        assert (doc["status"], doc["failure_phase"]) == ("failed", "initialization")
+        assert doc["error"]["type"] == "KeyboardInterrupt"
+        assert {row["status"] for row in doc["requests"]} == {"incomplete"}
+        assert "run_request" not in session.calls
+        assert api.callback == RUNTIME_CALLBACK
+
+    def test_ctrl_c_during_warmup0_logging_keeps_its_row_and_stops(self, tmp_path: Path) -> None:
+        benchmark, session, api = _protocol_benchmark(tmp_path, ctrl_c_in_log="warmup-0")
+
+        with pytest.raises(KeyboardInterrupt):
+            benchmark.run()
+
+        doc = _read(tmp_path / "ev.json")
+        assert (doc["status"], doc["failure_phase"]) == ("failed", "warmup")
+        assert [row["status"] for row in doc["requests"]] == [
+            "succeeded",
+            "incomplete",
+            "incomplete",
+        ]
+        assert session.gc_enabled_at_request == [True]
+        assert api.callback == RUNTIME_CALLBACK
 
     def test_interrupt_writes_failed_evidence_and_propagates(self, tmp_path: Path) -> None:
         with pytest.raises(KeyboardInterrupt):
@@ -1375,7 +1427,7 @@ class TestCliDispatch:
         assert result.exit_code == 0, result.output
         assert capture_run["config"].evidence_path == tmp_path / "ev.json"
 
-    @pytest.mark.parametrize("output", ["x.json", "x.rows.jsonl"])
+    @pytest.mark.parametrize("output", ["x.json", "x.rows.jsonl", "X.JSON", "x.json.tmp"])
     def test_evidence_and_output_must_differ(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict, output: str
     ) -> None:
@@ -1394,6 +1446,52 @@ class TestCliDispatch:
         assert result.exit_code == 2, result.output
         assert "--evidence and --output must name different files" in result.output
         assert "config" not in capture_run
+
+    @pytest.mark.parametrize(
+        ("option", "victim", "message"),
+        [
+            ("--evidence", "model.gguf", "--evidence would overwrite the --model input"),
+            ("--evidence", "MODEL.GGUF", "--evidence would overwrite the --model input"),
+            ("--evidence", "ids.json", "--evidence would overwrite the --prompt-ids-file input"),
+            ("--evidence", "ids", "--evidence rows file would overwrite the --prompt-ids-file"),
+            ("-o", "model.gguf", "--output would overwrite the --model input"),
+            ("-o", "ids.json", "--output would overwrite the --prompt-ids-file input"),
+        ],
+    )
+    def test_outputs_never_overwrite_the_model_or_the_ids_file(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        capture_run: dict,
+        option: str,
+        victim: str,
+        message: str,
+    ) -> None:
+        model = _gguf(tmp_path)
+        ids = _ids_file(tmp_path, b"[1, 2]")
+        target = tmp_path / victim
+        if victim == "ids":
+            # The evidence rows file (ids.rows.jsonl) is the IDs file.
+            ids = ids.rename(tmp_path / "ids.rows.jsonl")
+            target = tmp_path / "ids.json"
+        protected = {path: path.read_bytes() for path in (model, ids)}
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                str(model),
+                "--prompt-ids-file",
+                str(ids),
+                option,
+                str(target),
+                "--overwrite",
+            ],
+        )
+
+        assert result.exit_code == 2, result.output
+        assert message in result.output
+        assert "config" not in capture_run
+        assert {path: path.read_bytes() for path in protected} == protected
 
     @pytest.mark.parametrize(
         "flag",

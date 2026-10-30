@@ -184,6 +184,27 @@ def test_environment_snapshot_keeps_prefixed_names_and_fixed_keys() -> None:
     assert list(snapshot) == sorted(snapshot)
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "LLAMA_API_KEY",
+        "LLAMA_ARG_API_KEY",
+        "LLAMA_ARG_HF_TOKEN",
+        "WINML_FEED_PASSWORD",
+        "CUDA_SECRET",
+        "GGML_AUTH_HEADER",
+        "WINML_CREDENTIALS",
+        "llama_api_key",
+    ],
+)
+def test_environment_snapshot_keeps_secret_names_but_not_values(name: str) -> None:
+    snapshot = environment_snapshot({name: "s3cr3t-value", "GGML_CUDA_FORCE_MMQ": "1"})
+
+    assert snapshot[name] == "<redacted>"
+    assert snapshot["GGML_CUDA_FORCE_MMQ"] == "1"
+    assert "s3cr3t-value" not in json.dumps(snapshot)
+
+
 def test_loaded_modules_and_handles_use_the_live_process() -> None:
     modules = list_loaded_modules()
     assert modules == sorted(set(modules))

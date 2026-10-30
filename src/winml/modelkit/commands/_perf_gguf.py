@@ -504,6 +504,9 @@ class GGUFPerfBenchmark:
             model_start = self._clock()
             context = self._load(session, prompt_ids)
             load_end = self._clock()
+            # While the capture is installed, Ctrl+C can land in the log callback,
+            # which only records it; raise it once each native call returns.
+            capture.raise_if_interrupted()
             session_load_ms = ((tokenizer_ready - load_start) + (load_end - model_start)) * 1000.0
             # Record what the Runtime reports before verifying it, so a mismatch
             # leaves both values in the evidence.
@@ -511,6 +514,7 @@ class GGUFPerfBenchmark:
             self._verify_load(session, prompt_ids)
             options = session.greedy_options(config.max_new_tokens)
             recorder.record_options(options)
+            capture.raise_if_interrupted()
             planned = planned_requests(config.warmup, config.iterations)
             for position, (kind, index) in enumerate(planned):
                 phase = kind
@@ -527,6 +531,7 @@ class GGUFPerfBenchmark:
                 row = recorder.record_request(kind, index, record)
                 if position == 0:
                     recorder.record_loaded_modules("after_warmup0")
+                    capture.raise_if_interrupted()
                 if kind == "measured":
                     gc.collect()
                     collections += 1

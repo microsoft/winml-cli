@@ -108,7 +108,7 @@ These options apply to GGUF models:
 | `--prompt-ids-file` | A JSON array of token IDs (UTF-8; a byte order mark is accepted) submitted unchanged on every generation, with no chat template and no tokenization. Cannot be combined with `--prompt`, `--prompt-file`, or `--apply-template`. |
 | `--context-length` | Sequence capacity to load the model with, instead of the prompt tokens plus `--max-new-tokens`. The run fails before the first generation unless the Runtime reports exactly this capacity. |
 | `--ignore-eos/--no-ignore-eos` | Create the Task with an empty end-of-sequence set, so each generation runs to `--max-new-tokens` unless it reaches the sequence capacity. The run fails if the Task still reports end-of-sequence tokens. |
-| `--evidence` | Write raw `gguf-task-events-1.1` request evidence to this JSON file and to a `.rows.jsonl` file next to it. Both must be new unless you pass `--overwrite`, and neither can be the `--output` file. Needs `--warmup` of at least `1` and turns off `--memory`; an explicit `--memory` is an error. |
+| `--evidence` | Write raw `gguf-task-events-1.1` request evidence to this JSON file and to a `.rows.jsonl` file next to it. Both must be new unless you pass `--overwrite`. Neither can be the `--output` file, the model, or the `--prompt-ids-file` file; `--output` cannot be either input either. Needs `--warmup` of at least `1` and turns off `--memory`; an explicit `--memory` is an error. |
 | `--iterations`, `--warmup` | Timed and warmup generations (defaults `10` and `2`). |
 | `--memory/--no-memory` | Process RAM at the load and inference checkpoints. |
 | `--output`, `--overwrite`, `--format json` | Same as for the other runtimes. |
@@ -162,6 +162,12 @@ field set explicitly.
 | `PATH` | One JSON document: run status, workload, effective configuration, initialization spans, every request row, and the captured native log. |
 | `PATH` with `.rows.jsonl` in place of `.json` | One request row per line, appended and flushed after each request. |
 | `PATH.tmp` | Present only while the evidence document is being replaced. Every write goes to this file first, so a reader never sees a partial document. |
+
+The effective configuration includes every environment variable whose name starts
+with `WINML_`, `GGML_`, `LLAMA_`, or `CUDA_`. Evidence is meant to be shared, so the
+value of a variable whose name contains `KEY`, `TOKEN`, `SECRET`, `PASSWORD`,
+`PASSWD`, `CREDENTIAL`, or `AUTH` (for example `LLAMA_API_KEY`) is written as
+`<redacted>`.
 
 The document is first written with status `running` before the model is hashed and
 before the Runtime is imported, and it is rewritten with a final status when the run

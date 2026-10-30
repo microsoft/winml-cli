@@ -117,6 +117,11 @@ def rows_path(evidence_path: Path) -> Path:
     return evidence_path.with_name(evidence_path.stem + ".rows.jsonl")
 
 
+def temporary_path(evidence_path: Path) -> Path:
+    """The file each evidence write goes to before it replaces the evidence file."""
+    return evidence_path.with_name(evidence_path.name + ".tmp")
+
+
 def token_ids_sha256(token_ids: Sequence[int]) -> str:
     """SHA-256 of the compact JSON array of token IDs (the benchmark's prompt hash)."""
     return hashlib.sha256(json.dumps(list(token_ids), separators=(",", ":")).encode()).hexdigest()
@@ -325,7 +330,7 @@ class EvidenceWriter:
             PermissionError: The file stayed locked for the whole retry budget.
         """
         text = json.dumps(document, indent=2, allow_nan=False) + "\n"
-        temporary = self.path.with_name(self.path.name + ".tmp")
+        temporary = temporary_path(self.path)
         temporary.write_text(text, encoding="utf-8")
         for attempt in range(_REPLACE_ATTEMPTS):
             if _try_replace(temporary, self.path, last=attempt == _REPLACE_ATTEMPTS - 1):

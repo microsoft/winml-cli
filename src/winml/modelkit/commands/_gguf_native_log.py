@@ -170,15 +170,35 @@ class NativeLogCapture:
         self._restore_attempted = False
         self._restored = False
         self._intact: bool | None = None
+        self._interrupted = False
         self.installed = False
         self.reason: str | None = None
         self.library: str | None = None
 
     def _on_log(self, level: int, text: bytes | None, _user_data: int | None) -> None:
         # Runs on native threads; it must never raise back into llama.cpp.
-        with contextlib.suppress(Exception):
-            if text is not None:
-                self._raw.append((int(level), text.decode("utf-8", "replace"), self._clock_ns()))
+        try:
+            with contextlib.suppress(Exception):
+                if text is not None:
+                    line = (int(level), text.decode("utf-8", "replace"), self._clock_ns())
+                    self._raw.append(line)
+        except KeyboardInterrupt:
+            # Ctrl+C that lands while llama.cpp logs on the main thread cannot
+            # propagate through native frames; keep it for raise_if_interrupted().
+            self._interrupted = True
+
+    def raise_if_interrupted(self) -> None:
+        """Raise the Ctrl+C a log callback absorbed while native code was running.
+
+        Call this after each native call made while the capture is installed.
+        Each absorbed interrupt is raised once.
+
+        Raises:
+            KeyboardInterrupt: Ctrl+C arrived while the callback was running.
+        """
+        if self._interrupted:
+            self._interrupted = False
+            raise KeyboardInterrupt
 
     def install(self) -> None:
         """Install the capturing callback; failures are recorded in ``reason``, never raised."""
