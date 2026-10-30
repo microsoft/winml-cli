@@ -3098,6 +3098,13 @@ def _run_gguf_runtime(
     warmup = p["warmup"] if cli_utils.is_cli_provided(ctx, "warmup") else 2
     output = p.get("output") or generate_output_path(str(model_path))
     prompt_ids = _resolve_gguf_prompt_ids(ctx)
+    context_length = p.get("context_length")
+    if context_length is not None and context_length <= p["max_new_tokens"]:
+        # Any prompt has at least one token; catch this before the model is hashed.
+        raise click.UsageError(
+            f"--context-length {context_length} leaves no room for a prompt: it must be "
+            f"larger than --max-new-tokens {p['max_new_tokens']}."
+        )
     inputs = (("--model", model_path), ("--prompt-ids-file", p.get("prompt_ids_file")))
     _reject_input_overwrite((("--output", Path(output)),), inputs)
     evidence = _resolve_gguf_evidence(ctx, warmup=warmup, output=output, inputs=inputs)

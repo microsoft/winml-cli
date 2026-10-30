@@ -47,6 +47,7 @@ NATIVE_VALUE_KEYS: tuple[str, ...] = (
 
 _LLAMA_LIBRARY = "WinMLllama.dll"
 _NOT_LOADED = "WinMLllama.dll is not loaded in this process after the tokenizer opened."
+_NOT_ATTEMPTED = "The run ended before the native log capture was installed."
 _OUTSIDE_CAPTURE = (
     "Backend registration and device lines are written to process stderr before the "
     "Runtime installs its logger."
@@ -170,7 +171,8 @@ class NativeLogCapture:
         self._intact: bool | None = None
         self._interrupted = False
         self.installed = False
-        self.reason: str | None = None
+        # Why the capture is not installed; None once it is.
+        self.reason: str | None = _NOT_ATTEMPTED
         self.library: str | None = None
 
     def _on_log(self, level: int, text: bytes | None, _user_data: int | None) -> None:
@@ -202,6 +204,7 @@ class NativeLogCapture:
         """Install the capturing callback; failures are recorded in ``reason``, never raised."""
         if self.installed:
             return
+        self.reason = None
         try:
             loaded = self._load_api()
         except AttributeError as exc:

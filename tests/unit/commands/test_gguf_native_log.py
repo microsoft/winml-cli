@@ -120,6 +120,14 @@ def test_callback_tolerates_invalid_utf8_and_null_text(
     assert raised == []
 
 
+def test_reason_explains_a_capture_that_was_never_installed(capture: NativeLogCapture) -> None:
+    assert capture.to_dict(None)["capture"]["reason"] == (
+        "The run ended before the native log capture was installed."
+    )
+    capture.install()
+    assert capture.to_dict(None)["capture"]["reason"] is None
+
+
 def test_ctrl_c_in_the_callback_is_kept_for_the_caller(
     api: FakeLogApi, monkeypatch: pytest.MonkeyPatch
 ) -> None:  # Review Focus 5

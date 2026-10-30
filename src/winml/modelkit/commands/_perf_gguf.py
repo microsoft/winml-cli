@@ -92,6 +92,8 @@ _MEASURED_REQUEST_METRICS = (
     "steady_state_tpot_ms",
     "steady_state_decode_tokens_per_second",
 )
+# Evidence failure phases that read better as words in an error message.
+_FAILURE_PHASE_WORDS = {"warmup": "a warmup request", "measured": "a measured request"}
 
 
 def is_gguf_model(model: str | Path) -> bool:
@@ -102,6 +104,9 @@ def is_gguf_model(model: str | Path) -> bool:
 class GGUFEvidenceError(LlamaSessionError):
     """An evidence run failed; the evidence file records the phase and the cause.
 
+    The message leaves out the evidence path, which the CLI prints on the line
+    before the error; programmatic callers read it from :attr:`path`.
+
     Attributes:
         phase: The ``failure_phase`` written to the evidence.
         path: The evidence file.
@@ -110,14 +115,18 @@ class GGUFEvidenceError(LlamaSessionError):
 
     def __init__(self, phase: str, cause: BaseException | None, path: Path) -> None:
         detail = (str(cause) or type(cause).__name__) if cause is not None else "unknown failure"
-        super().__init__(f"GGUF evidence run failed during {phase}: {detail} Evidence: {path}")
+        during = _FAILURE_PHASE_WORDS.get(phase, phase)
+        super().__init__(f"GGUF evidence run failed during {during}: {detail.rstrip('.')}.")
         self.phase = phase
         self.path = path
         self.status = "failed"
 
 
 def read_prompt_ids_file(path: Path) -> tuple[int, ...]:
-    """Read exact prompt token IDs from a UTF-8 JSON array file (a BOM is accepted).
+    """Read exact prompt token IDs from a JSON array file.
+
+    The file can be UTF-8 (with or without a byte order mark), or UTF-16 as
+    Windows PowerShell 5.1 writes it; ``json.loads`` detects the encoding.
 
     Raises:
         TypeError: The JSON document is not an array.
@@ -125,14 +134,14 @@ def read_prompt_ids_file(path: Path) -> tuple[int, ...]:
             holds an element that is not a non-negative integer.
     """
     try:
-        text = path.read_text(encoding="utf-8-sig")
+        raw = path.read_bytes()
     except OSError as exc:
         raise ValueError(f"could not be read: {exc}") from exc
-    except UnicodeDecodeError as exc:
-        raise ValueError(f"not valid JSON: {exc}") from exc
     try:
-        data = json.loads(text)
-    except json.JSONDecodeError as exc:
+        data = json.loads(raw)
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"not valid JSON (expected UTF-8 or UTF-16 text): {exc}") from exc
+    except (json.JSONDecodeError, RecursionError) as exc:  # RecursionError: nested too deeply
         raise ValueError(f"not valid JSON: {exc}") from exc
     if not isinstance(data, list):
         raise TypeError("expected a JSON array of token IDs")
@@ -859,9 +868,15 @@ def display_gguf_report(result: GGUFBenchmarkResult, console: Console) -> None:
             f"  [dim]Excluded first {cfg.warmup} warmup generation(s) from statistics[/dim]"
         )
     if result.generated_tokens == 0:
+        if cfg.prompt_ids is None:
+            advice = "Try another --prompt or --no-apply-template."
+        elif cfg.ignore_eos:
+            advice = "Try different token IDs."
+        else:
+            advice = "Try different token IDs or --ignore-eos."
         console.print(
             "[yellow]Warning:[/yellow] the model stopped before generating a token, so "
-            "decode metrics are empty. Try another --prompt or --no-apply-template."
+            f"decode metrics are empty. {advice}"
         )
 
     if result.memory_profile:

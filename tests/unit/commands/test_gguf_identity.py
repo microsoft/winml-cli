@@ -185,6 +185,39 @@ def test_environment_snapshot_keeps_prefixed_names_and_fixed_keys() -> None:
 
 
 @pytest.mark.parametrize(
+    ("url", "recorded"),
+    [
+        (
+            "https://store.blob.core.windows.net/w/winml_cli-0.4.0-py3-none-any.whl?sv=2024&sig=SECRET",
+            "https://store.blob.core.windows.net/w/winml_cli-0.4.0-py3-none-any.whl"
+            "?sv=<redacted>&sig=<redacted>",
+        ),
+        ("https://user:SECRET@feed.example/winml_cli.whl", "https://<redacted>@feed.example/winml_cli.whl"),
+        ("https://SECRET@github.com/microsoft/winml-cli", "https://<redacted>@github.com/microsoft/winml-cli"),
+        ("git+ssh://git@github.com/microsoft/winml-cli.git", "git+ssh://git@github.com/microsoft/winml-cli.git"),
+        ("file:///C:/Projects/WinML-ModelKit", "file:///C:/Projects/WinML-ModelKit"),
+    ],
+)
+def test_producer_hides_credentials_in_the_install_url(
+    monkeypatch: pytest.MonkeyPatch, url: str, recorded: str
+) -> None:
+    document = {"url": url, "vcs_info": {"vcs": "git", "commit_id": "0123abcd"}}
+
+    class Distribution:
+        version = "0.4.0"  # importlib.metadata.version() reads it through distribution()
+
+        @staticmethod
+        def read_text(name: str) -> str | None:
+            return json.dumps(document) if name == "direct_url.json" else None
+
+    monkeypatch.setattr(importlib.metadata, "distribution", lambda _name: Distribution())
+    install = producer_info()["install"]
+
+    assert install["direct_url"] == {**document, "url": recorded}
+    assert "SECRET" not in json.dumps(install)
+
+
+@pytest.mark.parametrize(
     "name",
     [
         "LLAMA_API_KEY",

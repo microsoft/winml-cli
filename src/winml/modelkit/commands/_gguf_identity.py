@@ -22,6 +22,7 @@ import json
 import os
 import re
 import time
+import urllib.parse
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -195,8 +196,26 @@ def environment_snapshot(environ: Mapping[str, str]) -> dict[str, str | None]:
     return dict(sorted(snapshot.items()))
 
 
+def _redact_url(url: str) -> str:
+    """Hide the credentials a URL can carry: its user information and query values.
+
+    The ``git`` user of an SSH VCS URL names the account type, not a secret, so it stays.
+    """
+    parts = urllib.parse.urlsplit(url)
+    userinfo, at, host = parts.netloc.rpartition("@")
+    netloc = f"{REDACTED}@{host}" if at and userinfo != "git" else parts.netloc
+    query = "&".join(
+        f"{key}={REDACTED}"
+        for key, _ in urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+    )
+    return urllib.parse.urlunsplit(parts._replace(netloc=netloc, query=query))
+
+
 def _direct_url(name: str) -> Any:
-    """Contents of a distribution's ``direct_url.json`` (PEP 610), or ``None``."""
+    """Contents of a distribution's ``direct_url.json`` (PEP 610), or ``None``.
+
+    Evidence is published, so credentials in the install URL are redacted.
+    """
     try:
         text = importlib.metadata.distribution(name).read_text("direct_url.json")
     except importlib.metadata.PackageNotFoundError:
@@ -204,9 +223,12 @@ def _direct_url(name: str) -> Any:
     if text is None:
         return None
     try:
-        return json.loads(text)
+        document = json.loads(text)
     except ValueError:
         return None
+    if isinstance(document, dict) and isinstance(document.get("url"), str):
+        document["url"] = _redact_url(document["url"])
+    return document
 
 
 def producer_info() -> dict[str, Any]:

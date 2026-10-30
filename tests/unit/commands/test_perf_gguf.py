@@ -38,7 +38,7 @@ from tests.unit.test_helpers import (
 from winml.modelkit.commands import _gguf_evidence
 from winml.modelkit.commands import _perf_gguf as perf_gguf
 from winml.modelkit.commands._gguf_evidence import rows_path, token_ids_sha256
-from winml.modelkit.commands._gguf_native_log import NativeLogCapture
+from winml.modelkit.commands._gguf_native_log import NATIVE_VALUE_KEYS, NativeLogCapture
 from winml.modelkit.commands._perf_gguf import (
     GGUFBenchmarkResult,
     GGUFEvidenceError,
@@ -633,7 +633,7 @@ class TestEvidenceFailures:
         assert [row["status"] for row in doc["requests"]] == ["succeeded", "failed", "succeeded"]
 
     def test_reset_failure_marks_the_remaining_requests_incomplete(self, tmp_path: Path) -> None:
-        with pytest.raises(GGUFEvidenceError, match="during measured"):
+        with pytest.raises(GGUFEvidenceError, match="during a measured request"):
             _protocol_run(tmp_path, failures={1: "reset"})
 
         doc = _read(tmp_path / "ev.json")
@@ -668,24 +668,56 @@ class TestEvidenceFailures:
         assert _read(tmp_path / "ev.json")["failure_phase"] == "configuration"
         assert session.calls == []
 
+    def test_failure_before_the_capture_explains_the_missing_native_log(
+        self, tmp_path: Path
+    ) -> None:
+        benchmark, _, _ = _protocol_benchmark(
+            tmp_path, model_path=tmp_path / "m-00001-of-00002.gguf"
+        )
+        with pytest.raises(GGUFEvidenceError):
+            benchmark.run()
+
+        doc = _read(tmp_path / "ev.json")
+        reason = "The run ended before the native log capture was installed."
+        capture = doc["native_log"]["capture"]
+        assert (capture["installed"], capture["reason"]) == (False, reason)
+        unknown = doc["configuration"]["native"]["unknown"]
+        assert {key: value for key, value in unknown.items() if key != "threads"} == (
+            dict.fromkeys(NATIVE_VALUE_KEYS, reason)
+        )
+
     def test_unexpected_exception_restores_runtime_callback_before_close(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         benchmark, session, _ = _protocol_benchmark(tmp_path, failures={0: "raise"}, owned=True)
         monkeypatch.setattr(perf_gguf, "WinMLLlamaSession", lambda *_a, **_k: session)
 
-        with pytest.raises(GGUFEvidenceError, match="during warmup"):
+        with pytest.raises(GGUFEvidenceError, match="during a warmup request"):
             benchmark.run()
 
         assert session.closed
         assert session.callback_at_close == RUNTIME_CALLBACK
 
-    def test_error_names_a_cause_that_has_no_message(self) -> None:
-        error = GGUFEvidenceError("warmup", RuntimeError(), Path("ev.json"))
+    @pytest.mark.parametrize(
+        ("phase", "cause", "message"),
+        [
+            ("warmup", RuntimeError(), "during a warmup request: RuntimeError."),
+            (
+                "measured",
+                RuntimeError("native failure."),
+                "during a measured request: native failure.",
+            ),
+            ("initialization", LlamaLoadError("no backend"), "during initialization: no backend."),
+        ],
+    )
+    def test_error_message_reads_as_one_sentence(
+        self, phase: str, cause: BaseException, message: str
+    ) -> None:
+        error = GGUFEvidenceError(phase, cause, Path("ev.json"))
 
-        assert str(error) == (
-            "GGUF evidence run failed during warmup: RuntimeError Evidence: ev.json"
-        )
+        # The path is printed on the "Evidence saved to" line above the error.
+        assert str(error) == f"GGUF evidence run failed {message}"
+        assert error.path == Path("ev.json")
 
     def test_ctrl_c_during_load_logging_stops_the_run_after_load(self, tmp_path: Path) -> None:
         benchmark, session, api = _protocol_benchmark(tmp_path, ctrl_c_in_log="load")
@@ -1015,6 +1047,28 @@ class TestReporting:
         assert "n/a tokens/sec" in output
         assert "n/a ms/token" in output
 
+    @pytest.mark.parametrize(
+        ("ignore_eos", "advice"),
+        [(False, "Try different token IDs or --ignore-eos."), (True, "Try different token IDs.")],
+    )
+    def test_zero_token_advice_fits_exact_token_ids(
+        self, tmp_path: Path, ignore_eos: bool, advice: str
+    ) -> None:
+        empty = _timing(generated_tokens=0, stop_reason="EOS")
+        result, _session = _run_fake(
+            tmp_path,
+            [empty] * 3,
+            prompt_ids=(1, 2, 3, 4),
+            apply_template=False,
+            ignore_eos=ignore_eos,
+        )
+        buffer = StringIO()
+        display_gguf_report(result, Console(file=buffer, width=200, color_system=None))
+
+        output = buffer.getvalue()
+        assert advice in output
+        assert "--prompt" not in output
+
     def test_write_report_round_trips(self, tmp_path: Path) -> None:
         timings = [_timing() for _ in range(3)]
         result, _session = _run_fake(tmp_path, timings)
@@ -1300,6 +1354,7 @@ class TestCliDispatch:
             (b'{"ids": [1]}', "JSON array of token IDs"),
             (b"1,2", "not valid JSON"),
             (b"\xff[1]", "not valid JSON"),
+            pytest.param(b"[" * 100_000 + b"]" * 100_000, "not valid JSON", id="deeply-nested"),
         ],
     )
     def test_prompt_ids_file_rejects_malformed_content(
@@ -1352,6 +1407,39 @@ class TestCliDispatch:
 
         assert result.exit_code == 0, result.output
         assert capture_run["config"].apply_template is False
+
+    def test_prompt_ids_file_accepts_utf16_from_windows_powershell(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        # Windows PowerShell 5.1 writes UTF-16 with a byte order mark for `>` redirection.
+        path = _ids_file(tmp_path, "[1, 2]\r\n".encode("utf-16"))
+        result = runner.invoke(perf, ["-m", str(_gguf(tmp_path)), "--prompt-ids-file", str(path)])
+
+        assert result.exit_code == 0, result.output
+        assert capture_run["config"].prompt_ids == (1, 2)
+
+    def test_context_length_must_leave_room_for_a_text_prompt(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        evidence = tmp_path / "ev.json"
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                str(_gguf(tmp_path)),
+                "--context-length",
+                "64",
+                "--max-new-tokens",
+                "64",
+                "--evidence",
+                str(evidence),
+            ],
+        )
+
+        assert result.exit_code == 2, result.output
+        assert "--context-length 64" in result.output
+        assert "config" not in capture_run
+        assert not evidence.exists()
 
     def test_prompt_ids_plus_max_new_tokens_must_fit_context_length(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict
