@@ -708,6 +708,13 @@ class TestEvidenceFailures:
                 "during a measured request: native failure.",
             ),
             ("initialization", LlamaLoadError("no backend"), "during initialization: no backend."),
+            (
+                "initialization",
+                LlamaLoadError("Could not load the model. Is the backend installed?"),
+                "during initialization: Could not load the model. Is the backend installed?",
+            ),
+            ("finalization", OSError("disk went away\r\n"), "during finalization: disk went away."),
+            ("configuration", RuntimeError(" "), "during configuration: RuntimeError."),
         ],
     )
     def test_error_message_reads_as_one_sentence(
@@ -799,6 +806,8 @@ class TestEvidenceCli:
         assert report.exists() is (status != "failed")
         assert f"(status: {status})" in result.output
         assert session.closed
+        # The "Evidence saved to" line names the file; the error does not repeat it.
+        assert result.output.count(str(evidence)) == 1
 
 
 class TestBenchmark:
@@ -1068,6 +1077,38 @@ class TestReporting:
         output = buffer.getvalue()
         assert advice in output
         assert "--prompt" not in output
+
+    @pytest.mark.parametrize(
+        ("apply_template", "ignore_eos", "advice"),
+        [
+            (True, False, "Try another --prompt, --no-apply-template, or --ignore-eos."),
+            (False, False, "Try another --prompt or --ignore-eos."),
+            (True, True, "Try another --prompt or --no-apply-template."),
+            (False, True, "Try another --prompt."),
+        ],
+    )
+    def test_zero_token_advice_offers_only_options_not_in_use(
+        self, tmp_path: Path, apply_template: bool, ignore_eos: bool, advice: str
+    ) -> None:
+        empty = _timing(generated_tokens=0, stop_reason="EOS")
+        result, _session = _run_fake(
+            tmp_path, [empty] * 3, apply_template=apply_template, ignore_eos=ignore_eos
+        )
+        buffer = StringIO()
+        display_gguf_report(result, Console(file=buffer, width=200, color_system=None))
+
+        assert advice in buffer.getvalue()
+
+    def test_report_says_when_no_measured_request_succeeded(self, tmp_path: Path) -> None:
+        benchmark, _, _ = _protocol_benchmark(tmp_path, failures={1: "error", 2: "error"})
+        result = benchmark.run()
+        buffer = StringIO()
+        display_gguf_report(result, Console(file=buffer, width=200, color_system=None))
+
+        output = buffer.getvalue()
+        assert result.evidence_status == "partial"
+        assert "no measured request succeeded" in output
+        assert "stopped before generating a token" not in output
 
     def test_write_report_round_trips(self, tmp_path: Path) -> None:
         timings = [_timing() for _ in range(3)]
@@ -1355,6 +1396,7 @@ class TestCliDispatch:
             (b"1,2", "not valid JSON"),
             (b"\xff[1]", "not valid JSON"),
             pytest.param(b"[" * 100_000 + b"]" * 100_000, "not valid JSON", id="deeply-nested"),
+            pytest.param(b"[" + b"9" * 5000 + b"]", "not valid JSON", id="huge-integer"),
         ],
     )
     def test_prompt_ids_file_rejects_malformed_content(
@@ -1407,6 +1449,17 @@ class TestCliDispatch:
 
         assert result.exit_code == 0, result.output
         assert capture_run["config"].apply_template is False
+
+    def test_prompt_ids_element_errors_stay_short(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        # Nested just under the recursion limit: parsed, then rejected element by element.
+        path = _ids_file(tmp_path, b"[" * 900 + b"]" * 900)
+        result = runner.invoke(perf, ["-m", str(_gguf(tmp_path)), "--prompt-ids-file", str(path)])
+
+        assert result.exit_code == 2, result.output
+        assert "element 0 is not a non-negative integer token ID" in result.output
+        assert result.output.count("[") < 50
 
     def test_prompt_ids_file_accepts_utf16_from_windows_powershell(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict

@@ -186,7 +186,8 @@ continues, because a reset before the next request starts it from a clean sessio
 A failed reset ends the run. On a `partial` run, the schema 3 report's `requests`
 and `aggregate` include only the requests that succeeded, so
 `aggregate.timed_request_count` can be lower than `--iterations`; the evidence rows
-hold every request.
+hold every request. Its cold-start fields and `benchmark_info.stop_reason` come from
+the first request that succeeded, which is not a cold start when warmup 0 failed.
 
 Timestamps are `time.perf_counter_ns()` readings in the machine-wide QPC domain, so
 another process on the same machine can align its own samples with them. During an

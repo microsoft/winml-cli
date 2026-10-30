@@ -204,7 +204,8 @@ class NativeLogCapture:
         """Install the capturing callback; failures are recorded in ``reason``, never raised."""
         if self.installed:
             return
-        self.reason = None
+        # ``reason`` keeps explaining the missing capture until installation succeeds,
+        # so an install interrupted by Ctrl+C still leaves a reason in the evidence.
         try:
             loaded = self._load_api()
         except AttributeError as exc:
@@ -229,6 +230,7 @@ class NativeLogCapture:
             self.reason = f"Could not install the capturing callback: {type(exc).__name__}: {exc}"
             return
         self._api, self._saved, self.installed = api, saved, True
+        self.reason = None
 
     def restore(self) -> None:
         """Reinstate the Runtime callback, unless something else replaced ours first.

@@ -204,9 +204,12 @@ def _redact_url(url: str) -> str:
     parts = urllib.parse.urlsplit(url)
     userinfo, at, host = parts.netloc.rpartition("@")
     netloc = f"{REDACTED}@{host}" if at and userinfo != "git" else parts.netloc
+    # Work on the raw query: a part without "=" (?TOKEN) is the credential itself,
+    # and decoding keys could expose text that an encoded "=" or "&" was hiding.
     query = "&".join(
-        f"{key}={REDACTED}"
-        for key, _ in urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+        f"{part.partition('=')[0]}={REDACTED}" if "=" in part else REDACTED
+        for part in parts.query.split("&")
+        if part
     )
     return urllib.parse.urlunsplit(parts._replace(netloc=netloc, query=query))
 
@@ -227,7 +230,10 @@ def _direct_url(name: str) -> Any:
     except ValueError:
         return None
     if isinstance(document, dict) and isinstance(document.get("url"), str):
-        document["url"] = _redact_url(document["url"])
+        try:
+            document["url"] = _redact_url(document["url"])
+        except ValueError:  # an unparsable URL (bad host) may still hold a credential
+            document["url"] = REDACTED
     return document
 
 

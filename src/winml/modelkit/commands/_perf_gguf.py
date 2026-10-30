@@ -24,6 +24,7 @@ from __future__ import annotations
 import gc
 import json
 import logging
+import reprlib
 import time
 from collections import Counter
 from dataclasses import dataclass, field
@@ -114,9 +115,13 @@ class GGUFEvidenceError(LlamaSessionError):
     """
 
     def __init__(self, phase: str, cause: BaseException | None, path: Path) -> None:
-        detail = (str(cause) or type(cause).__name__) if cause is not None else "unknown failure"
+        # Native messages can carry trailing newlines or their own end punctuation.
+        detail = str(cause).strip() if cause is not None else ""
+        if not detail:
+            detail = type(cause).__name__ if cause is not None else "unknown failure"
+        end = "" if detail.endswith((".", "?", "!")) else "."
         during = _FAILURE_PHASE_WORDS.get(phase, phase)
-        super().__init__(f"GGUF evidence run failed during {during}: {detail.rstrip('.')}.")
+        super().__init__(f"GGUF evidence run failed during {during}: {detail}{end}")
         self.phase = phase
         self.path = path
         self.status = "failed"
@@ -141,7 +146,9 @@ def read_prompt_ids_file(path: Path) -> tuple[int, ...]:
         data = json.loads(raw)
     except UnicodeDecodeError as exc:
         raise ValueError(f"not valid JSON (expected UTF-8 or UTF-16 text): {exc}") from exc
-    except (json.JSONDecodeError, RecursionError) as exc:  # RecursionError: nested too deeply
+    # JSONDecodeError and over-long integers raise ValueError; nesting too deep raises
+    # RecursionError.
+    except (ValueError, RecursionError) as exc:
         raise ValueError(f"not valid JSON: {exc}") from exc
     if not isinstance(data, list):
         raise TypeError("expected a JSON array of token IDs")
@@ -150,7 +157,8 @@ def read_prompt_ids_file(path: Path) -> tuple[int, ...]:
     for index, value in enumerate(data):
         if isinstance(value, bool) or not isinstance(value, int) or value < 0:
             raise ValueError(
-                f"element {index} is not a non-negative integer token ID: {value!r}"
+                f"element {index} is not a non-negative integer token ID: "
+                f"{reprlib.repr(value)}"
             )
     return tuple(data)
 
@@ -789,6 +797,19 @@ class GGUFPerfBenchmark:
 # =============================================================================
 
 
+def _zero_token_advice(result: GGUFBenchmarkResult) -> str:
+    """Suggest the input changes that can avoid an immediate end-of-sequence stop."""
+    cfg = result.config
+    choices = ["different token IDs" if cfg.prompt_ids is not None else "another --prompt"]
+    if cfg.prompt_ids is None and result.chat_template_applied:
+        choices.append("--no-apply-template")
+    if not cfg.ignore_eos:
+        choices.append("--ignore-eos")
+    if len(choices) > 2:
+        return f"Try {', '.join(choices[:-1])}, or {choices[-1]}."
+    return f"Try {' or '.join(choices)}."
+
+
 def display_gguf_report(result: GGUFBenchmarkResult, console: Console) -> None:
     """Render a GGUF benchmark report to the console."""
     from rich.table import Table
@@ -867,16 +888,16 @@ def display_gguf_report(result: GGUFBenchmarkResult, console: Console) -> None:
         console.print(
             f"  [dim]Excluded first {cfg.warmup} warmup generation(s) from statistics[/dim]"
         )
-    if result.generated_tokens == 0:
-        if cfg.prompt_ids is None:
-            advice = "Try another --prompt or --no-apply-template."
-        elif cfg.ignore_eos:
-            advice = "Try different token IDs."
-        else:
-            advice = "Try different token IDs or --ignore-eos."
+    if not aggregate.get("timed_request_count"):
+        # Only an evidence run keeps going after a request fails.
+        console.print(
+            "[yellow]Warning:[/yellow] no measured request succeeded, so there are no "
+            "metrics to report. The evidence file records each request's error."
+        )
+    elif result.generated_tokens == 0:
         console.print(
             "[yellow]Warning:[/yellow] the model stopped before generating a token, so "
-            f"decode metrics are empty. {advice}"
+            f"decode metrics are empty. {_zero_token_advice(result)}"
         )
 
     if result.memory_profile:
@@ -939,8 +960,8 @@ def run_gguf_perf(
         _print_evidence_line(console, config.evidence_path, result.evidence_status)
         if result.evidence_status != "complete":
             raise click.ClickException(
-                f"GGUF evidence status {result.evidence_status}; see {config.evidence_path} "
-                "for the requests that did not succeed."
+                f"GGUF evidence status {result.evidence_status}: at least one request did not "
+                "succeed; the evidence file above records which."
             )
     return result
 

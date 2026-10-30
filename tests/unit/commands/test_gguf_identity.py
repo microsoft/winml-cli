@@ -196,6 +196,11 @@ def test_environment_snapshot_keeps_prefixed_names_and_fixed_keys() -> None:
         ("https://SECRET@github.com/microsoft/winml-cli", "https://<redacted>@github.com/microsoft/winml-cli"),
         ("git+ssh://git@github.com/microsoft/winml-cli.git", "git+ssh://git@github.com/microsoft/winml-cli.git"),
         ("file:///C:/Projects/WinML-ModelKit", "file:///C:/Projects/WinML-ModelKit"),
+        ("https://h.example/w.whl?SECRET", "https://h.example/w.whl?<redacted>"),
+        ("https://h.example/w.whl?a=1&SECRET", "https://h.example/w.whl?a=<redacted>&<redacted>"),
+        ("https://h.example/w.whl?sig%3DSECRET", "https://h.example/w.whl?<redacted>"),
+        ("https://h.example/w.whl?a+b=SECRET", "https://h.example/w.whl?a+b=<redacted>"),
+        ("https://[bad/SECRET.whl", "<redacted>"),
     ],
 )
 def test_producer_hides_credentials_in_the_install_url(

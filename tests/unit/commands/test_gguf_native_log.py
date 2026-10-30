@@ -128,6 +128,20 @@ def test_reason_explains_a_capture_that_was_never_installed(capture: NativeLogCa
     assert capture.to_dict(None)["capture"]["reason"] is None
 
 
+def test_interrupted_install_still_explains_the_missing_capture() -> None:
+    def interrupted() -> Any:
+        raise KeyboardInterrupt
+
+    capture = NativeLogCapture(load_api=interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        capture.install()
+
+    assert capture.to_dict(None)["capture"]["installed"] is False
+    assert capture.to_dict(None)["capture"]["reason"] == (
+        "The run ended before the native log capture was installed."
+    )
+
+
 def test_ctrl_c_in_the_callback_is_kept_for_the_caller(
     api: FakeLogApi, monkeypatch: pytest.MonkeyPatch
 ) -> None:  # Review Focus 5
