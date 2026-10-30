@@ -161,6 +161,20 @@ class StaticPass(BaseQuantPass):
         if self._config.calibration_data is not None:
             data_reader = self._config.calibration_data
             logger.info("Using custom calibration data")
+        elif self._config.calibration_load_path is not None:
+            from ...datasets.input_data import InputDataCalibrationReader
+            from ...onnx import get_io_config
+
+            data_reader = InputDataCalibrationReader(
+                self._config.calibration_load_path,
+                get_io_config(model_path),
+                max_samples=self._config.samples,
+            )
+            logger.info(
+                "Using calibration data from %s (up to %d samples)",
+                self._config.calibration_load_path,
+                self._config.samples,
+            )
         else:
             from ...datasets import DatasetCalibrationReader
 

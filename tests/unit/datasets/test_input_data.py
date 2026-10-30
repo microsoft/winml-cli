@@ -19,7 +19,11 @@ import numpy as np
 import pytest
 import torch
 
-from winml.modelkit.datasets.input_data import InputDataDataset, load_input_data
+from winml.modelkit.datasets.input_data import (
+    InputDataCalibrationReader,
+    InputDataDataset,
+    load_input_data,
+)
 
 
 class TestLoadInputData:
@@ -129,6 +133,34 @@ class TestInputDataDataset:
         path = self._write_npz(tmp_path, wrong=np.ones((1, 4), dtype=np.float32))
         with pytest.raises(click.UsageError, match="do not match"):
             InputDataDataset(path, self._IO)
+
+
+class TestInputDataCalibrationReader:
+    _IO: ClassVar[dict] = {
+        "input_names": ["x"],
+        "input_shapes": [[1, 4]],
+        "input_types": ["float32"],
+    }
+
+    def test_reads_limited_samples_and_rewinds(self, tmp_path) -> None:
+        path = tmp_path / "inputs.npz"
+        np.savez(path, x=np.arange(12, dtype=np.float32).reshape(3, 4))
+        reader = InputDataCalibrationReader(path, self._IO, max_samples=2)
+
+        assert reader.get_next()["x"].tolist() == [[0.0, 1.0, 2.0, 3.0]]
+        assert reader.get_next()["x"].tolist() == [[4.0, 5.0, 6.0, 7.0]]
+        assert reader.get_next() is None
+
+        reader.rewind()
+        assert reader.get_next()["x"].tolist() == [[0.0, 1.0, 2.0, 3.0]]
+
+    @pytest.mark.parametrize("max_samples", [0, -1])
+    def test_rejects_non_positive_sample_limit(self, tmp_path, max_samples) -> None:
+        path = tmp_path / "inputs.npz"
+        np.savez(path, x=np.ones((1, 4), dtype=np.float32))
+
+        with pytest.raises(ValueError, match="greater than zero"):
+            InputDataCalibrationReader(path, self._IO, max_samples=max_samples)
 
 
 class TestStaticBatchHonoring:

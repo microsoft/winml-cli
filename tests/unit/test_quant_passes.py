@@ -758,6 +758,35 @@ class TestPublishStagedModel:
 
 
 class TestStaticPassQuantizationRegionHints:
+    def test_calibration_load_path_quantizes_from_npz(self, tmp_path: Path) -> None:
+        model_path = tmp_path / "input.onnx"
+        output_path = tmp_path / "quantized.onnx"
+        calibration_path = tmp_path / "calibration.npz"
+        save(_make_static_grouped_conv_model(), model_path)
+        np.savez(
+            calibration_path,
+            input=np.random.RandomState(7).randn(2, 4, 3).astype(np.float32),
+        )
+
+        result = StaticPass(
+            WinMLQuantizationConfig(
+                mode="static",
+                samples=1,
+                calibration_load_path=calibration_path,
+                activation_type="uint16",
+                weight_type="uint8",
+                per_channel=False,
+            )
+        ).run(model_path, output_path, use_external_data=False)
+
+        assert result.success
+        checker.check_model(str(output_path), full_check=True)
+        quantized = load(output_path)
+        assert any(
+            node.op_type in {"QuantizeLinear", "DequantizeLinear"}
+            for node in quantized.graph.node
+        )
+
     def test_external_16bit_opset_conversion_precedes_weight_loading(
         self,
         tmp_path: Path,

@@ -95,7 +95,7 @@ Set to `null` to skip quantization.
 | `weight_type` | `"uint8" \| "int8" \| "uint16" \| "int16"` | `"uint8"` | Weight data type. |
 | `activation_type` | `"uint8" \| "int8" \| "uint16" \| "int16"` | `"uint8"` | Activation data type. |
 | `calibration_method` | `"minmax" \| "entropy" \| "percentile"` | `"minmax"` | Scale computation method. |
-| `samples` | `int` | `10` | Number of calibration samples. |
+| `samples` | `int` | `10` | Maximum number of calibration batches; must be greater than zero. |
 | `per_channel` | `bool` | `false` | Per-channel quantization. |
 | `symmetric` | `bool` | `false` | Symmetric quantization. |
 | `task` | `str \| null` | `null` | Task for dataset-aware calibration. |
@@ -103,7 +103,7 @@ Set to `null` to skip quantization.
 | `dataset_name` | `str \| null` | `null` | Override calibration dataset. |
 | `distribution` | `str` | `"uniform"` | Random distribution for dummy data. |
 | `seed` | `int \| null` | `null` | Random seed for reproducibility. |
-| `calibration_load_path` | `str \| null` | `null` | Load pre-computed calibration scales. |
+| `calibration_load_path` | `str \| null` | `null` | Load calibration inputs from an NPZ file. Keys must match model input names; each leading axis contains samples, which are batched to the model's static batch size. Takes precedence over task-aware and random calibration. |
 | `calibration_save_path` | `str \| null` | `null` | Save calibration scales. |
 | `op_types_to_quantize` | `list[str] \| null` | `null` | Operator types to quantize (all if null). |
 | `nodes_to_exclude` | `list[str] \| null` | `null` | Node names to skip. |

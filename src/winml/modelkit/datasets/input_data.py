@@ -258,3 +258,32 @@ class InputDataDataset:
         start = idx * self._batch
         stop = start + self._batch
         return {name: tensor[start:stop] for name, tensor in self._arrays.items()}
+
+
+class InputDataCalibrationReader:
+    """ORT calibration reader backed by validated real-input ``.npz`` data."""
+
+    def __init__(
+        self,
+        path: str | Path,
+        io_config: dict[str, Any],
+        *,
+        max_samples: int | None = None,
+    ) -> None:
+        if max_samples is not None and max_samples <= 0:
+            raise ValueError("max_samples must be greater than zero when provided.")
+        self._dataset = InputDataDataset(path, io_config)
+        self._num_samples = min(len(self._dataset), max_samples or len(self._dataset))
+        self._index = 0
+
+    def get_next(self) -> dict[str, np.ndarray] | None:
+        """Return the next model-ready sample, or ``None`` when exhausted."""
+        if self._index >= self._num_samples:
+            return None
+        sample = self._dataset[self._index]
+        self._index += 1
+        return {name: tensor.numpy() for name, tensor in sample.items()}
+
+    def rewind(self) -> None:
+        """Reset the reader to the first sample."""
+        self._index = 0
