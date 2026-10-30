@@ -226,22 +226,21 @@ class NativeLogCapture:
         try:
             api.set(self._address, None)
             current, _ = api.get()
-            if current != self._address:
-                api.set(*saved)
+        except Exception as exc:  # a failed swap must not fail the run
+            self.reason = f"Could not install the capturing callback: {type(exc).__name__}: {exc}"
+        else:
+            if current == self._address:
+                self._api, self._saved, self.installed = api, saved, True
+                self.reason = None
+            else:
                 self.reason = "llama_log_set did not install the capturing callback."
-                return
-            self._api, self._saved, self.installed = api, saved, True
-        except BaseException as exc:
+        finally:
             # Native code must never keep calling a capture that is not tracked as
-            # installed: put the Runtime callback back, even when Ctrl+C cut the swap short.
+            # installed: put the Runtime callback back on every other exit, including
+            # Ctrl+C cutting the swap short.
             if not self.installed:
                 with contextlib.suppress(Exception):
                     api.set(*saved)
-            if not isinstance(exc, Exception):
-                raise
-            self.reason = f"Could not install the capturing callback: {type(exc).__name__}: {exc}"
-            return
-        self.reason = None
 
     def restore(self) -> None:
         """Reinstate the Runtime callback, unless something else replaced ours first.
