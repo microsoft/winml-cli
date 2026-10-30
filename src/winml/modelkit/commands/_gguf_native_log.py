@@ -220,16 +220,27 @@ class NativeLogCapture:
         self.library, api = loaded
         try:
             saved = api.get()
+        except Exception as exc:  # a failed read must not fail the run
+            self.reason = f"Could not install the capturing callback: {type(exc).__name__}: {exc}"
+            return
+        try:
             api.set(self._address, None)
             current, _ = api.get()
             if current != self._address:
                 api.set(*saved)
                 self.reason = "llama_log_set did not install the capturing callback."
                 return
-        except Exception as exc:  # a failed swap must not fail the run
+            self._api, self._saved, self.installed = api, saved, True
+        except BaseException as exc:
+            # Native code must never keep calling a capture that is not tracked as
+            # installed: put the Runtime callback back, even when Ctrl+C cut the swap short.
+            if not self.installed:
+                with contextlib.suppress(Exception):
+                    api.set(*saved)
+            if not isinstance(exc, Exception):
+                raise
             self.reason = f"Could not install the capturing callback: {type(exc).__name__}: {exc}"
             return
-        self._api, self._saved, self.installed = api, saved, True
         self.reason = None
 
     def restore(self) -> None:
@@ -270,7 +281,7 @@ class NativeLogCapture:
                 "api": "llama_log_set",
                 "library": self.library,
                 "installed": self.installed,
-                "reason": self.reason,
+                "reason": None if self.installed else self.reason,
             },
             "window": "load_through_warmup_0",
             "lines": lines,

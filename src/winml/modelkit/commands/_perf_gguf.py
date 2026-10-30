@@ -146,10 +146,10 @@ def read_prompt_ids_file(path: Path) -> tuple[int, ...]:
         data = json.loads(raw)
     except UnicodeDecodeError as exc:
         raise ValueError(f"not valid JSON (expected UTF-8 or UTF-16 text): {exc}") from exc
-    # JSONDecodeError and over-long integers raise ValueError; nesting too deep raises
-    # RecursionError.
-    except (ValueError, RecursionError) as exc:
+    except (json.JSONDecodeError, RecursionError) as exc:  # RecursionError: nested too deeply
         raise ValueError(f"not valid JSON: {exc}") from exc
+    except ValueError as exc:  # Python's limit on integer digits
+        raise ValueError("holds a number too long to be a token ID") from exc
     if not isinstance(data, list):
         raise TypeError("expected a JSON array of token IDs")
     if not data:
@@ -891,8 +891,9 @@ def display_gguf_report(result: GGUFBenchmarkResult, console: Console) -> None:
     if not aggregate.get("timed_request_count"):
         # Only an evidence run keeps going after a request fails.
         console.print(
-            "[yellow]Warning:[/yellow] no measured request succeeded, so there are no "
-            "metrics to report. The evidence file records each request's error."
+            "[yellow]Warning:[/yellow] no measured request succeeded, so there are no TTFT, "
+            "decode or warm-start statistics. The evidence file records each failed "
+            "request's error."
         )
     elif result.generated_tokens == 0:
         console.print(

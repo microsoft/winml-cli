@@ -199,7 +199,11 @@ def test_environment_snapshot_keeps_prefixed_names_and_fixed_keys() -> None:
         ("https://h.example/w.whl?SECRET", "https://h.example/w.whl?<redacted>"),
         ("https://h.example/w.whl?a=1&SECRET", "https://h.example/w.whl?a=<redacted>&<redacted>"),
         ("https://h.example/w.whl?sig%3DSECRET", "https://h.example/w.whl?<redacted>"),
-        ("https://h.example/w.whl?a+b=SECRET", "https://h.example/w.whl?a+b=<redacted>"),
+        ("https://h.example/w.whl?a+b=SECRET", "https://h.example/w.whl?<redacted>"),
+        ("https://h.example/w.whl?U0VDUkVUdG9rZW4=", "https://h.example/w.whl?<redacted>"),
+        ("https://h.example/w.whl?U0VDUkVUdG9rZW4==", "https://h.example/w.whl?<redacted>"),
+        ("https://h.example/w.whl?SECRET=", "https://h.example/w.whl?<redacted>"),
+        ("https://h.example/w.whl?SECRET;a=1", "https://h.example/w.whl?<redacted>"),
         ("https://[bad/SECRET.whl", "<redacted>"),
     ],
 )

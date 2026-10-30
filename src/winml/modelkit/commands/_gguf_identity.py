@@ -52,6 +52,8 @@ _FIXED_ENVIRONMENT = ("WINML_LLAMA_USE_MMAP", "WINML_LLAMA_SWA_FULL")
 # Evidence is published, so values of names like these (LLAMA_API_KEY, ...) are hidden.
 _SECRET_NAME_PARTS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL", "AUTH")
 REDACTED = "<redacted>"
+# Query parameter names kept beside a redacted value; anything else is redacted whole.
+_QUERY_KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]{0,31}")
 _CORE_MANIFEST = "WinMLLlamaCoreManifest.json"
 _BACKEND_MANIFEST = "WinMLLlamaBackendManifest.json"
 _PAIRING_MANIFEST = "WinMLLlamaPythonPairing.json"
@@ -204,14 +206,20 @@ def _redact_url(url: str) -> str:
     parts = urllib.parse.urlsplit(url)
     userinfo, at, host = parts.netloc.rpartition("@")
     netloc = f"{REDACTED}@{host}" if at and userinfo != "git" else parts.netloc
-    # Work on the raw query: a part without "=" (?TOKEN) is the credential itself,
-    # and decoding keys could expose text that an encoded "=" or "&" was hiding.
-    query = "&".join(
-        f"{part.partition('=')[0]}={REDACTED}" if "=" in part else REDACTED
-        for part in parts.query.split("&")
-        if part
-    )
+    query = "&".join(_redact_query_part(part) for part in parts.query.split("&") if part)
     return urllib.parse.urlunsplit(parts._replace(netloc=netloc, query=query))
+
+
+def _redact_query_part(part: str) -> str:
+    """``name=<redacted>`` for a named parameter; anything else may be a bare token.
+
+    The raw text is used: decoding could expose what an encoded ``=`` or ``&`` hid,
+    and a token (even with ``=`` padding, or joined by ``;``) is redacted whole.
+    """
+    key, equals, value = part.partition("=")
+    if equals and value.strip("=") and _QUERY_KEY.fullmatch(key):
+        return f"{key}={REDACTED}"
+    return REDACTED
 
 
 def _direct_url(name: str) -> Any:

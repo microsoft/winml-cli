@@ -1107,7 +1107,7 @@ class TestReporting:
 
         output = buffer.getvalue()
         assert result.evidence_status == "partial"
-        assert "no measured request succeeded" in output
+        assert "no measured request succeeded, so there are no TTFT, decode" in output
         assert "stopped before generating a token" not in output
 
     def test_write_report_round_trips(self, tmp_path: Path) -> None:
@@ -1396,7 +1396,7 @@ class TestCliDispatch:
             (b"1,2", "not valid JSON"),
             (b"\xff[1]", "not valid JSON"),
             pytest.param(b"[" * 100_000 + b"]" * 100_000, "not valid JSON", id="deeply-nested"),
-            pytest.param(b"[" + b"9" * 5000 + b"]", "not valid JSON", id="huge-integer"),
+            pytest.param(b"[" + b"9" * 5000 + b"]", "too long to be a token ID", id="huge-integer"),
         ],
     )
     def test_prompt_ids_file_rejects_malformed_content(

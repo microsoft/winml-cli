@@ -142,6 +142,32 @@ def test_interrupted_install_still_explains_the_missing_capture() -> None:
     )
 
 
+@pytest.mark.parametrize("failure", [KeyboardInterrupt, OSError])
+def test_a_broken_swap_puts_the_runtime_callback_back(
+    api: FakeLogApi, failure: type[BaseException]
+) -> None:
+    reads: list[int] = []
+    read = api.get
+
+    def get() -> tuple[int | None, int | None]:
+        reads.append(1)
+        if len(reads) == 2:  # the check right after llama_log_set
+            raise failure
+        return read()
+
+    api.get = get  # type: ignore[method-assign]
+    capture = NativeLogCapture(load_api=lambda: ("C:/lib/WinMLllama.dll", api))
+    if failure is KeyboardInterrupt:
+        with pytest.raises(KeyboardInterrupt):
+            capture.install()
+    else:
+        capture.install()
+
+    assert api.callback == RUNTIME_CALLBACK
+    assert capture.installed is False
+    assert capture.to_dict(None)["capture"]["reason"]
+
+
 def test_ctrl_c_in_the_callback_is_kept_for_the_caller(
     api: FakeLogApi, monkeypatch: pytest.MonkeyPatch
 ) -> None:  # Review Focus 5
