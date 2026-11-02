@@ -129,7 +129,7 @@ class TestEpIsCompatible:
             [
                 EPCatalog.Row(
                     name="CustomExecutionProvider",
-                    dll_name="custom.dll",
+                    dll_names=("custom.dll",),
                     vendor_requirements=frozenset({"Example Vendor"}),
                 )
             ]

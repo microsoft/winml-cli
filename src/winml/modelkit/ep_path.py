@@ -114,14 +114,14 @@ class EPCatalog:
 
     @dataclass(frozen=True)
     class Row:
-        """One canonical EP's metadata: name, DLL filename, vendor requirement.
+        """One canonical EP's metadata: name, ordered DLL filenames, vendor requirement.
 
-        The ``dll_name`` is empty for bundled EPs (CPU, DML, Azure) — they
+        The ``dll_names`` tuple is empty for bundled EPs (CPU, DML, Azure) — they
         ship with ORT itself and never need plugin DLL loading.
         """
 
         name: str
-        dll_name: str
+        dll_names: tuple[str, ...]
         vendor_requirements: frozenset[str]
 
     __slots__ = ("_by_dll", "_by_name", "_initialized")
@@ -135,7 +135,9 @@ class EPCatalog:
 
     def __init__(self, entries: Iterable[EPCatalog.Row]) -> None:
         by_name: dict[str, EPCatalog.Row] = {e.name: e for e in entries}
-        by_dll: dict[str, str] = {e.dll_name: e.name for e in by_name.values() if e.dll_name}
+        by_dll: dict[str, str] = {
+            dll.casefold(): e.name for e in by_name.values() for dll in e.dll_names
+        }
         object.__setattr__(self, "_by_name", MappingProxyType(by_name))
         object.__setattr__(self, "_by_dll", MappingProxyType(by_dll))
         object.__setattr__(self, "_initialized", True)
@@ -146,13 +148,18 @@ class EPCatalog:
         object.__setattr__(self, name, value)
 
     def dll_name_for(self, ep: str) -> str | None:
-        """Return the DLL filename for ``ep``, or ``None`` for bundled / unknown EPs."""
+        """Return the preferred DLL filename, or ``None`` for bundled / unknown EPs."""
+        names = self.dll_names_for(ep)
+        return names[0] if names else None
+
+    def dll_names_for(self, ep: str) -> tuple[str, ...]:
+        """Return DLL filenames in preference order, or empty for bundled / unknown EPs."""
         entry = self._by_name.get(ep)
-        return entry.dll_name if entry and entry.dll_name else None
+        return entry.dll_names if entry else ()
 
     def ep_for_dll(self, dll: str) -> str | None:
-        """Reverse lookup: DLL filename -> canonical EP name. ``None`` if unknown."""
-        return self._by_dll.get(dll)
+        """Case-insensitive DLL filename lookup. ``None`` if unknown."""
+        return self._by_dll.get(dll.casefold())
 
     def is_compatible(self, ep: str, device_type: DeviceType | None = None) -> bool:
         """Return True iff ``ep`` has compatible hardware on this machine.
@@ -187,35 +194,32 @@ EP_CATALOG = EPCatalog(
     [
         EPCatalog.Row(
             name="OpenVINOExecutionProvider",
-            dll_name="onnxruntime_providers_openvino_plugin.dll",
+            dll_names=("onnxruntime_providers_openvino_plugin.dll",),
             vendor_requirements=frozenset({"Intel"}),
         ),
         EPCatalog.Row(
             name="QNNExecutionProvider",
-            dll_name="onnxruntime_providers_qnn.dll",
+            dll_names=("onnxruntime_providers_qnn.dll",),
             vendor_requirements=frozenset({"Qualcomm"}),
         ),
         EPCatalog.Row(
             name="VitisAIExecutionProvider",
-            dll_name="onnxruntime_providers_vitisai.dll",
+            dll_names=("onnxruntime_providers_vitisai.dll", "onnxruntime_vitisai_ep.dll"),
             vendor_requirements=frozenset({"AMD"}),
         ),
-        # TODO(ep_path): MIGraphX DLL leaf is unverified; mirrors the VitisAI
-        # naming convention. Confirm by inspecting an installed MSIX. See
-        # docs/ep-path-design.md TODO #4.
         EPCatalog.Row(
             name="MIGraphXExecutionProvider",
-            dll_name="onnxruntime_providers_migraphx.dll",
+            dll_names=("onnxruntime_providers_migraphx.dll", "amdgpu-ep.dll"),
             vendor_requirements=frozenset({"AMD"}),
         ),
         EPCatalog.Row(
             name="NvTensorRTRTXExecutionProvider",
-            dll_name="onnxruntime_providers_nv_tensorrt_rtx.dll",
+            dll_names=("onnxruntime_providers_nv_tensorrt_rtx.dll",),
             vendor_requirements=frozenset({"NVIDIA"}),
         ),
-        EPCatalog.Row(name="DmlExecutionProvider", dll_name="", vendor_requirements=frozenset()),
-        EPCatalog.Row(name="CPUExecutionProvider", dll_name="", vendor_requirements=frozenset()),
-        EPCatalog.Row(name="AzureExecutionProvider", dll_name="", vendor_requirements=frozenset()),
+        EPCatalog.Row(name="DmlExecutionProvider", dll_names=(), vendor_requirements=frozenset()),
+        EPCatalog.Row(name="CPUExecutionProvider", dll_names=(), vendor_requirements=frozenset()),
+        EPCatalog.Row(name="AzureExecutionProvider", dll_names=(), vendor_requirements=frozenset()),
     ]
 )
 
@@ -1423,6 +1427,7 @@ class MSIXPackageSource(EPSource):
 def _list_msix_eps(
     family_name_prefixes: tuple[str, ...] = (
         "MicrosoftCorporationII.WinML.",
+        "Microsoft.WinML.",
         "WindowsWorkload.EP.",
     ),
 ) -> list[MSIXPackageSource]:
@@ -1437,10 +1442,11 @@ def _list_msix_eps(
     no recognizable EP DLL are skipped silently.
 
     Args:
-        family_name_prefixes: Default catches both publishing channels:
+        family_name_prefixes: Default catches the publishing channels:
             ``"MicrosoftCorporationII.WinML."`` for the public WinML EP
             catalog channel (Windows Update D-week KB delivery, the
-            family the WinAppSDK ``ExecutionProviderCatalog`` binds), and
+            family the WinAppSDK ``ExecutionProviderCatalog`` binds),
+            ``"Microsoft.WinML."`` for the framework EP packages, and
             ``"WindowsWorkload.EP."`` for the OEM/Windows-Workloads
             channel that provisions EP MSIXes via OEM imaging on
             Copilot+ silicon (e.g., the Intel OpenVINO EP shipping as
@@ -1480,16 +1486,30 @@ def _list_msix_eps(
         key=lambda p: (str(p.id.family_name), _pkg_version_tuple(p.id.version)),
     )
 
+    dll_order = {
+        dll.casefold(): index
+        for index, dll in enumerate(
+            dll for ep in EP_CATALOG.all_eps() for dll in EP_CATALOG.dll_names_for(ep)
+        )
+    }
     results: list[MSIXPackageSource] = []
     for p in matching:
         installed_path = Path(str(p.installed_path))
         try:
             ep_dir = installed_path / "ExecutionProvider"
-            candidates = list(ep_dir.glob("onnxruntime_providers_*.dll")) if ep_dir.is_dir() else []
-            # Fallback: scan one level down if the conventional layout
-            # is not used by some future vendor.
+            candidates = [
+                dll
+                for dll in ep_dir.glob("*.dll")
+                if dll.is_file() and dll.name.casefold() in dll_order
+            ]
+            # Fall back to the full package tree for nonstandard layouts.
             if not candidates:
-                candidates = list(installed_path.glob("**/onnxruntime_providers_*.dll"))
+                candidates = [
+                    dll
+                    for dll in installed_path.glob("**/*.dll")
+                    if dll.is_file() and dll.name.casefold() in dll_order
+                ]
+            candidates.sort(key=lambda dll: (dll_order[dll.name.casefold()], str(dll).casefold()))
         except Exception as e:
             logger.debug(
                 "list_msix_eps: cannot scan %s for EP DLLs (%s); skipping",
@@ -1627,25 +1647,27 @@ def _default_ep_sources() -> list[EPSource]:
         *_winml_catalog_sources(),
         # 4. Well-known third-party installer drops, gated by env var so
         #    they no-op on machines without the installer present.
-        DirectorySource(
-            root=Path("deployment"),
-            env_var="RYZEN_AI_INSTALLATION_PATH",
-            dll_patterns={
-                "VitisAIExecutionProvider": "onnxruntime_providers_vitisai.dll",
-            },
-            required_marker="onnxruntime_providers_shared.dll",
-        ),
+        *[
+            DirectorySource(
+                root=Path("deployment"),
+                env_var="RYZEN_AI_INSTALLATION_PATH",
+                dll_patterns={"VitisAIExecutionProvider": dll},
+                required_marker="onnxruntime_providers_shared.dll",
+            )
+            for dll in EP_CATALOG.dll_names_for("VitisAIExecutionProvider")
+        ],
         # 5. NVIDIA TensorRT-RTX EP unzipped from the GitHub release.
         #    User points NVIDIA_TRT_RTX_EP at the ZIP root; we glob for
         #    the plugin DLL with no required marker (the ZIP is flat).
         #    Empty relative root means "use env_var value as-is".
-        DirectorySource(
-            root=Path(),
-            env_var="NVIDIA_TRT_RTX_EP",
-            dll_patterns={
-                "NvTensorRTRTXExecutionProvider": ("onnxruntime_providers_nv_tensorrt_rtx.dll"),
-            },
-        ),
+        *[
+            DirectorySource(
+                root=Path(),
+                env_var="NVIDIA_TRT_RTX_EP",
+                dll_patterns={"NvTensorRTRTXExecutionProvider": dll},
+            )
+            for dll in EP_CATALOG.dll_names_for("NvTensorRTRTXExecutionProvider")
+        ],
         # 6. Live MSIX enumeration — catches the OEM
         #    ``WindowsWorkload.EP.*`` channel and historical MSIX
         #    versions the WinML catalog hides. Appended after
@@ -1695,10 +1717,10 @@ def _parse_winmlcli_ep_path() -> list[EPSource]:
             continue
         logger.debug("WINMLCLI_EP_PATH override: scanning %s", entry)
         for ep in EP_CATALOG.all_eps():
-            dll = EP_CATALOG.dll_name_for(ep)
-            if not dll:
-                continue  # bundled EPs have no DLL filename
-            sources.append(DirectorySource(root=p, dll_patterns={ep: dll}))
+            sources.extend(
+                DirectorySource(root=p, dll_patterns={ep: dll})
+                for dll in EP_CATALOG.dll_names_for(ep)
+            )
     return sources
 
 

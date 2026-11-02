@@ -543,16 +543,16 @@ class TestWinmlEpPathOverride:
     def test_single_entry(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("WINMLCLI_EP_PATH", str(tmp_path))
         sources = _parse_winmlcli_ep_path()
-        # Per the C1 fix, the parser emits ONE DirectorySource per
-        # (root, ep, dll_filename) combination — so a single entry with
-        # five EPs (each with exactly one .dll filename) yields five sources.
-        # Every known EP must be covered at least once.
+        # The parser emits one DirectorySource per (root, ep, dll_filename).
         assert all(isinstance(s, DirectorySource) for s in sources)
         assert all(s.root == tmp_path for s in sources)
         covered_eps = {
             ep for s in sources if isinstance(s, DirectorySource) for ep in s.dll_patterns
         }
         assert covered_eps == {ep for ep in EP_CATALOG.all_eps() if EP_CATALOG.dll_name_for(ep)}
+        assert len(sources) == sum(
+            len(EP_CATALOG.dll_names_for(ep)) for ep in EP_CATALOG.all_eps()
+        )
 
     def test_emits_source_per_dll_filename_windows_only(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -560,7 +560,7 @@ class TestWinmlEpPathOverride:
         # This is a Windows-only project. EP_CATALOG entries contain
         # only .dll filenames (Linux .so entries were dropped in Task 6).
         # The parser emits one DirectorySource per (root, ep, dll_filename)
-        # tuple — all EPs should resolve correctly with their single DLL name.
+        # tuple — every predefined DLL name should be covered.
         monkeypatch.setenv("WINMLCLI_EP_PATH", str(tmp_path))
         sources = _parse_winmlcli_ep_path()
         ov_dlls = [
@@ -586,10 +586,22 @@ class TestWinmlEpPathOverride:
         assert a in roots
         assert b in roots
 
-    def test_winml_ep_path_finds_dll(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize(
+        ("ep", "filename"),
+        [(ep, dll) for ep in EP_CATALOG.all_eps() for dll in EP_CATALOG.dll_names_for(ep)],
+    )
+    @pytest.mark.parametrize("uppercase", [False, True])
+    def test_winml_ep_path_finds_dll(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        ep: str,
+        filename: str,
+        uppercase: bool,
+    ) -> None:
         # End-to-end: drop a synthetic plugin DLL in a directory, set
         # WINMLCLI_EP_PATH to that directory, confirm discover_eps finds it.
-        dll = _touch(tmp_path / "onnxruntime_providers_vitisai.dll")
+        dll = _touch(tmp_path / (filename.upper() if uppercase else filename))
         monkeypatch.setenv("WINMLCLI_EP_PATH", str(tmp_path))
         # Skip env-var-gated DirectorySource so the env-var path is the
         # only producer of a VitisAI hit. (The autouse
@@ -597,9 +609,50 @@ class TestWinmlEpPathOverride:
         # source side.)
         monkeypatch.delenv("RYZEN_AI_INSTALLATION_PATH", raising=False)
         resolved = _winners(discover_all_eps())
-        assert "VitisAIExecutionProvider" in resolved
-        path, _src = resolved["VitisAIExecutionProvider"]
+        assert ep in resolved
+        path, _src = resolved[ep]
         assert path == dll.resolve()
+
+    def test_multiple_names_preserve_path_then_filename_order(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import os
+
+        from winml.modelkit import ep_path as mod
+
+        ep = "VitisAIExecutionProvider"
+        names = EP_CATALOG.dll_names_for(ep)
+        first = _touch(tmp_path / "first" / names[-1])
+        second_paths = [_touch(tmp_path / "second" / name) for name in reversed(names)]
+        monkeypatch.setenv(
+            "WINMLCLI_EP_PATH", f"{first.parent}{os.pathsep}{second_paths[0].parent}"
+        )
+        monkeypatch.setattr(mod, "_default_ep_sources", list)
+
+        entries = discover_all_eps()
+
+        assert [entry.dll_path for entry in entries] == [first, *reversed(second_paths)]
+        assert [entry.status for entry in entries] == ["primary", *(["shadowed"] * len(names))]
+
+    @pytest.mark.parametrize("filename", EP_CATALOG.dll_names_for("VitisAIExecutionProvider"))
+    def test_installer_directory_uses_all_predefined_names(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, filename: str
+    ) -> None:
+        dll = _touch(tmp_path / "deployment" / filename)
+        _touch(dll.parent / "onnxruntime_providers_shared.dll")
+        monkeypatch.setenv("RYZEN_AI_INSTALLATION_PATH", str(tmp_path))
+
+        sources = [
+            source
+            for source in _default_ep_sources()
+            if isinstance(source, DirectorySource)
+            and source.env_var == "RYZEN_AI_INSTALLATION_PATH"
+        ]
+        entries = [entry for source in sources for entry in source.resolve()]
+
+        assert [(entry.ep_name, entry.dll_path) for entry in entries] == [
+            ("VitisAIExecutionProvider", dll.resolve())
+        ]
 
     def test_winmlcli_ep_path_warns_on_nonexistent_directory(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
@@ -800,6 +853,21 @@ class TestNuGetSource:
 
 class TestEPCatalog:
     """EPCatalog: forward/inverse lookups, bundled-EP handling, immutability."""
+
+    def test_all_predefined_names_round_trip(self) -> None:
+        for ep in EP_CATALOG.all_eps():
+            names = EP_CATALOG.dll_names_for(ep)
+            assert EP_CATALOG.dll_name_for(ep) == (names[0] if names else None)
+            for name in names:
+                assert EP_CATALOG.ep_for_dll(name) == ep
+                assert EP_CATALOG.ep_for_dll(name.upper()) == ep
+        assert EP_CATALOG.dll_names_for("UnknownExecutionProvider") == ()
+
+    def test_vitisai_framework_dll_is_recognized(self) -> None:
+        assert EP_CATALOG.ep_for_dll("onnxruntime_vitisai_ep.dll") == "VitisAIExecutionProvider"
+        assert EP_CATALOG.dll_name_for("VitisAIExecutionProvider") == (
+            "onnxruntime_providers_vitisai.dll"
+        )
 
     def test_ep_catalog_dll_name_for_known_ep(self) -> None:
         """EP_CATALOG.dll_name_for returns the DLL filename for known plugin EPs."""

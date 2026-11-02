@@ -305,6 +305,56 @@ class TestMSIXPackageSourceResolve:
 class TestListMsixEps:
     """``list_msix_eps`` returns one fully-pinned MSIXPackageSource per match."""
 
+    @pytest.mark.parametrize(
+        ("ep", "filename"),
+        [(ep, dll) for ep in _ep.EP_CATALOG.all_eps() for dll in _ep.EP_CATALOG.dll_names_for(ep)],
+    )
+    @pytest.mark.parametrize("nested", [False, True])
+    @pytest.mark.parametrize("uppercase", [False, True])
+    def test_framework_package_discovers_all_predefined_filenames(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        ep: str,
+        filename: str,
+        nested: bool,
+        uppercase: bool,
+    ) -> None:
+        family = "Microsoft.WinML.Test.EP.Framework.2_8wekyb3d8bbwe"
+        ep_dir = tmp_path / "ExecutionProvider"
+        ep_dir.mkdir()
+        (ep_dir / "dependency.dll").touch()
+        dll_dir = tmp_path / "native" / "nested" if nested else ep_dir
+        dll_dir.mkdir(parents=True, exist_ok=True)
+        dll = dll_dir / (filename.upper() if uppercase else filename)
+        dll.touch()
+        pkg = _FakePackage(family, (2, 0, 0, 0), tmp_path)
+        monkeypatch.setattr(_ep, "_get_pkg_manager", lambda: _FakeManager([pkg]))
+
+        sources = _list_msix_eps()
+
+        assert len(sources) == 1
+        entries = list(sources[0].resolve())
+        assert [(entry.ep_name, entry.dll_path) for entry in entries] == [(ep, dll.resolve())]
+
+    def test_multiple_filenames_use_catalog_order(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        ep = "VitisAIExecutionProvider"
+        names = _ep.EP_CATALOG.dll_names_for(ep)
+        family = "Microsoft.WinML.AMD.NPU.EP.Framework.2_8wekyb3d8bbwe"
+        ep_dir = tmp_path / "ExecutionProvider"
+        ep_dir.mkdir()
+        for filename in reversed(names):
+            (ep_dir / filename).touch()
+        pkg = _FakePackage(family, (2, 0, 0, 0), tmp_path)
+        monkeypatch.setattr(_ep, "_get_pkg_manager", lambda: _FakeManager([pkg]))
+
+        sources = _list_msix_eps()
+
+        assert len(sources) == 1
+        assert next(sources[0].resolve()).dll_path == (ep_dir / names[0]).resolve()
+
     def test_returns_one_per_family_version(
         self,
         reset_pkg_manager_cache: None,

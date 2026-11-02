@@ -64,6 +64,32 @@ winml analyze --model model.onnx --ep all
 
 The `--ep` flag accepts a free-form string and is not restricted to the choices listed above. This allows forward compatibility with EP names that winml-cli does not yet enumerate.
 
+## Predefined EP DLL filenames
+
+An EP can define multiple DLL filenames in preference order. Directory and MSIX
+discovery recognize all of them, using case-insensitive filename matching on
+Windows. VitisAI supports:
+
+- `onnxruntime_providers_vitisai.dll`
+- `onnxruntime_vitisai_ep.dll`
+
+For a custom installation, point `WINMLCLI_EP_PATH` at the directory containing
+one of these files:
+
+```powershell
+$env:WINMLCLI_EP_PATH = "C:\custom-ep\ExecutionProvider"
+winml sys --list-ep
+winml perf -m "C:\models\model.onnx" --ep vitisai@directory --device npu
+```
+
+Directory entries in `WINMLCLI_EP_PATH` retain left-to-right precedence. Within
+a directory, the predefined filename order determines precedence when multiple
+files provide the same EP. MSIX discovery also recognizes framework packages
+under the `Microsoft.WinML.` package-family prefix and prefers the first defined
+filename within a package's `ExecutionProvider` directory, falling back to other
+package directories when needed. This does not infer EP identities from arbitrary
+filenames or change DLL compatibility requirements.
+
 ## See also
 
 - [Graphs and IR](graphs-and-ir.md) — ONNX graph format, operator sets, and the IR that EPs consume
