@@ -78,7 +78,10 @@ winml perf -m "C:\models\model.onnx" --ep qnn@directory --device npu
 Directories are scanned for known EP DLL filenames. A file entry selects only
 that DLL, not other EPs in its folder, and its filename must match the EP catalog
 (case-insensitive), such as `onnxruntime_providers_qnn.dll` or
-`onnxruntime_providers_openvino_plugin.dll`. Renamed DLLs and entirely new EP names
+`onnxruntime_providers_openvino_plugin.dll`. VitisAI supports both
+`onnxruntime_providers_vitisai.dll` and the Windows ML framework filename
+`onnxruntime_vitisai_ep.dll`, for file entries and directory scans.
+Renamed DLLs and entirely new EP names
 are not inferred. Missing paths and unrecognized files produce warnings and are
 skipped; other valid entries are still discovered.
 
@@ -91,6 +94,11 @@ through its directory does not create duplicate entries. Both forms use the
 Keep the plugin's dependencies available as required by its distribution. The
 DLL must be compatible with the installed ONNX Runtime and process architecture;
 discovery by filename does not guarantee that it can be loaded.
+
+Default discovery only inspects already-ready Windows ML Catalog providers; it
+does not prepare or download non-ready providers. A source-pinned request such
+as `--ep vitisai@directory` does not acquire a Catalog package if the requested
+directory source is missing.
 
 ## See also
 

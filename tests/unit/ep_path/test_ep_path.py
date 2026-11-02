@@ -619,14 +619,18 @@ class TestWinmlEpPathOverride:
         )
 
     @pytest.mark.parametrize(
-        "ep", [ep for ep in EP_CATALOG.all_eps() if EP_CATALOG.dll_name_for(ep)]
+        ("ep", "filename"),
+        [(ep, dll) for ep in EP_CATALOG.all_eps() for dll in EP_CATALOG.dll_names_for(ep)],
     )
     @pytest.mark.parametrize("uppercase", [False, True])
     def test_file_selects_only_named_ep(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ep: str, uppercase: bool
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        ep: str,
+        filename: str,
+        uppercase: bool,
     ) -> None:
-        filename = EP_CATALOG.dll_name_for(ep)
-        assert filename is not None
         dll = _touch(tmp_path / "custom EP" / (filename.upper() if uppercase else filename))
         for other_ep in EP_CATALOG.all_eps():
             other_filename = EP_CATALOG.dll_name_for(other_ep)
@@ -642,6 +646,22 @@ class TestWinmlEpPathOverride:
         assert source.root == dll.parent
         assert source.dll_patterns == {ep: dll.name}
         entries = list(source.resolve())
+        assert [(entry.ep_name, entry.dll_path) for entry in entries] == [(ep, dll.resolve())]
+
+    @pytest.mark.parametrize(
+        ("ep", "filename"),
+        [(ep, dll) for ep in EP_CATALOG.all_eps() for dll in EP_CATALOG.dll_names_for(ep)],
+    )
+    def test_directory_discovers_catalogued_filenames(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ep: str, filename: str
+    ) -> None:
+        dll = _touch(tmp_path / filename)
+        monkeypatch.setenv("WINMLCLI_EP_PATH", str(tmp_path))
+
+        entries = [
+            entry for source in _parse_winmlcli_ep_path() for entry in source.resolve()
+        ]
+
         assert [(entry.ep_name, entry.dll_path) for entry in entries] == [(ep, dll.resolve())]
 
     @pytest.mark.parametrize("file_first", [False, True])
@@ -904,6 +924,22 @@ class TestNuGetSource:
 
 class TestEPCatalog:
     """EPCatalog: forward/inverse lookups, bundled-EP handling, immutability."""
+
+    def test_filename_aliases_round_trip(self) -> None:
+        for ep in EP_CATALOG.all_eps():
+            filenames = EP_CATALOG.dll_names_for(ep)
+            if filenames:
+                assert filenames[0] == EP_CATALOG.dll_name_for(ep)
+            else:
+                assert EP_CATALOG.dll_name_for(ep) is None
+            for filename in filenames:
+                assert EP_CATALOG.ep_for_dll(filename) == ep
+                assert EP_CATALOG.ep_for_dll(filename.upper()) == ep
+        assert EP_CATALOG.dll_names_for("UnknownExecutionProvider") == ()
+
+    def test_vitisai_framework_filename_is_recognized(self) -> None:
+        assert EP_CATALOG.ep_for_dll("onnxruntime_vitisai_ep.dll") == "VitisAIExecutionProvider"
+        assert "onnxruntime_vitisai_ep.dll" in EP_CATALOG.dll_names_for("VitisAIExecutionProvider")
 
     def test_ep_catalog_dll_name_for_known_ep(self) -> None:
         """EP_CATALOG.dll_name_for returns the DLL filename for known plugin EPs."""
