@@ -399,6 +399,33 @@ iterations** when `--iterations` is omitted, reducing timing variability.
 the default tracing run performs 20 inferences in total. Explicit `--iterations`
 and `--warmup` values are honored.
 
+### AMD NPU operator tracing
+
+```bash
+$ winml perf -m model.onnx --device npu --ep vitisai --op-tracing basic
+```
+
+AMD NPU operator profiling requires **VitisAI EP 2.1000.81 or newer**.
+The monitor enables ONNX Runtime profiling and reads the JSON after session
+teardown. The raw trace is retained at
+`hw_monitor.ep_proof.artifacts.profile`. A missing trace or a trace containing
+only fused EP nodes reports `no_data` with minimum-version guidance rather than
+presenting fused-node time as operator time. `detail` tracing is not supported.
+
+Kernel events are associated with their enclosing VitisAI node spans. ORT
+`model_run` spans identify inference boundaries, including repeated partition
+invocations. When those spans are absent, each partition must have one invocation
+per completed inference; ambiguous counts are rejected. Warmup runs are excluded,
+and repeated kernels resolving to the same operator are summed per measured run.
+
+The EP's `subgraph_(node)_fix` and `subgraph_(output_vaip_N)` wrappers are
+resolved using the source ONNX graph, including the two-number `_vaip_N_N`
+suffix. Operator types use the EP's `op_type` when present, then the exact ONNX
+type, or `Unknown`; `onnx_op_type` is included only for matched nodes.
+Percentages reflect traced kernel time, not wall-clock latency or CPU fallback.
+Without `--op-tracing`, AMD's existing xrt-smi proof-of-execution monitoring
+is unchanged; operator tracing itself does not require xrt-smi.
+
 ### TensorRT RTX operator tracing
 
 ```bash

@@ -973,6 +973,59 @@ class TestPerfONNXDirect(_PerfBenchmarkSuite):
             assert sum(operator["samples_us"]) == pytest.approx(expected)
             assert len(operator["samples_us"]) == measured
 
+    def test_op_tracing_basic_vitisai_npu(self, tmp_path: Path, npu_model_arg: str):
+        """Compare AMD operator totals with the real measured kernel events."""
+        require_ep("vitisai", device="npu")
+        output_file = tmp_path / "perf_op_tracing_vitisai_npu.json"
+        result = CliRunner().invoke(
+            perf,
+            _build_perf_args(
+                model_arg=npu_model_arg,
+                output_file=output_file,
+                device="npu",
+                ep="vitisai",
+                op_tracing="basic",
+                memory=False,
+            ),
+            obj={},
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"perf failed (exit {result.exit_code}):\n{result.output}"
+        output = json.loads(output_file.read_text(encoding="utf-8"))
+        trace = output["hw_monitor"]["ep_proof"]
+        assert trace["status"] == "ok", trace["error"]
+        assert trace["metadata"]["ep"] == "vitisai"
+        measured = output["benchmark_info"]["iterations"]
+        warmup = output["benchmark_info"]["warmup"]
+        assert trace["metadata"]["num_samples"] == measured
+        assert trace["operators"]
+        payload = json.loads(Path(trace["artifacts"]["profile"]).read_text(encoding="utf-8"))
+        events = payload["traceEvents"] if isinstance(payload, dict) else payload
+        runs = sorted(
+            (event for event in events if event.get("name") == "model_run"),
+            key=lambda event: event["ts"],
+        )[warmup : warmup + measured]
+        parents = [
+            event
+            for event in events
+            if event.get("cat") == "Node"
+            and event.get("name", "").startswith("VitisAIExecutionProvider_")
+            and event.get("name", "").endswith("_kernel_time")
+            and any(run["ts"] <= event["ts"] < run["ts"] + run["dur"] for run in runs)
+        ]
+        expected = sum(
+            event["dur"]
+            for event in events
+            if event.get("cat") == "Kernel"
+            and any(
+                parent["ts"] <= event["ts"] <= parent["ts"] + parent["dur"]
+                for parent in parents
+            )
+        )
+        assert expected > 0
+        assert trace["summary"]["accel_execute_us"] == pytest.approx(expected)
+        assert sum(sum(op["samples_us"]) for op in trace["operators"]) == pytest.approx(expected)
+
     def test_op_tracing_basic_qnn_npu(self, tmp_path: Path, npu_model_arg: str):
         """--op-tracing basic produces a QNN NPU operator trace."""
         require_ep("qnn")
