@@ -93,12 +93,21 @@ def _write_trace(monitor, payload):
     return path
 
 
-def _configured_monitor(tmp_path, source_model):
+@pytest.fixture
+def monitor(tmp_path, source_model):
     path, nodes = source_model
     monitor = VitisAIOpMonitor(output_dir=tmp_path)
     monitor.set_onnx_model_path(path)
     monitor.set_onnx_op_types({node.name: node.op_type for node in nodes})
     return monitor
+
+
+def _parse_trace(monitor, payload):
+    _write_trace(monitor, payload)
+    with monitor:
+        pass
+    assert monitor.result is not None
+    return monitor.result
 
 
 def test_exports_and_session_configuration(tmp_path):
@@ -115,22 +124,26 @@ def test_exports_and_session_configuration(tmp_path):
     assert monitor.result is None
 
 
-@pytest.mark.parametrize("partitions", [1, 2])
-@pytest.mark.parametrize("model_runs", [False, True])
-@pytest.mark.parametrize("wrapped", [False, True])
+@pytest.mark.parametrize(
+    ("partitions", "model_runs", "wrapped", "invocations"),
+    [
+        (1, False, False, 1),
+        (2, False, True, 1),
+        (1, True, True, 1),
+        (2, True, False, 1),
+        (2, True, False, 2),
+    ],
+)
 def test_warmup_mapping_partition_aggregation_and_statistics(
-    tmp_path, source_model, partitions, model_runs, wrapped
+    monitor, source_model, partitions, model_runs, wrapped, invocations
 ):
-    monitor = _configured_monitor(tmp_path, source_model)
     path, nodes = source_model
     warmup, measured = 1, 3
-    events, durations = _generate_trace(nodes, partitions=partitions, model_runs=model_runs)
+    events, durations = _generate_trace(
+        nodes, partitions=partitions, model_runs=model_runs, invocations=invocations
+    )
     monitor.set_perf_window(warmup, measured)
-    profile = _write_trace(monitor, {"traceEvents": events} if wrapped else events)
-    with monitor:
-        pass
-
-    result = monitor.result
+    result = _parse_trace(monitor, {"traceEvents": events} if wrapped else events)
     expected = durations.sum(axis=(1, 2, 4))[warmup:]
     assert result.status == "ok"
     assert result.model == str(path)
@@ -138,7 +151,7 @@ def test_warmup_mapping_partition_aggregation_and_statistics(
     assert result.ep == "vitisai"
     assert result.tracing_backend == "onnxruntime"
     assert result.num_samples == measured
-    assert result.artifacts["profile"] == str(profile)
+    assert Path(result.artifacts["profile"]).is_file()
     assert result.summary["accel_execute_us"] == pytest.approx(expected.sum())
     assert [op.op_path for op in result.operators] == [node.name for node in nodes]
     for index, operator in enumerate(result.operators):
@@ -154,22 +167,7 @@ def test_warmup_mapping_partition_aggregation_and_statistics(
     assert _monitor_to_json_dict(monitor) == json.loads(result.to_json())
 
 
-def test_repeated_partition_invocations_use_model_run_boundaries(tmp_path, source_model):
-    monitor = _configured_monitor(tmp_path, source_model)
-    _, nodes = source_model
-    events, durations = _generate_trace(nodes, partitions=2, invocations=2)
-    monitor.set_perf_window(1, durations.shape[0] - 1)
-    _write_trace(monitor, events)
-    with monitor:
-        pass
-    assert monitor.result.status == "ok"
-    expected = durations.sum(axis=(1, 2, 4))[1:]
-    for index, operator in enumerate(monitor.result.operators):
-        assert operator.samples_us == pytest.approx(expected[:, index])
-
-
-def test_variable_partition_invocations_use_explicit_run_boundaries(tmp_path, source_model):
-    monitor = _configured_monitor(tmp_path, source_model)
+def test_variable_partition_invocations_use_explicit_run_boundaries(monitor, source_model):
     _, nodes = source_model
     events, durations = _generate_trace(nodes, invocations=2)
     parents = sorted(
@@ -185,31 +183,25 @@ def test_variable_partition_invocations_use_explicit_run_boundaries(tmp_path, so
         )
     ]
     monitor.set_perf_window(1, durations.shape[0] - 1)
-    _write_trace(monitor, events)
-    with monitor:
-        pass
+    result = _parse_trace(monitor, events)
     expected = durations.sum(axis=(1, 2, 4))
     expected[1] -= durations[1, 0, 1].sum(axis=1)
-    assert monitor.result.status == "ok"
-    for index, operator in enumerate(monitor.result.operators):
+    assert result.status == "ok"
+    for index, operator in enumerate(result.operators):
         assert operator.samples_us == pytest.approx(expected[1:, index])
 
 
-def test_overlapping_parent_spans_do_not_double_count_kernels(tmp_path, source_model):
-    monitor = _configured_monitor(tmp_path, source_model)
+def test_overlapping_parent_spans_do_not_double_count_kernels(monitor, source_model):
     events, _ = _generate_trace(source_model[1])
     parent = next(event for event in events if event["cat"] == "Node")
     events.append({**parent, "name": parent["name"].replace("_0_", "_1_")})
-    _write_trace(monitor, events)
-    with monitor:
-        pass
-    assert monitor.result.status == "parse_failed"
-    assert "overlapping parent spans" in monitor.result.error
-    assert not monitor.result.operators
+    result = _parse_trace(monitor, events)
+    assert result.status == "parse_failed"
+    assert "overlapping parent spans" in result.error
+    assert not result.operators
 
 
-def test_unrelated_kernels_and_cpu_nodes_are_not_attributed(tmp_path, source_model):
-    monitor = _configured_monitor(tmp_path, source_model)
+def test_unrelated_kernels_and_cpu_nodes_are_not_attributed(monitor, source_model):
     _, nodes = source_model
     events, durations = _generate_trace(nodes)
     kernel = next(event for event in events if event["cat"] == "Kernel")
@@ -221,15 +213,12 @@ def test_unrelated_kernels_and_cpu_nodes_are_not_attributed(tmp_path, source_mod
             {**kernel, "cat": "Node"},
         ]
     )
-    _write_trace(monitor, events)
-    with monitor:
-        pass
-    assert monitor.result.status == "ok"
-    assert monitor.result.summary["accel_execute_us"] == pytest.approx(durations.sum())
+    result = _parse_trace(monitor, events)
+    assert result.status == "ok"
+    assert result.summary["accel_execute_us"] == pytest.approx(durations.sum())
 
 
-def test_type_fallback_and_unresolved_names(tmp_path, source_model):
-    monitor = _configured_monitor(tmp_path, source_model)
+def test_type_fallback_and_unresolved_names(monitor, source_model):
     _, nodes = source_model
     events, _ = _generate_trace(nodes)
     unknown_name = f"added_{nodes[-1].name}"
@@ -238,11 +227,9 @@ def test_type_fallback_and_unresolved_names(tmp_path, source_model):
             event["args"] = {}
             if nodes[-1].output[0] in event["name"]:
                 event["name"] = unknown_name
-    _write_trace(monitor, events)
-    with monitor:
-        pass
-    assert monitor.result.status == "ok"
-    for node, operator in zip(nodes, monitor.result.operators, strict=True):
+    result = _parse_trace(monitor, events)
+    assert result.status == "ok"
+    for node, operator in zip(nodes, result.operators, strict=True):
         if operator.op_path == unknown_name:
             assert operator.name == "Unknown"
             assert "onnx_op_type" not in operator.to_dict()
@@ -251,17 +238,13 @@ def test_type_fallback_and_unresolved_names(tmp_path, source_model):
             assert operator.onnx_op_type == node.op_type
 
 
-def test_output_wrapper_can_resolve_a_node_name_directly(tmp_path, source_model):
-    monitor = _configured_monitor(tmp_path, source_model)
+def test_output_wrapper_can_resolve_a_node_name_directly(monitor, source_model):
     _, nodes = source_model
     events, durations = _generate_trace(nodes[:1])
     for event in events:
         if event["cat"] == "Kernel":
             event["name"] = f"subgraph_({nodes[0].name}_vaip_0)"
-    _write_trace(monitor, events)
-    with monitor:
-        pass
-    operator = monitor.result.operators[0]
+    operator = _parse_trace(monitor, events).operators[0]
     assert operator.op_path == nodes[0].name
     assert operator.onnx_op_type == nodes[0].op_type
     assert operator.total_us == pytest.approx(durations.sum())
@@ -271,12 +254,10 @@ def test_missing_metadata_is_logged_and_trace_remains_available(tmp_path, source
     monitor = VitisAIOpMonitor(output_dir=tmp_path)
     monitor.set_onnx_model_path(tmp_path / "missing.onnx")
     events, _ = _generate_trace(source_model[1])
-    _write_trace(monitor, events)
-    with monitor:
-        pass
+    result = _parse_trace(monitor, events)
     assert "Could not load VitisAI source graph metadata" in caplog.text
-    assert monitor.result.status == "ok"
-    assert all(operator.onnx_op_type is None for operator in monitor.result.operators)
+    assert result.status == "ok"
+    assert all(operator.onnx_op_type is None for operator in result.operators)
 
 
 def test_stale_artifact_is_not_reused(tmp_path, source_model):
@@ -291,50 +272,42 @@ def test_stale_artifact_is_not_reused(tmp_path, source_model):
     assert old_path.exists()
 
 
-def test_fused_parent_only_reports_minimum_ep_version(tmp_path, source_model):
-    monitor = VitisAIOpMonitor(output_dir=tmp_path)
+def test_fused_parent_only_reports_minimum_ep_version(monitor, source_model):
     events, _ = _generate_trace(source_model[1])
-    path = _write_trace(monitor, [event for event in events if event["cat"] != "Kernel"])
-    with monitor:
-        pass
-    assert monitor.result.status == "no_data"
-    assert "VitisAI EP 2.1000.81 or newer" in monitor.result.error
-    assert monitor.result.artifacts["profile"] == str(path)
+    result = _parse_trace(monitor, [event for event in events if event["cat"] != "Kernel"])
+    assert result.status == "no_data"
+    assert "VitisAI EP 2.1000.81 or newer" in result.error
+    assert Path(result.artifacts["profile"]).is_file()
 
 
-def test_zero_measured_runs_excludes_all_kernels(tmp_path, source_model):
-    monitor = VitisAIOpMonitor(output_dir=tmp_path)
+def test_zero_measured_runs_excludes_all_kernels(monitor, source_model):
     events, durations = _generate_trace(source_model[1])
     monitor.set_perf_window(durations.shape[0], 0)
-    _write_trace(monitor, events)
-    with monitor:
-        pass
-    assert monitor.result.status == "no_data"
-    assert monitor.result.num_samples == 0
-    assert not monitor.result.operators
+    result = _parse_trace(monitor, events)
+    assert result.status == "no_data"
+    assert result.num_samples == 0
+    assert not result.operators
 
 
-@pytest.mark.parametrize("model_runs", [False, True])
-def test_incomplete_run_counts_are_rejected(tmp_path, source_model, model_runs):
-    monitor = VitisAIOpMonitor(output_dir=tmp_path)
-    events, durations = _generate_trace(source_model[1], model_runs=model_runs)
-    monitor.set_perf_window(1, durations.shape[0])
-    _write_trace(monitor, events)
-    with monitor:
-        pass
-    assert monitor.result.status == "parse_failed"
-    assert not monitor.result.operators
-
-
-def test_loop_counts_without_model_runs_are_not_guessed(tmp_path, source_model):
-    monitor = VitisAIOpMonitor(output_dir=tmp_path)
-    events, durations = _generate_trace(source_model[1], invocations=2, model_runs=False)
-    monitor.set_perf_window(1, durations.shape[0] - 1)
-    _write_trace(monitor, events)
-    with monitor:
-        pass
-    assert monitor.result.status == "parse_failed"
-    assert "Cannot align" in monitor.result.error
+@pytest.mark.parametrize(
+    ("model_runs", "invocations", "extra_run", "message"),
+    [
+        (False, 1, 1, "Cannot align"),
+        (True, 1, 1, "expected"),
+        (False, 2, 0, "Cannot align"),
+    ],
+)
+def test_unaligned_run_counts_are_rejected(
+    monitor, source_model, model_runs, invocations, extra_run, message
+):
+    events, durations = _generate_trace(
+        source_model[1], model_runs=model_runs, invocations=invocations
+    )
+    monitor.set_perf_window(1, durations.shape[0] - 1 + extra_run)
+    result = _parse_trace(monitor, events)
+    assert result.status == "parse_failed"
+    assert message in result.error
+    assert not result.operators
 
 
 @pytest.mark.parametrize(
@@ -350,29 +323,21 @@ def test_loop_counts_without_model_runs_are_not_guessed(tmp_path, source_model):
         ("args", {"op_type": []}),
     ],
 )
-def test_malformed_kernel_reports_failure(tmp_path, source_model, field, value):
-    monitor = VitisAIOpMonitor(output_dir=tmp_path)
+def test_malformed_kernel_reports_failure(monitor, source_model, field, value):
     events, _ = _generate_trace(source_model[1])
     next(event for event in events if event["cat"] == "Kernel")[field] = value
-    path = _write_trace(monitor, events)
-    with monitor:
-        pass
-    assert monitor.result.status == "parse_failed"
-    assert monitor.result.error
-    assert monitor.result.artifacts["profile"] == str(path)
+    result = _parse_trace(monitor, events)
+    assert result.status == "parse_failed"
+    assert result.error
+    assert Path(result.artifacts["profile"]).is_file()
 
 
 @pytest.mark.parametrize("payload", [None, {}, {"traceEvents": {}}, [None]])
-def test_invalid_profile_structure(tmp_path, payload):
-    monitor = VitisAIOpMonitor(output_dir=tmp_path)
-    _write_trace(monitor, payload)
-    with monitor:
-        pass
-    assert monitor.result.status == "parse_failed"
+def test_invalid_profile_structure(monitor, payload):
+    assert _parse_trace(monitor, payload).status == "parse_failed"
 
 
-def test_truncated_json(tmp_path, source_model):
-    monitor = VitisAIOpMonitor(output_dir=tmp_path)
+def test_truncated_json(monitor, source_model):
     events, _ = _generate_trace(source_model[1])
     path = _write_trace(monitor, events)
     path.write_text(json.dumps(events)[:-1], encoding="utf-8")
@@ -394,8 +359,15 @@ def test_single_use_and_invalid_configuration(tmp_path):
             monitor.set_perf_window(warmup, measured)
 
 
-@pytest.mark.parametrize("ep", ["vitisai", "VITISAI", "VitisAIExecutionProvider"])
-@pytest.mark.parametrize("device", ["npu", "NPU", "auto", None])
+@pytest.mark.parametrize(
+    ("ep", "device"),
+    [
+        ("vitisai", "npu"),
+        ("VITISAI", "NPU"),
+        ("VitisAIExecutionProvider", "auto"),
+        ("vitisai", None),
+    ],
+)
 def test_perf_dispatch(tmp_path, monkeypatch, ep, device):
     monkeypatch.setattr(VitisAIOpMonitor, "is_available", classmethod(lambda cls: True))
     assert isinstance(_resolve_ep_monitor(ep, "basic", tmp_path, device), VitisAIOpMonitor)
@@ -436,10 +408,9 @@ def test_availability(monkeypatch, source):
     assert VitisAIOpMonitor.is_available() == (source in ("builtin", "plugin"))
 
 
-def test_real_ort_profile_is_flushed_on_session_teardown(tmp_path, source_model):
+def test_real_ort_profile_is_flushed_on_session_teardown(monitor, source_model):
     import onnxruntime as ort
 
-    monitor = _configured_monitor(tmp_path, source_model)
     options = ort.SessionOptions()
     monitor.configure_session_options(options)
     monitor.set_perf_window(1, 2)

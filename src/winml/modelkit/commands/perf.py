@@ -240,6 +240,21 @@ def _resolve_ep_monitor(
     device_norm = (device or "").lower()
 
     if op_tracing:
+        if ep_norm == "vitisai":
+            from ..session.monitor import VitisAIOpMonitor
+
+            if op_tracing != "basic":
+                raise RuntimeError("VitisAI op-tracing currently supports only level 'basic'.")
+            if device_norm not in ("npu", "auto", ""):
+                raise RuntimeError("VitisAI op-tracing requires --device npu.")
+            if not VitisAIOpMonitor.is_available():
+                raise RuntimeError(
+                    "Op-tracing --ep vitisai requested but VitisAI is not available "
+                    "on this system. Install it through Windows ML EP Catalog "
+                    "or a compatible BYO plugin."
+                )
+            return VitisAIOpMonitor(output_dir=output_dir)
+
         if ep_norm == "nvtensorrtrtx":
             from ..session.monitor import NvTensorRTRTXMonitor
 
@@ -281,7 +296,7 @@ def _resolve_ep_monitor(
         ):
             raise RuntimeError(
                 f"Op-tracing not available for EP {ep!r} on device {device!r}. "
-                "Supported EPs: qnn, openvino (basic on cpu/npu), "
+                "Supported EPs: qnn, vitisai (basic on npu), openvino (basic on cpu/npu), "
                 "nv_tensorrt_rtx (basic on gpu)."
             )
 
@@ -313,7 +328,7 @@ def _resolve_ep_monitor(
 
         raise RuntimeError(
             f"Op-tracing not available for EP {ep!r} on device {device!r}. "
-            "Supported EPs: qnn, openvino (basic on cpu/npu), "
+            "Supported EPs: qnn, vitisai (basic on npu), openvino (basic on cpu/npu), "
             "nv_tensorrt_rtx (basic on gpu)."
         )
 
