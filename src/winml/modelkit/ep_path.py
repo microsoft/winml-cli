@@ -1672,12 +1672,13 @@ def _parse_winmlcli_ep_path() -> list[EPSource]:
 
     The env var is a path-list using OS-conventional separators (``;`` on
     Windows, ``:`` elsewhere — same semantics as the shell ``PATH``).
-    Each entry is treated as a directory; we scan it for every plugin DLL
-    filename in :data:`EP_CATALOG` so the user does not have to specify
-    which EP the directory provides.
+    Each entry can be a directory or a plugin DLL file. Directories are
+    scanned for every plugin DLL filename in :data:`EP_CATALOG`; files
+    select only the EP matching their catalogued filename (case-insensitive).
+    Both forms produce ``DirectorySource`` entries, in path-list order.
 
     Returns an empty list when ``WINMLCLI_EP_PATH`` is unset or empty.
-    Non-existent entries log a WARN and are skipped (matches the
+    Invalid paths and unrecognized files log a WARN and are skipped (matches the
     ``DirectorySource`` "configured-but-nonexistent root" pattern).
     """
     raw = os.environ.get("WINMLCLI_EP_PATH")
@@ -1690,8 +1691,20 @@ def _parse_winmlcli_ep_path() -> list[EPSource]:
     sources: list[EPSource] = []
     for entry in entries:
         p = Path(entry)
+        if p.is_file():
+            ep = EP_CATALOG.ep_for_dll(p.name.lower())
+            if ep is None:
+                logger.warning(
+                    "WINMLCLI_EP_PATH entry %r is not a recognized EP DLL; skipping", entry
+                )
+                continue
+            logger.debug("WINMLCLI_EP_PATH override: using %s for %s", entry, ep)
+            sources.append(DirectorySource(root=p.parent, dll_patterns={ep: p.name}))
+            continue
         if not p.is_dir():
-            logger.warning("WINMLCLI_EP_PATH entry %r is not a directory; skipping", entry)
+            logger.warning(
+                "WINMLCLI_EP_PATH entry %r is not a directory or file; skipping", entry
+            )
             continue
         logger.debug("WINMLCLI_EP_PATH override: scanning %s", entry)
         for ep in EP_CATALOG.all_eps():
@@ -1725,7 +1738,7 @@ def discover_all_eps(
     Precedence (highest first):
 
     1. ``extra_sources`` (programmatic override; useful for tests)
-    2. ``WINMLCLI_EP_PATH`` env-var entries (parsed into FilesystemSources)
+    2. ``WINMLCLI_EP_PATH`` directory or DLL entries (parsed into DirectorySources)
     3. The default EP source list (``_default_ep_sources()``)
     4. ``extra_sources_after`` (lowest precedence; used by inventory CLI)
     """

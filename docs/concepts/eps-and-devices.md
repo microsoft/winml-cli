@@ -64,6 +64,34 @@ winml analyze --model model.onnx --ep all
 
 The `--ep` flag accepts a free-form string and is not restricted to the choices listed above. This allows forward compatibility with EP names that winml-cli does not yet enumerate.
 
+## Custom EP locations
+
+Set `WINMLCLI_EP_PATH` to discover custom builds of supported EP plugins. It accepts
+both directories and individual DLL files, separated by `;` on Windows:
+
+```powershell
+$env:WINMLCLI_EP_PATH = "C:\custom-ep;D:\qnn\onnxruntime_providers_qnn.dll"
+winml sys --list-ep
+winml perf -m "C:\models\model.onnx" --ep qnn@directory --device npu
+```
+
+Directories are scanned for known EP DLL filenames. A file entry selects only
+that DLL, not other EPs in its folder, and its filename must match the EP catalog
+(case-insensitive), such as `onnxruntime_providers_qnn.dll` or
+`onnxruntime_providers_openvino_plugin.dll`. Renamed DLLs and entirely new EP names
+are not inferred. Missing paths and unrecognized files produce warnings and are
+skipped; other valid entries are still discovered.
+
+Entries are considered left to right: the first match for an EP takes precedence
+over later entries and default discovery. Listing the same DLL as both a file and
+through its directory does not create duplicate entries. Both forms use the
+`directory` source tag, so commands supporting source pinning can use
+`--ep qnn@directory`; `build` and `config` currently require plain `--ep qnn`.
+
+Keep the plugin's dependencies available as required by its distribution. The
+DLL must be compatible with the installed ONNX Runtime and process architecture;
+discovery by filename does not guarantee that it can be loaded.
+
 ## See also
 
 - [Graphs and IR](graphs-and-ir.md) — ONNX graph format, operator sets, and the IR that EPs consume

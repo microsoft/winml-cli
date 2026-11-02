@@ -604,7 +604,7 @@ class TestWinmlEpPathOverride:
     def test_winmlcli_ep_path_warns_on_nonexistent_directory(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """WINMLCLI_EP_PATH entries pointing at non-directories must log a WARN and skip."""
+        """Missing WINMLCLI_EP_PATH entries must log a WARN and skip."""
         import logging
 
         from winml.modelkit.ep_path import _parse_winmlcli_ep_path
@@ -614,8 +614,112 @@ class TestWinmlEpPathOverride:
             sources = _parse_winmlcli_ep_path()
 
         assert sources == [], f"Expected empty list (nonexistent dir), got {sources}"
-        assert any("not a directory" in record.message for record in caplog.records), (
-            f"Expected WARN about non-directory; got: {[r.message for r in caplog.records]}"
+        assert any("not a directory or file" in record.message for record in caplog.records), (
+            f"Expected WARN about missing path; got: {[r.message for r in caplog.records]}"
+        )
+
+    @pytest.mark.parametrize(
+        "ep", [ep for ep in EP_CATALOG.all_eps() if EP_CATALOG.dll_name_for(ep)]
+    )
+    @pytest.mark.parametrize("uppercase", [False, True])
+    def test_file_selects_only_named_ep(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ep: str, uppercase: bool
+    ) -> None:
+        filename = EP_CATALOG.dll_name_for(ep)
+        assert filename is not None
+        dll = _touch(tmp_path / "custom EP" / (filename.upper() if uppercase else filename))
+        for other_ep in EP_CATALOG.all_eps():
+            other_filename = EP_CATALOG.dll_name_for(other_ep)
+            if other_filename and other_ep != ep:
+                _touch(dll.parent / other_filename)
+        monkeypatch.setenv("WINMLCLI_EP_PATH", str(dll))
+
+        sources = _parse_winmlcli_ep_path()
+
+        assert len(sources) == 1
+        source = sources[0]
+        assert isinstance(source, DirectorySource)
+        assert source.root == dll.parent
+        assert source.dll_patterns == {ep: dll.name}
+        entries = list(source.resolve())
+        assert [(entry.ep_name, entry.dll_path) for entry in entries] == [(ep, dll.resolve())]
+
+    @pytest.mark.parametrize("file_first", [False, True])
+    def test_mixed_entries_preserve_precedence(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, file_first: bool
+    ) -> None:
+        import os
+
+        from winml.modelkit import ep_path as mod
+
+        ep = next(ep for ep in EP_CATALOG.all_eps() if EP_CATALOG.dll_name_for(ep))
+        filename = EP_CATALOG.dll_name_for(ep)
+        assert filename is not None
+        folder_dll = _touch(tmp_path / "folder" / filename)
+        file_dll = _touch(tmp_path / "file" / filename)
+        default_dll = _touch(tmp_path / "default" / filename)
+        default_source = DirectorySource(
+            root=default_dll.parent, dll_patterns={ep: default_dll.name}
+        )
+        monkeypatch.setattr(mod, "_default_ep_sources", lambda: [default_source])
+        paths = [file_dll, folder_dll.parent] if file_first else [folder_dll.parent, file_dll]
+        monkeypatch.setenv("WINMLCLI_EP_PATH", os.pathsep.join(map(str, paths)))
+
+        entries = discover_all_eps()
+
+        expected = [file_dll, folder_dll] if file_first else [folder_dll, file_dll]
+        assert [entry.dll_path for entry in entries] == [
+            path.resolve() for path in [*expected, default_dll]
+        ]
+        assert [entry.status for entry in entries] == ["primary", "shadowed", "shadowed"]
+
+    def test_file_and_parent_directory_are_deduplicated(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import os
+
+        from winml.modelkit import ep_path as mod
+
+        ep = next(ep for ep in EP_CATALOG.all_eps() if EP_CATALOG.dll_name_for(ep))
+        filename = EP_CATALOG.dll_name_for(ep)
+        assert filename is not None
+        dll = _touch(tmp_path / filename)
+        monkeypatch.setattr(mod, "_default_ep_sources", list)
+        monkeypatch.setenv("WINMLCLI_EP_PATH", f"{dll}{os.pathsep}{dll.parent}")
+
+        entries = discover_all_eps()
+
+        assert [(entry.ep_name, entry.dll_path, entry.status) for entry in entries] == [
+            (ep, dll.resolve(), "primary")
+        ]
+
+    @pytest.mark.parametrize("filename", ["unknown.dll", "notes.txt"])
+    def test_unrecognized_file_warns_and_continues(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+        filename: str,
+    ) -> None:
+        import logging
+        import os
+
+        unknown = _touch(tmp_path / filename)
+        ep = next(ep for ep in EP_CATALOG.all_eps() if EP_CATALOG.dll_name_for(ep))
+        known_filename = EP_CATALOG.dll_name_for(ep)
+        assert known_filename is not None
+        dll = _touch(tmp_path / known_filename)
+        monkeypatch.setenv("WINMLCLI_EP_PATH", f"{unknown}{os.pathsep}{dll}")
+
+        with caplog.at_level(logging.WARNING, logger="winml.modelkit.ep_path"):
+            sources = _parse_winmlcli_ep_path()
+
+        assert len(sources) == 1
+        assert next(sources[0].resolve()).dll_path == dll.resolve()
+        assert any(
+            repr(str(unknown)) in record.message
+            and "not a recognized EP DLL" in record.message
+            for record in caplog.records
         )
 
     def test_winmlcli_ep_path_accepts_existing_directory(
