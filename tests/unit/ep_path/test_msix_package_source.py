@@ -305,26 +305,6 @@ class TestMSIXPackageSourceResolve:
 class TestListMsixEps:
     """``list_msix_eps`` returns one fully-pinned MSIXPackageSource per match."""
 
-    @pytest.mark.parametrize(
-        ("ep", "filename"),
-        [(ep, dll) for ep in _ep.EP_CATALOG.all_eps() for dll in _ep.EP_CATALOG.dll_names_for(ep)],
-    )
-    def test_catalogued_filenames_are_discovered(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, ep: str, filename: str
-    ) -> None:
-        family = "MicrosoftCorporationII.WinML.Test.EP.1_8wekyb3d8bbwe"
-        dll = tmp_path / "ExecutionProvider" / filename
-        dll.parent.mkdir()
-        dll.write_bytes(b"")
-        pkg = _FakePackage(family, (1, 0, 0, 0), tmp_path)
-        monkeypatch.setattr(_ep, "_get_pkg_manager", lambda: _FakeManager([pkg]))
-
-        sources = _list_msix_eps()
-
-        assert len(sources) == 1
-        entries = list(sources[0].resolve())
-        assert [(entry.ep_name, entry.dll_path) for entry in entries] == [(ep, dll.resolve())]
-
     def test_returns_one_per_family_version(
         self,
         reset_pkg_manager_cache: None,

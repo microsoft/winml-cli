@@ -76,17 +76,24 @@ winml perf -m "C:\models\model.onnx" --ep qnn@directory --device npu
 ```
 
 Directories are scanned for known EP DLL filenames. A file entry selects only
-that DLL, not other EPs in its folder, and its filename must match the EP catalog
-(case-insensitive), such as `onnxruntime_providers_qnn.dll` or
-`onnxruntime_providers_openvino_plugin.dll`. VitisAI supports both
-`onnxruntime_providers_vitisai.dll` and the Windows ML framework filename
-`onnxruntime_vitisai_ep.dll`, for file entries and directory scans.
-Renamed DLLs and entirely new EP names
-are not inferred. Missing paths and unrecognized files produce warnings and are
-skipped; other valid entries are still discovered.
+that DLL, not other EPs in its folder. Known filenames identify the EP
+case-insensitively. For arbitrary DLL filenames, specify the EP explicitly:
 
-Entries are considered left to right: the first match for an EP takes precedence
-over later entries and default discovery. Listing the same DLL as both a file and
+```powershell
+$env:WINMLCLI_EP_PATH = "D:\custom\my_ep.dll;C:\other-ep"
+winml perf -m "C:\models\model.onnx" --ep vitisai@directory --device npu
+```
+
+Unknown-name DLL file entries are tried for the requested EP. Known filenames
+belonging to a different EP are not tried. Folder entries never scan arbitrary
+DLL names. `winml sys --list-ep` ignores unknown filenames because it has no
+requested EP to associate them with. Missing paths and non-DLL files produce
+warnings and are skipped.
+
+Entries are considered left to right, before default discovery. Runtime device
+selection uses the first candidate that loads and exposes the requested EP and
+device; a failed candidate does not prevent trying later entries.
+Listing the same DLL as both a file and
 through its directory does not create duplicate entries. Both forms use the
 `directory` source tag, so commands supporting source pinning can use
 `--ep qnn@directory`; `build` and `config` currently require plain `--ep qnn`.

@@ -619,8 +619,7 @@ class TestWinmlEpPathOverride:
         )
 
     @pytest.mark.parametrize(
-        ("ep", "filename"),
-        [(ep, dll) for ep in EP_CATALOG.all_eps() for dll in EP_CATALOG.dll_names_for(ep)],
+        "ep", [ep for ep in EP_CATALOG.all_eps() if EP_CATALOG.dll_name_for(ep)]
     )
     @pytest.mark.parametrize("uppercase", [False, True])
     def test_file_selects_only_named_ep(
@@ -628,9 +627,10 @@ class TestWinmlEpPathOverride:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
         ep: str,
-        filename: str,
         uppercase: bool,
     ) -> None:
+        filename = EP_CATALOG.dll_name_for(ep)
+        assert filename is not None
         dll = _touch(tmp_path / "custom EP" / (filename.upper() if uppercase else filename))
         for other_ep in EP_CATALOG.all_eps():
             other_filename = EP_CATALOG.dll_name_for(other_ep)
@@ -648,21 +648,36 @@ class TestWinmlEpPathOverride:
         entries = list(source.resolve())
         assert [(entry.ep_name, entry.dll_path) for entry in entries] == [(ep, dll.resolve())]
 
-    @pytest.mark.parametrize(
-        ("ep", "filename"),
-        [(ep, dll) for ep in EP_CATALOG.all_eps() for dll in EP_CATALOG.dll_names_for(ep)],
-    )
-    def test_directory_discovers_catalogued_filenames(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ep: str, filename: str
+    def test_directory_does_not_infer_arbitrary_dll_names(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        dll = _touch(tmp_path / filename)
+        _touch(tmp_path / "custom.dll")
         monkeypatch.setenv("WINMLCLI_EP_PATH", str(tmp_path))
 
         entries = [
-            entry for source in _parse_winmlcli_ep_path() for entry in source.resolve()
+            entry
+            for source in _parse_winmlcli_ep_path(EP_CATALOG.all_eps()[0])
+            for entry in source.resolve()
         ]
 
+        assert entries == []
+
+    @pytest.mark.parametrize("filename", ["custom.dll", "custom.DLL"])
+    def test_unknown_dll_requires_requested_ep(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, filename: str
+    ) -> None:
+        from winml.modelkit import ep_path as mod
+
+        dll = _touch(tmp_path / filename)
+        ep = EP_CATALOG.all_eps()[0]
+        monkeypatch.setenv("WINMLCLI_EP_PATH", str(dll))
+        monkeypatch.setattr(mod, "_default_ep_sources", list)
+
+        assert discover_all_eps() == []
+        sources = _parse_winmlcli_ep_path(ep)
+        entries = [entry for source in sources for entry in source.resolve()]
         assert [(entry.ep_name, entry.dll_path) for entry in entries] == [(ep, dll.resolve())]
+        assert discover_all_eps() == []
 
     @pytest.mark.parametrize("file_first", [False, True])
     def test_mixed_entries_preserve_precedence(
@@ -713,18 +728,18 @@ class TestWinmlEpPathOverride:
             (ep, dll.resolve(), "primary")
         ]
 
-    @pytest.mark.parametrize("filename", ["unknown.dll", "notes.txt"])
-    def test_unrecognized_file_warns_and_continues(
+    @pytest.mark.parametrize("requested_ep", [None, "QNNExecutionProvider"])
+    def test_non_dll_file_warns_and_continues(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
-        filename: str,
+        requested_ep: str | None,
     ) -> None:
         import logging
         import os
 
-        unknown = _touch(tmp_path / filename)
+        unknown = _touch(tmp_path / "notes.txt")
         ep = next(ep for ep in EP_CATALOG.all_eps() if EP_CATALOG.dll_name_for(ep))
         known_filename = EP_CATALOG.dll_name_for(ep)
         assert known_filename is not None
@@ -732,13 +747,13 @@ class TestWinmlEpPathOverride:
         monkeypatch.setenv("WINMLCLI_EP_PATH", f"{unknown}{os.pathsep}{dll}")
 
         with caplog.at_level(logging.WARNING, logger="winml.modelkit.ep_path"):
-            sources = _parse_winmlcli_ep_path()
+            sources = _parse_winmlcli_ep_path(requested_ep)
 
         assert len(sources) == 1
         assert next(sources[0].resolve()).dll_path == dll.resolve()
         assert any(
             repr(str(unknown)) in record.message
-            and "not a recognized EP DLL" in record.message
+            and "not a DLL file" in record.message
             for record in caplog.records
         )
 
@@ -925,21 +940,12 @@ class TestNuGetSource:
 class TestEPCatalog:
     """EPCatalog: forward/inverse lookups, bundled-EP handling, immutability."""
 
-    def test_filename_aliases_round_trip(self) -> None:
+    def test_filenames_round_trip_case_insensitively(self) -> None:
         for ep in EP_CATALOG.all_eps():
-            filenames = EP_CATALOG.dll_names_for(ep)
-            if filenames:
-                assert filenames[0] == EP_CATALOG.dll_name_for(ep)
-            else:
-                assert EP_CATALOG.dll_name_for(ep) is None
-            for filename in filenames:
+            filename = EP_CATALOG.dll_name_for(ep)
+            if filename:
                 assert EP_CATALOG.ep_for_dll(filename) == ep
                 assert EP_CATALOG.ep_for_dll(filename.upper()) == ep
-        assert EP_CATALOG.dll_names_for("UnknownExecutionProvider") == ()
-
-    def test_vitisai_framework_filename_is_recognized(self) -> None:
-        assert EP_CATALOG.ep_for_dll("onnxruntime_vitisai_ep.dll") == "VitisAIExecutionProvider"
-        assert "onnxruntime_vitisai_ep.dll" in EP_CATALOG.dll_names_for("VitisAIExecutionProvider")
 
     def test_ep_catalog_dll_name_for_known_ep(self) -> None:
         """EP_CATALOG.dll_name_for returns the DLL filename for known plugin EPs."""

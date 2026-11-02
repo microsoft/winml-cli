@@ -123,7 +123,6 @@ class EPCatalog:
         name: str
         dll_name: str
         vendor_requirements: frozenset[str]
-        dll_aliases: tuple[str, ...] = ()
 
     __slots__ = ("_by_dll", "_by_name", "_initialized")
 
@@ -137,10 +136,7 @@ class EPCatalog:
     def __init__(self, entries: Iterable[EPCatalog.Row]) -> None:
         by_name: dict[str, EPCatalog.Row] = {e.name: e for e in entries}
         by_dll: dict[str, str] = {
-            dll.casefold(): e.name
-            for e in by_name.values()
-            for dll in (e.dll_name, *e.dll_aliases)
-            if dll
+            e.dll_name.casefold(): e.name for e in by_name.values() if e.dll_name
         }
         object.__setattr__(self, "_by_name", MappingProxyType(by_name))
         object.__setattr__(self, "_by_dll", MappingProxyType(by_dll))
@@ -157,13 +153,8 @@ class EPCatalog:
         return entry.dll_name if entry and entry.dll_name else None
 
     def ep_for_dll(self, dll: str) -> str | None:
-        """Case-insensitive DLL filename/alias lookup. ``None`` if unknown."""
+        """Case-insensitive DLL filename lookup. ``None`` if unknown."""
         return self._by_dll.get(dll.casefold())
-
-    def dll_names_for(self, ep: str) -> tuple[str, ...]:
-        """Return primary DLL filename followed by aliases, or empty for bundled/unknown EPs."""
-        entry = self._by_name.get(ep)
-        return (entry.dll_name, *entry.dll_aliases) if entry and entry.dll_name else ()
 
     def is_compatible(self, ep: str, device_type: DeviceType | None = None) -> bool:
         """Return True iff ``ep`` has compatible hardware on this machine.
@@ -210,7 +201,6 @@ EP_CATALOG = EPCatalog(
             name="VitisAIExecutionProvider",
             dll_name="onnxruntime_providers_vitisai.dll",
             vendor_requirements=frozenset({"AMD"}),
-            dll_aliases=("onnxruntime_vitisai_ep.dll",),
         ),
         # TODO(ep_path): MIGraphX DLL leaf is unverified; mirrors the VitisAI
         # naming convention. Confirm by inspecting an installed MSIX. See
@@ -1497,11 +1487,11 @@ def _list_msix_eps(
         installed_path = Path(str(p.installed_path))
         try:
             ep_dir = installed_path / "ExecutionProvider"
-            candidates = list(ep_dir.glob("*.dll")) if ep_dir.is_dir() else []
+            candidates = list(ep_dir.glob("onnxruntime_providers_*.dll")) if ep_dir.is_dir() else []
             # Fallback: scan one level down if the conventional layout
             # is not used by some future vendor.
-            if not any(EP_CATALOG.ep_for_dll(dll.name) for dll in candidates):
-                candidates = list(installed_path.glob("**/*.dll"))
+            if not candidates:
+                candidates = list(installed_path.glob("**/onnxruntime_providers_*.dll"))
         except Exception as e:
             logger.debug(
                 "list_msix_eps: cannot scan %s for EP DLLs (%s); skipping",
@@ -1679,7 +1669,7 @@ def _resolve_requested_winml_catalog_ep(ep_name: str) -> list[EPEntry]:
 # ---------------------------------------------------------------------------
 # Override mechanisms.
 # ---------------------------------------------------------------------------
-def _parse_winmlcli_ep_path() -> list[EPSource]:
+def _parse_winmlcli_ep_path(ep_name: str | None = None) -> list[EPSource]:
     """Parse the ``WINMLCLI_EP_PATH`` env var into ``DirectorySource`` entries.
 
     The env var is a path-list using OS-conventional separators (``;`` on
@@ -1687,10 +1677,12 @@ def _parse_winmlcli_ep_path() -> list[EPSource]:
     Each entry can be a directory or a plugin DLL file. Directories are
     scanned for every plugin DLL filename in :data:`EP_CATALOG`; files
     select only the EP matching their catalogued filename (case-insensitive).
+    Unknown DLL filenames are associated with ``ep_name`` when supplied;
+    inventory discovery without an EP name ignores them.
     Both forms produce ``DirectorySource`` entries, in path-list order.
 
     Returns an empty list when ``WINMLCLI_EP_PATH`` is unset or empty.
-    Invalid paths and unrecognized files log a WARN and are skipped (matches the
+    Invalid paths and non-DLL files log a WARN and are skipped (matches the
     ``DirectorySource`` "configured-but-nonexistent root" pattern).
     """
     raw = os.environ.get("WINMLCLI_EP_PATH")
@@ -1706,10 +1698,19 @@ def _parse_winmlcli_ep_path() -> list[EPSource]:
         if p.is_file():
             ep = EP_CATALOG.ep_for_dll(p.name)
             if ep is None:
-                logger.warning(
-                    "WINMLCLI_EP_PATH entry %r is not a recognized EP DLL; skipping", entry
-                )
-                continue
+                if p.suffix.casefold() != ".dll":
+                    logger.warning(
+                        "WINMLCLI_EP_PATH entry %r is not a DLL file; skipping", entry
+                    )
+                    continue
+                if ep_name is None:
+                    logger.debug(
+                        "WINMLCLI_EP_PATH entry %r has an unknown DLL filename; "
+                        "requires an explicit EP selection",
+                        entry,
+                    )
+                    continue
+                ep = ep_name
             logger.debug("WINMLCLI_EP_PATH override: using %s for %s", entry, ep)
             sources.append(DirectorySource(root=p.parent, dll_patterns={ep: p.name}))
             continue
@@ -1720,10 +1721,10 @@ def _parse_winmlcli_ep_path() -> list[EPSource]:
             continue
         logger.debug("WINMLCLI_EP_PATH override: scanning %s", entry)
         for ep in EP_CATALOG.all_eps():
-            sources.extend(
-                DirectorySource(root=p, dll_patterns={ep: dll})
-                for dll in EP_CATALOG.dll_names_for(ep)
-            )
+            dll = EP_CATALOG.dll_name_for(ep)
+            if not dll:
+                continue  # bundled EPs have no DLL filename
+            sources.append(DirectorySource(root=p, dll_patterns={ep: dll}))
     return sources
 
 

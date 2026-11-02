@@ -409,6 +409,34 @@ class TestEPRegistration:
 
         monkeypatch.setattr(genai_session, "_GENAI_REGISTERED_PATHS", set())
 
+    def test_arbitrary_dll_candidates_retry_in_path_order(
+        self,
+        bundle_dir: Path,
+        fresh_registry,
+        mock_og: MagicMock,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import os
+
+        self._reset_process_registration_cache(monkeypatch)
+        dlls = [tmp_path / f"custom-{i}.dll" for i in range(2)]
+        for dll in dlls:
+            dll.touch()
+        monkeypatch.setenv("WINMLCLI_EP_PATH", os.pathsep.join(map(str, dlls)))
+        mock_og.register_execution_provider_library.side_effect = [
+            RuntimeError("invalid plugin"),
+            None,
+        ]
+
+        GenaiSession(bundle_dir)._register_eps(mock_og, ("qnn",))
+
+        assert [
+            Path(call.args[1])
+            for call in mock_og.register_execution_provider_library.call_args_list
+        ] == dlls
+        assert fresh_registry.all_discovered() == ()
+
     def test_cpu_skips_winml_registration(self, bundle_dir: Path, mock_og: MagicMock) -> None:
         with (
             _patch_og(mock_og),
