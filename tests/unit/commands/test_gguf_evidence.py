@@ -42,9 +42,12 @@ def _read(path: Path) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def test_row_keeps_the_generate_timed_readings_as_integer_nanoseconds() -> None:
+@pytest.mark.parametrize("cached_tokens", [5, None])
+def test_row_keeps_the_generate_timed_readings_as_integer_nanoseconds(
+    cached_tokens: int | None,
+) -> None:
     start = 345_678_123_456_789  # about four days of QPC uptime, in nanoseconds
-    timing = make_timing(_clock(start, 50), tokens=(10, 11, 12), cached_tokens=5)
+    timing = make_timing(_clock(start, 50), tokens=(10, 11, 12), cached_tokens=cached_tokens)
     # make_timing reads the clock at the reset start and end, the submit, the stream
     # creation, each token, the end of the stream and the checked result.
     assert request_row("timed", 2, timing) == {
@@ -59,7 +62,8 @@ def test_row_keeps_the_generate_timed_readings_as_integer_nanoseconds() -> None:
         ],
         "stop_reason": "MAX_TOKENS",
         "prompt_tokens": 4,
-        "cached_tokens": 5,
+        # A count above 0 shows prompt reuse; None that the session state was unreadable.
+        "cached_tokens": cached_tokens,
     }
 
 
@@ -150,7 +154,8 @@ class TestEvidenceRecorder:
         capture.install()
         recorder = EvidenceRecorder(config, capture=capture)
         clock = _clock(10_000)
-        timings = [make_timing(clock), make_timing(clock)]
+        # The second request could not read its session state; null survives the write.
+        timings = [make_timing(clock), make_timing(clock, cached_tokens=None)]
         api.emit(2, b"llama_model_loader: loaded meta data\n")
         api.emit(2, b"llama_context: n_ctx = 16\n")
         recorder.record_request("warmup", 0, timings[0])

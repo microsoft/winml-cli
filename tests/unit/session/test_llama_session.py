@@ -371,14 +371,15 @@ class _GenerationSession(_Closable):
         if self.api.disclosure_unsupported:
             raise _NotSupportedError("sequence state disclosure is not supported")
         self.api.clock.advance(1.0)
+        sources = self.api.kept_token_sources
         return SimpleNamespace(
-            evaluated_token_count=len(self._retained),
-            retained_token_count=len(self._retained),
+            evaluated_token_count=len(self._retained) if "evaluated" in sources else 0,
+            retained_token_count=len(self._retained) if "retained" in sources else 0,
         )
 
     @property
     def retained_token_ids(self) -> tuple[int, ...]:
-        return tuple(self._retained)
+        return tuple(self._retained) if "ids" in self.api.kept_token_sources else ()
 
     def generate_tokens(self, token_ids: Any, options: _TaskOptions) -> _TaskStream:
         assert not self.closed
@@ -525,6 +526,8 @@ def _runtime_api(
         finish_override=None,
         disclosure_unsupported=False,
         reset_keeps_tokens=False,
+        # The state reads that report the tokens a reset kept; the others report none.
+        kept_token_sources=("evaluated", "retained", "ids"),
     )
     api.Runtime = lambda: _Runtime(api)
 
@@ -812,6 +815,25 @@ class TestGenerateTimed:
         second = session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
         stream = api.generation_sessions[0].streams[0]
         assert first.cached_tokens == 0
+        assert second.cached_tokens == len(stream.prompt) + len(stream.tokens)
+
+    @pytest.mark.parametrize(
+        "sources",
+        [("evaluated", "retained"), ("evaluated",), ("retained",), ("ids",)],
+        ids=["counts-without-ids", "evaluated-only", "retained-only", "ids-only"],
+    )
+    def test_cached_tokens_take_the_largest_state_count(
+        self, tmp_path: Path, sources: tuple[str, ...]
+    ) -> None:
+        # A kept state the Task cannot reuse reports its counts but no retained IDs;
+        # any one read that still sees the kept tokens must count them.
+        session, api = _session(tmp_path)
+        api.reset_keeps_tokens = True
+        api.kept_token_sources = sources
+        session.load(context_length=32)
+        session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
+        second = session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
+        stream = api.generation_sessions[0].streams[0]
         assert second.cached_tokens == len(stream.prompt) + len(stream.tokens)
 
     def test_unreadable_session_state_leaves_cached_tokens_unknown(self, tmp_path: Path) -> None:

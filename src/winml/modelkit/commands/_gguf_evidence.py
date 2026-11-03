@@ -8,9 +8,9 @@ The evidence is one JSON document, written twice, each time to a temporary
 file that then replaces it. The start write names this process before the
 Runtime is imported, so an external observer can bind to it before the model
 loads. The end write, made also when the run fails, adds the outcome, the
-workload as the CLI applied it, the installed package versions, the raw clock
-readings of every finished request and the native log capture. A benchmark
-harness recomputes every metric from these readings; nothing here aggregates.
+requested workload, the installed package versions, the raw clock readings of
+every finished request and the native log capture. A benchmark harness
+recomputes every metric from these readings; nothing here aggregates.
 """
 
 from __future__ import annotations
