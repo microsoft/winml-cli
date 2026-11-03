@@ -24,7 +24,6 @@ from __future__ import annotations
 import gc
 import json
 import logging
-import reprlib
 import time
 from collections import Counter
 from dataclasses import dataclass, field
@@ -130,36 +129,22 @@ class GGUFEvidenceError(LlamaSessionError):
 def read_prompt_ids_file(path: Path) -> tuple[int, ...]:
     """Read exact prompt token IDs from a JSON array file.
 
-    The file can be UTF-8 (with or without a byte order mark), or UTF-16 as
-    Windows PowerShell 5.1 writes it; ``json.loads`` detects the encoding.
-
     Raises:
-        TypeError: The JSON document is not an array.
-        ValueError: The file cannot be read, is not JSON, is an empty array, or
-            holds an element that is not a non-negative integer.
+        ValueError: The file cannot be read, is not JSON, or is not a non-empty
+            array of non-negative integer token IDs.
     """
     try:
-        raw = path.read_bytes()
+        data = json.loads(path.read_bytes())
     except OSError as exc:
         raise ValueError(f"could not be read: {exc}") from exc
-    try:
-        data = json.loads(raw)
-    except UnicodeDecodeError as exc:
-        raise ValueError(f"not valid JSON (expected UTF-8 or UTF-16 text): {exc}") from exc
-    except (json.JSONDecodeError, RecursionError) as exc:  # RecursionError: nested too deeply
+    except (ValueError, RecursionError) as exc:  # RecursionError: nested too deeply
         raise ValueError(f"not valid JSON: {exc}") from exc
-    except ValueError as exc:  # Python's limit on integer digits
-        raise ValueError("holds a number too long to be a token ID") from exc
-    if not isinstance(data, list):
-        raise TypeError("expected a JSON array of token IDs")
-    if not data:
-        raise ValueError("expected at least one token ID")
-    for index, value in enumerate(data):
-        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-            raise ValueError(
-                f"element {index} is not a non-negative integer token ID: "
-                f"{reprlib.repr(value)}"
-            )
+    if (
+        not isinstance(data, list)
+        or not data
+        or any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in data)
+    ):
+        raise ValueError("expected a non-empty JSON array of non-negative integer token IDs")
     return tuple(data)
 
 

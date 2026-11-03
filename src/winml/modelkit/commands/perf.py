@@ -2970,7 +2970,7 @@ def _resolve_gguf_prompt_ids(ctx: click.Context) -> tuple[int, ...] | None:
         )
     try:
         prompt_ids = read_prompt_ids_file(path)
-    except (TypeError, ValueError) as exc:
+    except ValueError as exc:
         raise click.UsageError(f"--prompt-ids-file {path}: {exc}") from exc
     context_length = p.get("context_length")
     if context_length is not None and len(prompt_ids) + p["max_new_tokens"] > context_length:

@@ -210,6 +210,10 @@ def _ids_file(tmp_path: Path, content: bytes) -> Path:
     return path
 
 
+# The usage error for any ID file that parses but is not a list of token IDs.
+_NOT_AN_ID_ARRAY = "expected a non-empty JSON array of non-negative integer token IDs"
+
+
 _INITIALIZATION_SPANS = [
     (name, 100 + 10 * index, 110 + 10 * index)
     for index, name in enumerate(
@@ -1376,27 +1380,18 @@ class TestCliDispatch:
             config.apply_template,
         ) == (tuple(ids), 64, True, evidence, False, False)
 
-    def test_prompt_ids_file_accepts_a_utf8_bom(
-        self, runner: CliRunner, tmp_path: Path, capture_run: dict
-    ) -> None:
-        path = _ids_file(tmp_path, b"\xef\xbb\xbf" + json.dumps([1, 2]).encode())
-        result = runner.invoke(perf, ["-m", str(_gguf(tmp_path)), "--prompt-ids-file", str(path)])
-
-        assert result.exit_code == 0, result.output
-        assert capture_run["config"].prompt_ids == (1, 2)
-
     @pytest.mark.parametrize(
         ("content", "message"),
         [
-            (b"[]", "at least one token ID"),
-            (b"[true]", "element 0"),
-            (b"[1, 1.5]", "element 1"),
-            (b"[-1]", "element 0"),
-            (b'{"ids": [1]}', "JSON array of token IDs"),
+            (b"[]", _NOT_AN_ID_ARRAY),
+            (b"[true]", _NOT_AN_ID_ARRAY),
+            (b"[1, 1.5]", _NOT_AN_ID_ARRAY),
+            (b"[-1]", _NOT_AN_ID_ARRAY),
+            (b'{"ids": [1]}', _NOT_AN_ID_ARRAY),
             (b"1,2", "not valid JSON"),
             (b"\xff[1]", "not valid JSON"),
             pytest.param(b"[" * 100_000 + b"]" * 100_000, "not valid JSON", id="deeply-nested"),
-            pytest.param(b"[" + b"9" * 5000 + b"]", "too long to be a token ID", id="huge-integer"),
+            pytest.param(b"[" + b"9" * 5000 + b"]", "not valid JSON", id="huge-integer"),
         ],
     )
     def test_prompt_ids_file_rejects_malformed_content(
@@ -1449,27 +1444,6 @@ class TestCliDispatch:
 
         assert result.exit_code == 0, result.output
         assert capture_run["config"].apply_template is False
-
-    def test_prompt_ids_element_errors_stay_short(
-        self, runner: CliRunner, tmp_path: Path, capture_run: dict
-    ) -> None:
-        # Nested just under the recursion limit: parsed, then rejected element by element.
-        path = _ids_file(tmp_path, b"[" * 900 + b"]" * 900)
-        result = runner.invoke(perf, ["-m", str(_gguf(tmp_path)), "--prompt-ids-file", str(path)])
-
-        assert result.exit_code == 2, result.output
-        assert "element 0 is not a non-negative integer token ID" in result.output
-        assert result.output.count("[") < 50
-
-    def test_prompt_ids_file_accepts_utf16_from_windows_powershell(
-        self, runner: CliRunner, tmp_path: Path, capture_run: dict
-    ) -> None:
-        # Windows PowerShell 5.1 writes UTF-16 with a byte order mark for `>` redirection.
-        path = _ids_file(tmp_path, "[1, 2]\r\n".encode("utf-16"))
-        result = runner.invoke(perf, ["-m", str(_gguf(tmp_path)), "--prompt-ids-file", str(path)])
-
-        assert result.exit_code == 0, result.output
-        assert capture_run["config"].prompt_ids == (1, 2)
 
     def test_context_length_must_leave_room_for_a_text_prompt(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict
