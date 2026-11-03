@@ -197,7 +197,7 @@ def test_failed_stop_retains_ownership_for_retry(tmp_path, monkeypatch):
 @pytest.mark.skipif(os.name != "nt", reason="ETW capture requires Windows")
 @pytest.mark.parametrize("verbose", [False, True])
 def test_provider_scope_and_profile_are_explicit(tmp_path, monkeypatch, verbose):
-    monkeypatch.setenv("WINML_GPU_TIMING_DIAGNOSTICS", "1" if verbose else "0")
+    monkeypatch.setenv("WINML_FULL_DIAGNOSTICS", "1" if verbose else "0")
     run = Mock(return_value=subprocess.CompletedProcess([], 0, "ok", ""))
     monkeypatch.setattr(subprocess, "run", run)
     capture = GpuCapture(tmp_path / "capture")

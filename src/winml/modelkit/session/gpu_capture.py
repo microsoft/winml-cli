@@ -171,7 +171,7 @@ class GpuCapture:
         self.directory = directory
         self.execution_path = "runtime-api"
         self.lowering_target = "auto"
-        self.verbose_diagnostics = os.environ.get("WINML_GPU_TIMING_DIAGNOSTICS") == "1"
+        self.verbose_diagnostics = os.environ.get("WINML_FULL_DIAGNOSTICS") == "1"
         self.collection_profile = (
             "runtime-ort-gpu-diagnostics-verbose"
             if self.verbose_diagnostics

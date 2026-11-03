@@ -10,7 +10,7 @@ matching, complete measured windows, GPU sample validation and event-loss checks
 are unchanged. The capture still starts before session initialization.
 
 For an explicit verbose diagnostic capture, set
-WINML_GPU_TIMING_DIAGNOSTICS=1 before running the CLI. This retains the broader
+WINML_FULL_DIAGNOSTICS=1 before running the CLI. This retains the broader
 Runtime/ORT/WIL/DxgKrnl provider set with all keywords at verbose level and records
 runtime-ort-gpu-diagnostics-verbose. These logs can be much larger than the
 timing events; keep the profile identity when comparing results.
