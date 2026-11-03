@@ -4,13 +4,12 @@
 # --------------------------------------------------------------------------
 """Test doubles for GGUF evidence.
 
-A llama log API that calls back through ctypes, Task options, a native error
-carrying an HRESULT, and ``generate_timed`` results read from a test clock.
+A llama log API that calls back through ctypes, and ``generate_timed`` results
+read from a test clock.
 """
 
 from __future__ import annotations
 
-import dataclasses
 import itertools
 from typing import TYPE_CHECKING
 
@@ -24,31 +23,6 @@ if TYPE_CHECKING:
 
 # Stand-in address of the Runtime adapter's own llama log callback.
 RUNTIME_CALLBACK = 0x7920
-
-
-class HResultError(OSError):
-    """A native failure that carries an HRESULT, like the projection's WinMLError."""
-
-    def __init__(self, hresult: int, message: str = "native failure") -> None:
-        super().__init__(message)
-        self.hresult = hresult
-
-
-@dataclasses.dataclass(frozen=True)
-class FakeOptions:
-    """``TextGenerationOptions`` with the projection's defaults."""
-
-    max_new_tokens: int = 256
-    stop_token_ids: tuple[int, ...] = ()
-    temperature: float = 0.0
-    top_k: int = 0
-    top_p: float = 1.0
-    min_p: float = 0.0
-    repetition_penalty: float = 1.0
-    repetition_penalty_window: int = 0
-    presence_penalty: float = 0.0
-    frequency_penalty: float = 0.0
-    seed: int = 0
 
 
 def make_timing(

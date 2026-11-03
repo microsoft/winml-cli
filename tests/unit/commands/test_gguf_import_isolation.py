@@ -197,7 +197,6 @@ def test_gguf_command_runs_without_heavy_dependency_imports(
 def test_gguf_evidence_run_without_heavy_dependency_imports(tmp_path: Path) -> None:
     outcome = _run_isolated(
         """
-        import dataclasses
         from pathlib import Path
         from types import SimpleNamespace
         from click.testing import CliRunner
@@ -216,11 +215,6 @@ def test_gguf_evidence_run_without_heavy_dependency_imports(tmp_path: Path) -> N
         output = root / "report.json"
         sessions = []
 
-        @dataclasses.dataclass(frozen=True)
-        class Options:
-            max_new_tokens: int
-            stop_token_ids: tuple = ()
-
         class FakeSession:
             def __init__(self, model_path, *, device):
                 assert model_path == model
@@ -229,14 +223,7 @@ def test_gguf_evidence_run_without_heavy_dependency_imports(tmp_path: Path) -> N
                 self.chat_template_applied = None
                 self.load_timings_ms = {}
                 self.payload = None
-                self.initialization_spans = [("runtime_create", 1, 2), ("tokenizer_open", 2, 3)]
-                self.declared_context_length = None
                 self.task_default_eos_token_ids = ()
-                self.tokenizer_eos_token_ids = (7,)
-                self.speculative_readback = {"model_draft_predictor_enabled": False,
-                                             "draft_token_limit_hint": 0,
-                                             "draft_predictor_path": None, "reason": None}
-                self.resolved_target_kind = "cpu"
                 self.requests = 0
                 self.closed = False
                 sessions.append(self)
@@ -248,9 +235,6 @@ def test_gguf_evidence_run_without_heavy_dependency_imports(tmp_path: Path) -> N
                 assert (context_length, eos_token_ids) == (16, ())
                 self.context_length = context_length
                 self.effective_device = "cpu"
-
-            def greedy_options(self, max_new_tokens):
-                return Options(max_new_tokens=max_new_tokens)
 
             def generate_timed(self, token_ids, *, max_new_tokens, clock):
                 assert list(token_ids) == [1, 2, 3, 4] and max_new_tokens == 3
@@ -268,8 +252,8 @@ def test_gguf_evidence_run_without_heavy_dependency_imports(tmp_path: Path) -> N
             def close(self):
                 self.closed = True
 
-        # Only the native session is replaced; evidence identity, native log
-        # capture, request rows and the atomic writer execute their real code.
+        # Only the native session is replaced; the native log capture, request
+        # rows and the atomic writer execute their real code.
         _perf_gguf.WinMLLlamaSession = FakeSession
         args = ["perf", "-m", str(model), "--prompt-ids-file", str(ids),
                 "--context-length", "16", "--ignore-eos", "--evidence", str(evidence),
@@ -282,10 +266,8 @@ def test_gguf_evidence_run_without_heavy_dependency_imports(tmp_path: Path) -> N
         assert "windowsml" not in sys.modules
         assert len(sessions) == 1 and sessions[0].requests == 3 and sessions[0].closed
         document = json.loads(evidence.read_text(encoding="utf-8"))
-        rows = (root / "task-events.rows.jsonl").read_text(encoding="utf-8").splitlines()
-        report = json.loads(output.read_text(encoding="utf-8"))
-        assert report["benchmark_info"]["evidence_status"] == document["status"]
-        print(json.dumps({"status": document["status"], "rows": len(rows),
+        assert json.loads(output.read_text(encoding="utf-8"))["schema_version"] == 3
+        print(json.dumps({"status": document["status"], "rows": len(document["requests"]),
                           "imports": attempts}))
         """,
         str(tmp_path),

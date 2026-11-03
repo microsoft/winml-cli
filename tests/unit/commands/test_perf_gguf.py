@@ -26,14 +26,13 @@ import pytest
 from click.testing import CliRunner
 from rich.console import Console
 
-from tests.unit.test_helpers import RUNTIME_CALLBACK, FakeLogApi, FakeOptions, make_timing
+from tests.unit.test_helpers import RUNTIME_CALLBACK, FakeLogApi, make_timing
 from winml.modelkit.commands import _gguf_evidence
 from winml.modelkit.commands import _perf_gguf as perf_gguf
-from winml.modelkit.commands._gguf_evidence import rows_path, token_ids_sha256
-from winml.modelkit.commands._gguf_native_log import NATIVE_VALUE_KEYS, NativeLogCapture
+from winml.modelkit.commands._gguf_evidence import request_row, token_ids_sha256
+from winml.modelkit.commands._gguf_native_log import NativeLogCapture
 from winml.modelkit.commands._perf_gguf import (
     GGUFBenchmarkResult,
-    GGUFEvidenceError,
     GGUFPerfBenchmark,
     GGUFPerfConfig,
     display_gguf_report,
@@ -200,170 +199,105 @@ def _ids_file(tmp_path: Path, content: bytes) -> Path:
 _NOT_AN_ID_ARRAY = "expected a non-empty JSON array of non-negative integer token IDs"
 
 
-_INITIALIZATION_SPANS = [
-    (name, 100 + 10 * index, 110 + 10 * index)
-    for index, name in enumerate(
-        (
-            "runtime_create",
-            "tokenizer_open",
-            "model_load",
-            "pipeline_build",
-            "task_create",
-            "session_create",
-        )
-    )
-]
+class _LoggingSession(_FakeLlamaSession):
+    """Session double whose native calls log through ``api``, as llama.cpp does.
 
-
-def _line_count(path: Path) -> int:
-    return len(path.read_text(encoding="utf-8").splitlines()) if path.exists() else 0
-
-
-class _FakeProtocolSession(_FakeLlamaSession):
-    """Session double for evidence runs; ``failures`` maps a request position to a fault.
-
-    A fault is ``raise`` (the request raises, as ``generate_timed`` does on any Task
-    failure) or ``interrupt`` (Ctrl+C). ``ctrl_c_in_log`` ("load" or "warmup-0") makes
-    llama.cpp log one line at that point while a Ctrl+C arrives, so the capture's log
-    callback runs into the KeyboardInterrupt.
+    A line reaches the capture only while the capturing callback is installed.
+    ``fail_at`` makes that request raise as a failed Task request does, and
+    ``ctrl_c_in_load`` makes a Ctrl+C arrive while the model load logs.
     """
 
     def __init__(
         self,
+        api: FakeLogApi,
+        evidence_path: Path,
         *,
-        failures: dict[int, str] | None = None,
-        log_api: FakeLogApi | None = None,
-        evidence_path: Path | None = None,
-        effective_context: int | None = None,
-        eos_readback: tuple[int, ...] | None = None,
-        ctrl_c_in_log: str | None = None,
+        fail_at: int | None = None,
+        ctrl_c_in_load: bool = False,
     ) -> None:
-        super().__init__([], effective_context=effective_context, eos_readback=eos_readback)
-        self._failures = dict(failures or {})
-        self._ctrl_c_in_log = ctrl_c_in_log
-        self.ctrl_c_pending = False
-        self._log_api = log_api
+        super().__init__([])
+        self._api = api
         self._evidence_path = evidence_path
-        self.initialization_spans = list(_INITIALIZATION_SPANS)
-        self.declared_context_length = None
-        self.tokenizer_eos_token_ids = (7,)
-        self.speculative_readback = {
-            "model_draft_predictor_enabled": False,
-            "draft_token_limit_hint": 0,
-            "draft_predictor_path": None,
-            "reason": None,
-        }
-        self.resolved_target_kind = "cpu"
-        self.callback_at_load: int | None = None
-        self.callback_at_close: int | None = None
+        self._fail_at = fail_at
+        self._ctrl_c_in_load = ctrl_c_in_load
+        self.ctrl_c_now = False
+        self.evidence_at_open: dict[str, Any] | None = None
         self.callback_at_request: list[int | None] = []
-        self.rows_at_request: list[int | None] = []
+        self.callback_at_close: int | None = None
         self.results: list[LlamaGenerationTiming] = []
 
-    def _log_callback(self) -> int | None:
-        return self._log_api.callback if self._log_api is not None else None
+    def _log(self, text: bytes) -> None:
+        if self._api.callback != RUNTIME_CALLBACK:
+            self._api.emit(2, text)
 
-    def _log_during_ctrl_c(self, point: str) -> None:
-        if self._ctrl_c_in_log == point and self._log_api is not None:
-            self.ctrl_c_pending = True
-            self._log_api.emit(2, b"llama_context: n_ctx = 16\n")
+    def open_tokenizer(self) -> None:
+        super().open_tokenizer()
+        self.evidence_at_open = _read(self._evidence_path)
 
     def load(self, **kwargs: Any) -> None:
         super().load(**kwargs)
-        self.callback_at_load = self._log_callback()
-        self._log_during_ctrl_c("load")
-
-    def greedy_options(self, max_new_tokens: int) -> FakeOptions:
-        return FakeOptions(max_new_tokens=max_new_tokens)
+        self.ctrl_c_now = self._ctrl_c_in_load
+        self._log(b"load_tensors: loaded\n")
 
     def generate_timed(
         self, prompt_token_ids: list[int], *, max_new_tokens: int, clock: Callable[[], float]
     ) -> LlamaGenerationTiming:
         position = len(self.callback_at_request)
         self.calls.append("generate_timed")
-        self.submitted_ids.append(list(prompt_token_ids))
-        self.callback_at_request.append(self._log_callback())
-        evidence = self._evidence_path
-        self.rows_at_request.append(_line_count(rows_path(evidence)) if evidence else None)
-        failure = self._failures.get(position)
-        if failure == "raise":
-            raise RuntimeError("native session crashed")
-        if failure == "interrupt":
-            raise KeyboardInterrupt
+        self.callback_at_request.append(self._api.callback)
+        if position == self._fail_at:
+            raise LlamaSessionError("native session crashed")
+        self._log(f"request {position}\n".encode())
         timing = make_timing(
             clock, tokens=range(max_new_tokens), input_tokens=len(prompt_token_ids)
         )
-        if position == 0:
-            self._log_during_ctrl_c("warmup-0")
         self.results.append(timing)
         return timing
 
     def close(self) -> None:
         super().close()
-        self.callback_at_close = self._log_callback()
+        self.callback_at_close = self._api.callback
 
 
-def _protocol_benchmark(
+def _evidence_benchmark(
     tmp_path: Path,
     *,
-    failures: dict[int, str] | None = None,
-    effective_context: int | None = None,
-    eos_readback: tuple[int, ...] | None = None,
+    fail_at: int | None = None,
+    ctrl_c_in_load: bool = False,
     owned: bool = False,
-    ctrl_c_in_log: str | None = None,
     **config_overrides: Any,
-) -> tuple[GGUFPerfBenchmark, _FakeProtocolSession, FakeLogApi]:
+) -> tuple[GGUFPerfBenchmark, _LoggingSession, FakeLogApi]:
     """Build an evidence benchmark; ``owned`` leaves session creation to the benchmark."""
     values: dict[str, Any] = {
         "prompt_ids": (1, 2, 3, 4),
         "context_length": 16,
         "ignore_eos": True,
-        "warmup": 1,
-        "iterations": 2,
-        "max_new_tokens": 3,
         "evidence_path": tmp_path / "ev.json",
         **config_overrides,
     }
     config = _config(tmp_path, **values)
-    config.model_path.write_bytes(b"GGUF")
     api = FakeLogApi()
-    session = _FakeProtocolSession(
-        failures=failures,
-        log_api=api,
-        evidence_path=config.evidence_path,
-        effective_context=effective_context,
-        eos_readback=eos_readback,
-        ctrl_c_in_log=ctrl_c_in_log,
+    session = _LoggingSession(
+        api, tmp_path / "ev.json", fail_at=fail_at, ctrl_c_in_load=ctrl_c_in_load
     )
+    # Row readings and capture stamps share one clock, as on the real QPC.
     ticks = count(1_000, 1_000)
 
-    def clock_ns() -> int:
-        return next(ticks)
-
     def capture_clock_ns() -> int:
-        if session.ctrl_c_pending:
-            session.ctrl_c_pending = False
-            raise KeyboardInterrupt
-        return clock_ns()
+        if session.ctrl_c_now:
+            session.ctrl_c_now = False
+            raise KeyboardInterrupt  # Ctrl+C arrives while the log callback runs
+        return next(ticks)
 
     benchmark = GGUFPerfBenchmark(
         config,
         session=None if owned else session,
-        clock=lambda: clock_ns() / 1e9,
-        clock_ns=clock_ns,
+        clock=lambda: next(ticks) / 1e9,
         log_capture=NativeLogCapture(
             load_api=lambda: ("C:/lib/WinMLllama.dll", api), clock_ns=capture_clock_ns
         ),
     )
     return benchmark, session, api
-
-
-def _protocol_run(
-    tmp_path: Path, **kwargs: Any
-) -> tuple[dict[str, Any], _FakeProtocolSession, FakeLogApi]:
-    benchmark, session, api = _protocol_benchmark(tmp_path, **kwargs)
-    benchmark.run()
-    return _read(tmp_path / "ev.json"), session, api
 
 
 def _read(path: Path) -> dict[str, Any]:
@@ -385,7 +319,6 @@ ADDITIVE_KEYS = {
     "context_length_requested",
     "eos_policy",
     "evidence_path",
-    "evidence_status",
 }
 
 
@@ -451,7 +384,6 @@ class TestProtocolOptions:
             "context_length_requested": 16,
             "eos_policy": "ignore",
             "evidence_path": None,
-            "evidence_status": None,
         }
         assert protocol["prompt"] is None
         assert stock["prompt"] == GGUFPerfConfig(model_path=Path("m.gguf")).prompt
@@ -465,245 +397,105 @@ class TestProtocolOptions:
 
 
 class TestEvidenceRun:
-    def test_complete_run_writes_contract_evidence(self, tmp_path: Path) -> None:
-        doc, session, _ = _protocol_run(tmp_path)
-
-        assert (doc["status"], doc["failure_phase"], doc["error"]) == ("complete", None, None)
-        assert [row["id"] for row in doc["requests"]] == ["warmup-0", "measured-0", "measured-1"]
-        assert all(
-            row["status"] == "succeeded" and row["stop_reason"] == "MAX_TOKENS"
-            for row in doc["requests"]
-        )
-        # Each row holds the readings of the generate_timed call that ran the request.
-        assert [(row["submit_ns"], row["completed_ns"]) for row in doc["requests"]] == [
-            (round(timing.submit_time * 1e9), round(timing.completed_time * 1e9))
-            for timing in session.results
-        ]
-        assert session.calls[:2] == ["open_tokenizer", "load"]
-        assert session.load_kwargs == {"context_length": 16, "eos_token_ids": ()}
-        assert [span["name"] for span in doc["initialization"]["spans"]] == [
-            name for name, _, _ in session.initialization_spans
-        ]
-        assert doc["requests"] == [
-            json.loads(line)
-            for line in rows_path(tmp_path / "ev.json").read_text(encoding="utf-8").splitlines()
-        ]
-
-    def test_run_returns_schema3_samples_and_status(self, tmp_path: Path) -> None:
-        benchmark, session, _ = _protocol_benchmark(tmp_path)
+    def test_start_write_precedes_the_tokenizer_and_the_end_write_follows(
+        self, tmp_path: Path
+    ) -> None:
+        benchmark, session, _ = _evidence_benchmark(tmp_path)
         result = benchmark.run()
 
-        assert result.evidence_status == "complete"
-        assert [(sample.kind, sample.index) for sample in result.requests] == [
-            ("warmup", 0),
-            ("timed", 1),
-            ("timed", 2),
+        assert session.evidence_at_open == {
+            "schema_version": "gguf-task-events-2",
+            "status": "running",
+            "pid": os.getpid(),
+        }
+        doc = _read(tmp_path / "ev.json")
+        assert (doc["schema_version"], doc["status"], doc["pid"], doc["error"]) == (
+            "gguf-task-events-2",
+            "complete",
+            os.getpid(),
+            None,
+        )
+        assert session.load_kwargs == {"context_length": 16, "eos_token_ids": ()}
+        # One request loop: each row holds the readings of the generate_timed call
+        # behind the schema 3 sample at the same position.
+        plan = [("warmup", 0), ("timed", 1), ("timed", 2)]
+        assert doc["requests"] == [
+            request_row(kind, index, timing)
+            for (kind, index), timing in zip(plan, session.results, strict=True)
         ]
-        # The samples come from the same generate_timed spans as the evidence rows.
-        assert [sample.task_generation_duration_ms for sample in result.requests] == [
-            timing.generation_s * 1000.0 for timing in session.results
-        ]
-        assert result.aggregate["stop_reason_counts"] == {"MAX_TOKENS": 2}
-        info = result.to_dict()["benchmark_info"]
-        assert info["evidence_status"] == "complete"
-        assert info["prompt_ids_sha256"] == token_ids_sha256((1, 2, 3, 4))
+        assert [(sample.kind, sample.index) for sample in result.requests] == plan
 
-    def test_provisional_evidence_exists_before_model_hashing(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    def test_capture_spans_the_load_through_request_0_only(self, tmp_path: Path) -> None:
+        benchmark, session, api = _evidence_benchmark(tmp_path)
+        benchmark.run()
+
+        assert session.callback_at_request[0] not in (None, RUNTIME_CALLBACK)
+        assert session.callback_at_request[1:] == [RUNTIME_CALLBACK, RUNTIME_CALLBACK]
+        assert api.callback == RUNTIME_CALLBACK
+        native_log = _read(tmp_path / "ev.json")["native_log"]
+        assert [line["text"] for line in native_log["lines"]] == [
+            "load_tensors: loaded",
+            "request 0",
+        ]
+        assert native_log["after_capture"]["restored"] is True
+
+    @pytest.mark.parametrize("fail_at", [0, 1])
+    def test_first_failure_ends_the_run_and_restores_the_callback_before_close(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail_at: int
     ) -> None:
-        seen: dict[str, Any] = {}
-        real = _gguf_evidence.model_inventory
+        benchmark, session, _ = _evidence_benchmark(tmp_path, fail_at=fail_at, owned=True)
+        monkeypatch.setattr(perf_gguf, "WinMLLlamaSession", lambda *_a, **_k: session)
 
-        def inventory(path: Path) -> dict[str, Any]:
-            seen.update(_read(tmp_path / "ev.json"))
-            return real(path)
+        with pytest.raises(LlamaSessionError, match="native session crashed"):
+            benchmark.run()
 
-        monkeypatch.setattr(_gguf_evidence, "model_inventory", inventory)
-        _protocol_run(tmp_path)
+        doc = _read(tmp_path / "ev.json")
+        assert (doc["status"], doc["error"]) == (
+            "failed",
+            {"type": "LlamaSessionError", "message": "native session crashed"},
+        )
+        # The finished requests keep their rows, and no request runs after the failure.
+        assert len(doc["requests"]) == fail_at
+        assert session.calls.count("generate_timed") == fail_at + 1
+        assert session.closed
+        assert session.callback_at_close == RUNTIME_CALLBACK
 
-        assert seen["status"] == "running"
-        assert seen["process"]["pid"] == os.getpid()
+    def test_ctrl_c_during_load_logging_stops_the_run_after_load(self, tmp_path: Path) -> None:
+        benchmark, session, api = _evidence_benchmark(tmp_path, ctrl_c_in_load=True)
 
-    def test_log_capture_spans_load_through_warmup0_only(self, tmp_path: Path) -> None:
-        doc, session, _ = _protocol_run(tmp_path)
+        with pytest.raises(KeyboardInterrupt):
+            benchmark.run()
 
-        assert session.callback_at_load not in (None, RUNTIME_CALLBACK)
-        assert session.callback_at_request == [
-            session.callback_at_load,
-            RUNTIME_CALLBACK,
-            RUNTIME_CALLBACK,
-        ]
-        assert doc["native_log"]["after_capture"]["restored"] is True
-
-    def test_rows_reach_disk_before_the_next_request(self, tmp_path: Path) -> None:
-        _, session, _ = _protocol_run(tmp_path)
-
-        assert session.rows_at_request == [0, 1, 2]
-
-    def test_text_prompt_is_encoded_once(self, tmp_path: Path) -> None:
-        doc, session, _ = _protocol_run(tmp_path, prompt_ids=None, context_length=None)
-
-        assert session.calls.count("encode_prompt") == 1
-        assert doc["workload"]["input_mode"] == "text"
-        assert session.submitted_ids == [session._prompt_ids] * 3
+        doc = _read(tmp_path / "ev.json")
+        assert (doc["status"], doc["error"]["type"]) == ("failed", "KeyboardInterrupt")
+        assert "load" in session.calls
+        assert "generate_timed" not in session.calls
+        assert api.callback == RUNTIME_CALLBACK
 
     def test_memory_tracker_is_never_used(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(perf_gguf, "_GenerationMemoryTracker", _explode)
+        benchmark, _, _ = _evidence_benchmark(tmp_path, memory=True)
 
-        assert _protocol_run(tmp_path, memory=True)[0]["status"] == "complete"
-
-
-class TestEvidenceFailures:
-    def test_first_failed_request_ends_the_run(self, tmp_path: Path) -> None:
-        benchmark, session, _ = _protocol_benchmark(tmp_path, failures={1: "raise"})
-        with pytest.raises(GGUFEvidenceError, match="during a measured request"):
-            benchmark.run()
-
-        assert session.calls.count("generate_timed") == 2
-        doc = _read(tmp_path / "ev.json")
-        assert (doc["status"], doc["failure_phase"]) == ("failed", "measured")
-        assert [row["status"] for row in doc["requests"]] == [
-            "succeeded",
-            "incomplete",
-            "incomplete",
-        ]
-        assert doc["requests"][1]["error"]["message"] == "native session crashed"
-
-    def test_context_mismatch_records_both_values_then_fails(self, tmp_path: Path) -> None:
-        with pytest.raises(GGUFEvidenceError, match="during initialization"):
-            _protocol_run(tmp_path, effective_context=32)
-
-        doc = _read(tmp_path / "ev.json")
-        assert doc["configuration"]["context"] == {
-            "requested": 16,
-            "effective": 32,
-            "declared": None,
-        }
-        assert {row["status"] for row in doc["requests"]} == {"incomplete"}
-
-    def test_missing_shard_is_a_configuration_failure(self, tmp_path: Path) -> None:
-        benchmark, session, _ = _protocol_benchmark(
-            tmp_path, model_path=tmp_path / "m-00001-of-00002.gguf"
-        )
-
-        with pytest.raises(GGUFEvidenceError, match="during configuration"):
-            benchmark.run()
-
-        assert _read(tmp_path / "ev.json")["failure_phase"] == "configuration"
-        assert session.calls == []
-
-    def test_failure_before_the_capture_explains_the_missing_native_log(
-        self, tmp_path: Path
-    ) -> None:
-        benchmark, _, _ = _protocol_benchmark(
-            tmp_path, model_path=tmp_path / "m-00001-of-00002.gguf"
-        )
-        with pytest.raises(GGUFEvidenceError):
-            benchmark.run()
-
-        doc = _read(tmp_path / "ev.json")
-        reason = "The run ended before the native log capture was installed."
-        capture = doc["native_log"]["capture"]
-        assert (capture["installed"], capture["reason"]) == (False, reason)
-        unknown = doc["configuration"]["native"]["unknown"]
-        assert {key: value for key, value in unknown.items() if key != "threads"} == (
-            dict.fromkeys(NATIVE_VALUE_KEYS, reason)
-        )
-
-    def test_unexpected_exception_restores_runtime_callback_before_close(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        benchmark, session, _ = _protocol_benchmark(tmp_path, failures={0: "raise"}, owned=True)
-        monkeypatch.setattr(perf_gguf, "WinMLLlamaSession", lambda *_a, **_k: session)
-
-        with pytest.raises(GGUFEvidenceError, match="during a warmup request"):
-            benchmark.run()
-
-        assert session.closed
-        assert session.callback_at_close == RUNTIME_CALLBACK
-
-    @pytest.mark.parametrize(
-        ("phase", "cause", "message"),
-        [
-            ("warmup", RuntimeError(), "during a warmup request: RuntimeError."),
-            (
-                "measured",
-                RuntimeError("native failure."),
-                "during a measured request: native failure.",
-            ),
-            ("initialization", LlamaLoadError("no backend"), "during initialization: no backend."),
-            (
-                "initialization",
-                LlamaLoadError("Could not load the model. Is the backend installed?"),
-                "during initialization: Could not load the model. Is the backend installed?",
-            ),
-            ("finalization", OSError("disk went away\r\n"), "during finalization: disk went away."),
-            ("configuration", RuntimeError(" "), "during configuration: RuntimeError."),
-        ],
-    )
-    def test_error_message_reads_as_one_sentence(
-        self, phase: str, cause: BaseException, message: str
-    ) -> None:
-        error = GGUFEvidenceError(phase, cause, Path("ev.json"))
-
-        # The path is printed on the "Evidence saved to" line above the error.
-        assert str(error) == f"GGUF evidence run failed {message}"
-        assert error.path == Path("ev.json")
-
-    def test_ctrl_c_during_load_logging_stops_the_run_after_load(self, tmp_path: Path) -> None:
-        benchmark, session, api = _protocol_benchmark(tmp_path, ctrl_c_in_log="load")
-
-        with pytest.raises(KeyboardInterrupt):
-            benchmark.run()
-
-        doc = _read(tmp_path / "ev.json")
-        assert (doc["status"], doc["failure_phase"]) == ("failed", "initialization")
-        assert doc["error"]["type"] == "KeyboardInterrupt"
-        assert {row["status"] for row in doc["requests"]} == {"incomplete"}
-        assert "generate_timed" not in session.calls
-        assert api.callback == RUNTIME_CALLBACK
-
-    def test_ctrl_c_during_warmup0_logging_keeps_its_row_and_stops(self, tmp_path: Path) -> None:
-        benchmark, session, api = _protocol_benchmark(tmp_path, ctrl_c_in_log="warmup-0")
-
-        with pytest.raises(KeyboardInterrupt):
-            benchmark.run()
-
-        doc = _read(tmp_path / "ev.json")
-        assert (doc["status"], doc["failure_phase"]) == ("failed", "warmup")
-        assert [row["status"] for row in doc["requests"]] == [
-            "succeeded",
-            "incomplete",
-            "incomplete",
-        ]
-        assert session.calls.count("generate_timed") == 1
-        assert api.callback == RUNTIME_CALLBACK
-
-    def test_interrupt_writes_failed_evidence_and_propagates(self, tmp_path: Path) -> None:
-        with pytest.raises(KeyboardInterrupt):
-            _protocol_run(tmp_path, failures={1: "interrupt"})
-
-        assert _read(tmp_path / "ev.json")["status"] == "failed"
+        assert benchmark.run().memory_profile is None
 
 
 class TestEvidenceCli:
     @pytest.mark.parametrize(
-        ("failures", "exit_code", "status"),
-        [({}, 0, "complete"), ({1: "raise"}, 1, "failed")],
+        ("fail_at", "exit_code", "status"), [(None, 0, "complete"), (1, 1, "failed")]
     )
     def test_exit_code_follows_the_evidence_status(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
-        failures: dict[int, str],
+        fail_at: int | None,
         exit_code: int,
         status: str,
     ) -> None:
         evidence = tmp_path / "ev.json"
         report = tmp_path / "report.json"
-        session = _FakeProtocolSession(failures=failures, evidence_path=evidence)
+        session = _LoggingSession(FakeLogApi(), evidence, fail_at=fail_at)
         monkeypatch.setattr(perf_gguf, "WinMLLlamaSession", lambda *_a, **_k: session)
         args = [
             "-m",
@@ -728,11 +520,12 @@ class TestEvidenceCli:
 
         assert result.exit_code == exit_code, result.output
         assert _read(evidence)["status"] == status
-        assert report.exists() is (status != "failed")
-        assert f"(status: {status})" in result.output
         assert session.closed
-        # The "Evidence saved to" line names the file; the error does not repeat it.
-        assert result.output.count(str(evidence)) == 1
+        # A complete run saves its report and names the evidence; a failed one only errors.
+        complete = status == "complete"
+        assert report.exists() is complete
+        assert (f"Evidence saved to: {evidence}" in result.output) is complete
+        assert ("native session crashed" in result.output) is not complete
 
 
 class TestBenchmark:
@@ -1436,11 +1229,10 @@ class TestCliDispatch:
         assert result.exit_code == 0, result.output
         assert capture_run["config"].memory is False
 
-    @pytest.mark.parametrize("existing", ["ev.json", "ev.rows.jsonl"])
     def test_evidence_must_be_new_unless_overwrite(
-        self, runner: CliRunner, tmp_path: Path, capture_run: dict, existing: str
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
     ) -> None:
-        (tmp_path / existing).write_text("{}", encoding="utf-8")
+        (tmp_path / "ev.json").write_text("{}", encoding="utf-8")
         args = ["-m", str(_gguf(tmp_path)), "--evidence", str(tmp_path / "ev.json")]
 
         result = runner.invoke(perf, args)
@@ -1452,7 +1244,7 @@ class TestCliDispatch:
         assert result.exit_code == 0, result.output
         assert capture_run["config"].evidence_path == tmp_path / "ev.json"
 
-    @pytest.mark.parametrize("output", ["x.json", "x.rows.jsonl", "X.JSON", "x.json.tmp"])
+    @pytest.mark.parametrize("output", ["x.json", "X.JSON", "x.json.tmp"])
     def test_evidence_and_output_must_differ(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict, output: str
     ) -> None:
@@ -1478,7 +1270,6 @@ class TestCliDispatch:
             ("--evidence", "model.gguf", "--evidence would overwrite the --model input"),
             ("--evidence", "MODEL.GGUF", "--evidence would overwrite the --model input"),
             ("--evidence", "ids.json", "--evidence would overwrite the --prompt-ids-file input"),
-            ("--evidence", "ids", "--evidence rows file would overwrite the --prompt-ids-file"),
             ("-o", "model.gguf", "--output would overwrite the --model input"),
             ("-o", "ids.json", "--output would overwrite the --prompt-ids-file input"),
         ],
@@ -1495,10 +1286,6 @@ class TestCliDispatch:
         model = _gguf(tmp_path)
         ids = _ids_file(tmp_path, b"[1, 2]")
         target = tmp_path / victim
-        if victim == "ids":
-            # The evidence rows file (ids.rows.jsonl) is the IDs file.
-            ids = ids.rename(tmp_path / "ids.rows.jsonl")
-            target = tmp_path / "ids.json"
         protected = {path: path.read_bytes() for path in (model, ids)}
         result = runner.invoke(
             perf,
@@ -1518,7 +1305,7 @@ class TestCliDispatch:
         assert "config" not in capture_run
         assert {path: path.read_bytes() for path in protected} == protected
 
-    @pytest.mark.parametrize("collision", ["report", "evidence", "rows", "temporary"])
+    @pytest.mark.parametrize("collision", ["report", "evidence", "temporary"])
     @pytest.mark.parametrize("victim_index", [0, 2])
     @pytest.mark.parametrize("missing_shard", [False, True])
     def test_outputs_never_overwrite_another_model_shard(
@@ -1541,18 +1328,8 @@ class TestCliDispatch:
         elif collision == "evidence":
             evidence = victim
         else:
-            alias = (
-                _gguf_evidence.rows_path(evidence)
-                if collision == "rows"
-                else _gguf_evidence.temporary_path(evidence)
-            )
-            alias.hardlink_to(victim)
-        for path in (
-            output,
-            evidence,
-            _gguf_evidence.rows_path(evidence),
-            _gguf_evidence.temporary_path(evidence),
-        ):
+            _gguf_evidence.temporary_path(evidence).hardlink_to(victim)
+        for path in (output, evidence, _gguf_evidence.temporary_path(evidence)):
             if not path.exists():
                 path.write_bytes(random.randbytes(32))
         before = {path: path.read_bytes() for path in tmp_path.iterdir()}
@@ -1560,11 +1337,8 @@ class TestCliDispatch:
         def persist_outputs(config: GGUFPerfConfig, **_kwargs: Any) -> None:
             # Only model execution is replaced; exercise the real file writers.
             if config.evidence_path is not None:
-                writer = _gguf_evidence.EvidenceWriter(config.evidence_path)
-                try:
-                    writer.write({"status": "running"})
-                finally:
-                    writer.close()
+                capture = NativeLogCapture(load_api=lambda: None)
+                _gguf_evidence.EvidenceRecorder(config, capture=capture).finish(None)
             assert config.output_path is not None
             write_gguf_report(GGUFBenchmarkResult(config), config.output_path)
 
@@ -1592,7 +1366,7 @@ class TestCliDispatch:
         assert result.exit_code == 1, result.output
         document = _read(evidence)
         assert document["status"] == "failed"
-        assert document["failure_phase"] == "configuration"
+        assert document["error"]["type"] == "FileNotFoundError"
         assert "model-00002-of-00002.gguf" in result.output
         assert model.read_bytes() == before
         assert not output.exists()

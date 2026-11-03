@@ -3009,7 +3009,7 @@ def _resolve_gguf_evidence(
     inputs: Sequence[tuple[str, Path | None]],
 ) -> Path | None:
     """Check ``--evidence`` against the in-process options, the inputs and the report path."""
-    from ._gguf_evidence import rows_path, temporary_path
+    from ._gguf_evidence import temporary_path
 
     p = ctx.params
     evidence: Path | None = p.get("evidence")
@@ -3027,14 +3027,12 @@ def _resolve_gguf_evidence(
         )
     written = (
         ("--evidence", evidence),
-        ("--evidence rows file", rows_path(evidence)),
         ("--evidence temporary file", temporary_path(evidence)),
     )
     _reject_input_overwrite(written, inputs)
     if any(_same_file(output, path) for _, path in written):
         raise click.UsageError("--evidence and --output must name different files.")
     cli_utils.guard_output(evidence, p["overwrite"], label="Evidence")
-    cli_utils.guard_output(rows_path(evidence), p["overwrite"], label="Evidence rows")
     return evidence
 
 
@@ -3099,7 +3097,7 @@ def _run_gguf_runtime(
     prompt_ids = _resolve_gguf_prompt_ids(ctx)
     context_length = p.get("context_length")
     if context_length is not None and context_length <= p["max_new_tokens"]:
-        # Any prompt has at least one token; catch this before the model is hashed.
+        # Any prompt has at least one token; catch this before the run starts.
         raise click.UsageError(
             f"--context-length {context_length} leaves no room for a prompt: it must be "
             f"larger than --max-new-tokens {p['max_new_tokens']}."
@@ -3303,8 +3301,8 @@ def _validate_duration(
     "--evidence",
     type=click.Path(dir_okay=False, path_type=Path),
     default=None,
-    help="[GGUF] Write raw gguf-task-events-1.1 request evidence to this new JSON file "
-    "and a .rows.jsonl sidecar. Needs --warmup 1 or more and turns off --memory.",
+    help="[GGUF] Write raw gguf-task-events-2 request evidence to this new JSON file. "
+    "Needs --warmup 1 or more and turns off --memory.",
 )
 @click.option(
     "--compile-timeout",
