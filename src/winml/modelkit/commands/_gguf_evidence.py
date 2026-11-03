@@ -449,7 +449,6 @@ class EvidenceRecorder:
         self._configuration: dict[str, Any] = {}
         self._initialization: dict[str, Any] = {}
         self._rows: list[dict[str, Any]] = []
-        self._harness: dict[str, Any] = {}
         self._native_log: dict[str, Any] = {}
         self._missing_reasons: dict[str, str] = {}
         self._cache_state: dict[str, Any] = {}
@@ -609,7 +608,6 @@ class EvidenceRecorder:
         *,
         capture: NativeLogCapture,
         initialization_spans: Sequence[tuple[str, int, int]],
-        gc_collections: int,
     ) -> str:
         """Complete the document, write it atomically, and return the run status.
 
@@ -643,12 +641,6 @@ class EvidenceRecorder:
             ],
             "ready": None,
         }
-        self._harness = {
-            "gc": {
-                "policy": "disabled_during_measured_requests",
-                "collections_between_requests": gc_collections,
-            }
-        }
         self._missing_reasons = {"load": MISSING_LOAD, "ready": MISSING_READY}
         self._cache_state = {
             "file": "unknown",
@@ -677,7 +669,6 @@ class EvidenceRecorder:
             "configuration": _ordered(self._configuration, _CONFIGURATION_KEYS),
             "initialization": self._initialization,
             "requests": list(self._rows),
-            "harness": self._harness,
             "native_log": self._native_log,
             "load": None,
             "missing_reasons": self._missing_reasons,

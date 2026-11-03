@@ -365,14 +365,12 @@ class TestEvidenceRecorder:
         assert doc["process"] == process_identity()
         assert doc["clock"] == clock_info(42)
         assert doc["producer"] == producer_info()
-        for key in (
-            "workload", "configuration", "initialization", "harness", "native_log", "cache_state"
-        ):
+        for key in ("workload", "configuration", "initialization", "native_log", "cache_state"):
             assert doc[key] == {}
         assert list(doc) == [
             "schema_version", "producer", "host_api", "process", "clock", "status",
             "failure_phase", "error", "workload", "configuration", "initialization",
-            "requests", "harness", "native_log", "load", "missing_reasons", "cache_state",
+            "requests", "native_log", "load", "missing_reasons", "cache_state",
         ]
 
     def test_complete_document_records_requested_and_effective_values(
@@ -393,9 +391,7 @@ class TestEvidenceRecorder:
         recorder.record_loaded_modules("at_end")
         recorder.record_hashed_modules()
         status = recorder.finish(
-            capture=_no_capture(),
-            initialization_spans=[("runtime_create", 5, 6)],
-            gc_collections=2,
+            capture=_no_capture(), initialization_spans=[("runtime_create", 5, 6)]
         )
         doc = _read(cfg.evidence_path)
         assert status == doc["status"] == recorder.status == "complete"
@@ -444,10 +440,6 @@ class TestEvidenceRecorder:
         assert c["in_process_resource_work"] is False
         assert set(c["native"]["unknown"]) == {"threads", *NATIVE_VALUE_KEYS}
         assert c["native"]["values"] == {}
-        assert doc["harness"]["gc"] == {
-            "policy": "disabled_during_measured_requests",
-            "collections_between_requests": 2,
-        }
         assert doc["initialization"]["spans"] == [
             {"name": "runtime_create", "start_ns": 5, "end_ns": 6}
         ]
@@ -478,7 +470,7 @@ class TestEvidenceRecorder:
         recorder.record_request("warmup", 0, make_record(start_ns=10_000))
         api.emit(2, b"llama_context: n_ctx                 = 9\n")
         capture.restore()
-        recorder.finish(capture=capture, initialization_spans=[], gc_collections=0)
+        recorder.finish(capture=capture, initialization_spans=[])
         doc = _read(cfg.evidence_path)
         assert recorder.warmup0_submit_ns == 10_025
         assert [line["phase"] for line in doc["native_log"]["lines"]] == ["load", "warmup-0"]
@@ -495,7 +487,7 @@ class TestEvidenceRecorder:
         }
         recorder = EvidenceRecorder(_cfg(tmp_path))
         recorder.record_load(_RaisingEosSession(**values), requested_context=16)
-        recorder.finish(capture=_no_capture(), initialization_spans=[], gc_collections=0)
+        recorder.finish(capture=_no_capture(), initialization_spans=[])
         eos = _read(tmp_path / "ev.json")["configuration"]["eos"]
         assert eos["task_default_eos_token_ids"] is None
         assert eos["reason"] == "HResultError: read-back failed"
@@ -513,9 +505,7 @@ class TestEvidenceRecorder:
         exc = HResultError(0x80004005, "session unusable")
         recorder.fail(phase, exc)
         recorder.fail("finalization", RuntimeError("later"))  # only the first failure counts
-        status = recorder.finish(
-            capture=_no_capture(), initialization_spans=[], gc_collections=0
-        )
+        status = recorder.finish(capture=_no_capture(), initialization_spans=[])
         doc = _read(cfg.evidence_path)
         rows = doc["requests"]
         assert [row["status"] for row in rows] == ["succeeded", "incomplete", "incomplete"]
@@ -537,7 +527,7 @@ class TestEvidenceRecorder:
         recorder = EvidenceRecorder(cfg)
         recorder.record_configuration()
         recorder.fail("initialization", RuntimeError("tokenizer failed"))
-        recorder.finish(capture=_no_capture(), initialization_spans=[], gc_collections=0)
+        recorder.finish(capture=_no_capture(), initialization_spans=[])
         doc = _read(cfg.evidence_path)
         assert doc["workload"]["input_mode"] == "text"
         assert {tuple(row["input_ids"]) for row in doc["requests"]} == {()}
@@ -550,7 +540,7 @@ class TestEvidenceRecorder:
         recorder = EvidenceRecorder(_cfg(tmp_path))
         recorder.record_loaded_modules("after_warmup0")
         recorder.record_loaded_modules("at_end")
-        recorder.finish(capture=_no_capture(), initialization_spans=[], gc_collections=0)
+        recorder.finish(capture=_no_capture(), initialization_spans=[])
         c = _read(tmp_path / "ev.json")["configuration"]
         assert c["loaded_modules"] == {"after_warmup0": modules, "at_end": modules}
         assert c["ort_sidecar_loaded"] is True
@@ -558,6 +548,6 @@ class TestEvidenceRecorder:
     def test_initialization_starts_after_the_process_record(self, tmp_path: Path) -> None:
         recorder = EvidenceRecorder(_cfg(tmp_path), clock_ns=itertools.count(1_000, 7).__next__)
         recorder.begin_initialization()
-        recorder.finish(capture=_no_capture(), initialization_spans=[], gc_collections=0)
+        recorder.finish(capture=_no_capture(), initialization_spans=[])
         doc = _read(tmp_path / "ev.json")
         assert doc["clock"]["started_qpc_ns"] < doc["initialization"]["init_start_ns"]

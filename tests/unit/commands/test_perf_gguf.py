@@ -12,7 +12,6 @@ makes aggregation deterministic without importing Windows ML Tasks. The session 
 from __future__ import annotations
 
 import dataclasses
-import gc
 import json
 import os
 from io import StringIO
@@ -269,7 +268,6 @@ class _FakeProtocolSession(_FakeLlamaSession):
         self.callback_at_load: int | None = None
         self.callback_at_close: int | None = None
         self.callback_at_request: list[int | None] = []
-        self.gc_enabled_at_request: list[bool] = []
         self.rows_at_request: list[int | None] = []
 
     def _log_callback(self) -> int | None:
@@ -291,9 +289,8 @@ class _FakeProtocolSession(_FakeLlamaSession):
     def run_request(
         self, token_ids: list[int], *, options: FakeOptions, clock_ns: Any
     ) -> LlamaRequestRecord:
-        position = len(self.gc_enabled_at_request)
+        position = len(self.callback_at_request)
         self.calls.append("run_request")
-        self.gc_enabled_at_request.append(gc.isenabled())
         self.callback_at_request.append(self._log_callback())
         evidence = self._evidence_path
         self.rows_at_request.append(_line_count(rows_path(evidence)) if evidence else None)
@@ -556,13 +553,6 @@ class TestEvidenceRun:
         ]
         assert doc["native_log"]["after_capture"]["restored"] is True
 
-    def test_gc_is_disabled_only_for_measured_requests(self, tmp_path: Path) -> None:
-        doc, session, _ = _protocol_run(tmp_path)
-
-        assert session.gc_enabled_at_request == [True, False, False]
-        assert gc.isenabled()
-        assert doc["harness"]["gc"]["collections_between_requests"] == 2
-
     def test_rows_reach_disk_before_the_next_request(self, tmp_path: Path) -> None:
         _, session, _ = _protocol_run(tmp_path)
 
@@ -756,7 +746,7 @@ class TestEvidenceFailures:
             "incomplete",
             "incomplete",
         ]
-        assert session.gc_enabled_at_request == [True]
+        assert session.calls.count("run_request") == 1
         assert api.callback == RUNTIME_CALLBACK
 
     def test_interrupt_writes_failed_evidence_and_propagates(self, tmp_path: Path) -> None:
@@ -764,7 +754,6 @@ class TestEvidenceFailures:
             _protocol_run(tmp_path, failures={1: "interrupt"})
 
         assert _read(tmp_path / "ev.json")["status"] == "failed"
-        assert gc.isenabled()
 
 
 class TestEvidenceCli:

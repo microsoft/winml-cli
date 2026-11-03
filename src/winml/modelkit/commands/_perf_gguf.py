@@ -21,7 +21,6 @@ The ``perf`` command validates the ``.gguf`` input and delegates here via
 
 from __future__ import annotations
 
-import gc
 import json
 import logging
 import time
@@ -479,16 +478,13 @@ class GGUFPerfBenchmark:
 
         The order is the evidence definition: the model is hashed before any
         initialization; native log lines are captured from the tokenizer open
-        through warmup 0; garbage collection is off during measured requests and
-        runs between them; a failed request is kept and the run continues unless
+        through warmup 0; a failed request is kept and the run continues unless
         the session can no longer reset. The Runtime log callback is restored
         before the caller closes the session.
         """
         config = self._config
         recorder = EvidenceRecorder(config, clock_ns=self._clock_ns)
         capture = self._log_capture or NativeLogCapture(clock_ns=self._clock_ns)
-        gc_was_enabled = gc.isenabled()
-        collections = 0
         samples: list[_GGUFRequestSample] = []
         session_load_ms = 0.0
         phase = "configuration"
@@ -520,9 +516,6 @@ class GGUFPerfBenchmark:
             planned = planned_requests(config.warmup, config.iterations)
             for position, (kind, index) in enumerate(planned):
                 phase = kind
-                if (kind, index) == ("measured", 0):
-                    gc.collect()
-                    gc.disable()
                 record = session.run_request(prompt_ids, options=options, clock_ns=self._clock_ns)
                 if position == 0:
                     capture.restore()
@@ -534,9 +527,6 @@ class GGUFPerfBenchmark:
                 if position == 0:
                     recorder.record_loaded_modules("after_warmup0")
                     capture.raise_if_interrupted()
-                if kind == "measured":
-                    gc.collect()
-                    collections += 1
                 if row["status"] == "succeeded":
                     sample_kind = "warmup" if kind == "warmup" else "timed"
                     samples.append(_sample_from_record(record, kind=sample_kind, index=position))
@@ -553,13 +543,7 @@ class GGUFPerfBenchmark:
             raise
         finally:
             capture.restore()
-            if gc_was_enabled:
-                gc.enable()
-            recorder.finish(
-                capture=capture,
-                initialization_spans=session.initialization_spans,
-                gc_collections=collections,
-            )
+            recorder.finish(capture=capture, initialization_spans=session.initialization_spans)
         if recorder.status == "failed":
             raise GGUFEvidenceError(
                 recorder.failure_phase or phase, recorder.cause, recorder.path
