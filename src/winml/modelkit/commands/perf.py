@@ -3051,8 +3051,7 @@ def _run_gguf_runtime(
     function-local so ``winml perf --help`` and the other runtimes never load
     them.
     """
-    from ._gguf_identity import gguf_shard_paths
-    from ._perf_gguf import GGUFPerfConfig, run_gguf_perf
+    from ._perf_gguf import GGUFPerfConfig, gguf_shard_paths, run_gguf_perf
 
     if runtime != "winml-runtime":
         raise click.UsageError(
@@ -3103,7 +3102,7 @@ def _run_gguf_runtime(
             f"larger than --max-new-tokens {p['max_new_tokens']}."
         )
     # Protect every expected shard before evidence or report writers open files.
-    # Missing shards remain configuration failures in the evidence lifecycle.
+    # A missing shard is not a usage error; an evidence run records it as failed.
     inputs = (
         ("--model", model_path),
         *(("--model", shard) for shard in gguf_shard_paths(model_path, require_exists=False)),

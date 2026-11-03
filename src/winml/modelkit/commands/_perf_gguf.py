@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from collections import Counter
 from dataclasses import dataclass, field
@@ -65,6 +66,11 @@ RUNTIME_TYPE: RuntimeName = "winml-runtime"
 BACKEND_NAME = "llama.cpp"
 MODEL_FORMAT = "gguf"
 GGUF_SUFFIX = ".gguf"
+# gguf-split names every shard <prefix>-<index>-of-<count>.gguf (five digits each).
+_SPLIT_SHARD = re.compile(
+    r"^(?P<prefix>.+)-\d{5}(?P<separator>-of-)(?P<count>\d{5})(?P<suffix>\.gguf)$",
+    re.IGNORECASE,
+)
 _UNAVAILABLE_MODEL_METRICS = (
     "prefill_duration_ms",
     "prefill_tokens_per_second",
@@ -95,6 +101,38 @@ _MEASURED_REQUEST_METRICS = (
 def is_gguf_model(model: str | Path) -> bool:
     """Return whether a ``-m/--model`` value names a GGUF file (by extension)."""
     return Path(model).suffix.lower() == GGUF_SUFFIX
+
+
+def gguf_shard_paths(entry: Path, *, require_exists: bool = True) -> list[Path]:
+    """Return every shard of a GGUF model, given its entry file.
+
+    A gguf-split name (``<prefix>-00001-of-00003.gguf``) expands to all shards
+    in the same folder; any other name is a single-file model.
+
+    Set ``require_exists=False`` to protect all expected shard paths before
+    output files are opened. An evidence run checks the shards right after its
+    start write, so a missing shard ends that run as failed with
+    ``FileNotFoundError``.
+
+    Raises:
+        FileNotFoundError: A split shard is missing and ``require_exists`` is true.
+    """
+    match = _SPLIT_SHARD.match(entry.name)
+    if match is None:
+        return [entry]
+    count = int(match["count"])
+    shards = [
+        entry.with_name(
+            f"{match['prefix']}-{index:05d}{match['separator']}{match['count']}{match['suffix']}"
+        )
+        for index in range(1, count + 1)
+    ]
+    missing = [shard.name for shard in shards if not shard.is_file()] if require_exists else []
+    if missing:
+        raise FileNotFoundError(
+            f"GGUF split shard(s) not found next to {entry}: {', '.join(missing)}"
+        )
+    return shards
 
 
 def read_prompt_ids_file(path: Path) -> tuple[int, ...]:
@@ -413,7 +451,6 @@ class GGUFPerfBenchmark:
         Runtime log callback is restored and before the caller closes the session.
         """
         from ._gguf_evidence import EvidenceRecorder
-        from ._gguf_identity import gguf_shard_paths
         from ._gguf_native_log import NativeLogCapture
 
         evidence = EvidenceRecorder(self._config, capture=self._log_capture or NativeLogCapture())

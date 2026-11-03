@@ -163,16 +163,8 @@ field set explicitly.
 | `PATH` with `.rows.jsonl` in place of `.json` | One request row per line, appended and flushed after each request. |
 | `PATH.tmp` | Present only while the evidence document is being replaced. Every write goes to this file first, so a reader never sees a partial document. |
 
-The effective configuration includes every environment variable whose name starts
-with `WINML_`, `GGML_`, `LLAMA_`, or `CUDA_`. Evidence is meant to be shared, so the
-value of a variable whose name contains `KEY`, `TOKEN`, `SECRET`, `PASSWORD`,
-`PASSWD`, `CREDENTIAL`, or `AUTH` (for example `LLAMA_API_KEY`) is written as
-`<redacted>`. The same applies to credentials in the URL winml-cli was installed
-from: its user information and every query value, such as a signed link's `sig=`.
-
-The document is first written with status `running` before the model is hashed and
-before the Runtime is imported, and it is rewritten with a final status when the run
-ends:
+The document is first written with status `running` before the Runtime is imported,
+and it is rewritten with a final status when the run ends:
 
 | Status | Meaning | Exit code |
 |---|---|---|

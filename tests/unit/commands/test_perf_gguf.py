@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from io import StringIO
 from itertools import accumulate, count, pairwise
 from pathlib import Path
@@ -37,6 +38,7 @@ from winml.modelkit.commands._perf_gguf import (
     GGUFPerfConfig,
     display_gguf_report,
     gguf_output_path,
+    gguf_shard_paths,
     is_gguf_model,
     run_gguf_perf,
     write_gguf_report,
@@ -840,6 +842,26 @@ class TestReporting:
     )
     def test_is_gguf_model(self, value: str, expected: bool) -> None:
         assert is_gguf_model(value) is expected
+
+
+class TestModelShards:
+    def test_split_model_enumerates_every_gguf_split_shard(self, tmp_path: Path) -> None:
+        names = [f"m-{i:05d}-of-00003.gguf" for i in range(1, 4)]
+        for i, name in enumerate(names):
+            (tmp_path / name).write_bytes(bytes([i]) * 8)
+        assert [p.name for p in gguf_shard_paths(tmp_path / names[1])] == names
+        # Any other name is a single-file model.
+        assert gguf_shard_paths(tmp_path / "tiny.gguf") == [tmp_path / "tiny.gguf"]
+
+    def test_missing_shard_raises_only_when_shards_must_exist(self, tmp_path: Path) -> None:
+        entry = tmp_path / "m-00001-of-00002.gguf"
+        entry.write_bytes(b"a")
+        with pytest.raises(FileNotFoundError, match=re.escape("m-00002-of-00002.gguf")):
+            gguf_shard_paths(entry)
+        assert [p.name for p in gguf_shard_paths(entry, require_exists=False)] == [
+            "m-00001-of-00002.gguf",
+            "m-00002-of-00002.gguf",
+        ]
 
 
 class TestRunGGUFPerf:
