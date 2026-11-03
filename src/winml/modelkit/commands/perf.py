@@ -3023,7 +3023,7 @@ def _resolve_gguf_evidence(
         ("--evidence temporary file", temporary_path(evidence)),
     )
     _reject_input_overwrite(written, inputs)
-    if _same_file(output, evidence):
+    if any(_same_file(output, path) for _, path in written):
         raise click.UsageError("--evidence and --output must name different files.")
     cli_utils.guard_output(evidence, p["overwrite"], label="Evidence")
     return evidence

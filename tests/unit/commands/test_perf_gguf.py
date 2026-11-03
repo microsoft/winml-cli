@@ -1209,7 +1209,7 @@ class TestCliDispatch:
         assert result.exit_code == 0, result.output
         assert capture_run["config"].evidence_path == tmp_path / "ev.json"
 
-    @pytest.mark.parametrize("output", ["x.json", "X.JSON"])
+    @pytest.mark.parametrize("output", ["x.json", "X.JSON", "x.json.tmp"])
     def test_evidence_and_output_must_differ(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict, output: str
     ) -> None:
