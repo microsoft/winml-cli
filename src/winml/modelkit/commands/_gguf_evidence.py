@@ -47,7 +47,7 @@ def temporary_path(evidence_path: Path) -> Path:
 
 
 def token_ids_sha256(token_ids: Sequence[int]) -> str:
-    """SHA-256 of the compact JSON array of token IDs (the benchmark's prompt hash)."""
+    """SHA-256 of the compact JSON array of token IDs."""
     return hashlib.sha256(json.dumps(list(token_ids), separators=(",", ":")).encode()).hexdigest()
 
 

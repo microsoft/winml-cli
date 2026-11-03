@@ -30,7 +30,7 @@ from rich.console import Console
 from tests.unit.test_helpers import RUNTIME_CALLBACK, FakeLogApi, make_timing
 from winml.modelkit.commands import _gguf_evidence
 from winml.modelkit.commands import _perf_gguf as perf_gguf
-from winml.modelkit.commands._gguf_evidence import request_row, token_ids_sha256
+from winml.modelkit.commands._gguf_evidence import request_row
 from winml.modelkit.commands._gguf_native_log import NativeLogCapture
 from winml.modelkit.commands._perf_gguf import (
     GGUFBenchmarkResult,
@@ -313,15 +313,6 @@ def _explode(*_args: Any, **_kwargs: Any) -> None:
 # ---------------------------------------------------------------------------
 
 
-ADDITIVE_KEYS = {
-    "input_mode",
-    "prompt_ids_sha256",
-    "context_length_requested",
-    "eos_policy",
-    "evidence_path",
-}
-
-
 class TestProtocolOptions:
     def test_prompt_ids_skip_encoding_and_size_the_context(self, tmp_path: Path) -> None:
         ids = (5, 6, 7, 8, 9)
@@ -365,35 +356,25 @@ class TestProtocolOptions:
             GGUFPerfBenchmark(_config(tmp_path, ignore_eos=True), session=bad).run()
         assert bad.generate_kwargs == []
 
-    def test_schema3_adds_fields_only_with_protocol_options(self, tmp_path: Path) -> None:
+    def test_schema3_reports_ignore_eos_and_no_prompt_text_for_token_ids(
+        self, tmp_path: Path
+    ) -> None:
         stock = _run_fake(tmp_path, [_timing()] * 3)[0].to_dict()["benchmark_info"]
-        ids = (1, 2, 3, 4)
-        protocol = _run_fake(
+        exact = _run_fake(
             tmp_path,
             [_timing()] * 3,
-            prompt_ids=ids,
+            prompt_ids=(1, 2, 3, 4),
             context_length=16,
             ignore_eos=True,
             apply_template=False,
         )[0].to_dict()["benchmark_info"]
-        assert ADDITIVE_KEYS.isdisjoint(stock)
-        assert set(protocol) == set(stock) | ADDITIVE_KEYS
-        assert {key: protocol[key] for key in ADDITIVE_KEYS} == {
-            "input_mode": "token_ids",
-            "prompt_ids_sha256": token_ids_sha256(ids),
-            "context_length_requested": 16,
-            "eos_policy": "ignore",
-            "evidence_path": None,
-        }
-        assert protocol["prompt"] is None
-        assert stock["prompt"] == GGUFPerfConfig(model_path=Path("m.gguf")).prompt
-
-    def test_text_mode_reports_the_digest_of_the_encoded_prompt(self, tmp_path: Path) -> None:
-        info = _run_fake(tmp_path, [_timing()] * 3, context_length=64)[0].to_dict()
-        benchmark_info = info["benchmark_info"]
-        assert benchmark_info["input_mode"] == "text"
-        assert benchmark_info["prompt_ids_sha256"] == token_ids_sha256(range(4))
-        assert benchmark_info["prompt"] == GGUFPerfConfig(model_path=Path("m.gguf")).prompt
+        # The options add no keys of their own; every GGUF report has the same keys.
+        assert set(exact) == set(stock)
+        assert (stock["prompt"], stock["ignore_eos"]) == (
+            GGUFPerfConfig(model_path=Path("m.gguf")).prompt,
+            False,
+        )
+        assert (exact["prompt"], exact["ignore_eos"], exact["context_length"]) == (None, True, 16)
 
 
 class TestEvidenceRun:

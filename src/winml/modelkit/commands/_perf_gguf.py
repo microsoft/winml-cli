@@ -43,7 +43,6 @@ from ._generation_metrics import (
     _round_stats,
     _stats,
 )
-from ._gguf_evidence import token_ids_sha256
 
 
 if TYPE_CHECKING:
@@ -213,16 +212,6 @@ class GGUFPerfConfig:
     ignore_eos: bool = False
     evidence_path: Path | None = None
 
-    @property
-    def uses_protocol_options(self) -> bool:
-        """Whether any exact-workload option (IDs, context, EOS, evidence) is set."""
-        return (
-            self.prompt_ids is not None
-            or self.context_length is not None
-            or self.ignore_eos
-            or self.evidence_path is not None
-        )
-
 
 @dataclass
 class _GGUFRequestSample:
@@ -316,48 +305,40 @@ class GGUFBenchmarkResult:
     requests: list[_GGUFRequestSample] = field(default_factory=list)
     aggregate: dict[str, Any] = field(default_factory=dict)
     memory_profile: dict[str, float | None] | None = None
-    prompt_ids_sha256: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to a JSON-serializable Task timing report."""
         cfg = self.config
-        benchmark_info: dict[str, Any] = {
-            "runtime": RUNTIME_TYPE,
-            "backend": BACKEND_NAME,
-            "api": "windowsml.tasks",
-            "timing_source": "task-stream",
-            "model_format": MODEL_FORMAT,
-            "experimental": True,
-            "model_id": str(cfg.model_path),
-            "running_model_path": str(cfg.model_path),
-            "ep": None,
-            "device": cfg.requested_device,
-            "effective_device": self.effective_device,
-            "iterations": cfg.iterations,
-            "warmup": cfg.warmup,
-            "max_new_tokens": cfg.max_new_tokens,
-            "apply_template": cfg.apply_template,
-            "chat_template_applied": self.chat_template_applied,
-            "prompt": cfg.prompt if cfg.prompt_ids is None else None,
-            "prompt_tokens": self.prompt_tokens,
-            "generated_tokens": self.generated_tokens,
-            "stop_reason": self.stop_reason,
-            "context_length": self.context_length,
-            "packages": dict(self.packages),
-            "llama_backends": list(self.llama_backends),
-            "timestamp": self.timestamp,
-        }
-        if cfg.uses_protocol_options:
-            benchmark_info.update(
-                input_mode="token_ids" if cfg.prompt_ids is not None else "text",
-                prompt_ids_sha256=self.prompt_ids_sha256,
-                context_length_requested=cfg.context_length,
-                eos_policy="ignore" if cfg.ignore_eos else "default",
-                evidence_path=str(cfg.evidence_path) if cfg.evidence_path is not None else None,
-            )
         result: dict[str, Any] = {
             "schema_version": 3,
-            "benchmark_info": benchmark_info,
+            "benchmark_info": {
+                "runtime": RUNTIME_TYPE,
+                "backend": BACKEND_NAME,
+                "api": "windowsml.tasks",
+                "timing_source": "task-stream",
+                "model_format": MODEL_FORMAT,
+                "experimental": True,
+                "model_id": str(cfg.model_path),
+                "running_model_path": str(cfg.model_path),
+                "ep": None,
+                "device": cfg.requested_device,
+                "effective_device": self.effective_device,
+                "iterations": cfg.iterations,
+                "warmup": cfg.warmup,
+                "max_new_tokens": cfg.max_new_tokens,
+                "ignore_eos": cfg.ignore_eos,
+                "apply_template": cfg.apply_template,
+                "chat_template_applied": self.chat_template_applied,
+                # Exact token IDs are submitted instead of the prompt text.
+                "prompt": cfg.prompt if cfg.prompt_ids is None else None,
+                "prompt_tokens": self.prompt_tokens,
+                "generated_tokens": self.generated_tokens,
+                "stop_reason": self.stop_reason,
+                "context_length": self.context_length,
+                "packages": dict(self.packages),
+                "llama_backends": list(self.llama_backends),
+                "timestamp": self.timestamp,
+            },
             "load": {
                 key: round(value, 3) if isinstance(value, float) else value
                 for key, value in self.load.items()
@@ -420,7 +401,6 @@ class GGUFPerfBenchmark:
         self._log_capture = log_capture
         self._evidence: EvidenceRecorder | None = None
         self._stop_reasons: list[tuple[str, str]] = []
-        self._prompt_ids_sha256: str | None = None
 
     def run(self) -> GGUFBenchmarkResult:
         """Execute the benchmark and return aggregated metrics.
@@ -483,7 +463,6 @@ class GGUFPerfBenchmark:
             evidence.capture.install()
         # Size the context to this benchmark (excluded from the load span).
         prompt_ids = self._prompt_ids(session)
-        self._prompt_ids_sha256 = token_ids_sha256(prompt_ids)
         model_start = self._clock()
         self._load(session, prompt_ids)
         load_end = self._clock()
@@ -662,7 +641,6 @@ class GGUFPerfBenchmark:
             load=self._load_metrics(session_load_ms),
             requests=samples,
             aggregate=aggregate,
-            prompt_ids_sha256=self._prompt_ids_sha256,
         )
 
     def _load_metrics(self, session_load_ms: float) -> dict[str, float | str | None]:
