@@ -3266,15 +3266,16 @@ def _validate_duration(
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     default=None,
     help="[GGUF] Read exact prompt token IDs from a JSON array file and submit them on "
-    "every request without a chat template. Cannot be combined with --prompt or "
-    "--prompt-file.",
+    "every request without a chat template. Cannot be combined with --prompt, "
+    "--prompt-file, or --apply-template.",
 )
 @click.option(
     "--context-length",
     type=click.IntRange(min=1),
     default=None,
-    help="[GGUF] Sequence capacity to load the model with; the run fails unless the "
-    "Runtime reports exactly this capacity. Default: prompt tokens plus --max-new-tokens.",
+    help="[GGUF] Sequence capacity to load the model with; use a multiple of 256. The run "
+    "fails unless the Runtime reports exactly this capacity. Default: prompt tokens plus "
+    "--max-new-tokens.",
 )
 @click.option(
     "--ignore-eos/--no-ignore-eos",

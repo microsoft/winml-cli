@@ -111,7 +111,7 @@ These options apply to GGUF models:
 | `--evidence` | Write raw `gguf-task-events-2` request evidence to this JSON file, which must be new unless you pass `--overwrite`. The evidence file, its temporary file (the same name plus `.tmp`), and `--output` cannot name any model shard or the `--prompt-ids-file` input, even with `--overwrite`. Evidence paths must also differ from `--output`. Needs `--warmup` of at least `1` and turns off `--memory`; an explicit `--memory` is an error. |
 | `--iterations`, `--warmup` | Timed and warmup generations (defaults `10` and `2`). |
 | `--memory/--no-memory` | Process RAM at the load and inference checkpoints. |
-| `--output`, `--overwrite`, `--format json` | Same as for the other runtimes. |
+| `--output`, `--overwrite`, `--format json` | Same as for the other runtimes, except that `--output` cannot name the model, any of its shards, or the `--prompt-ids-file` input, even with `--overwrite`. |
 
 `--prompt-ids-file`, `--context-length`, `--ignore-eos`, and `--evidence` apply only
 to GGUF models; `winml perf` rejects them for other inputs.
@@ -164,7 +164,7 @@ follows when the run ends:
 
 | Field | Contents |
 |---|---|
-| `status` | `complete` when every request succeeded (exit code 0), or `failed` when anything failed (exit code 1). A `running` document after the command exits means the process ended without its end write. |
+| `status` | `complete` when every request succeeded, or `failed` when anything failed (exit code 1). The end write comes before the schema 3 report is printed and saved, so after `complete` the command exits with code 0 unless that step fails. A `running` document after the command exits means the process ended without its end write. |
 | `error` | `null`, or the `type` and `message` of the error that ended the run. |
 | `workload` | The requested workload: `input_ids_sha256` (SHA-256 of the IDs as a compact JSON array, such as `[1,2,3]`) and `input_token_count`, both `null` for a text prompt; `max_new_tokens`; `context_length` (`null` without `--context-length`); `ignore_eos`; `warmup`; and `iterations`. |
 | `packages` | Installed versions of the packages in `benchmark_info.packages`, and of `winml-cli`. |
@@ -185,15 +185,20 @@ fields:
 | `prompt_tokens` | The prompt token count the Task reported. |
 | `cached_tokens` | Tokens the Task session still held right after its reset: `0` when the prompt was evaluated from an empty session, `null` when the session could not report its state. |
 
-`native_log` holds the llama.cpp log from model load through the first warmup
-request; then the Runtime's own log callback is restored. Each entry of `fragments`
-is one call of the llama.cpp log callback: its `level`, its `text` as emitted (line
-breaks included), and its own `qpc_ns` stamp. Continuation fragments (level 5) are
-not joined to the line they continue. `installed` tells whether the capture was
-installed (`reason` explains why not), `intact` whether the capturing callback was
-still installed when the capture ended, and `restored` whether the Runtime callback
-is back. Backend registration and device lines go to the process's stderr before
-the Runtime installs its logger, so they are not captured.
+`native_log` holds the raw llama.cpp log from model load through the first warmup
+request; then the Runtime's own log callback is restored. It is one flat object with
+five keys:
+
+| Key | Contents |
+|---|---|
+| `installed` | Whether the capturing callback was installed. |
+| `reason` | Why the capture was not installed, or `null` when it was. |
+| `intact` | Whether the capturing callback was still installed when the capture ended; `null` when the capture was not installed or reading the current callback failed. |
+| `restored` | Whether the Runtime's own callback is back; `false` when the capture was not installed. |
+| `fragments[]` | One entry per call of the llama.cpp log callback, in order: its `level`, its `text` as emitted (line breaks included), and its own `qpc_ns` stamp. Continuation fragments (level 5) stay separate entries; a reader joins them to the line they continue. |
+
+Backend registration and device lines go to the process's stderr before the Runtime
+installs its logger, so they are not captured.
 
 Row stamps are `time.perf_counter()` readings converted to integer nanoseconds, and
 fragment stamps are `time.perf_counter_ns()` readings. Both are in the machine-wide
@@ -310,7 +315,7 @@ TTFT or token-update intervals as the earlier model-compute phases.
 | `load.pipeline_build_duration_ms` | Building the one-stage decoder pipeline. `native_load_duration_ms` is model load plus pipeline build. |
 | `load.task_create_duration_ms` | Creating the Task configuration, Task, and generation session. |
 | `load.weight_upload_*` | `null` / `unavailable`. The Runtime does not expose weight-upload timing. |
-| `requests[].tokenization_duration_ms` | Chat-template rendering and tokenization, which the Runtime performs in one call. `template_duration_ms` is `0`. |
+| `requests[].tokenization_duration_ms` | Chat-template rendering and tokenization, which the Runtime performs in one call; `0` with `--prompt-ids-file`, whose IDs are submitted without either. `template_duration_ms` is `0`. |
 | `requests[].generator_create_duration_ms` | Resetting the Task session before a new generation. |
 | `requests[].task_stream_create_duration_ms` | The `generate_tokens` call that creates the pull stream. |
 | `requests[].task_ttft_duration_ms` | From immediately before `generate_tokens` through the first token update; includes stream creation. |
