@@ -711,12 +711,15 @@ class DirectorySource(EPSource):
             resolved root before any DLL is yielded. Used as a lightweight
             sanity check (e.g., ``onnxruntime_providers_shared.dll`` for
             the Ryzen AI deployment directory).
+        literal_filenames: Treat ``dll_patterns`` values as exact relative
+            filenames rather than globs, for explicitly selected files.
     """
 
     root: Path
     dll_patterns: dict[str, str]
     env_var: str | None = None
     required_marker: str | None = None
+    literal_filenames: bool = False
 
     def resolve(self) -> Iterator[EPEntry]:
         """Yield one :class:`EPEntry` per matching pattern.
@@ -756,7 +759,11 @@ class DirectorySource(EPSource):
 
         for ep_name, pattern in self.dll_patterns.items():
             # Each pattern may be a literal filename or a relative glob.
-            matches = list(base.glob(pattern))
+            candidate = base / pattern
+            if self.literal_filenames:
+                matches = [candidate] if candidate.is_file() else []
+            else:
+                matches = list(base.glob(pattern))
             if not matches:
                 logger.debug("DirectorySource: no match for %s under %s", pattern, base)
                 continue
@@ -1712,7 +1719,11 @@ def _parse_winmlcli_ep_path(ep_name: str | None = None) -> list[EPSource]:
                     continue
                 ep = ep_name
             logger.debug("WINMLCLI_EP_PATH override: using %s for %s", entry, ep)
-            sources.append(DirectorySource(root=p.parent, dll_patterns={ep: p.name}))
+            sources.append(
+                DirectorySource(
+                    root=p.parent, dll_patterns={ep: p.name}, literal_filenames=True
+                )
+            )
             continue
         if not p.is_dir():
             logger.warning(

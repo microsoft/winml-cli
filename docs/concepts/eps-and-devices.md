@@ -102,6 +102,13 @@ Keep the plugin's dependencies available as required by its distribution. The
 DLL must be compatible with the installed ONNX Runtime and process architecture;
 discovery by filename does not guarantee that it can be loaded.
 
+Explicit DLL file paths are treated literally, including brackets in filenames.
+ORT GenAI validates each candidate's EP identity through regular ORT before
+loading it into GenAI, since GenAI does not expose EP enumeration. Its cache
+tracks both DLL path and validated EP. Failed identity checks or GenAI library
+loads allow the next candidate to be tried. This preflight does not guarantee
+GenAI model compatibility; that is checked when the model is loaded.
+
 Default discovery only inspects already-ready Windows ML Catalog providers; it
 does not prepare or download non-ready providers. A source-pinned request such
 as `--ep vitisai@directory` does not acquire a Catalog package if the requested

@@ -532,6 +532,21 @@ class TestWinMLCatalogSourceBindingMissing:
 class TestWinmlEpPathOverride:
     """Parsing the WINMLCLI_EP_PATH env var into DirectorySource entries."""
 
+    @pytest.mark.parametrize("with_sibling", [False, True])
+    def test_explicit_dll_filename_is_literal(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, with_sibling: bool
+    ) -> None:
+        dll = _touch(tmp_path / "custom[1].dll")
+        if with_sibling:
+            _touch(tmp_path / "custom1.dll")
+        monkeypatch.setenv("WINMLCLI_EP_PATH", str(dll))
+        entries = [
+            entry
+            for source in _parse_winmlcli_ep_path(EP_CATALOG.all_eps()[0])
+            for entry in source.resolve()
+        ]
+        assert [entry.dll_path for entry in entries] == [dll.resolve()]
+
     def test_unset_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("WINMLCLI_EP_PATH", raising=False)
         assert _parse_winmlcli_ep_path() == []

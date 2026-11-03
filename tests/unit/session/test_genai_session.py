@@ -402,7 +402,54 @@ class TestGenaiSessionLoad:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("multiple_required", [False, True])
+def test_genai_arbitrary_dlls_validate_identity_before_loading(
+    bundle_dir: Path, fresh_registry, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    multiple_required: bool,
+) -> None:
+    import os
+
+    from winml.modelkit.ep_path import EP_CATALOG
+    from winml.modelkit.session import genai_session
+
+    monkeypatch.setattr(genai_session, "_GENAI_REGISTERED_PATHS", set())
+    eps = EP_CATALOG.all_eps()[:2]
+    dlls = [tmp_path / f"custom-{i}.dll" for i in range(len(eps))]
+    devices = []
+    for ep, dll in zip(eps, dlls, strict=True):
+        dll.touch()
+        device = MagicMock()
+        device.ep_name = ep
+        device.ep_metadata = {"library_path": str(dll)}
+        device.device.type.name = "NPU"
+        device.device.metadata = {}
+        devices.append(device)
+    monkeypatch.setenv("WINMLCLI_EP_PATH", os.pathsep.join(map(str, dlls)))
+    og, registered = _fake_og_module()
+    required = eps if multiple_required else eps[1:]
+
+    with patch("winml.modelkit.session.ep_registry.ort") as ort:
+        ort.get_ep_devices.return_value = devices
+        session = GenaiSession(bundle_dir)
+        session._register_eps(og, required)
+        session._register_eps(og, required)
+
+    expected = list(zip(eps, map(str, dlls), strict=True))
+    assert registered == (expected if multiple_required else expected[1:])
+    assert {
+        (Path(path), ep) for ep, path in registered
+    } == genai_session._GENAI_REGISTERED_PATHS
+
+
 class TestEPRegistration:
+    @pytest.fixture(autouse=True)
+    def _mock_identity_validation(self, monkeypatch: pytest.MonkeyPatch):
+        from winml.modelkit.session import WinMLEPRegistry
+
+        validate = MagicMock()
+        monkeypatch.setattr(WinMLEPRegistry, "register_ep", validate)
+        return validate
+
     @staticmethod
     def _reset_process_registration_cache(monkeypatch: pytest.MonkeyPatch) -> None:
         import winml.modelkit.session.genai_session as genai_session
@@ -617,7 +664,9 @@ class TestEPRegistration:
         ]
         import winml.modelkit.session.genai_session as genai_session
 
-        assert Path("C:/fake/qnn.dll") not in genai_session._GENAI_REGISTERED_PATHS
+        assert (
+            Path("C:/fake/qnn.dll"), "QNNExecutionProvider"
+        ) not in genai_session._GENAI_REGISTERED_PATHS
         assert (
             "Failed to register QNNExecutionProvider with ORT GenAI from C:\\fake\\qnn.dll: boom"
         ) in caplog.text
