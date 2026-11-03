@@ -2,26 +2,22 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Unit tests for capturing llama.cpp native log lines during GGUF load and warmup 0."""
+"""Unit tests for capturing llama.cpp native log fragments during GGUF load and warmup 0."""
 
 from __future__ import annotations
 
-import hashlib
 import itertools
-import json
 import sys
 from typing import Any
 
 import pytest
 
 from tests.unit.test_helpers import RUNTIME_CALLBACK, FakeLogApi
-from winml.modelkit.commands._gguf_native_log import (
-    GGML_LOG_LEVEL_CONT,
-    NATIVE_VALUE_KEYS,
-    NativeLogCapture,
-    join_continuations,
-    parse_native_values,
-)
+from winml.modelkit.commands._gguf_native_log import NativeLogCapture, loaded_module_handle
+
+
+# ggml_log_level of a fragment that continues the previous one (GGML_LOG_LEVEL_CONT).
+_CONT = 5
 
 
 @pytest.fixture
@@ -31,10 +27,7 @@ def api() -> FakeLogApi:
 
 @pytest.fixture
 def capture(api: FakeLogApi) -> NativeLogCapture:
-    return NativeLogCapture(
-        load_api=lambda: ("C:/lib/WinMLllama.dll", api),
-        clock_ns=itertools.count(100, 10).__next__,
-    )
+    return NativeLogCapture(load_api=lambda: api, clock_ns=itertools.count(100, 10).__next__)
 
 
 def _raise(exc: Exception) -> Any:
@@ -44,37 +37,31 @@ def _raise(exc: Exception) -> Any:
     return loader
 
 
-def test_install_saves_runtime_callback_and_captures_lines(
+def _texts(capture: NativeLogCapture) -> list[str]:
+    return [fragment["text"] for fragment in capture.to_dict()["fragments"]]
+
+
+def test_install_swaps_the_callback_and_keeps_each_fragment_with_its_stamp(
     capture: NativeLogCapture, api: FakeLogApi
 ) -> None:
     capture.install()
     assert capture.installed
-    assert capture.library == "C:/lib/WinMLllama.dll"
     assert api.callback != RUNTIME_CALLBACK
-    head, tail = "llama_model_load: loading", [".", ".", " done\n"]
-    api.emit(2, head.encode())
-    for part in tail:
-        api.emit(GGML_LOG_LEVEL_CONT, part.encode())
-    api.emit(2, b"next line\n")
-    assert [(line["level"], line["text"]) for line in capture.lines(None)] == [
-        (2, head + "".join(tail).rstrip("\r\n")),
-        (2, "next line"),
+    # A progress line arrives as a head fragment followed by continuation fragments.
+    emitted = [
+        (2, "llama_model_load: loading"),
+        (_CONT, "."),
+        (_CONT, "."),
+        (_CONT, " done\n"),
+        (2, "next line\n"),
     ]
-
-
-def test_cont_without_previous_line_starts_a_line() -> None:
-    assert join_continuations([(5, "x\n", 1)]) == [(5, "x", 1)]
-
-
-def test_lines_are_phased_at_the_warmup0_submit(
-    capture: NativeLogCapture, api: FakeLogApi
-) -> None:
-    capture.install()
-    for index in range(3):  # stamped 100, 110, 120
-        api.emit(2, f"l{index}\n".encode())
-    assert [line["phase"] for line in capture.lines(110)] == ["load", "warmup-0", "warmup-0"]
-    assert {line["phase"] for line in capture.lines(None)} == {"load"}
-    assert list(capture.lines(None)[0]) == ["level", "text", "qpc_ns", "phase"]
+    for level, text in emitted:
+        api.emit(level, text.encode())
+    # Nothing is joined: each call keeps its level, its text as emitted and its own stamp.
+    assert capture.to_dict()["fragments"] == [
+        {"level": level, "text": text, "qpc_ns": 100 + 10 * index}
+        for index, (level, text) in enumerate(emitted)
+    ]
 
 
 def test_restore_reinstates_and_verifies_runtime_callback(
@@ -85,12 +72,8 @@ def test_restore_reinstates_and_verifies_runtime_callback(
     capture.restore()
     assert api.callback == RUNTIME_CALLBACK
     assert len(api.set_calls) == 2
-    assert capture.to_dict(None)["after_capture"] == {
-        "policy": "runtime_callback_restored",
-        "restored": True,
-        "verified_by_llama_log_get": True,
-        "intact_until_restore": True,
-    }
+    doc = capture.to_dict()
+    assert (doc["intact"], doc["restored"]) == (True, True)
 
 
 def test_restore_leaves_a_replaced_logger_alone(
@@ -102,8 +85,8 @@ def test_restore_leaves_a_replaced_logger_alone(
     capture.restore()
     assert api.callback == 0x9999
     assert len(api.set_calls) == calls
-    after = capture.to_dict(None)["after_capture"]
-    assert (after["restored"], after["intact_until_restore"]) == (False, False)
+    doc = capture.to_dict()
+    assert (doc["intact"], doc["restored"]) == (False, False)
 
 
 def test_callback_tolerates_invalid_utf8_and_null_text(
@@ -114,32 +97,16 @@ def test_callback_tolerates_invalid_utf8_and_null_text(
     capture.install()
     api.emit(2, b"tok \xff\xfe\n")
     api.emit(2, None)
-    assert [line["text"] for line in capture.lines(None)] == [
-        b"tok \xff\xfe".decode("utf-8", "replace")
-    ]
+    assert _texts(capture) == [b"tok \xff\xfe\n".decode("utf-8", "replace")]
     assert raised == []
 
 
 def test_reason_explains_a_capture_that_was_never_installed(capture: NativeLogCapture) -> None:
-    assert capture.to_dict(None)["capture"]["reason"] == (
+    assert capture.to_dict()["reason"] == (
         "The run ended before the native log capture was installed."
     )
     capture.install()
-    assert capture.to_dict(None)["capture"]["reason"] is None
-
-
-def test_interrupted_install_still_explains_the_missing_capture() -> None:
-    def interrupted() -> Any:
-        raise KeyboardInterrupt
-
-    capture = NativeLogCapture(load_api=interrupted)
-    with pytest.raises(KeyboardInterrupt):
-        capture.install()
-
-    assert capture.to_dict(None)["capture"]["installed"] is False
-    assert capture.to_dict(None)["capture"]["reason"] == (
-        "The run ended before the native log capture was installed."
-    )
+    assert capture.to_dict()["reason"] is None
 
 
 @pytest.mark.parametrize("failure", [KeyboardInterrupt, OSError])
@@ -156,7 +123,7 @@ def test_a_broken_swap_puts_the_runtime_callback_back(
         return read()
 
     api.get = get  # type: ignore[method-assign]
-    capture = NativeLogCapture(load_api=lambda: ("C:/lib/WinMLllama.dll", api))
+    capture = NativeLogCapture(load_api=lambda: api)
     if failure is KeyboardInterrupt:
         with pytest.raises(KeyboardInterrupt):
             capture.install()
@@ -165,7 +132,7 @@ def test_a_broken_swap_puts_the_runtime_callback_back(
 
     assert api.callback == RUNTIME_CALLBACK
     assert capture.installed is False
-    assert capture.to_dict(None)["capture"]["reason"]
+    assert capture.to_dict()["reason"]
 
 
 def test_ctrl_c_in_the_callback_is_kept_for_the_caller(
@@ -177,17 +144,17 @@ def test_ctrl_c_in_the_callback_is_kept_for_the_caller(
 
     def clock() -> int:
         tick = next(ticks)
-        if tick == 110:  # Ctrl+C lands while the second line is being recorded
+        if tick == 110:  # Ctrl+C lands while the second fragment is being recorded
             raise KeyboardInterrupt
         return tick
 
-    capture = NativeLogCapture(load_api=lambda: ("C:/lib/WinMLllama.dll", api), clock_ns=clock)
+    capture = NativeLogCapture(load_api=lambda: api, clock_ns=clock)
     capture.install()
     for index in range(3):
         api.emit(2, f"l{index}\n".encode())
 
     assert raised == []
-    assert [line["text"] for line in capture.lines(None)] == ["l0", "l2"]
+    assert _texts(capture) == ["l0\n", "l2\n"]
     with pytest.raises(KeyboardInterrupt):
         capture.raise_if_interrupted()
     capture.raise_if_interrupted()  # each Ctrl+C is raised once
@@ -204,12 +171,10 @@ def test_unavailable_log_api_is_reported(loader: Any, reason: str) -> None:
     capture = NativeLogCapture(load_api=loader)
     capture.install()
     capture.restore()
-    doc = capture.to_dict(None)
-    assert doc["capture"]["installed"] is False
-    assert reason in doc["capture"]["reason"]
-    assert doc["lines"] == []
-    assert doc["after_capture"]["policy"] == "runtime_default_unobserved"
-    assert doc["after_capture"]["restored"] is False
+    doc = capture.to_dict()
+    assert doc["installed"] is False
+    assert reason in doc["reason"]
+    assert (doc["intact"], doc["restored"], doc["fragments"]) == (None, False, [])
 
 
 def test_default_loader_reports_an_unloaded_library() -> None:
@@ -221,51 +186,23 @@ def test_default_loader_reports_an_unloaded_library() -> None:
     )
 
 
-def test_to_dict_fixed_fields_and_lines_hash(capture: NativeLogCapture, api: FakeLogApi) -> None:
+def test_loaded_module_handle_reads_the_live_process() -> None:
+    handle = loaded_module_handle("kernel32.dll")
+    assert handle is not None
+    assert handle[1].lower().endswith("kernel32.dll")
+    assert loaded_module_handle("not-a-loaded-module.dll") is None
+
+
+def test_to_dict_holds_the_capture_state_and_the_raw_fragments(
+    capture: NativeLogCapture, api: FakeLogApi
+) -> None:
     capture.install()
     api.emit(2, b"a\n")
-    doc = capture.to_dict(None)
-    assert doc["window"] == "load_through_warmup_0"
-    assert doc["capture"] == {
-        "api": "llama_log_set",
-        "library": "C:/lib/WinMLllama.dll",
+    capture.restore()
+    assert capture.to_dict() == {
         "installed": True,
         "reason": None,
+        "intact": True,
+        "restored": True,
+        "fragments": [{"level": 2, "text": "a\n", "qpc_ns": 100}],
     }
-    assert doc["outside_capture"] == (
-        "Backend registration and device lines are written to process stderr before the "
-        "Runtime installs its logger."
-    )
-    assert doc["lines_sha256"] == hashlib.sha256(
-        json.dumps(doc["lines"], separators=(",", ":"), ensure_ascii=False).encode()
-    ).hexdigest()
-
-
-def test_parse_native_values_reads_contract_keys_first_match_wins() -> None:
-    values = {"n_ctx": 4096, "n_batch": 4096, "n_ubatch": 512, "flash_attn": "auto"}
-    texts = [f"llama_context: {'n_ctx_seq':<21} = 1"]
-    texts += [f"llama_context: {key:<21} = {value}" for key, value in values.items()]
-    first_cache = (
-        "llama_kv_cache: size =   16.00 MiB (  4096 cells,   4 layers,  1/1 seqs), "
-        "K (f16):    8.00 MiB, V (q8_0):    8.00 MiB"
-    )
-    second_cache = (
-        "llama_kv_cache: size =   22.00 MiB (  1024 cells,  22 layers,  1/1 seqs), "
-        "K (q4_0):   11.00 MiB, V (q4_0):   11.00 MiB"
-    )
-    texts += ["load_tensors: offloaded 27/27 layers to GPU", first_cache, second_cache]
-    parsed = parse_native_values([{"text": text} for text in texts])
-    expected = {
-        key: {"value": value, "line": index + 1}
-        for index, (key, value) in enumerate(values.items())
-    }
-    expected.update(
-        {
-            "n_layer_offloaded": {"value": 27, "line": 5},
-            "n_layer_total": {"value": 27, "line": 5},
-            "type_k": {"value": "f16", "line": 6},
-            "type_v": {"value": "q8_0", "line": 6},
-        }
-    )
-    assert parsed == expected
-    assert set(parsed) == set(NATIVE_VALUE_KEYS)

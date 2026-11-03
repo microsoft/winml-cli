@@ -146,8 +146,6 @@ class EvidenceRecorder:
         config = self._config
         ids = config.prompt_ids
         failure = None if error is None else {"type": type(error).__name__, "message": str(error)}
-        # Fragments stamped before the first request's submit belong to the model load.
-        first_submit_ns = self._rows[0]["submit_ns"] if self._rows else None
         document = {
             **_header("complete" if error is None else "failed"),
             "error": failure,
@@ -162,6 +160,6 @@ class EvidenceRecorder:
             },
             "packages": {**llama_package_versions(), "winml-cli": __version__},
             "requests": self._rows,
-            "native_log": self.capture.to_dict(first_submit_ns),
+            "native_log": self.capture.to_dict(),
         }
         _write_atomic(self.path, document)

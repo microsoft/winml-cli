@@ -290,8 +290,6 @@ def clock_info(started_qpc_ns: int) -> dict[str, Any]:
 def _kernel32() -> Any:
     """A private kernel32 instance, so its prototypes never clash with other callers."""
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
-    kernel32.GetModuleHandleW.restype = wintypes.HMODULE
     kernel32.GetModuleFileNameW.argtypes = [wintypes.HMODULE, wintypes.LPWSTR, wintypes.DWORD]
     kernel32.GetModuleFileNameW.restype = wintypes.DWORD
     kernel32.GetCurrentProcess.argtypes = []
@@ -312,15 +310,6 @@ def _module_file_name(handle: Any) -> str | None:
     buffer = ctypes.create_unicode_buffer(_MAX_PATH_CHARS)
     length = _kernel32().GetModuleFileNameW(handle, buffer, len(buffer))
     return buffer.value if length else None
-
-
-def loaded_module_handle(name: str) -> tuple[int, str] | None:
-    """Handle and full path of a module already loaded in this process, or ``None``."""
-    handle = _kernel32().GetModuleHandleW(name)
-    if not handle:
-        return None
-    path = _module_file_name(handle)
-    return None if path is None else (int(handle), path)
 
 
 def list_loaded_modules() -> list[str]:

@@ -25,7 +25,6 @@ from winml.modelkit.commands._gguf_identity import (
     gguf_shard_paths,
     hash_modules,
     list_loaded_modules,
-    loaded_module_handle,
     model_inventory,
     package_versions,
     process_identity,
@@ -247,14 +246,10 @@ def test_environment_snapshot_keeps_secret_names_but_not_values(name: str) -> No
     assert "s3cr3t-value" not in json.dumps(snapshot)
 
 
-def test_loaded_modules_and_handles_use_the_live_process() -> None:
+def test_loaded_modules_use_the_live_process() -> None:
     modules = list_loaded_modules()
     assert modules == sorted(set(modules))
     assert any(Path(path).name.lower() == "kernel32.dll" for path in modules)
-    handle = loaded_module_handle("kernel32.dll")
-    assert handle is not None
-    assert handle[1].lower().endswith("kernel32.dll")
-    assert loaded_module_handle("not-a-loaded-module.dll") is None
 
 
 def test_process_clock_producer_and_packages() -> None:

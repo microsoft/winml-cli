@@ -145,17 +145,15 @@ class TestEvidenceRecorder:
         config = _config(tmp_path)
         assert config.evidence_path is not None
         api = FakeLogApi()
-        stamps = iter([500, 50_000])
-        capture = NativeLogCapture(
-            load_api=lambda: ("C:/lib/WinMLllama.dll", api), clock_ns=lambda: next(stamps)
-        )
+        stamps = itertools.count(500, 100)
+        capture = NativeLogCapture(load_api=lambda: api, clock_ns=stamps.__next__)
         capture.install()
         recorder = EvidenceRecorder(config, capture=capture)
         clock = _clock(10_000)
         timings = [make_timing(clock), make_timing(clock)]
-        api.emit(2, b"llama_model_loader: loaded meta data\n")  # before request 0 (stamp 500)
-        api.emit(2, b"llama_context: n_ctx = 16\n")  # during request 0 (stamp 50_000)
-        recorder.record_request("warmup", 0, timings[0])  # submitted at 10_100 ns
+        api.emit(2, b"llama_model_loader: loaded meta data\n")
+        api.emit(2, b"llama_context: n_ctx = 16\n")
+        recorder.record_request("warmup", 0, timings[0])
         recorder.record_request("timed", 1, timings[1])
         recorder.finish(error)
 
@@ -192,10 +190,19 @@ class TestEvidenceRecorder:
             request_row("warmup", 0, timings[0]),
             request_row("timed", 1, timings[1]),
         ]
-        # finish() put the Runtime callback back; the first submit splits the fragments.
+        # finish() put the Runtime callback back before the end write, which holds the
+        # captured fragments as emitted, each with its own stamp.
         assert api.callback == RUNTIME_CALLBACK
-        assert doc["native_log"]["after_capture"]["restored"] is True
-        assert [line["phase"] for line in doc["native_log"]["lines"]] == ["load", "warmup-0"]
+        assert doc["native_log"] == {
+            "installed": True,
+            "reason": None,
+            "intact": True,
+            "restored": True,
+            "fragments": [
+                {"level": 2, "text": "llama_model_loader: loaded meta data\n", "qpc_ns": 500},
+                {"level": 2, "text": "llama_context: n_ctx = 16\n", "qpc_ns": 600},
+            ],
+        }
 
     def test_text_prompt_workload_has_no_token_ids(self, tmp_path: Path) -> None:
         config = _config(tmp_path)

@@ -202,9 +202,10 @@ _NOT_AN_ID_ARRAY = "expected a non-empty JSON array of non-negative integer toke
 class _LoggingSession(_FakeLlamaSession):
     """Session double whose native calls log through ``api``, as llama.cpp does.
 
-    A line reaches the capture only while the capturing callback is installed.
+    A fragment reaches the capture only while the capturing callback is installed.
     ``fail_at`` makes that request raise as a failed Task request does, and
-    ``ctrl_c_in_load`` makes a Ctrl+C arrive while the model load logs.
+    ``ctrl_c_in`` (``"load"`` or ``"request 0"``) makes a Ctrl+C arrive while
+    that native call logs.
     """
 
     def __init__(
@@ -213,22 +214,24 @@ class _LoggingSession(_FakeLlamaSession):
         evidence_path: Path,
         *,
         fail_at: int | None = None,
-        ctrl_c_in_load: bool = False,
+        ctrl_c_in: str | None = None,
     ) -> None:
         super().__init__([])
         self._api = api
         self._evidence_path = evidence_path
         self._fail_at = fail_at
-        self._ctrl_c_in_load = ctrl_c_in_load
+        self._ctrl_c_in = ctrl_c_in
         self.ctrl_c_now = False
         self.evidence_at_open: dict[str, Any] | None = None
         self.callback_at_request: list[int | None] = []
         self.callback_at_close: int | None = None
         self.results: list[LlamaGenerationTiming] = []
 
-    def _log(self, text: bytes) -> None:
+    def _log(self, call: str, text: str) -> None:
         if self._api.callback != RUNTIME_CALLBACK:
-            self._api.emit(2, text)
+            # The capture's clock raises the Ctrl+C while it stamps this fragment.
+            self.ctrl_c_now = call == self._ctrl_c_in
+            self._api.emit(2, text.encode())
 
     def open_tokenizer(self) -> None:
         super().open_tokenizer()
@@ -236,8 +239,7 @@ class _LoggingSession(_FakeLlamaSession):
 
     def load(self, **kwargs: Any) -> None:
         super().load(**kwargs)
-        self.ctrl_c_now = self._ctrl_c_in_load
-        self._log(b"load_tensors: loaded\n")
+        self._log("load", "load_tensors: loaded\n")
 
     def generate_timed(
         self, prompt_token_ids: list[int], *, max_new_tokens: int, clock: Callable[[], float]
@@ -247,7 +249,7 @@ class _LoggingSession(_FakeLlamaSession):
         self.callback_at_request.append(self._api.callback)
         if position == self._fail_at:
             raise LlamaSessionError("native session crashed")
-        self._log(f"request {position}\n".encode())
+        self._log(f"request {position}", f"request {position}\n")
         timing = make_timing(
             clock, tokens=range(max_new_tokens), input_tokens=len(prompt_token_ids)
         )
@@ -263,7 +265,7 @@ def _evidence_benchmark(
     tmp_path: Path,
     *,
     fail_at: int | None = None,
-    ctrl_c_in_load: bool = False,
+    ctrl_c_in: str | None = None,
     owned: bool = False,
     **config_overrides: Any,
 ) -> tuple[GGUFPerfBenchmark, _LoggingSession, FakeLogApi]:
@@ -277,9 +279,7 @@ def _evidence_benchmark(
     }
     config = _config(tmp_path, **values)
     api = FakeLogApi()
-    session = _LoggingSession(
-        api, tmp_path / "ev.json", fail_at=fail_at, ctrl_c_in_load=ctrl_c_in_load
-    )
+    session = _LoggingSession(api, tmp_path / "ev.json", fail_at=fail_at, ctrl_c_in=ctrl_c_in)
     # Row readings and capture stamps share one clock, as on the real QPC.
     ticks = count(1_000, 1_000)
 
@@ -293,9 +293,7 @@ def _evidence_benchmark(
         config,
         session=None if owned else session,
         clock=lambda: next(ticks) / 1e9,
-        log_capture=NativeLogCapture(
-            load_api=lambda: ("C:/lib/WinMLllama.dll", api), clock_ns=capture_clock_ns
-        ),
+        log_capture=NativeLogCapture(load_api=lambda: api, clock_ns=capture_clock_ns),
     )
     return benchmark, session, api
 
@@ -433,11 +431,11 @@ class TestEvidenceRun:
         assert session.callback_at_request[1:] == [RUNTIME_CALLBACK, RUNTIME_CALLBACK]
         assert api.callback == RUNTIME_CALLBACK
         native_log = _read(tmp_path / "ev.json")["native_log"]
-        assert [line["text"] for line in native_log["lines"]] == [
-            "load_tensors: loaded",
-            "request 0",
+        assert [fragment["text"] for fragment in native_log["fragments"]] == [
+            "load_tensors: loaded\n",
+            "request 0\n",
         ]
-        assert native_log["after_capture"]["restored"] is True
+        assert (native_log["intact"], native_log["restored"]) == (True, True)
 
     @pytest.mark.parametrize("fail_at", [0, 1])
     def test_first_failure_ends_the_run_and_restores_the_callback_before_close(
@@ -460,16 +458,21 @@ class TestEvidenceRun:
         assert session.closed
         assert session.callback_at_close == RUNTIME_CALLBACK
 
-    def test_ctrl_c_during_load_logging_stops_the_run_after_load(self, tmp_path: Path) -> None:
-        benchmark, session, api = _evidence_benchmark(tmp_path, ctrl_c_in_load=True)
+    @pytest.mark.parametrize(("ctrl_c_in", "requests_run"), [("load", 0), ("request 0", 1)])
+    def test_ctrl_c_during_capture_stops_the_run_after_that_native_call(
+        self, tmp_path: Path, ctrl_c_in: str, requests_run: int
+    ) -> None:
+        benchmark, session, api = _evidence_benchmark(tmp_path, ctrl_c_in=ctrl_c_in)
 
         with pytest.raises(KeyboardInterrupt):
             benchmark.run()
 
         doc = _read(tmp_path / "ev.json")
         assert (doc["status"], doc["error"]["type"]) == ("failed", "KeyboardInterrupt")
+        # The interrupted call finishes and nothing runs after it; request 0 keeps its row.
         assert "load" in session.calls
-        assert "generate_timed" not in session.calls
+        assert session.calls.count("generate_timed") == requests_run
+        assert [row["index"] for row in doc["requests"]] == list(range(requests_run))
         assert api.callback == RUNTIME_CALLBACK
 
     def test_memory_tracker_is_never_used(

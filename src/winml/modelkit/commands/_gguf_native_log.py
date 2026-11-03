@@ -2,60 +2,43 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Capture llama.cpp native log lines during GGUF load and the first warmup request.
+"""Capture llama.cpp's native log during GGUF load and the first warmup request.
 
 The Windows ML Runtime installs its own llama.cpp logger once, while the GGUF
 tokenizer opens; that logger drops everything below ERROR. llama.cpp reports
 the effective context, batch, KV-cache and offload configuration only in its
 INFO lines, so an evidence run swaps in a capturing callback through
-``llama_log_set`` on the already loaded ``WinMLllama.dll``, keeps every line
-from model load through warmup 0, and then restores the Runtime's callback so
-later requests run with the Runtime's own (native) logging policy.
+``llama_log_set`` on the already loaded ``WinMLllama.dll``, keeps every
+fragment the callback receives from model load through warmup 0, and then
+restores the Runtime's callback so later requests run with the Runtime's own
+(native) logging policy.
+
+Each fragment is kept as llama.cpp emitted it, with its own QPC stamp:
+continuation fragments (level 5, ``GGML_LOG_LEVEL_CONT``) are not joined to
+the line they continue.
 """
 
 from __future__ import annotations
 
 import contextlib
 import ctypes
-import hashlib
-import json
-import re
+import ctypes.wintypes as wintypes
+import functools
 import time
 from typing import TYPE_CHECKING, Any, Protocol
 
-from ._gguf_identity import loaded_module_handle
-
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Mapping, Sequence
+    from collections.abc import Callable
 
 
-# ggml_log_level value of a continuation fragment of the previous line.
-GGML_LOG_LEVEL_CONT = 5
 # void (*ggml_log_callback)(enum ggml_log_level level, const char * text, void * user_data)
 LOG_CALLBACK = ctypes.CFUNCTYPE(None, ctypes.c_int, ctypes.c_char_p, ctypes.c_void_p)
-NATIVE_VALUE_KEYS: tuple[str, ...] = (
-    "n_ctx",
-    "n_batch",
-    "n_ubatch",
-    "flash_attn",
-    "type_k",
-    "type_v",
-    "n_layer_offloaded",
-    "n_layer_total",
-)
 
 _LLAMA_LIBRARY = "WinMLllama.dll"
 _NOT_LOADED = "WinMLllama.dll is not loaded in this process after the tokenizer opened."
 _NOT_ATTEMPTED = "The run ended before the native log capture was installed."
-_OUTSIDE_CAPTURE = (
-    "Backend registration and device lines are written to process stderr before the "
-    "Runtime installs its logger."
-)
-_CONTEXT_VALUE = re.compile(r"^llama_context: (n_ctx|n_batch|n_ubatch|flash_attn)\s*=\s*(\S+)$")
-_OFFLOADED = re.compile(r"^load_tensors: offloaded (\d+)/(\d+) layers to GPU$")
-_KV_TYPES = re.compile(r"^llama_kv_cache: .*\bK \((\w+)\):.*\bV \((\w+)\):")
-_INTEGER_CONTEXT_KEYS = frozenset({"n_ctx", "n_batch", "n_ubatch"})
+_MAX_PATH_CHARS = 32768
 
 
 class LlamaLogApi(Protocol):
@@ -66,6 +49,33 @@ class LlamaLogApi(Protocol):
 
     def set(self, callback: int | None, user_data: int | None) -> None:
         """Install ``callback`` with ``user_data``."""
+
+
+@functools.cache
+def _kernel32() -> Any:
+    """A private kernel32 instance, so its prototypes never clash with other callers."""
+    kernel32 = ctypes.WinDLL("kernel32")
+    kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
+    kernel32.GetModuleHandleW.restype = wintypes.HMODULE
+    kernel32.GetModuleFileNameW.argtypes = [wintypes.HMODULE, wintypes.LPWSTR, wintypes.DWORD]
+    kernel32.GetModuleFileNameW.restype = wintypes.DWORD
+    return kernel32
+
+
+def _module_file_name(handle: Any) -> str | None:
+    """Full path of a loaded module, or ``None`` when it is no longer loaded."""
+    buffer = ctypes.create_unicode_buffer(_MAX_PATH_CHARS)
+    length = _kernel32().GetModuleFileNameW(handle, buffer, len(buffer))
+    return buffer.value if length else None
+
+
+def loaded_module_handle(name: str) -> tuple[int, str] | None:
+    """Handle and full path of a module already loaded in this process, or ``None``."""
+    handle = _kernel32().GetModuleHandleW(name)
+    if not handle:
+        return None
+    path = _module_file_name(handle)
+    return None if path is None else (int(handle), path)
 
 
 class _CtypesLlamaLogApi:
@@ -89,7 +99,7 @@ class _CtypesLlamaLogApi:
         self._set(callback, user_data)
 
 
-def _loaded_llama_log_api() -> tuple[str, LlamaLogApi] | None:
+def _loaded_llama_log_api() -> LlamaLogApi | None:
     """Bind the log API of ``WinMLllama.dll`` only if the Runtime already loaded it.
 
     Raises:
@@ -99,70 +109,29 @@ def _loaded_llama_log_api() -> tuple[str, LlamaLogApi] | None:
     if module is None:
         return None
     handle, path = module
-    return path, _CtypesLlamaLogApi(path, handle)
-
-
-def join_continuations(raw: Iterable[tuple[int, str, int]]) -> list[tuple[int, str, int]]:
-    """Join ``GGML_LOG_LEVEL_CONT`` fragments onto the line they continue.
-
-    A fragment with no preceding line starts its own line. Trailing line breaks
-    are removed after joining.
-    """
-    joined: list[list[Any]] = []
-    for level, text, qpc_ns in raw:
-        if level == GGML_LOG_LEVEL_CONT and joined:
-            joined[-1][1] += text
-        else:
-            joined.append([level, text, qpc_ns])
-    return [(level, text.rstrip("\r\n"), qpc_ns) for level, text, qpc_ns in joined]
-
-
-def parse_native_values(lines: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
-    """Read the effective llama.cpp configuration from captured log lines.
-
-    For reference only: the benchmark re-parses the raw lines with its shared
-    parser. Each key keeps its first match, as ``{"value", "line"}`` where
-    ``line`` indexes ``lines``.
-    """
-    values: dict[str, dict[str, Any]] = {}
-
-    def keep(key: str, value: Any, index: int) -> None:
-        values.setdefault(key, {"value": value, "line": index})
-
-    for index, line in enumerate(lines):
-        text = str(line.get("text", ""))
-        if match := _CONTEXT_VALUE.match(text):
-            key, raw = match.group(1), match.group(2)
-            keep(key, int(raw) if key in _INTEGER_CONTEXT_KEYS else raw, index)
-        elif match := _OFFLOADED.match(text):
-            keep("n_layer_offloaded", int(match.group(1)), index)
-            keep("n_layer_total", int(match.group(2)), index)
-        elif match := _KV_TYPES.match(text):
-            keep("type_k", match.group(1), index)
-            keep("type_v", match.group(2), index)
-    return values
+    return _CtypesLlamaLogApi(path, handle)
 
 
 class NativeLogCapture:
     """Swap in a capturing llama.cpp log callback and restore the Runtime's afterwards.
 
     Args:
-        load_api: Returns ``(library path, log API)`` for the loaded library, or
-            ``None`` when it is not loaded (injectable for tests).
-        clock_ns: Integer-nanosecond clock stamping each captured line.
+        load_api: Returns the log API of the loaded library, or ``None`` when it
+            is not loaded (injectable for tests).
+        clock_ns: Integer-nanosecond clock stamping each captured fragment.
     """
 
     def __init__(
         self,
         *,
-        load_api: Callable[[], tuple[str, LlamaLogApi] | None] = _loaded_llama_log_api,
+        load_api: Callable[[], LlamaLogApi | None] = _loaded_llama_log_api,
         clock_ns: Callable[[], int] = time.perf_counter_ns,
     ) -> None:
         self._load_api = load_api
         self._clock_ns = clock_ns
         self._api: LlamaLogApi | None = None
         self._saved: tuple[int | None, int | None] = (None, None)
-        self._raw: list[tuple[int, str, int]] = []
+        self._fragments: list[tuple[int, str, int]] = []
         # The callback object must stay referenced while native code can call it.
         self._callback = LOG_CALLBACK(self._on_log)
         self._address = ctypes.cast(self._callback, ctypes.c_void_p).value
@@ -173,15 +142,14 @@ class NativeLogCapture:
         self.installed = False
         # Why the capture is not installed; None once it is.
         self.reason: str | None = _NOT_ATTEMPTED
-        self.library: str | None = None
 
     def _on_log(self, level: int, text: bytes | None, _user_data: int | None) -> None:
         # Runs on native threads; it must never raise back into llama.cpp.
         try:
             with contextlib.suppress(Exception):
                 if text is not None:
-                    line = (int(level), text.decode("utf-8", "replace"), self._clock_ns())
-                    self._raw.append(line)
+                    fragment = (int(level), text.decode("utf-8", "replace"), self._clock_ns())
+                    self._fragments.append(fragment)
         except KeyboardInterrupt:
             # Ctrl+C that lands while llama.cpp logs on the main thread cannot
             # propagate through native frames; keep it for raise_if_interrupted().
@@ -204,20 +172,17 @@ class NativeLogCapture:
         """Install the capturing callback; failures are recorded in ``reason``, never raised."""
         if self.installed:
             return
-        # ``reason`` keeps explaining the missing capture until installation succeeds,
-        # so an install interrupted by Ctrl+C still leaves a reason in the evidence.
         try:
-            loaded = self._load_api()
+            api = self._load_api()
         except AttributeError as exc:
             self.reason = f"WinMLllama.dll does not export the llama log API: {exc}"
             return
         except Exception as exc:  # binding failures are evidence, not run failures
             self.reason = f"Could not bind the llama log API: {type(exc).__name__}: {exc}"
             return
-        if loaded is None:
+        if api is None:
             self.reason = _NOT_LOADED
             return
-        self.library, api = loaded
         try:
             saved = api.get()
         except Exception as exc:  # a failed read must not fail the run
@@ -258,42 +223,22 @@ class NativeLogCapture:
             after, _ = self._api.get()
             self._restored = after == self._saved[0]
 
-    def lines(self, warmup0_submit_ns: int | None) -> list[dict[str, Any]]:
-        """Captured lines; those stamped before the warmup-0 submission are ``load``."""
-        return [
-            {
-                "level": level,
-                "text": text,
-                "qpc_ns": qpc_ns,
-                "phase": "load"
-                if warmup0_submit_ns is None or qpc_ns < warmup0_submit_ns
-                else "warmup-0",
-            }
-            for level, text, qpc_ns in join_continuations(self._raw)
-        ]
+    def to_dict(self) -> dict[str, Any]:
+        """Return the evidence ``native_log`` object.
 
-    def to_dict(self, warmup0_submit_ns: int | None) -> dict[str, Any]:
-        """Return the evidence ``native_log`` object."""
-        lines = self.lines(warmup0_submit_ns)
+        ``intact`` is whether the capturing callback was still installed when
+        :meth:`restore` ran (``None`` before that), and ``restored`` whether the
+        Runtime callback is back. ``fragments`` lists every callback call in
+        order, each with its ``level``, its ``text`` exactly as emitted (line
+        breaks included) and its own ``qpc_ns`` stamp.
+        """
         return {
-            "capture": {
-                "api": "llama_log_set",
-                "library": self.library,
-                "installed": self.installed,
-                "reason": None if self.installed else self.reason,
-            },
-            "window": "load_through_warmup_0",
-            "lines": lines,
-            "lines_sha256": hashlib.sha256(
-                json.dumps(lines, separators=(",", ":"), ensure_ascii=False).encode()
-            ).hexdigest(),
-            "after_capture": {
-                "policy": "runtime_callback_restored"
-                if self.installed
-                else "runtime_default_unobserved",
-                "restored": self._restored,
-                "verified_by_llama_log_get": self.installed and self._restore_attempted,
-                "intact_until_restore": self._intact,
-            },
-            "outside_capture": _OUTSIDE_CAPTURE,
+            "installed": self.installed,
+            "reason": self.reason,
+            "intact": self._intact,
+            "restored": self._restored,
+            "fragments": [
+                {"level": level, "text": text, "qpc_ns": qpc_ns}
+                for level, text, qpc_ns in self._fragments
+            ],
         }
