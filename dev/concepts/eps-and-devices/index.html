@@ -1137,6 +1137,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#custom-ep-locations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom EP locations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#see-also" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2708,6 +2719,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#custom-ep-locations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom EP locations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#see-also" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2840,6 +2862,44 @@
 </span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>winml<span class="w"> </span>analyze<span class="w"> </span>--model<span class="w"> </span>model.onnx<span class="w"> </span>--ep<span class="w"> </span>all
 </span></code></pre></div>
 <p>The <code>--ep</code> flag accepts a free-form string and is not restricted to the choices listed above. This allows forward compatibility with EP names that winml-cli does not yet enumerate.</p>
+<h2 id="custom-ep-locations">Custom EP locations<a class="headerlink" href="#custom-ep-locations" title="Permanent link">&para;</a></h2>
+<p>Set <code>WINMLCLI_EP_PATH</code> to discover custom builds of supported EP plugins. It accepts
+both directories and individual DLL files, separated by <code>;</code> on Windows:</p>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nv">$env:WINMLCLI_EP_PATH</span> <span class="p">=</span> <span class="s2">"C:\custom-ep;D:\qnn\onnxruntime_providers_qnn.dll"</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">winml</span> <span class="n">sys</span> <span class="p">-</span><span class="n">-list-ep</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">winml</span> <span class="n">perf</span> <span class="n">-m</span> <span class="s2">"C:\models\model.onnx"</span> <span class="p">-</span><span class="n">-ep</span> <span class="n">qnn</span><span class="nv">@directory</span> <span class="p">-</span><span class="n">-device</span> <span class="n">npu</span>
+</span></code></pre></div>
+<p>Directories are scanned for known EP DLL filenames. A file entry selects only
+that DLL, not other EPs in its folder. Known filenames identify the EP
+case-insensitively. For arbitrary DLL filenames, specify the EP explicitly:</p>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nv">$env:WINMLCLI_EP_PATH</span> <span class="p">=</span> <span class="s2">"D:\custom\my_ep.dll;C:\other-ep"</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">winml</span> <span class="n">perf</span> <span class="n">-m</span> <span class="s2">"C:\models\model.onnx"</span> <span class="p">-</span><span class="n">-ep</span> <span class="n">vitisai</span><span class="nv">@directory</span> <span class="p">-</span><span class="n">-device</span> <span class="n">npu</span>
+</span></code></pre></div>
+<p>Unknown-name DLL file entries are tried for the requested EP. Known filenames
+belonging to a different EP are not tried. Folder entries never scan arbitrary
+DLL names. <code>winml sys --list-ep</code> ignores unknown filenames because it has no
+requested EP to associate them with. Missing paths and non-DLL files produce
+warnings and are skipped.</p>
+<p>Entries are considered left to right, before default discovery. Runtime device
+selection uses the first candidate that loads and exposes the requested EP and
+device; a failed candidate does not prevent trying later entries.
+Listing the same DLL as both a file and
+through its directory does not create duplicate entries. Both forms use the
+<code>directory</code> source tag, so commands supporting source pinning can use
+<code>--ep qnn@directory</code>; <code>build</code> and <code>config</code> currently require plain <code>--ep qnn</code>.</p>
+<p>Keep the plugin's dependencies available as required by its distribution. The
+DLL must be compatible with the installed ONNX Runtime and process architecture;
+discovery by filename does not guarantee that it can be loaded.</p>
+<p>Explicit DLL file paths are treated literally, including brackets in filenames.
+ORT GenAI validates each candidate's EP identity through regular ORT before
+loading it into GenAI, since GenAI does not expose EP enumeration. Its cache
+tracks both DLL path and validated EP. Failed identity checks or GenAI library
+loads allow the next candidate to be tried. This preflight does not guarantee
+GenAI model compatibility; that is checked when the model is loaded.</p>
+<p>Default discovery only inspects already-ready Windows ML Catalog providers; it
+does not prepare or download non-ready providers. A source-pinned request such
+as <code>--ep vitisai@directory</code> does not acquire a Catalog package if the requested
+directory source is missing.</p>
 <h2 id="see-also">See also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
 <ul>
 <li><a href="../graphs-and-ir/">Graphs and IR</a> — ONNX graph format, operator sets, and the IR that EPs consume</li>
