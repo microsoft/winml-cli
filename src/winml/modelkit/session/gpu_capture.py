@@ -12,6 +12,7 @@ import os
 import re
 import subprocess
 import uuid
+from bisect import bisect_left, bisect_right
 from contextvars import ContextVar
 from statistics import mean
 from typing import TYPE_CHECKING
@@ -130,14 +131,20 @@ def analyze_trace(directory: Path) -> dict:
             if key in stops:
                 raise RuntimeError("Duplicate PipelineRunStop")
             stops[key] = (tid, stamp, int(data["Result"], 0))
+    # A steady-memory trace can contain hundreds of thousands of measured runs.
+    # Index once; rescanning all starts for each window is quadratic.
+    starts_by_thread: dict[int, tuple[list[int], list[RunKey]]] = {}
+    for key, thread, stamp in sorted(starts, key=lambda value: value[2]):
+        stamps, run_keys = starts_by_thread.setdefault(thread, ([], []))
+        stamps.append(stamp)
+        run_keys.append(key)
     keys = []
     for begin, end, tid in markers["windows"]:
-        matched = [
-            (key, stamp) for key, thread, stamp in starts if thread == tid and begin <= stamp <= end
-        ]
-        if len(matched) != 1:
+        stamps, run_keys = starts_by_thread.get(tid, ([], []))
+        first, last = bisect_left(stamps, begin), bisect_right(stamps, end)
+        if last - first != 1:
             raise RuntimeError("Cannot unambiguously match measured iteration to PipelineRunStart")
-        key, stamp = matched[0]
+        key, stamp = run_keys[first], stamps[first]
         stop = stops.get(key)
         if stop is None or stop[0] != tid or not stamp <= stop[1] <= end or stop[2] != 0:
             raise RuntimeError("Measured Run has no successful matching PipelineRunStop")

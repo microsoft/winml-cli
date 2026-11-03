@@ -91,6 +91,34 @@ def test_trace_analysis_and_reporting(trace):
     assert any("GPU execution time" in str(call) for call in console.print.call_args_list)
 
 
+def test_window_index_keeps_inclusive_bounds_and_measurement_order(trace):
+    (trace / "windows.json").write_text(
+        json.dumps({"pid": 100, "windows": [[31, 36, 7], [11, 16, 7]]}), encoding="utf-8"
+    )
+    result = analyze_trace(trace)
+    assert result["samples_ms"] == [2.0, 1.0]
+
+
+@pytest.mark.parametrize("stamp", [10, 20])
+def test_window_index_rejects_an_extra_start_at_either_boundary(trace, stamp):
+    path = trace / "events.xml"
+    text = path.read_text(encoding="utf-8")
+    extra = event("PipelineRunStart", stamp, {"RunId": 99, "Kind": 0})
+    path.write_text(text.replace("</Events>", extra + "</Events>"), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="unambiguously"):
+        analyze_trace(trace)
+
+
+def test_window_index_isolates_threads(trace):
+    path = trace / "events.xml"
+    text = path.read_text(encoding="utf-8")
+    extra = event("PipelineRunStart", 11, {"RunId": 99, "Kind": 0}).replace(
+        'ThreadID="7"', 'ThreadID="8"'
+    )
+    path.write_text(text.replace("</Events>", extra + "</Events>"), encoding="utf-8")
+    assert analyze_trace(trace)["valid_runs"] == 2
+
+
 def test_tracerpt_uses_separate_event_and_summary_passes(trace, monkeypatch):
     capture = GpuCapture(trace)
     command = Mock()
