@@ -1634,6 +1634,85 @@ class TestCliDispatch:
         assert "config" not in capture_run
         assert {path: path.read_bytes() for path in protected} == protected
 
+    @pytest.mark.parametrize("collision", ["report", "evidence", "rows", "temporary"])
+    @pytest.mark.parametrize("victim_index", [0, 2])
+    @pytest.mark.parametrize("missing_shard", [False, True])
+    def test_outputs_never_overwrite_another_model_shard(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        collision: str,
+        victim_index: int,
+        missing_shard: bool,
+    ) -> None:
+        shards = [tmp_path / f"model-{index:05d}-of-00004.gguf" for index in range(1, 5)]
+        random = Random(victim_index)
+        for shard in shards[:-1] if missing_shard else shards:
+            shard.write_bytes(random.randbytes(128))
+        model, victim = shards[1], shards[victim_index]
+        evidence, output = tmp_path / "ev.json", tmp_path / "report.json"
+        if collision == "report":
+            output = victim
+        elif collision == "evidence":
+            evidence = victim
+        else:
+            alias = (
+                _gguf_evidence.rows_path(evidence)
+                if collision == "rows"
+                else _gguf_evidence.temporary_path(evidence)
+            )
+            alias.hardlink_to(victim)
+        for path in (
+            output,
+            evidence,
+            _gguf_evidence.rows_path(evidence),
+            _gguf_evidence.temporary_path(evidence),
+        ):
+            if not path.exists():
+                path.write_bytes(random.randbytes(32))
+        before = {path: path.read_bytes() for path in tmp_path.iterdir()}
+
+        def persist_outputs(config: GGUFPerfConfig, **_kwargs: Any) -> None:
+            # Only model execution is replaced; exercise the real file writers.
+            if config.evidence_path is not None:
+                writer = _gguf_evidence.EvidenceWriter(config.evidence_path)
+                try:
+                    writer.write({"status": "running"})
+                finally:
+                    writer.close()
+            assert config.output_path is not None
+            write_gguf_report(GGUFBenchmarkResult(config), config.output_path)
+
+        monkeypatch.setattr(perf_gguf, "run_gguf_perf", persist_outputs)
+        args = ["-m", str(model), "--output", str(output), "--overwrite"]
+        if collision != "report":
+            args.extend(["--evidence", str(evidence)])
+        result = runner.invoke(perf, args)
+
+        assert {path: path.read_bytes() for path in tmp_path.iterdir()} == before
+        assert result.exit_code == 2, result.output
+        assert "would overwrite the --model input" in result.output
+        assert str(victim) in result.output
+
+    def test_missing_model_shard_still_writes_configuration_failure_evidence(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        model = _gguf(tmp_path, "model-00001-of-00002.gguf")
+        before = model.read_bytes()
+        evidence, output = tmp_path / "ev.json", tmp_path / "report.json"
+        result = runner.invoke(
+            perf, ["-m", str(model), "--evidence", str(evidence), "--output", str(output)]
+        )
+
+        assert result.exit_code == 1, result.output
+        document = _read(evidence)
+        assert document["status"] == "failed"
+        assert document["failure_phase"] == "configuration"
+        assert "model-00002-of-00002.gguf" in result.output
+        assert model.read_bytes() == before
+        assert not output.exists()
+
     @pytest.mark.parametrize(
         "flag",
         [

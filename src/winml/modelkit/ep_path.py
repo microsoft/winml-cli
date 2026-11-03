@@ -135,7 +135,9 @@ class EPCatalog:
 
     def __init__(self, entries: Iterable[EPCatalog.Row]) -> None:
         by_name: dict[str, EPCatalog.Row] = {e.name: e for e in entries}
-        by_dll: dict[str, str] = {e.dll_name: e.name for e in by_name.values() if e.dll_name}
+        by_dll: dict[str, str] = {
+            e.dll_name.casefold(): e.name for e in by_name.values() if e.dll_name
+        }
         object.__setattr__(self, "_by_name", MappingProxyType(by_name))
         object.__setattr__(self, "_by_dll", MappingProxyType(by_dll))
         object.__setattr__(self, "_initialized", True)
@@ -151,8 +153,8 @@ class EPCatalog:
         return entry.dll_name if entry and entry.dll_name else None
 
     def ep_for_dll(self, dll: str) -> str | None:
-        """Reverse lookup: DLL filename -> canonical EP name. ``None`` if unknown."""
-        return self._by_dll.get(dll)
+        """Case-insensitive DLL filename lookup. ``None`` if unknown."""
+        return self._by_dll.get(dll.casefold())
 
     def is_compatible(self, ep: str, device_type: DeviceType | None = None) -> bool:
         """Return True iff ``ep`` has compatible hardware on this machine.
@@ -709,12 +711,15 @@ class DirectorySource(EPSource):
             resolved root before any DLL is yielded. Used as a lightweight
             sanity check (e.g., ``onnxruntime_providers_shared.dll`` for
             the Ryzen AI deployment directory).
+        literal_filenames: Treat ``dll_patterns`` values as exact relative
+            filenames rather than globs, for explicitly selected files.
     """
 
     root: Path
     dll_patterns: dict[str, str]
     env_var: str | None = None
     required_marker: str | None = None
+    literal_filenames: bool = False
 
     def resolve(self) -> Iterator[EPEntry]:
         """Yield one :class:`EPEntry` per matching pattern.
@@ -754,7 +759,11 @@ class DirectorySource(EPSource):
 
         for ep_name, pattern in self.dll_patterns.items():
             # Each pattern may be a literal filename or a relative glob.
-            matches = list(base.glob(pattern))
+            candidate = base / pattern
+            if self.literal_filenames:
+                matches = [candidate] if candidate.is_file() else []
+            else:
+                matches = list(base.glob(pattern))
             if not matches:
                 logger.debug("DirectorySource: no match for %s under %s", pattern, base)
                 continue
@@ -1124,8 +1133,8 @@ class WinMLCatalogSource(EPSource):
         eps: Canonical EP names this source provides. Typically a single
             name, but listed as a tuple for symmetry with the other
             sources.
-        auto_download: If ``True``, providers in the ``NotPresent`` ready
-            state will be downloaded by ``ensure_ready()``.
+        auto_download: If ``True``, non-ready providers may be prepared or
+            downloaded by ``ensure_ready()``.
             Defaults to ``False`` to avoid surprising the user with a
             multi-second to multi-minute network operation on first call;
             see ``docs/ep-path-design.md`` Interaction section.
@@ -1183,15 +1192,15 @@ class WinMLCatalogSource(EPSource):
         if getattr(provider, "name", None) != self.catalog_name:
             return
 
-        # Skip providers that are not present on this machine. The design
-        # doc explicitly forbids auto-downloading hundreds of MB without
-        # opt-in; we honor that via auto_download=False (the default).
+        # Preparing even a NotReady provider can download packages, so
+        # default discovery must only inspect already-ready providers.
         ready_state = getattr(provider, "ready_state", None)
-        if ready_state is not None and not self.auto_download and self._is_not_present(ready_state):
+        if not self.auto_download and not self._is_ready(ready_state):
             logger.debug(
-                "WinMLCatalogSource(%s): provider in NotPresent state; "
+                "WinMLCatalogSource(%s): provider in state %r; "
                 "skipping (auto_download=False)",
                 self.catalog_name,
+                ready_state,
             )
             return
 
@@ -1667,17 +1676,20 @@ def _resolve_requested_winml_catalog_ep(ep_name: str) -> list[EPEntry]:
 # ---------------------------------------------------------------------------
 # Override mechanisms.
 # ---------------------------------------------------------------------------
-def _parse_winmlcli_ep_path() -> list[EPSource]:
+def _parse_winmlcli_ep_path(ep_name: str | None = None) -> list[EPSource]:
     """Parse the ``WINMLCLI_EP_PATH`` env var into ``DirectorySource`` entries.
 
     The env var is a path-list using OS-conventional separators (``;`` on
     Windows, ``:`` elsewhere — same semantics as the shell ``PATH``).
-    Each entry is treated as a directory; we scan it for every plugin DLL
-    filename in :data:`EP_CATALOG` so the user does not have to specify
-    which EP the directory provides.
+    Each entry can be a directory or a plugin DLL file. Directories are
+    scanned for every plugin DLL filename in :data:`EP_CATALOG`; files
+    select only the EP matching their catalogued filename (case-insensitive).
+    Unknown DLL filenames are associated with ``ep_name`` when supplied;
+    inventory discovery without an EP name ignores them.
+    Both forms produce ``DirectorySource`` entries, in path-list order.
 
     Returns an empty list when ``WINMLCLI_EP_PATH`` is unset or empty.
-    Non-existent entries log a WARN and are skipped (matches the
+    Invalid paths and non-DLL files log a WARN and are skipped (matches the
     ``DirectorySource`` "configured-but-nonexistent root" pattern).
     """
     raw = os.environ.get("WINMLCLI_EP_PATH")
@@ -1690,8 +1702,33 @@ def _parse_winmlcli_ep_path() -> list[EPSource]:
     sources: list[EPSource] = []
     for entry in entries:
         p = Path(entry)
+        if p.is_file():
+            ep = EP_CATALOG.ep_for_dll(p.name)
+            if ep is None:
+                if p.suffix.casefold() != ".dll":
+                    logger.warning(
+                        "WINMLCLI_EP_PATH entry %r is not a DLL file; skipping", entry
+                    )
+                    continue
+                if ep_name is None:
+                    logger.debug(
+                        "WINMLCLI_EP_PATH entry %r has an unknown DLL filename; "
+                        "requires an explicit EP selection",
+                        entry,
+                    )
+                    continue
+                ep = ep_name
+            logger.debug("WINMLCLI_EP_PATH override: using %s for %s", entry, ep)
+            sources.append(
+                DirectorySource(
+                    root=p.parent, dll_patterns={ep: p.name}, literal_filenames=True
+                )
+            )
+            continue
         if not p.is_dir():
-            logger.warning("WINMLCLI_EP_PATH entry %r is not a directory; skipping", entry)
+            logger.warning(
+                "WINMLCLI_EP_PATH entry %r is not a directory or file; skipping", entry
+            )
             continue
         logger.debug("WINMLCLI_EP_PATH override: scanning %s", entry)
         for ep in EP_CATALOG.all_eps():
@@ -1725,7 +1762,7 @@ def discover_all_eps(
     Precedence (highest first):
 
     1. ``extra_sources`` (programmatic override; useful for tests)
-    2. ``WINMLCLI_EP_PATH`` env-var entries (parsed into FilesystemSources)
+    2. ``WINMLCLI_EP_PATH`` directory or DLL entries (parsed into DirectorySources)
     3. The default EP source list (``_default_ep_sources()``)
     4. ``extra_sources_after`` (lowest precedence; used by inventory CLI)
     """

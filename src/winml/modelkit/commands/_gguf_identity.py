@@ -66,14 +66,18 @@ _MAX_PATH_CHARS = 32768
 # =============================================================================
 
 
-def gguf_shard_paths(entry: Path) -> list[Path]:
+def gguf_shard_paths(entry: Path, *, require_exists: bool = True) -> list[Path]:
     """Return every shard of a GGUF model, given its entry file.
 
     A gguf-split name (``<prefix>-00001-of-00003.gguf``) expands to all shards
     in the same folder; any other name is a single-file model.
 
+    Set ``require_exists=False`` to protect all expected shard paths before
+    output files are opened. Inventory collection still checks for missing
+    shards and records them as configuration failures.
+
     Raises:
-        FileNotFoundError: A shard of a split model is missing.
+        FileNotFoundError: A split shard is missing and ``require_exists`` is true.
     """
     match = _SPLIT_SHARD.match(entry.name)
     if match is None:
@@ -85,7 +89,7 @@ def gguf_shard_paths(entry: Path) -> list[Path]:
         )
         for index in range(1, count + 1)
     ]
-    missing = [shard.name for shard in shards if not shard.is_file()]
+    missing = [shard.name for shard in shards if not shard.is_file()] if require_exists else []
     if missing:
         raise FileNotFoundError(
             f"GGUF split shard(s) not found next to {entry}: {', '.join(missing)}"

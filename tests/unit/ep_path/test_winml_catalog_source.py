@@ -78,7 +78,7 @@ class _FakeProvider:
     def __init__(
         self,
         name: str,
-        ready_state: str,
+        ready_state: str | None,
         library_path: str,
         *,
         ensure_ready_raises: Exception | None = None,
@@ -87,7 +87,7 @@ class _FakeProvider:
         package_family_name: str = "",
     ) -> None:
         self.name = name
-        self.ready_state = _FakeReadyState(ready_state)
+        self.ready_state = _FakeReadyState(ready_state) if ready_state is not None else None
         self.library_path = library_path
         self.ensure_ready_calls = 0
         self._ensure_ready_raises = ensure_ready_raises
@@ -409,7 +409,9 @@ class TestWithFakeCatalog:
         catalog = _FakeCatalog([_StuckProvider()])  # type: ignore[list-item]
         _install_windowsml_module(monkeypatch, catalog)
 
-        source = WinMLCatalogSource(catalog_name="VitisAI", eps=("VitisAIExecutionProvider",))
+        source = WinMLCatalogSource(
+            catalog_name="VitisAI", eps=("VitisAIExecutionProvider",), auto_download=True
+        )
         with caplog.at_level(logging.WARNING, logger="winml.modelkit.ep_path"):
             assert list(source.resolve()) == []
         warn_messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
@@ -443,7 +445,9 @@ class TestWithFakeCatalog:
         )
         _install_windowsml_module(monkeypatch, catalog)
 
-        source = WinMLCatalogSource(catalog_name="OpenVINO", eps=("OpenVINOExecutionProvider",))
+        source = WinMLCatalogSource(
+            catalog_name="OpenVINO", eps=("OpenVINOExecutionProvider",), auto_download=True
+        )
         with caplog.at_level(logging.WARNING, logger="winml.modelkit.ep_path"):
             results = list(source.resolve())
         # The good provider should still yield.
@@ -504,6 +508,7 @@ def test_not_ready_provider_is_prepared_and_yielded(
         WinMLCatalogSource(
             catalog_name="QNNExecutionProvider",
             eps=("QNNExecutionProvider",),
+            auto_download=True,
         ).resolve()
     )
 
@@ -532,14 +537,16 @@ def test_ready_provider_is_not_prepared_again(
     assert len(entries) == 1
 
 
-def test_not_present_provider_is_not_downloaded_by_default(
+@pytest.mark.parametrize("ready_state", ["NotPresent", "NotReady", "Unknown", None])
+def test_non_ready_provider_is_not_downloaded_by_default(
     reset_catalog_singleton: None,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    ready_state: str | None,
 ) -> None:
     dll = tmp_path / "qnn.dll"
     dll.write_bytes(b"")
-    provider = _FakeProvider("QNNExecutionProvider", "NotPresent", str(dll))
+    provider = _FakeProvider("QNNExecutionProvider", ready_state, str(dll))
     catalog = _FakeCatalog([provider])
     _install_windowsml_module(monkeypatch, catalog)
 

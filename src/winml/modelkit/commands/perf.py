@@ -1431,8 +1431,7 @@ class PerfBenchmark:
             "backend": self._runtime_backend,
             # ORT CGEP lowering is applied to SessionOptions by the ETW collector.
             "cgc_lowering_target": (
-                self.config.cgc_lowering_target
-                if self.config.runtime == "winml-runtime" else None
+                self.config.cgc_lowering_target if self.config.runtime == "winml-runtime" else None
             ),
             # optimize/analyze/max-optim toggles, forwarded by WinMLAutoModel to
             # build_hf_model / build_onnx_model. Shared mapping with build/eval.
@@ -2998,8 +2997,7 @@ def _reject_input_overwrite(
         for flag, source in inputs:
             if source is not None and _same_file(output, source):
                 raise click.UsageError(
-                    f"{label} would overwrite the {flag} input '{source}'. "
-                    "Choose a different path."
+                    f"{label} would overwrite the {flag} input '{source}'. Choose a different path."
                 )
 
 
@@ -3055,6 +3053,7 @@ def _run_gguf_runtime(
     function-local so ``winml perf --help`` and the other runtimes never load
     them.
     """
+    from ._gguf_identity import gguf_shard_paths
     from ._perf_gguf import GGUFPerfConfig, run_gguf_perf
 
     if runtime != "winml-runtime":
@@ -3105,7 +3104,13 @@ def _run_gguf_runtime(
             f"--context-length {context_length} leaves no room for a prompt: it must be "
             f"larger than --max-new-tokens {p['max_new_tokens']}."
         )
-    inputs = (("--model", model_path), ("--prompt-ids-file", p.get("prompt_ids_file")))
+    # Protect every expected shard before evidence or report writers open files.
+    # Missing shards remain configuration failures in the evidence lifecycle.
+    inputs = (
+        ("--model", model_path),
+        *(("--model", shard) for shard in gguf_shard_paths(model_path, require_exists=False)),
+        ("--prompt-ids-file", p.get("prompt_ids_file")),
+    )
     _reject_input_overwrite((("--output", Path(output)),), inputs)
     evidence = _resolve_gguf_evidence(ctx, warmup=warmup, output=output, inputs=inputs)
     cli_utils.guard_output(output, p["overwrite"])
@@ -3202,10 +3207,16 @@ def _validate_duration(
     help="[dxcgc] Agility SDK directory (default: installed windowsml/lib).",
 )
 @click.option("--dxcgc-sdk-version", type=click.IntRange(min=1), default=721, hidden=True)
-@click.option("--dxcgc-gpu-timing", is_flag=True, hidden=True,
-              help="[dxcgc] Collect GPU timestamps in a separate diagnostic run.")
 @click.option(
-    "--disable-d3d-mlir-programs", is_flag=True, hidden=True,
+    "--dxcgc-gpu-timing",
+    is_flag=True,
+    hidden=True,
+    help="[dxcgc] Collect GPU timestamps in a separate diagnostic run.",
+)
+@click.option(
+    "--disable-d3d-mlir-programs",
+    is_flag=True,
+    hidden=True,
     help="[dxcgc] Disable the D3D12 MLIR programs target when compiling Input IR.",
 )
 @click.option(
@@ -3471,7 +3482,9 @@ def _validate_duration(
 @cli_utils.no_color_option()
 @click.pass_context
 @click.option(
-    "--etw-tracing", type=click.Path(path_type=Path), default=None,
+    "--etw-tracing",
+    type=click.Path(path_type=Path),
+    default=None,
     help="Collect Runtime ETW events to a new directory and report GPU execution timing "
     "(ETW access required).",
 )
@@ -3587,7 +3600,8 @@ def perf(
         raise click.UsageError("--disable-d3d-mlir-programs requires --runtime dxcgc")
     if any(
         ctx.get_parameter_source(name) == click.core.ParameterSource.COMMANDLINE
-        for name in ctx.params if name.startswith("dxcgc_")
+        for name in ctx.params
+        if name.startswith("dxcgc_")
     ):
         raise click.UsageError("--dxcgc-* options require --runtime dxcgc")
 
@@ -3655,13 +3669,19 @@ def perf(
         and ep[0].lower() in ("winmlcg", "winmlcgexecutionprovider")
     )
     if etw_tracing is not None and (
-            (not cgep_trace and (runtime != "winml-runtime" or backend not in (None, "cgc")))
-            or device.lower() != "gpu" or Path(model).suffix.lower() not in (".onnx", ".mlir")
-            or monitor or op_tracing or module_class or compare_devices):
+        (not cgep_trace and (runtime != "winml-runtime" or backend not in (None, "cgc")))
+        or device.lower() != "gpu"
+        or Path(model).suffix.lower() not in (".onnx", ".mlir")
+        or monitor
+        or op_tracing
+        or module_class
+        or compare_devices
+    ):
         raise click.UsageError(
             "--etw-tracing requires --device gpu and either winml-runtime with CGC "
             "(ONNX/MLIR) or winml-ort with --ep winmlcg (ONNX), without "
-            "monitor/op-tracing/module/compare-devices modes.")
+            "monitor/op-tracing/module/compare-devices modes."
+        )
     try:
         effective_backend = resolve_runtime_api_backend(runtime, model, backend)
     except ValueError as error:
@@ -3673,9 +3693,7 @@ def perf(
             "--cgc-lowering-target requires winml-runtime with the CGC backend, "
             "or winml-ort with --ep winmlcg and --etw-tracing."
         )
-    if cgep_trace and (
-        cgc_lowering_target == "d3d12" or Path(model).suffix.lower() != ".onnx"
-    ):
+    if cgep_trace and (cgc_lowering_target == "d3d12" or Path(model).suffix.lower() != ".onnx"):
         raise click.UsageError("WinMLCG EP tracing requires ONNX and auto/dml lowering.")
 
     # AC 11 (mockup spec): --top-k requires --op-tracing. Outside the
