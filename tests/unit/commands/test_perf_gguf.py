@@ -99,16 +99,13 @@ class _FakeLlamaSession:
         chat_template: bool = True,
         effective_context: int | None = None,
         eos_readback: tuple[int, ...] | None = None,
-        check_error: Exception | None = None,
     ) -> None:
         self._timings = list(timings)
         self._prompt_ids = prompt_ids if prompt_ids is not None else list(range(4))
         self._chat_template = chat_template
         self._effective_context = effective_context
         self._eos_readback = eos_readback
-        self._check_error = check_error
         self.load_kwargs: dict[str, Any] = {}
-        self.checked_ids: list[int] | None = None
         self.submitted_ids: list[list[int]] = []
         self.chat_template_applied: bool | None = None
         self.context_length: int | None = None
@@ -154,11 +151,6 @@ class _FakeLlamaSession:
         if self._eos_readback is not None:
             return self._eos_readback
         return () if self.load_kwargs.get("eos_token_ids") == () else (7,)
-
-    def check_prompt_ids(self, token_ids: list[int]) -> None:
-        self.checked_ids = list(token_ids)
-        if self._check_error is not None:
-            raise self._check_error
 
     def generate_timed(self, prompt_token_ids: list[int], **kwargs: Any) -> LlamaGenerationTiming:
         self.generate_kwargs.append(kwargs)
@@ -412,7 +404,6 @@ class TestProtocolOptions:
             "context_length": len(ids) + result.config.max_new_tokens,
             "eos_token_ids": None,
         }
-        assert session.checked_ids == list(ids)
         assert all(sample.tokenization_duration_ms == 0.0 for sample in result.requests)
 
     def test_context_length_overrides_the_derived_capacity(self, tmp_path: Path) -> None:
@@ -440,14 +431,6 @@ class TestProtocolOptions:
         with pytest.raises(LlamaLoadError, match="--ignore-eos"):
             GGUFPerfBenchmark(_config(tmp_path, ignore_eos=True), session=bad).run()
         assert bad.generate_kwargs == []
-
-    def test_out_of_vocabulary_ids_fail_before_any_request(self, tmp_path: Path) -> None:
-        session = _FakeLlamaSession(
-            [_timing()] * 3, check_error=LlamaSessionError("outside the model vocabulary")
-        )
-        with pytest.raises(LlamaSessionError, match="vocabulary"):
-            GGUFPerfBenchmark(_config(tmp_path, prompt_ids=(1, 2)), session=session).run()
-        assert session.generate_kwargs == []
 
     def test_schema3_adds_fields_only_with_protocol_options(self, tmp_path: Path) -> None:
         stock = _run_fake(tmp_path, [_timing()] * 3)[0].to_dict()["benchmark_info"]

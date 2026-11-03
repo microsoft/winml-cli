@@ -779,22 +779,6 @@ class WinMLLlamaSession:
             seed=0,
         )
 
-    def check_prompt_ids(self, token_ids: Sequence[int]) -> None:
-        """Reject prompt IDs that are empty, outside the vocabulary, or too long.
-
-        Raises:
-            LlamaSessionError: The IDs cannot be submitted to this session.
-        """
-        if not token_ids:
-            raise LlamaSessionError("the tokenizer produced an empty prompt")
-        self._validate_token_ids(token_ids, "prompt")
-        capacity = self._sequence_capacity
-        if capacity and len(token_ids) >= capacity:
-            raise LlamaSessionError(
-                f"the prompt ({len(token_ids)} tokens) does not fit the model sequence "
-                f"capacity ({capacity} tokens)"
-            )
-
     def generate_timed(
         self,
         prompt_token_ids: Iterable[int],
@@ -827,7 +811,15 @@ class WinMLLlamaSession:
         if self._task_session is None:
             raise LlamaSessionError("WinMLLlamaSession.load() must be called before generation.")
         token_ids = [int(token) for token in prompt_token_ids]
-        self.check_prompt_ids(token_ids)
+        if not token_ids:
+            raise LlamaSessionError("the tokenizer produced an empty prompt")
+        self._validate_token_ids(token_ids, "prompt")
+        capacity = self._sequence_capacity
+        if capacity and len(token_ids) >= capacity:
+            raise LlamaSessionError(
+                f"the prompt ({len(token_ids)} tokens) does not fit the model sequence "
+                f"capacity ({capacity} tokens)"
+            )
 
         options = self.greedy_options(max_new_tokens)
         with _translate_native_errors("run", device=self._device):

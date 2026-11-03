@@ -249,9 +249,6 @@ def test_gguf_evidence_run_without_heavy_dependency_imports(tmp_path: Path) -> N
                 self.context_length = context_length
                 self.effective_device = "cpu"
 
-            def check_prompt_ids(self, token_ids):
-                assert list(token_ids) == [1, 2, 3, 4]
-
             def greedy_options(self, max_new_tokens):
                 return Options(max_new_tokens=max_new_tokens)
 

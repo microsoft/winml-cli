@@ -723,7 +723,7 @@ class TestLoadReadback:
         session, api = _session(tmp_path)
         session.load(context_length=32)
         assert api.eos_arguments == [None]
-        assert session.task_default_eos_token_ids == session.tokenizer_eos_token_ids == (_EOS,)
+        assert session.task_default_eos_token_ids == api.tokenizers[0].eos_token_ids == (_EOS,)
 
     def test_explicit_empty_eos_set_is_read_back(self, tmp_path: Path) -> None:
         session, api = _session(tmp_path)
@@ -798,17 +798,6 @@ class TestLoadReadback:
             "frequency_penalty": 0.0,
             "seed": 0,
         }
-
-    @pytest.mark.parametrize(
-        ("ids", "match"), [([_VOCABULARY], "vocabulary"), ([1] * 32, "capacity")]
-    )
-    def test_check_prompt_ids_rejects_ids_the_session_cannot_run(
-        self, tmp_path: Path, ids: list[int], match: str
-    ) -> None:
-        session, _api = _session(tmp_path)
-        session.load(context_length=32)
-        with pytest.raises(LlamaSessionError, match=match):
-            session.check_prompt_ids(ids)
 
 
 # ---------------------------------------------------------------------------

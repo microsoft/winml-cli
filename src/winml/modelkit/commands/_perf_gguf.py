@@ -472,7 +472,7 @@ class GGUFPerfBenchmark:
             # Record what the Runtime reports before verifying it, so a mismatch
             # leaves both values in the evidence.
             recorder.record_load(session, requested_context=context)
-            self._verify_load(session, prompt_ids)
+            self._verify_load(session)
             recorder.record_options(session.greedy_options(config.max_new_tokens))
             capture.raise_if_interrupted()
             planned = planned_requests(config.warmup, config.iterations)
@@ -530,7 +530,7 @@ class GGUFPerfBenchmark:
         model_start = self._clock()
         self._load(session, prompt_ids)
         load_end = self._clock()
-        self._verify_load(session, prompt_ids)
+        self._verify_load(session)
         session_load_ms = ((tokenizer_ready - load_start) + (load_end - model_start)) * 1000.0
         if memory_tracker is not None:
             memory_tracker.record_after_load()
@@ -582,13 +582,12 @@ class GGUFPerfBenchmark:
         session.load(context_length=context, eos_token_ids=() if config.ignore_eos else None)
         return context
 
-    def _verify_load(self, session: WinMLLlamaSession, prompt_ids: Sequence[int]) -> None:
+    def _verify_load(self, session: WinMLLlamaSession) -> None:
         """Check the loaded session honors the protocol options before any request.
 
         Raises:
             LlamaLoadError: The effective capacity differs from ``--context-length``,
                 or the Task kept EOS IDs under ``--ignore-eos``.
-            LlamaSessionError: Exact prompt IDs cannot be submitted to this model.
         """
         config = self._config
         if config.context_length is not None and session.context_length != config.context_length:
@@ -604,8 +603,6 @@ class GGUFPerfBenchmark:
                     "--ignore-eos requested an empty EOS set, but the Task reports EOS "
                     f"token IDs {list(eos_token_ids)}."
                 )
-        if config.prompt_ids is not None:
-            session.check_prompt_ids(prompt_ids)
 
     def _time_one_generation(
         self,
