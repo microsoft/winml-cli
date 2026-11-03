@@ -181,9 +181,14 @@ def test_context_is_restored_after_generation_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv(ENV, "previous-context")
-    with pytest.raises(RuntimeError, match="generation failed"), trace:
-        trace.prepare_request("timed", 0, [7])
-        raise RuntimeError("generation failed")
+
+    def fail_generation() -> None:
+        with trace:
+            trace.prepare_request("timed", 0, [7])
+            raise RuntimeError("generation failed")
+
+    with pytest.raises(RuntimeError, match="generation failed"):
+        fail_generation()
     assert os.environ[ENV] == "previous-context"
     assert not json.loads(trace.context_path.read_text())["active"]
 

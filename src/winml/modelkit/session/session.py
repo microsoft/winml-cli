@@ -344,6 +344,20 @@ def _build_session_options(
     if ep_monitor is not None:
         ep_monitor.configure_session_options(so)
 
+    from .gpu_capture import active_capture
+
+    capture = active_capture.get()
+    if capture is not None and capture.execution_path == "winmlcgep":
+        if ep_device.device.ep_name != "WinMLCGExecutionProvider":
+            raise ValueError("ETW EP timing requires WinMLCGExecutionProvider.")
+        so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
+        so.intra_op_num_threads = 1
+        so.add_session_config_entry("session.disable_cpu_ep_fallback", "1")
+        so.add_session_config_entry(
+            "ep.winmlcgexecutionprovider.compile_target_flags",
+            "1" if capture.lowering_target == "dml" else "0",
+        )
+
     handle = ep_device.device._ort
     options = (
         dict(provider_options)
@@ -1218,7 +1232,20 @@ class WinMLSession:
             # Run inference (with optional perf tracking)
             output_names = [o.name for o in session.get_outputs()]
             if self._perf_stats:
-                outputs = self._perf_stats.record(lambda: session.run(output_names, ort_inputs))
+                from .gpu_capture import active_capture
+
+                capture = active_capture.get()
+                measured = (capture is not None and capture.execution_path == "winmlcgep"
+                            and len(self._perf_stats.all_samples_ms) >= self._perf_stats.warmup)
+
+                def run_measured() -> list[Any]:
+                    begin = capture.mark() if measured and capture is not None else None
+                    values = session.run(output_names, ort_inputs)
+                    if begin is not None and capture is not None:
+                        capture.record(begin)
+                    return list(values)
+
+                outputs = self._perf_stats.record(run_measured)
             else:
                 outputs = session.run(output_names, ort_inputs)
 

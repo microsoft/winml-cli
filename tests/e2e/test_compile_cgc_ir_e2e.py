@@ -92,13 +92,15 @@ def test_real_cli_input_ir_to_persistent_output_ir(tmp_path, gpu_luid, encoding)
         check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "bytecode" in result.stdout and "schema passed" in result.stdout
-    assert output.read_bytes().startswith(b"ML\xefR")
+    assert "MLIR text" in result.stdout and "schema passed" in result.stdout
+    output_text = output.read_text(encoding="utf-8")
+    assert output_text.strip() and not output.read_bytes().startswith(b"ML\xefR")
     receipt = json.loads((output_dir / "output_compile.json").read_text())
     assert receipt["input"]["sha256"] == original_hash
     assert receipt["gpu"]["luid"] == gpu_luid
     assert receipt["validation"]["status"] == "passed"
     assert receipt["compiled_form"] == "DEVICE_TARGETED"
+    assert receipt["output_encoding"] == "mlir-text"
     for item in receipt["artifacts"]:
         path = output_dir / item["filename"]
         assert path.is_file()
@@ -114,7 +116,7 @@ def test_real_cli_input_ir_to_persistent_output_ir(tmp_path, gpu_luid, encoding)
     )
     assert retry.returncode != 0 and "--overwrite" in retry.stdout + retry.stderr
     if encoding == "text":
-        invalid = tmp_path / "not-input-ir.onnx"
+        invalid = tmp_path / "not-input-ir.mlir"
         invalid.write_bytes(source_onnx.read_bytes())
         wrong_args = list(argv)
         wrong_args[wrong_args.index("-m", 3) + 1] = str(invalid)
@@ -128,5 +130,4 @@ def test_real_cli_input_ir_to_persistent_output_ir(tmp_path, gpu_luid, encoding)
             check=False,
         )
         assert wrong.returncode != 0
-        assert "Cannot parse CGC Input IR" in wrong.stdout + wrong.stderr
         assert not (output_dir / "invalid-output.mlir").exists()

@@ -1,0 +1,90 @@
+{
+  "scope": "Recorded generated CPU workload for a formatting exercise only; not a current benchmark, real checkpoint result, hardware-support claim or approval.",
+  "source": {
+    "generator_commit": "ebcb0e69f4649e429a4a6f7e48ad167540994d2f",
+    "generator_path": "skills/adding-model-support/tests/test_pr_description_fixture.py",
+    "recorded_handoffs_sha256": "fafe616fe33b16b4354e59ecb4bdbba77d4a9bbda816a7d3078e2428eb01845c"
+  },
+  "fixture_path": "skills/adding-model-support/evals/fixtures/pr_description_handoffs.json",
+  "architecture": [
+    "Sequential",
+    "  1x Linear(in_features=4, out_features=4, bias=True)",
+    "  3x Sequential(",
+    "    (0): Linear(in_features=4, out_features=4, bias=True)",
+    "    (1): Tanh()",
+    "    (2): Sigmoid()",
+    "  )",
+    "  1x Linear(in_features=4, out_features=3, bias=True)"
+  ],
+  "measurements": {
+    "build": {"duration_ms": 237.0758, "structural_check": "onnx.checker.check_model"},
+    "perf": {
+      "ep": ["CPUExecutionProvider"],
+      "device": "cpu",
+      "precision": "fp32",
+      "batch_size": 2,
+      "samples_ms": [0.0393, 0.0272, 0.0227],
+      "mean_ms": 0.029733333333333334,
+      "p50_ms": 0.0272,
+      "throughput_samples_per_second": 67264.57399103139
+    },
+    "parity": {"reference": "generated PyTorch module", "max_abs": 2.9802322387695312e-08},
+    "functional_smoke_eval": {
+      "metric_name": "mean_squared_error",
+      "metric_value": 2.220446049250313e-16,
+      "processed_samples": 2,
+      "target_source": "same generated inputs through the PyTorch reference",
+      "claim": "numerical operability only, not task accuracy on real data"
+    }
+  },
+  "analysis": {
+    "component_analysis": {
+      "components": [
+        {
+          "component_id": "Sequential",
+          "mapping_basis": "entire generated module exported as one graph",
+          "nodes": [
+            "/0/Gemm",
+            "/1/1.0/Gemm",
+            "/1/1.1/Tanh",
+            "/1/1.2/Sigmoid",
+            "/2/2.0/Gemm",
+            "/2/2.1/Tanh",
+            "/2/2.2/Sigmoid",
+            "/3/3.0/Gemm",
+            "/3/3.1/Tanh",
+            "/3/3.2/Sigmoid",
+            "/4/Gemm"
+          ],
+          "node_count": 11,
+          "operator_counts": {"Gemm": 5, "Tanh": 3, "Sigmoid": 3}
+        }
+      ],
+      "unmapped_node_count": 0
+    },
+    "op_level_analysis": {
+      "total_operators": 11,
+      "unique_operator_types": 3,
+      "operator_counts": {"Gemm": 5, "Tanh": 3, "Sigmoid": 3},
+      "classification_evidence_type": "controlled-rule-data",
+      "per_ep_classification": {
+        "controlled-provider-a": {"supported": ["Gemm"], "partial": ["Sigmoid"], "unsupported": ["Tanh"], "unknown": []},
+        "controlled-provider-b": {"supported": ["Gemm"], "partial": ["Sigmoid"], "unsupported": ["Tanh"], "unknown": []},
+        "controlled-unknown-a": {"supported": [], "partial": [], "unsupported": [], "unknown": ["Gemm", "Sigmoid", "Tanh"]},
+        "controlled-unknown-b": {"supported": [], "partial": [], "unsupported": [], "unknown": ["Gemm", "Sigmoid", "Tanh"]}
+      }
+    }
+  },
+  "private_artifacts": [
+    {
+      "path": "temp/recorded-fixture/model.onnx",
+      "sha256": "7cb8aa9b9bade42553127e83c1e308b6d1b18c68c7b0297a2c7dce075d6b229d"
+    },
+    {
+      "path": "temp/recorded-fixture/measurements.json",
+      "sha256": "8e021f8248fdaaf2ff4948921c0f4296bcb762ab077736adc251f0f493b3e113"
+    }
+  ],
+  "target_recipe": null,
+  "reproduction_limit": "This file provides recorded formatting inputs, not a runnable WinML model recipe. Do not invent target-model reproduction commands or public artifact links."
+}

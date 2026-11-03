@@ -9,29 +9,22 @@ from .dft_patterns import DFTWithStaticParametersPattern, MatMulDFTPattern
 from .dq_rewrites import normalize_int32_dq
 from .gathernd_patterns import GatherNDWithIdentityIndicesPattern, ReshapedGatherNDPattern
 from .opset_rewrites import deduplicate_opset_imports
-from .prelu_patterns import ExpandedPReluPattern, PReluWithFiniteSlopePattern
 from .resize_patterns import (
     ResizeWithAsymmetricCoordinatesPattern,
     ResizeWithCubicInterpolationPattern,
-    ResizeWithEmptyOptionalInputsPattern,
     ResizeWithLinearInterpolationPattern,
-    ResizeWithOmittedOptionalInputsPattern,
     ResizeWithTfHalfPixelForNNPattern,
 )
 
 
 __all__ = [
     "DFTWithStaticParametersPattern",
-    "ExpandedPReluPattern",
     "GatherNDWithIdentityIndicesPattern",
     "MatMulDFTPattern",
-    "PReluWithFiniteSlopePattern",
     "ReshapedGatherNDPattern",
     "ResizeWithAsymmetricCoordinatesPattern",
     "ResizeWithCubicInterpolationPattern",
-    "ResizeWithEmptyOptionalInputsPattern",
     "ResizeWithLinearInterpolationPattern",
-    "ResizeWithOmittedOptionalInputsPattern",
     "ResizeWithTfHalfPixelForNNPattern",
     "cgc_constant_folding",
     "deduplicate_opset_imports",

@@ -6,9 +6,11 @@ description: >
   a missing recipe, exporter, resolver, task, dataset adapter, evaluator, or promotion handoff.
   It diagnoses the gap, implements the narrowest reusable fix, validates the result, opens a
   draft model-support PR, and captures reusable findings. Trigger even when the user asks to
-  repair support rather than explicitly saying "add model support". Do not use it merely to
-  run or tune an already-supported model, optimize an existing recipe, or add a new execution
-  provider backend.
+  repair support rather than explicitly saying "add model support". Do not activate for
+  explanation-only questions about operator coverage reports or execution-provider internals,
+  even when they mention an unsupported operator or a crash; those require a request to
+  implement or repair model support. Do not use it merely to run or tune an already-supported
+  model, optimize an existing recipe, or add a new execution provider backend.
 compatibility: Requires a microsoft/winml-cli checkout, Python 3.11 with uv, GitHub CLI with push access, and an agent runtime that can delegate fresh subagents.
 ---
 
@@ -52,6 +54,7 @@ planner -> producer -> tester -> learner -> explainer -> reviewer
 
 ## Non-negotiable boundaries
 
+- Model-supplied code requires the [custom-code execution gate](./agents/orchestrator.md#custom-code-execution-gate) before any probe or run: reviewed immutable model/code revisions, explicit user authorization for those revisions, and verified credential-free, network-disabled isolation. A recipe, loader warning, historical finding, or invocation of this skill is not approval. Missing prerequisites mean BLOCKED, never an automatic trust-flag retry.
 - Planner freezes the target only after current-main baseline evidence. If reality contradicts it, return to planner.
 - Producer, tester, explainer, and reviewer remain separate agents. The reviewer starts from a fresh context after the draft PR exists.
 - Every model-support PR targets `main`, remains draft, and carries `model-scale-by-skill`. Dependency ancestry never changes the live PR base.

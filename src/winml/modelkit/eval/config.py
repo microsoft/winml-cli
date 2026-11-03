@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+from ..utils import CGCLoweringTarget
 from ..utils.constants import EPNameOrAlias, RuntimeBackend
 from ..utils.eval_utils import EvalMode
 
@@ -195,6 +196,7 @@ class WinMLEvaluationConfig:
     rebuild: bool = False
     runtime: EvalRuntime = "winml-ort"
     backend: RuntimeBackend | None = None
+    cgc_lowering_target: CGCLoweringTarget | None = None
     trust_remote_code: bool = False
     _auto_device_selected: bool = field(default=False, repr=False, compare=False, kw_only=True)
     _pipeline_device_override: str | None = field(
@@ -218,6 +220,8 @@ class WinMLEvaluationConfig:
         result: dict = {"runtime": self.runtime}
         if self.backend is not None:
             result["backend"] = self.backend
+        if self.cgc_lowering_target is not None:
+            result["cgc_lowering_target"] = self.cgc_lowering_target
         if self.model_id is not None:
             result["model_id"] = self.model_id
         if self.model_path is not None:
@@ -314,5 +318,6 @@ class WinMLEvaluationConfig:
             rebuild=data.get("rebuild", False),
             runtime=data.get("runtime", "winml-ort"),
             backend=data.get("backend"),
+            cgc_lowering_target=data.get("cgc_lowering_target"),
             trust_remote_code=data.get("trust_remote_code", False),
         )

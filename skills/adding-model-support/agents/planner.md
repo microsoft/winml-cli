@@ -213,7 +213,7 @@ print({"architectures": cfg.architectures, "model_type": cfg.model_type, "is_enc
 | Task in `vendor`, but you want a different task | **L1-light** — subclass vendor's `OnnxConfig`, override one method |
 | Task in neither | **L1** from scratch or **L2** if needs new shared infra |
 
-**Probe is necessary, not sufficient** ([`_meta-008`](../skill_meta/findings.json)): VENDOR-ONLY only means the `OnnxConfig` exists, not that `DummyInputGenerator` handles your checkpoint. Escalate to real `winml build` before declaring L0★. For `trust_remote_code` models ([`_meta-041`](../skill_meta/findings.json)), `winml inspect` has no flag; use `winml config --trust-remote-code` as primary probe.
+**Probe is necessary, not sufficient** ([`_meta-008`](../skill_meta/findings.json)): VENDOR-ONLY only means the `OnnxConfig` exists, not that `DummyInputGenerator` handles your checkpoint. Escalate to real `winml build` before declaring L0★. For models requiring custom code ([`_meta-041`](../skill_meta/findings.json)), first satisfy the [custom-code execution gate](./orchestrator.md#custom-code-execution-gate). Only after reviewed immutable model/code revisions have explicit user authorization and credential-free isolation is verified may `winml config --trust-remote-code` be used as the primary probe; otherwise stop as BLOCKED. This gate also applies to baseline builds and equivalent Python loader calls.
 
 Then inspect directly:
 
@@ -264,9 +264,11 @@ winml perf -m temp/baseline_<stem>/model.onnx --ep cpu --device cpu
 winml eval -m temp/baseline_<stem>/model.onnx --task <task> --ep cpu --device cpu --samples 1
 
 # Starting recipe — generate main's auto-config recipe. THIS is the producer's baseline
-# artifact and the diff anchor for explainer/reviewer. Pass whatever flags the model needs
-# (-t <task> / --model-class <cls> / --trust-remote-code); NO -p (precision is chosen later).
-winml config -m <hf-id> [-t <task>] [--model-class <cls>] [--trust-remote-code] -o temp/baseline_<stem>
+# artifact and the diff anchor for explainer/reviewer. Use necessary task/class arguments;
+# NO -p (precision is chosen later). Custom-code execution is separately gated.
+winml config -m <hf-id> [-t <task>] [--model-class <cls>] -o temp/baseline_<stem>
+# If custom code is required, stop as BLOCKED unless the custom-code execution gate passes.
+# Only then use --trust-remote-code with approved exact revisions inside credential-free isolation.
 ```
 
 - **No `-c <recipe>`. No `-p <precision>`. No PR files. No `--task` on build.** This is a `main`-only, fp32, out-of-the-box support probe. Precision is a `-p`-flag concern, orthogonal to the recipe — it does NOT belong in the baseline.

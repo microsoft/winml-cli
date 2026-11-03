@@ -23,8 +23,6 @@ import logging
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
-
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -46,6 +44,10 @@ def _sanitize_value(value: Any) -> Any:
     serialised as strings by the ``default=str`` fallback.
     """
     from pathlib import PurePath
+
+    # CLI helpers import the manifest types while loading commands. Only
+    # serialization needs NumPy scalar support, not GGUF command startup.
+    import numpy as np
 
     if isinstance(value, PurePath):
         return str(value)

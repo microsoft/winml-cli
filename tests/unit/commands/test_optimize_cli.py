@@ -291,7 +291,7 @@ class TestOptimizeInvocation:
         kwargs = mock_opt_cls.return_value.optimize.call_args.kwargs
         assert kwargs["ort_graph_optimization"] is False
         assert "backend" not in kwargs
-        assert kwargs["omit_empty_resize_inputs"] is False
+        assert kwargs["resize_tf_half_pixel_for_nn_to_asymmetric"] is False
 
     def test_backend_option_removed(
         self, runner: CliRunner, tmp_path: Path

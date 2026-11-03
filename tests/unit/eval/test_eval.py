@@ -160,6 +160,14 @@ class TestPrintConfig:
 
         assert restored.backend == "ort"
 
+    @pytest.mark.parametrize("lowering", [None, "auto", "dml", "d3d12"])
+    def test_config_roundtrip_preserves_cgc_lowering(self, lowering):
+        config = WinMLEvaluationConfig(
+            runtime="winml-runtime", backend="cgc", cgc_lowering_target=lowering
+        )
+        restored = WinMLEvaluationConfig.from_dict(config.to_dict())
+        assert restored.cgc_lowering_target == lowering
+
     def test_dataset_config_revision_default_is_none(self):
         """Revision defaults to None when not specified."""
         ds = DatasetConfig(path="some-dataset")
@@ -1725,7 +1733,8 @@ class TestLoadModel:
             == config.device_luid
         )
 
-    def test_load_onnx_without_model_id_returns_generic_winml_model(self):
+    @pytest.mark.parametrize("lowering", [None, "auto", "dml", "d3d12"])
+    def test_load_onnx_without_model_id_returns_generic_winml_model(self, lowering):
         import importlib
         import sys
 
@@ -1742,6 +1751,7 @@ class TestLoadModel:
             mode="compare",
             runtime="winml-runtime",
             backend="cgc",
+            cgc_lowering_target=lowering,
             device="cpu",
         )
 
@@ -1757,8 +1767,10 @@ class TestLoadModel:
         assert mock_auto.from_onnx.call_args.kwargs["task"] is None
         assert mock_auto.from_onnx.call_args.kwargs["runtime"] == "winml-runtime"
         assert mock_auto.from_onnx.call_args.kwargs["skip_build"] is True
+        assert mock_auto.from_onnx.call_args.kwargs["cgc_lowering_target"] == lowering
 
-    def test_load_mlir_uses_runtime_model_loader(self):
+    @pytest.mark.parametrize("lowering", [None, "auto", "dml", "d3d12"])
+    def test_load_mlir_uses_runtime_model_loader(self, lowering):
         import importlib
         import sys
 
@@ -1772,6 +1784,7 @@ class TestLoadModel:
         config = WinMLEvaluationConfig(
             model_path="candidate.mlir",
             runtime="winml-runtime",
+            cgc_lowering_target=lowering,
             task="text-generation",
             device="gpu",
         )
@@ -1790,6 +1803,7 @@ class TestLoadModel:
         assert mock_auto.from_mlir.call_args.kwargs["mlir_path"] == "candidate.mlir"
         assert mock_auto.from_mlir.call_args.kwargs["task"] == "text-generation"
         assert mock_auto.from_mlir.call_args.kwargs["runtime"] == "winml-runtime"
+        assert mock_auto.from_mlir.call_args.kwargs["cgc_lowering_target"] == lowering
 
     def test_make_onnx_reference_config_uses_independent_environment(self):
         from winml.modelkit.eval.tensor_similarity_evaluator import (
@@ -1806,6 +1820,7 @@ class TestLoadModel:
             mode="compare",
             runtime="winml-runtime",
             backend="cgc",
+            cgc_lowering_target="d3d12",
         )
 
         reference = _make_reference_config(config)
@@ -1815,6 +1830,7 @@ class TestLoadModel:
         assert reference.reference_path is None
         assert reference.runtime == "winml-ort"
         assert reference.backend is None
+        assert reference.cgc_lowering_target is None
         assert reference.device == "gpu"
         assert reference.device_luid == "0x00000000_0x00000002"
         assert reference.ep == "dml"
@@ -1833,11 +1849,13 @@ class TestLoadModel:
             mode="compare",
             runtime="winml-runtime",
             backend="cgc",
+            cgc_lowering_target="d3d12",
         )
 
         reference = _make_reference_config(config)
 
         assert reference.model_id == "test/model"
+        assert reference.cgc_lowering_target is None
         assert reference.model_path is None
         assert reference.reference_path is None
         assert reference.runtime == "pytorch"

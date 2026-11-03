@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+import weakref
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -21,9 +22,11 @@ import pytest
 from winml.modelkit.session.runtime_session import (
     WinMLRuntimeSession,
     _apply_io_metadata,
+    _compile_runtime_model,
     _DXCoreAdapter,
     _numpy_dtype_for,
     _ResolvedRuntimeTarget,
+    _serialize_mlir_as_text,
     _shape_with_dynamic_dims,
     _stage_schema,
     _symbolic_dimensions_for_inputs,
@@ -58,7 +61,7 @@ class _Tensor:
 class _Stage:
     def __init__(self) -> None:
         self.execution_target = SimpleNamespace(kind=SimpleNamespace(name="GPU"))
-        self.bound: dict[int, _Tensor] = {}
+        self.bound: dict[int, np.ndarray] = {}
         self.requested_outputs: set[int] = set()
         self.caller_owns_state_tensors = False
 
@@ -68,13 +71,13 @@ class _Stage:
     def ort_diagnostics(self) -> None:
         raise _NotSupportedError
 
-    def bind_input(self, index: int, tensor: _Tensor) -> None:
-        self.bound[index] = tensor
+    def bind_buffers(self, inputs, outputs) -> None:
+        self.bound = dict(enumerate(inputs))
 
     def output(self, index: int) -> _Tensor:
         assert index == 0
         assert index in self.requested_outputs
-        batch = self.bound[0].to_numpy().shape[0]
+        batch = self.bound[0].shape[0]
         return _Tensor(np.zeros((batch, 5), dtype=np.float32))
 
     def request_output(self, index: int) -> None:
@@ -122,6 +125,7 @@ class _Model:
 class _Runtime:
     def __init__(self, stage: _Stage, pipeline: _Pipeline) -> None:
         self.builder = _Builder(stage, pipeline)
+        self.target = Mock()
 
     def load_model(self, path: str) -> _Model:
         assert path.endswith(".mlir")
@@ -131,10 +135,7 @@ class _Runtime:
         return self.builder
 
     def create_target_from_adapter(self, adapter: object) -> object:
-        return adapter
-
-    def tensor_from_numpy(self, value: np.ndarray) -> _Tensor:
-        return _Tensor(value)
+        return self.target
 
     def close(self) -> None:
         pass
@@ -191,7 +192,7 @@ def test_onnx_cgc_reloads_compiled_model_without_io_counts() -> None:
     )
     session = WinMLRuntimeSession("model.onnx", ep_device=_mlir_ep_device(), backend="cgc")
     try:
-        model, ort_schema, has_named_bindings = session._load_onnx_on_cgc(runtime, target)
+        model, ort_schema, has_named_bindings = session._load_on_cgc(runtime, target)
 
         assert model is compiled_model
         assert ort_schema is source_model.ort_schema.return_value
@@ -201,6 +202,7 @@ def test_onnx_cgc_reloads_compiled_model_without_io_counts() -> None:
         compiler.compile_to_file.assert_called_once_with(source_model, loaded_paths[1])
         compiler.close.assert_called_once_with()
         source_model.schema.assert_not_called()
+        source_model.close.assert_called_once_with()
     finally:
         session.reset()
 
@@ -229,13 +231,14 @@ def test_cgc_compile_uses_public_symbolic_options_and_closes_them(monkeypatch, f
     try:
         if fails:
             with pytest.raises(RuntimeError, match="compile failed"):
-                session._load_onnx_on_cgc(runtime, target)
+                session._load_on_cgc(runtime, target)
         else:
-            session._load_onnx_on_cgc(runtime, target)
+            session._load_on_cgc(runtime, target)
         assert options.symbolic_dimensions == {"batch": 2}
         assert compiler.compile_to_file.call_args.kwargs == {"options": options}
         options.close.assert_called_once_with()
         compiler.close.assert_called_once_with()
+        source.close.assert_called_once_with()
     finally:
         session.reset()
 
@@ -277,7 +280,10 @@ def test_stage_schema_falls_back_to_projection_interface() -> None:
     )
 
 
-def test_persistent_compile_normalizes_dynamic_schema_dimensions(tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize("lowering", [None, "auto", "dml", "d3d12"])
+def test_persistent_compile_normalizes_dynamic_schema_dimensions(
+    tmp_path, monkeypatch, lowering
+) -> None:
     source_schema = Mock()
     source_schema.inputs.return_value = [("float32", (0, 4))]
     source_schema.outputs.return_value = [("float32", (0, 4))]
@@ -306,25 +312,174 @@ def test_persistent_compile_normalizes_dynamic_schema_dimensions(tmp_path, monke
     wr = SimpleNamespace(
         Runtime=Mock(return_value=runtime),
         CompiledModelForm=SimpleNamespace(DEVICE_TARGETED="device-targeted"),
+        CgcLoweringTarget=SimpleNamespace(AUTOMATIC=object(), DML=object(), D3D12=object()),
     )
     monkeypatch.setattr(
         "winml.modelkit.session.runtime_session.import_runtime", lambda: wr
     )
+    serialize_text = Mock(
+        side_effect=lambda path: path.write_text(
+            "module { cgc.output }", encoding="utf-8"
+        )
+    )
+    monkeypatch.setattr(
+        "winml.modelkit.session.runtime_session._serialize_mlir_as_text",
+        serialize_text,
+    )
     session = WinMLRuntimeSession(
-        tmp_path / "input.mlir", backend="cgc", device_luid=1
+        tmp_path / "input.mlir", backend="cgc", device_luid=1,
+        cgc_lowering_target=lowering,
     )
     monkeypatch.setattr(session, "_resolve_target", lambda _runtime, _wr: resolved)
 
-    session.compile_to_file(output)
+    session.compile_to_file(output, output_format="text")
 
-    assert output.is_file()
+    assert output.read_text(encoding="utf-8") == "module { cgc.output }"
     assert options.form == "device-targeted"
+    if lowering is not None:
+        enum_name = "AUTOMATIC" if lowering == "auto" else lowering.upper()
+        assert options.cgc_lowering_target is getattr(wr.CgcLoweringTarget, enum_name)
     compiler.compile_to_file.assert_called_once_with(
         source_model, str(output), options=options
     )
+    serialize_text.assert_called_once_with(output)
     compiled_schema.close.assert_called_once_with()
     with pytest.raises(click.ClickException):
         _numpy_dtype_for(SimpleNamespace(name="BFLOAT16"))
+
+
+def test_serialize_mlir_as_text_replaces_bytecode(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "output.mlir"
+    path.write_bytes(b"ML\xefRcompiled")
+    read_text = Mock(return_value="module { cgc.output }\n")
+    monkeypatch.setattr(
+        "winml.modelkit.export.cgc.ir.read_mlir_text",
+        read_text,
+    )
+
+    _serialize_mlir_as_text(path)
+
+    assert path.read_text(encoding="utf-8") == "module { cgc.output }\n"
+    read_text.assert_called_once_with(path)
+
+
+@pytest.mark.parametrize("lowering", [None, "auto", "dml", "d3d12"])
+@pytest.mark.parametrize("suffix", [".onnx", ".mlir", ".mlirbc"])
+def test_inference_loaders_forward_lowering_to_api(monkeypatch, tmp_path, lowering, suffix):
+    enum = SimpleNamespace(AUTOMATIC=object(), DML=object(), D3D12=object())
+    monkeypatch.setattr(
+        "winml.modelkit.session.runtime_session.import_runtime",
+        lambda: SimpleNamespace(CgcLoweringTarget=enum),
+    )
+    source, compiled = Mock(), Mock()
+    runtime = Mock()
+    runtime.load_model.side_effect = [source, compiled]
+    options = SimpleNamespace(close=Mock())
+    compiler = Mock(create_options=Mock(return_value=options))
+    target = _ResolvedRuntimeTarget(
+        SimpleNamespace(model_compiler=lambda: compiler), "gpu"
+    )
+    session = WinMLRuntimeSession(
+        tmp_path / f"input{suffix}", backend="cgc", device_luid=1,
+        cgc_lowering_target=lowering,
+    )
+    try:
+        model, ort_schema, has_named_bindings = session._load_on_cgc(runtime, target)
+        assert model is compiled
+        assert has_named_bindings is False
+        if lowering is None:
+            compiler.create_options.assert_not_called()
+            compiler.compile_to_file.assert_called_once_with(
+                source, runtime.load_model.call_args.args[0]
+            )
+            options.close.assert_not_called()
+        else:
+            enum_name = "AUTOMATIC" if lowering == "auto" else lowering.upper()
+            assert options.cgc_lowering_target is getattr(enum, enum_name)
+            compiler.compile_to_file.assert_called_once_with(
+                source, runtime.load_model.call_args.args[0], options=options
+            )
+            options.close.assert_called_once()
+        compiler.close.assert_called_once()
+        source.close.assert_called_once()
+        if suffix == ".onnx":
+            assert ort_schema is source.ort_schema.return_value
+        else:
+            assert ort_schema is None
+            source.ort_schema.assert_not_called()
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize("suffix", [".onnx", ".mlir", ".mlirbc"])
+@pytest.mark.parametrize("failure_point", ["compile", "reload"])
+def test_cgc_loader_closes_source_on_failure(tmp_path, suffix, failure_point):
+    source = Mock()
+    compiler = Mock()
+    failure = RuntimeError(f"{failure_point} failed")
+    runtime = Mock(load_model=Mock(side_effect=[source, Mock()]))
+    if failure_point == "compile":
+        compiler.compile_to_file.side_effect = failure
+    else:
+        runtime.load_model.side_effect = [source, failure]
+    target = _ResolvedRuntimeTarget(
+        SimpleNamespace(model_compiler=lambda: compiler), "gpu"
+    )
+    session = WinMLRuntimeSession(
+        tmp_path / f"input{suffix}", backend="cgc", device_luid=1
+    )
+    try:
+        with pytest.raises(RuntimeError, match=f"{failure_point} failed") as raised:
+            session._load_on_cgc(runtime, target)
+        assert raised.value is failure
+        source.close.assert_called_once()
+        compiler.close.assert_called_once()
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize("lowering", ["auto", "dml", "d3d12"])
+def test_lowering_rejects_ort_backend(tmp_path, lowering):
+    with pytest.raises(ValueError, match="requires backend='cgc'"):
+        WinMLRuntimeSession(
+            tmp_path / "model.onnx", backend="ort", cgc_lowering_target=lowering
+        )
+
+
+def test_lowering_rejects_invalid_config_value(tmp_path):
+    with pytest.raises(ValueError, match="Invalid CGC lowering target"):
+        WinMLRuntimeSession(
+            tmp_path / "model.onnx", backend="cgc", device_luid=1,
+            cgc_lowering_target="invalid",
+        )
+
+
+@pytest.mark.parametrize("lowering", ["auto", "dml", "d3d12"])
+def test_lowering_preserves_other_options_and_propagates_failure(monkeypatch, lowering):
+    enum = SimpleNamespace(AUTOMATIC=object(), DML=object(), D3D12=object())
+    monkeypatch.setattr(
+        "winml.modelkit.session.runtime_session.import_runtime",
+        lambda: SimpleNamespace(CgcLoweringTarget=enum),
+    )
+    options = SimpleNamespace(
+        supports_symbolic_dimensions=True, symbolic_dimensions={}, close=Mock()
+    )
+    compiler = Mock(create_options=Mock(return_value=options))
+    compiler.compile_to_file.side_effect = RuntimeError("lowering rejected")
+    target = _ResolvedRuntimeTarget(SimpleNamespace(model_compiler=lambda: compiler), "gpu")
+    with pytest.raises(RuntimeError, match="lowering rejected"):
+        _compile_runtime_model(
+            Mock(), target, Path("output.mlir"),
+            symbolic_dimensions={"batch": 2}, compiled_form="device-targeted",
+            cgc_lowering_target=lowering,
+        )
+    enum_name = "AUTOMATIC" if lowering == "auto" else lowering.upper()
+    assert options.cgc_lowering_target is getattr(enum, enum_name)
+    assert options.symbolic_dimensions == {"batch": 2}
+    assert options.form == "device-targeted"
+    compiler.compile_to_file.assert_called_once()
+    options.close.assert_called_once()
+    compiler.close.assert_called_once()
 
 
 def test_io_metadata_replaces_ordinal_names(tmp_path: Path) -> None:
@@ -394,8 +549,7 @@ def test_onnx_io_ranges_reach_tensor_comparison(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "failure_point",
     [
-        "_load_mlir",
-        "_load_onnx_on_cgc",
+        "_load_on_cgc",
         "_load_onnx_on_ort",
         "create_pipeline_builder",
         "build",
@@ -447,19 +601,13 @@ def test_build_failure_releases_adapter(monkeypatch, mlir_target, failure_point)
     close.assert_called_once_with()
 
 
-@pytest.mark.parametrize("named_bindings", [False, True])
-def test_run_requests_all_outputs_before_each_execution(monkeypatch, mlir_target, named_bindings):
+def test_run_requests_dynamic_outputs_before_each_execution(monkeypatch, mlir_target):
     stage = _Stage()
     pipeline = _Pipeline()
     runtime = _Runtime(stage, pipeline)
     wr = SimpleNamespace(Runtime=lambda: runtime, NotSupportedError=_NotSupportedError)
     monkeypatch.setattr("winml.modelkit.session.runtime_session.import_runtime", lambda: wr)
     names = ["sum", "product"]
-    named = SimpleNamespace(
-        bind_input=lambda _name, tensor: stage.bind_input(0, tensor),
-        output=lambda name: stage.output(names.index(name)),
-    )
-    monkeypatch.setattr(stage, "ort_bindings", lambda: named, raising=False)
     requests = []
 
     def request_output(index):
@@ -472,7 +620,7 @@ def test_run_requests_all_outputs_before_each_execution(monkeypatch, mlir_target
 
     def output(index):
         assert index in stage.requested_outputs
-        data = stage.bound[0].to_numpy()
+        data = stage.bound[0]
         return _Tensor(np.add(data, data) if index == 0 else np.multiply(data, data))
 
     monkeypatch.setattr(stage, "request_output", request_output)
@@ -481,8 +629,9 @@ def test_run_requests_all_outputs_before_each_execution(monkeypatch, mlir_target
     session = WinMLRuntimeSession("model.mlir", ep_device=mlir_target[0], backend="cgc")
     try:
         session.compile()
-        session._has_named_bindings = named_bindings
         session._io_config["output_names"] = names
+        session._io_config["output_shapes"] = [[None, 3, 8, 8]] * len(names)
+        session._io_config["output_types"] = ["float32"] * len(names)
         random = np.random.default_rng(42)
         with session.perf(warmup=0):
             for _iteration in range(3):
@@ -504,7 +653,7 @@ def timed_runtime(monkeypatch, mlir_target):
     wr = SimpleNamespace(Runtime=lambda: runtime, NotSupportedError=_NotSupportedError)
     monkeypatch.setattr("winml.modelkit.session.runtime_session.import_runtime", lambda: wr)
     monkeypatch.setattr(
-        stage, "output", lambda index: _Tensor(np.negative(stage.bound[index]._value))
+        stage, "output", lambda index: _Tensor(np.negative(stage.bound[index]))
     )
     session = WinMLRuntimeSession("model.mlir", ep_device=mlir_target[0], backend="cgc")
     clock = SimpleNamespace(value=0.0, reads=[])
@@ -512,8 +661,7 @@ def timed_runtime(monkeypatch, mlir_target):
     phases = {
         "build": (runtime.builder, "build"),
         "prepare": (session, "_prepare_inputs"),
-        "create_tensor": (runtime, "tensor_from_numpy"),
-        "bind": (stage, "bind_input"),
+        "bind": (stage, "bind_buffers"),
         "request": (stage, "request_output"),
         "execute": (pipeline, "run"),
         "fetch": (stage, "output"),
@@ -547,23 +695,11 @@ def timed_runtime(monkeypatch, mlir_target):
         session.close()
 
 
-@pytest.mark.parametrize("named_bindings", [False, True])
-def test_perf_times_feed_infer_fetch(timed_runtime, monkeypatch, named_bindings):
+def test_perf_times_feed_infer_fetch(timed_runtime):
     session, clock, calls, durations, _phases = timed_runtime
-    timed_phases = ("create_tensor", "bind", "request", "execute", "fetch", "numpy")
+    timed_phases = ("bind", "request", "execute", "fetch", "numpy")
     expected_ms = sum(durations[phase] for phase in timed_phases) * 1000
     with session.perf(warmup=1) as ctx:
-        session._has_named_bindings = named_bindings
-        stage = session._stage
-        monkeypatch.setattr(
-            stage,
-            "ort_bindings",
-            lambda: SimpleNamespace(
-                bind_input=lambda name, value: stage.bind_input(0, value),
-                output=lambda name: stage.output(0),
-            ),
-            raising=False,
-        )
         rng = np.random.default_rng(42)
         for _ in range(3):
             values = rng.standard_normal((2, 3, 8, 8)).astype(np.float32)
@@ -576,13 +712,13 @@ def test_perf_times_feed_infer_fetch(timed_runtime, monkeypatch, named_bindings)
     assert ctx.stats.count == 2
     assert ctx.stats.mean_ms == pytest.approx(expected_ms)
     assert calls.count("build") == 1
-    assert calls.count("create_tensor") == calls.count("execute")
+    assert calls.count("bind") == calls.count("execute")
     assert calls.count("request") == calls.count("execute")
     assert session.perf_stats is None
 
 
 @pytest.mark.parametrize(
-    "failure", ["prepare", "create_tensor", "bind", "request", "execute", "fetch", "numpy"]
+    "failure", ["prepare", "bind", "request", "execute", "fetch", "numpy"]
 )
 def test_perf_records_only_successful_feed_infer_fetch_calls(timed_runtime, monkeypatch, failure):
     session, _clock, _calls, _durations, phases = timed_runtime
@@ -610,23 +746,159 @@ def test_run_without_perf_does_not_read_clock(timed_runtime):
     assert clock.reads == []
 
 
-def test_older_projection_materializes_outputs_without_request_api(monkeypatch, mlir_target):
-    stage = _Stage()
-    monkeypatch.delattr(_Stage, "request_output")
-    monkeypatch.setattr(stage, "output", lambda index: _Tensor(stage.bound[index].to_numpy()))
-    pipeline = _Pipeline()
-    wr = SimpleNamespace(
-        Runtime=lambda: _Runtime(stage, pipeline), NotSupportedError=_NotSupportedError
+@pytest.fixture
+def host_runtime(timed_runtime, monkeypatch):
+    session, clock, calls, durations, _phases = timed_runtime
+    session.compile()
+    session._io_config = {
+        "input_names": ["x", "bias"],
+        "input_types": ["float32", "float32"],
+        "output_names": ["dynamic", "static", "scalar"],
+        "output_shapes": [[None, 3], [2, 3], []],
+        "output_types": ["float32", "float32", "float32"],
+    }
+    buffers = {}
+    stage = session._stage
+    durations["allocate"] = durations["bind"]
+    durations["batch_bind"] = durations["bind"]
+    empty = np.empty
+
+    def allocate(*args, **kwargs):
+        calls.append("allocate")
+        clock.value += durations["allocate"]
+        return empty(*args, **kwargs)
+
+    def bind(inputs, outputs):
+        calls.append("batch_bind")
+        clock.value += durations["batch_bind"]
+        buffers["inputs"] = inputs
+        buffers["outputs"] = list(outputs)
+        buffers["output_refs"] = [
+            weakref.ref(output) if output is not None else None for output in outputs
+        ]
+
+    def execute():
+        calls.append("execute")
+        clock.value += durations["execute"]
+        x, bias = buffers["inputs"]
+        values = [x - bias, x + bias, np.sum(x)]
+        buffers["values"] = values
+        for target, value in zip(buffers["outputs"], values, strict=True):
+            if target is not None:
+                np.copyto(target, value)
+
+    def fetch(index):
+        assert buffers["outputs"][index] is None
+        calls.append("fetch")
+        clock.value += durations["fetch"]
+        return _Tensor(buffers["values"][index].copy())
+
+    def request(index):
+        if buffers.get("outputs") and buffers["outputs"][index] is not None:
+            buffers["outputs"][index] = None
+            calls.append("release")
+        else:
+            calls.append("request")
+        clock.value += durations["request"]
+
+    monkeypatch.setattr(np, "empty", allocate)
+    monkeypatch.setattr(stage, "bind_buffers", bind)
+    monkeypatch.setattr(stage, "output", fetch)
+    monkeypatch.setattr(stage, "request_output", request)
+    monkeypatch.setattr(session._pipeline, "run", execute)
+    return session, clock, calls, durations, buffers
+
+
+@pytest.mark.parametrize("static_only", [False, True])
+def test_host_buffers_preserve_outputs_and_time_complete_run(host_runtime, static_only):
+    session, clock, calls, durations, buffers = host_runtime
+    if static_only:
+        session._io_config["output_shapes"][0] = [2, 3]
+    rng = np.random.default_rng(42)
+    x = rng.normal(size=(2, 3)).astype(np.float32)
+    bias = rng.normal(size=()).astype(np.float32)
+    bound_count = 3 if static_only else 2
+    expected_ms = 1000 * (
+        bound_count * durations["allocate"] + durations["batch_bind"] + durations["execute"]
+        + (0 if static_only else sum(durations[phase] for phase in ("request", "fetch", "numpy")))
     )
-    monkeypatch.setattr("winml.modelkit.session.runtime_session.import_runtime", lambda: wr)
-    session = WinMLRuntimeSession("model.mlir", ep_device=mlir_target[0], backend="cgc")
-    try:
-        values = np.random.default_rng(42).normal(size=(2, 3, 8, 8)).astype(np.float32)
-        actual = session.run({"input_0": values})
-        np.testing.assert_array_equal(actual["output_0"], values)
-        assert pipeline.runs == 1
-    finally:
-        session.close()
+    with session.perf(warmup=1) as ctx:
+        first = session.run({"bias": bias, "x": x})
+        saved = {name: value.copy() for name, value in first.items()}
+        assert buffers["inputs"][0] is x
+        assert buffers["inputs"][1] is bias
+        assert first["static"] is buffers["output_refs"][1]()
+        assert first["scalar"] is buffers["output_refs"][2]()
+        assert first["scalar"].shape == ()
+        assert all(output is None for output in buffers["outputs"])
+        assert clock.value - clock.reads[-1] == pytest.approx(bound_count * durations["request"])
+        x *= -2
+        second = session.run({"x": x, "bias": bias})
+        np.testing.assert_array_equal(second["dynamic"], x - bias)
+        np.testing.assert_array_equal(second["static"], x + bias)
+        np.testing.assert_array_equal(second["scalar"], np.sum(x))
+        assert list(second) == session.io_config["output_names"]
+        assert ctx.stats.count == 1
+        assert ctx.stats.all_samples_ms == pytest.approx([expected_ms, expected_ms])
+        assert len(clock.reads) == 4
+    session.close()
+    for name, original in saved.items():
+        np.testing.assert_array_equal(first[name], original)
+        assert not np.shares_memory(first[name], second[name])
+    assert "bind" not in calls
+    assert calls.count("batch_bind") == 2
+    assert calls.count("release") == 2 * bound_count
+
+
+@pytest.mark.parametrize("failure", ["bind_buffers", "request_output", "run", "output"])
+def test_host_buffer_failures_are_not_retried_or_recorded(host_runtime, monkeypatch, failure):
+    session, _clock, calls, _durations, buffers = host_runtime
+    x = np.random.default_rng(42).normal(size=(2, 3)).astype(np.float32)
+    inputs = {"x": x, "bias": x.sum()}
+    owner = session._pipeline if failure == "run" else session._stage
+    with session.perf() as ctx:
+        with monkeypatch.context() as patch:
+            failing = Mock(side_effect=RuntimeError(failure))
+            patch.setattr(owner, failure, failing)
+            with pytest.raises(RuntimeError, match=failure):
+                session.run(inputs)
+            failing.assert_called_once()
+        assert ctx.stats.total_count == 0
+        assert all(output is None for output in buffers.get("outputs", []))
+        session.run(inputs)
+        assert ctx.stats.total_count == 1
+    assert "bind" not in calls
+    assert all(output is None for output in buffers["outputs"])
+
+
+def test_run_releases_static_output_references(host_runtime):
+    session, clock, _calls, _durations, buffers = host_runtime
+    values = np.random.default_rng(42).normal(size=(2, 3)).astype(np.float32)
+    outputs = session.run({"x": values, "bias": values.sum()})
+    references = [weakref.ref(value) for value in outputs.values()]
+    del outputs
+
+    assert all(reference() is None for reference in references)
+    assert all(output is None for output in buffers["outputs"])
+    assert clock.reads == []
+
+
+def test_output_release_failure_is_reported(host_runtime, monkeypatch):
+    session, _clock, _calls, _durations, _buffers = host_runtime
+    request_output = session._stage.request_output
+    values = np.random.default_rng(42).normal(size=(2, 3)).astype(np.float32)
+
+    def fail_release(index):
+        if index == 1:
+            raise RuntimeError("output release failed")
+        request_output(index)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(session._stage, "request_output", fail_release)
+        with pytest.raises(RuntimeError, match="output release failed"):
+            session.run({"x": values, "bias": values.sum()})
+    request_output(1)
+    request_output(2)
 
 
 def test_mlir_session_builds_runs_and_resets(
@@ -653,14 +925,15 @@ def test_mlir_session_builds_runs_and_resets(
     session.compile()
     close.assert_not_called()
     assert session._adapter_handle is adapter
-    assert runtime.builder.targets == [123]
+    assert runtime.builder.targets == [runtime.target]
+    runtime.target.model_compiler.return_value.compile_to_file.assert_called_once()
     assert runtime.builder.caller_owned_at_build is False
     assert session.device == "gpu"
     assert session.io_config["input_names"] == ["input_0"]
 
     outputs = session.run({"input_0": np.zeros((2, 3, 8, 8), dtype=np.float64)})
     assert outputs["output_0"].shape == (2, 5)
-    assert stage.bound[0].to_numpy().dtype == np.float32
+    assert stage.bound[0].dtype == np.float32
     assert pipeline.runs == 1
 
     session.reset()
@@ -797,7 +1070,7 @@ def test_cgc_target_uses_selected_adapter(
     else:
         resolved = session._resolve_target(runtime, SimpleNamespace())
         try:
-            assert resolved.execution_target == adapter.pointer
+            assert resolved.execution_target is runtime.target
             assert resolved.adapter is adapter
             assert adapter.closed is False
         finally:
@@ -878,7 +1151,7 @@ def test_onnx_session_passes_resolved_ep_and_device_to_runtime(
     assert runtime.target_args == (
         "NvTensorRTRTXExecutionProvider",
         gpu_kind,
-        123,
+        runtime.target,
     )
     assert runtime.builder.caller_owned_at_build is False
     assert runtime.builder.targets[0] is not None
@@ -1002,12 +1275,12 @@ def test_concurrent_runs_serialize_bind_run_read(
             super().__init__()
             self.bind_count = 0
 
-        def bind_input(self, index: int, tensor: _Tensor) -> None:
+        def bind_buffers(self, inputs, outputs) -> None:
             self.bind_count += 1
-            super().bind_input(index, tensor)
+            super().bind_buffers(inputs, outputs)
 
         def output(self, index: int) -> _Tensor:
-            value = float(self.bound[index].to_numpy().flat[0])
+            value = float(self.bound[index].flat[0])
             return _Tensor(np.full((1, 5), value, dtype=np.float32))
 
     class BlockingPipeline(_Pipeline):

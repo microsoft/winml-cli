@@ -296,8 +296,10 @@ def test_genai_nullable_counter_consumer(monkeypatch):
     from winml.modelkit.commands._perf_genai import _GenaiMemoryTracker
 
     tracker = _GenaiMemoryTracker(adapter_luid="bound-luid")
-    monkeypatch.setattr("winml.modelkit.commands._perf_genai._get_rss_mb", lambda: 100.0)
-    monkeypatch.setattr("winml.modelkit.commands._perf_genai._get_vram_mb", lambda _: (None, 0.0))
+    monkeypatch.setattr("winml.modelkit.commands._generation_metrics._get_rss_mb", lambda: 100.0)
+    monkeypatch.setattr(
+        "winml.modelkit.commands._generation_metrics._get_vram_mb", lambda _: (None, 0.0)
+    )
     tracker.record_baseline()
     tracker.record_after_load()
     tracker.record_after_benchmark()

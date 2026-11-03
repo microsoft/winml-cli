@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from onnx import ModelProto, TensorProto, helper
-from onnx.defs import OpSchema, get_schema
+from onnx.defs import get_schema
 
 from ...onnx import ONNXDomain, SupportedONNXType
 from .. import (
@@ -32,32 +32,6 @@ if TYPE_CHECKING:
 
 _ONNX_RESIZE_SCHEMA = get_schema("Resize", 13)
 _RESIZE_SCHEMA: PatternSchema = opschema_to_pattern_schema(_ONNX_RESIZE_SCHEMA)
-_RESIZE_OMITTED_INPUTS_SCHEMA = PatternSchema(
-    name=_RESIZE_SCHEMA.name,
-    doc=_RESIZE_SCHEMA.doc,
-    inputs=[
-        _RESIZE_SCHEMA.inputs[0],
-        OpSchema.FormalParameter(
-            name="resize_parameter",
-            type_str="TResizeParameter",
-            description="The effective non-empty scales or sizes input.",
-            param_option=OpSchema.FormalParameterOption.Single,
-            is_homogeneous=True,
-            min_arity=1,
-            differentiation_category=OpSchema.DifferentiationCategory.Differentiable,
-        ),
-    ],
-    outputs=_RESIZE_SCHEMA.outputs,
-    type_constraints=[
-        *_RESIZE_SCHEMA.type_constraints,
-        OpSchema.TypeConstraintParam(
-            type_param_str="TResizeParameter",
-            allowed_type_strs=["tensor(float)", "tensor(int64)"],
-            description="Constrain the effective Resize parameter.",
-        ),
-    ],
-    attributes=_RESIZE_SCHEMA.attributes,
-)
 
 
 def _is_empty_shape(shape: tuple[int | str | None, ...] | None) -> bool:
@@ -97,7 +71,7 @@ class _ResizeOptionalInputsPattern(Pattern):
         )
 
     def get_schema(self) -> PatternSchema:
-        return _RESIZE_OMITTED_INPUTS_SCHEMA
+        return _RESIZE_SCHEMA
 
     def _infer_schema_attributes(
         self,
@@ -120,150 +94,6 @@ class _ResizeOptionalInputsPattern(Pattern):
         domain_versions: dict[ONNXDomain, int],
     ) -> tuple[list[tuple[int, int, np.ndarray]], dict[tuple[int, str], Any]]:
         return [], {(0, name): value for name, value in attributes.items()}
-
-
-class ResizeWithEmptyOptionalInputsPattern(_ResizeOptionalInputsPattern):
-    """Match Resize inputs represented by named empty tensors."""
-
-    def check_skeleton_result(
-        self,
-        skeleton_match_result: SkeletonMatchResult,
-    ) -> PatternMatchResult | None:
-        """Omit statically empty ROI/scales while retaining the effective parameter."""
-        node = skeleton_match_result.matched_nodes[0]
-        matcher = skeleton_match_result.matcher
-        if matcher.domain_versions.get(ONNXDomain.AI_ONNX, 0) < 11:
-            return None
-        attributes = self._infer_schema_attributes(skeleton_match_result)
-        if attributes.get("coordinate_transformation_mode") == "tf_crop_and_resize":
-            return None
-
-        roi_name = node.input[1] if len(node.input) > 1 else ""
-        scales_name = node.input[2] if len(node.input) > 2 else ""
-        sizes_name = node.input[3] if len(node.input) > 3 else ""
-
-        roi_is_empty = _is_empty_resize_input(roi_name, matcher)
-        if roi_name and not roi_is_empty:
-            return None
-
-        scales_is_empty = _is_empty_resize_input(scales_name, matcher)
-        if sizes_name:
-            if scales_name and not scales_is_empty:
-                return None
-            resize_parameter_name = sizes_name
-            resize_parameter_slot = 3
-        elif scales_name and not scales_is_empty:
-            resize_parameter_name = scales_name
-            resize_parameter_slot = 2
-        else:
-            return None
-
-        if not roi_is_empty and not scales_is_empty:
-            return None
-
-        skeleton_match_result = replace(
-            skeleton_match_result,
-            inputs=[node.input[0], resize_parameter_name],
-        )
-        type_param_to_type = self._infer_type_mapping(skeleton_match_result)
-        if "T1" not in type_param_to_type:
-            return None
-
-        attributes["_resize_parameter_slot"] = resize_parameter_slot
-        attributes["_ir_version"] = matcher.model.ir_version
-        return PatternMatchResult(
-            skeleton_match_result=skeleton_match_result,
-            schema_input_to_value={
-                "X": node.input[0],
-                "resize_parameter": resize_parameter_name,
-            },
-            schema_output_to_value={"Y": node.output[0]},
-            type_param_to_type=type_param_to_type,
-            attributes=attributes,
-            input_infos={
-                "X": InputInfo(name="X"),
-                "resize_parameter": InputInfo(name="resize_parameter"),
-            },
-        )
-
-
-class ResizeWithOmittedOptionalInputsPattern(_ResizeOptionalInputsPattern):
-    """Generate Resize with empty ROI and scales represented as omitted inputs."""
-
-    def get_onnx_model(
-        self,
-        inputs: dict[str, np.ndarray],
-        attributes: dict[str, Any],
-        is_constant_map: dict[str, bool],
-        output_dtypes: list[str],
-        domain_versions: dict[ONNXDomain, int],
-        prefix: str = "",
-        input_names: list[str] | None = None,
-        output_names: list[str] | None = None,
-    ) -> ModelProto:
-        """Build the equivalent Resize with empty optional inputs omitted."""
-        del is_constant_map
-        if input_names is None or len(input_names) != 2:
-            raise ValueError("Resize rewrite requires X and sizes input names")
-        if output_names is None or len(output_names) != 1:
-            raise ValueError("Resize rewrite requires one output name")
-
-        node_attributes = dict(attributes)
-        ir_version = node_attributes.pop("_ir_version", None)
-        resize_parameter_slot = int(node_attributes.pop("_resize_parameter_slot"))
-        node_inputs = [input_names[0], "", "", ""]
-        node_inputs[resize_parameter_slot] = input_names[1]
-        while node_inputs[-1] == "":
-            node_inputs.pop()
-        node = helper.make_node(
-            "Resize",
-            node_inputs,
-            output_names,
-            name=f"{prefix}Resize",
-            **node_attributes,
-        )
-
-        output_element_type = SupportedONNXType.from_onnx_type(output_dtypes[0]).tensor_proto_type
-        parameter_element_type = (
-            TensorProto.INT64 if resize_parameter_slot == 3 else TensorProto.FLOAT
-        )
-        input_specs = [
-            (0, 0, output_element_type),
-            (resize_parameter_slot, 1, parameter_element_type),
-        ]
-        graph_inputs = []
-        for node_index, schema_index, fallback_element_type in input_specs:
-            name = node_inputs[node_index]
-            value = inputs.get(_RESIZE_OMITTED_INPUTS_SCHEMA.inputs[schema_index].name)
-            element_type = (
-                helper.np_dtype_to_tensor_dtype(value.dtype)
-                if value is not None
-                else fallback_element_type
-            )
-            shape = list(value.shape) if value is not None else None
-            graph_inputs.append(helper.make_tensor_value_info(name, element_type, shape))
-
-        graph = helper.make_graph(
-            [node],
-            f"{prefix}ResizeWithOmittedOptionalInputs",
-            graph_inputs,
-            [
-                helper.make_tensor_value_info(
-                    output_names[0],
-                    output_element_type,
-                    None,
-                )
-            ],
-        )
-        return helper.make_model(
-            graph,
-            producer_name="winmlcli-pattern-generator",
-            opset_imports=[
-                helper.make_opsetid(domain.schema_domain, version)
-                for domain, version in domain_versions.items()
-            ],
-            **({"ir_version": ir_version} if ir_version is not None else {}),
-        )
 
 
 class _ResizeAttributesPattern(_ResizeOptionalInputsPattern):
@@ -463,8 +293,6 @@ class ResizeWithLinearInterpolationPattern(_ResizeAttributesPattern):
 __all__ = [
     "ResizeWithAsymmetricCoordinatesPattern",
     "ResizeWithCubicInterpolationPattern",
-    "ResizeWithEmptyOptionalInputsPattern",
     "ResizeWithLinearInterpolationPattern",
-    "ResizeWithOmittedOptionalInputsPattern",
     "ResizeWithTfHalfPixelForNNPattern",
 ]

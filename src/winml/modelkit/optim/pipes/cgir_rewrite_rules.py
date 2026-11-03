@@ -14,16 +14,12 @@ from onnx import ModelProto
 from ...pattern import Pattern
 from ...pattern.cgc import (
     DFTWithStaticParametersPattern,
-    ExpandedPReluPattern,
     GatherNDWithIdentityIndicesPattern,
     MatMulDFTPattern,
-    PReluWithFiniteSlopePattern,
     ReshapedGatherNDPattern,
     ResizeWithAsymmetricCoordinatesPattern,
     ResizeWithCubicInterpolationPattern,
-    ResizeWithEmptyOptionalInputsPattern,
     ResizeWithLinearInterpolationPattern,
-    ResizeWithOmittedOptionalInputsPattern,
     ResizeWithTfHalfPixelForNNPattern,
     cgc_constant_folding,
     deduplicate_opset_imports,
@@ -58,14 +54,6 @@ DEDUPLICATE_OPSET_IMPORTS = BoolCapability(
     name="deduplicate-opset-imports",
     ort_name=None,
     description="Remove repeated identical model opset imports before CGIR conversion",
-    category=CapabilityCategory.REWRITE,
-    default=False,
-)
-
-OMIT_EMPTY_RESIZE_INPUTS = BoolCapability(
-    name="omit-empty-resize-inputs",
-    ort_name=None,
-    description="Represent empty Resize ROI and scales as omitted inputs for CGIR",
     category=CapabilityCategory.REWRITE,
     default=False,
 )
@@ -108,14 +96,6 @@ GATHERND_TO_RESHAPE = BoolCapability(
     default=False,
 )
 
-PRELU_TO_RELU = BoolCapability(
-    name="prelu-to-relu",
-    ort_name=None,
-    description="Decompose floating-point PRelu with finite constant slope into Relu/Neg/Mul/Sub",
-    category=CapabilityCategory.REWRITE,
-    default=False,
-)
-
 DFT_TO_MATMUL = BoolCapability(
     name="dft-to-matmul",
     ort_name=None,
@@ -148,12 +128,6 @@ CGIR_REWRITE_RULES = (
         transform=deduplicate_opset_imports,
     ),
     CGIRRewriteRule(
-        capability=OMIT_EMPTY_RESIZE_INPUTS,
-        source=ResizeWithEmptyOptionalInputsPattern,
-        target=ResizeWithOmittedOptionalInputsPattern,
-        minimum_opset=13,
-    ),
-    CGIRRewriteRule(
         capability=RESIZE_TF_HALF_PIXEL_FOR_NN_TO_ASYMMETRIC,
         source=ResizeWithTfHalfPixelForNNPattern,
         target=ResizeWithAsymmetricCoordinatesPattern,
@@ -173,12 +147,6 @@ CGIR_REWRITE_RULES = (
         source=GatherNDWithIdentityIndicesPattern,
         target=ReshapedGatherNDPattern,
         minimum_opset=11,
-    ),
-    CGIRRewriteRule(
-        capability=PRELU_TO_RELU,
-        source=PReluWithFiniteSlopePattern,
-        target=ExpandedPReluPattern,
-        minimum_opset=7,
     ),
     CGIRRewriteRule(
         capability=DFT_TO_MATMUL,
@@ -203,8 +171,6 @@ __all__ = [
     "DEDUPLICATE_OPSET_IMPORTS",
     "DFT_TO_MATMUL",
     "GATHERND_TO_RESHAPE",
-    "OMIT_EMPTY_RESIZE_INPUTS",
-    "PRELU_TO_RELU",
     "RESIZE_TF_HALF_PIXEL_FOR_NN_TO_ASYMMETRIC",
     "CGIRModelRewriteRule",
     "CGIRRewriteRule",

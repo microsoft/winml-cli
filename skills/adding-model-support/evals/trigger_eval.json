@@ -1,6 +1,6 @@
 {
   "skill_name": "adding-model-support",
-  "description": "Trigger evals: does the skill fire when it should, and stay silent on near-misses against adjacent adding-ep-support, check-model-feasibility, and autoconfig workflows. 9 should-trigger + 9 should-not. Negatives are deliberately tricky keyword-overlap cases, not obvious non-matches. Consume with an externally installed skill-creator description optimizer.",
+  "description": "Trigger evals: does the skill fire when it should, and stay silent on near-misses against adjacent adding-ep-support, check-model-feasibility, and autoconfig workflows. 11 should-trigger + 11 should-not. Negatives are deliberately tricky keyword-overlap cases, not obvious non-matches. Consume with an externally installed skill-creator description optimizer.",
   "queries": [
     { "query": "winml inspect comes back totally blank for ibm-granite/granite-vision and the build crashes with 'unsupported model_type' — how do I add a recipe so it works?", "should_trigger": true },
     { "query": "I want to contribute Qwen3-Embedding support to winml-cli, where do I add the exporter config", "should_trigger": true },
@@ -20,6 +20,10 @@
     { "query": "the QNN compile backend segfaults on my model, can you explain how the EPContext compile path is structured", "should_trigger": false },
     { "query": "benchmark resnet50 latency over 100 iterations on CPU with winml perf and give me the json", "should_trigger": false },
     { "query": "I have a working onnx file already, just convert my pytorch model with torch.onnx.export and quantize it to int8", "should_trigger": false },
-    { "query": "for an already-supported dinov2 recipe, hand-tune the optim fusion passes to squeeze more NPU throughput", "should_trigger": false }
+    { "query": "for an already-supported dinov2 recipe, hand-tune the optim fusion passes to squeeze more NPU throughput", "should_trigger": false },
+    { "query": "This already-supported model builds and runs, but analyze marks some operators unknown. Explain whether that means the accelerator is infeasible; do not change model support.", "should_trigger": false },
+    { "query": "Compare operator coverage and likely EP suitability for an existing working recipe. We have not established any missing loader, task or exporter capability.", "should_trigger": false },
+    { "query": "The existing family builds, but its classification task has no evaluator. Implement the missing shared task support and regression tests.", "should_trigger": true },
+    { "query": "Inspection confirms the task exporter is missing for this model capability. Repair support with a reusable exporter rather than just explaining the coverage report.", "should_trigger": true }
   ]
 }

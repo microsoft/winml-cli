@@ -207,9 +207,10 @@ winml compile -m .\model.mlir --compiler cgc --device gpu -o .\model-output.mlir
 
 For `.mlir` and `.mlirbc` input, `--compiler cgc` is optional.
 
-The artifact is bytecode, not textual MLIR. This is a separate compilation stage,
-without an EP, optimization or quantization. Default validation reloads/builds
-the artifact and checks I/O; it does not run inference or performance tests.
+The artifact is UTF-8 text MLIR, matching the representation written by
+`winml export --target cgir`. This is a separate compilation stage, without an
+EP, optimization or quantization. Default validation reloads/builds the final
+text artifact and checks I/O; it does not run inference or performance tests.
 
 ## Tutorials and samples
 

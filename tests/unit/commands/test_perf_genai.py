@@ -23,6 +23,7 @@ import pytest
 from click.testing import CliRunner
 from rich.console import Console
 
+from winml.modelkit.commands import _generation_metrics as generation_metrics
 from winml.modelkit.commands import _perf_genai as perf_genai
 from winml.modelkit.commands import perf as perf_module
 from winml.modelkit.commands._perf_genai import (
@@ -446,9 +447,11 @@ class TestMetricMath:
         session = _FakeSession([_timing(0.4, 0.6, [0.5])])
         rss_values = iter([100.0, 150.0, 180.0])
 
-        monkeypatch.setattr(perf_genai, "_get_rss_mb", lambda: next(rss_values), raising=False)
         monkeypatch.setattr(
-            perf_genai,
+            generation_metrics, "_get_rss_mb", lambda: next(rss_values), raising=False
+        )
+        monkeypatch.setattr(
+            generation_metrics,
             "_get_vram_mb",
             lambda _adapter_luid: (0.0, 0.0),
             raising=False,
@@ -483,9 +486,11 @@ class TestMetricMath:
         rss_values = iter([100.0, 150.0, 180.0])
         vram_values = iter([(10.0, 20.0), (30.0, 50.0), (40.0, 70.0)])
 
-        monkeypatch.setattr(perf_genai, "_get_rss_mb", lambda: next(rss_values), raising=False)
         monkeypatch.setattr(
-            perf_genai,
+            generation_metrics, "_get_rss_mb", lambda: next(rss_values), raising=False
+        )
+        monkeypatch.setattr(
+            generation_metrics,
             "_get_vram_mb",
             lambda _adapter_luid: next(vram_values),
             raising=False,
@@ -1753,8 +1758,13 @@ class TestCliDispatch:
         [([], "genai-bundle"), (["--ep", "CPUExecutionProvider"], "genai-bundle-cpu-cpu")],
     )
     def test_autobuild_reuses_cached_bundle(
-        self, runner: CliRunner, tmp_path: Path, capture_run: dict, monkeypatch,
-        arguments, directory,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        capture_run: dict,
+        monkeypatch,
+        arguments,
+        directory,
     ) -> None:
         from winml.modelkit.cache import get_model_dir
 

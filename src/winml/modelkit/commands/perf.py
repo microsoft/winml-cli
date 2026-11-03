@@ -26,10 +26,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 
 import click
-import numpy as np
 from rich.markup import escape
 from rich.table import Table
 
+from ..utils import CGCLoweringTarget
 from ..utils import cli as cli_utils
 from ..utils.console import SafeConsole
 from ..utils.constants import (
@@ -57,6 +57,7 @@ if TYPE_CHECKING:
     import contextlib
     from collections.abc import Iterator
 
+    import numpy as np
     from rich.console import Console
 
     from ..models.winml.base import WinMLPreTrainedModel
@@ -565,6 +566,7 @@ class BenchmarkConfig:
     model_id: str
     runtime: RuntimeName = "winml-ort"
     backend: RuntimeBackend | None = None
+    cgc_lowering_target: CGCLoweringTarget | None = None
     task: str | None = None
     submodel: str | None = None
     device: str = "auto"
@@ -635,6 +637,7 @@ class BenchmarkResult:
 
     # Raw samples (for advanced analysis)
     raw_samples_ms: list[float] = field(default_factory=list)
+    gpu_execution: dict[str, Any] | None = None
 
     # Throughput
     samples_per_sec: float = 0.0
@@ -668,6 +671,7 @@ class BenchmarkResult:
         """Convert to dictionary for JSON serialization."""
         result: dict[str, Any] = {
             "schema_version": 2,
+            **({"gpu_execution": self.gpu_execution} if self.gpu_execution is not None else {}),
             "benchmark_info": {
                 "runtime": self.config.runtime,
                 "timing_scope": (
@@ -678,6 +682,7 @@ class BenchmarkResult:
                 "backend": resolve_runtime_api_backend(
                     self.config.runtime, self.config.model_id, self.config.backend
                 ),
+                "cgc_lowering_target": self.config.cgc_lowering_target,
                 "model_id": self.config.model_id,
                 "running_model_path": self.running_model_path,
                 "task": self.actual_task,
@@ -777,6 +782,8 @@ def generate_random_inputs(
     Returns:
         Dictionary of input_name -> numpy array
     """
+    import numpy as np
+
     from ..core import generate_dummy_inputs_from_specs
 
     symbolic_shapes = io_config.get("input_symbolic_shapes") or [
@@ -926,6 +933,8 @@ def _runtime_input_shapes(
         return {}, {}
     shapes: dict[str, tuple[int, ...]] = {}
     if input_data is not None:
+        import numpy as np
+
         if input_data.suffix.lower() != ".npz":
             raise click.UsageError("--input-data must be a named .npz archive.")
         try:
@@ -1420,6 +1429,10 @@ class PerfBenchmark:
             "no_compile": self.config.no_compile,
             "runtime": self.config.runtime,
             "backend": self._runtime_backend,
+            # ORT CGEP lowering is applied to SessionOptions by the ETW collector.
+            "cgc_lowering_target": (
+                self.config.cgc_lowering_target if self.config.runtime == "winml-runtime" else None
+            ),
             # optimize/analyze/max-optim toggles, forwarded by WinMLAutoModel to
             # build_hf_model / build_onnx_model. Shared mapping with build/eval.
             **cli_utils.build_pipeline_extra_kwargs(
@@ -1468,6 +1481,7 @@ class PerfBenchmark:
                     task=resolved_task,
                     runtime=self.config.runtime,
                     backend="cgc",
+                    cgc_lowering_target=self.config.cgc_lowering_target,
                 )
         else:
             with suppress_native_warnings(enabled=True):
@@ -1662,6 +1676,8 @@ class PerfBenchmark:
 
     def _collect_results(self, stats: PerfStats) -> BenchmarkResult:
         """Collect benchmark results from PerfStats."""
+        import numpy as np
+
         io_config = self._single.io_config
 
         # Calculate throughput. Scale by the batch the session actually ran
@@ -1796,6 +1812,8 @@ def _perf_modules(
     import difflib
     import json as json_mod
     import tempfile
+
+    import numpy as np
 
     from ..build import build_hf_model
     from ..cache import get_cache_dir, get_cache_key, get_model_dir
@@ -2140,6 +2158,14 @@ def display_console_report(result: BenchmarkResult, console: SafeConsole) -> Non
     even though they no longer render to stdout — the data model is
     unchanged, only the console rendering was pruned.
     """
+    if result.gpu_execution is not None:
+        gpu = result.gpu_execution
+        console.print("\n[bold]GPU execution time (ms; inference body)[/bold]")
+        console.print(
+            f"Mean {gpu['mean_ms']:.6f} | P50 {gpu['median_ms']:.6f} | "
+            f"P95 {gpu['p95_ms']:.6f} | Valid Runs {gpu['valid_runs']}/{gpu['expected_runs']}"
+        )
+        console.print(f"ETW lost: {gpu['events_lost']} | Recorded excluded: {gpu['recorded_runs']}")
     # Latency table
     console.print()
     console.print("[bold]Latency (ms)[/bold]")
@@ -3098,6 +3124,7 @@ def _validate_duration(
     "'ort-genai' benchmarks an onnxruntime-genai bundle folder "
     "(LLM generation: TTFT + decode tokens/sec).",
 )
+@cli_utils.cgc_lowering_target_option()
 @click.option(
     "--backend",
     type=click.Choice(list(RUNTIME_BACKENDS)),
@@ -3317,8 +3344,16 @@ def _validate_duration(
 @cli_utils.verbosity_options()
 @cli_utils.no_color_option()
 @click.pass_context
+@click.option(
+    "--etw-tracing",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Collect Runtime ETW events to a new directory and report GPU execution timing "
+    "(ETW access required).",
+)
 def perf(
     ctx: click.Context,
+    etw_tracing: Path | None,
     model: str | None,
     runtime: RuntimeName | Literal["dxcgc"],
     dxcgc_host: Path | None,
@@ -3329,6 +3364,7 @@ def perf(
     dxcgc_gpu_timing: bool,
     disable_d3d_mlir_programs: bool,
     backend: RuntimeBackend | None,
+    cgc_lowering_target: CGCLoweringTarget | None,
     prompt: str,
     prompt_file: Path | None,
     gguf_prefill_trace: Path | None,
@@ -3463,26 +3499,9 @@ def perf(
     model = hf_model
     runtime = _resolve_runtime(runtime, model)
     is_gguf = Path(model).suffix.lower() == ".gguf"
-    try:
-        effective_backend = resolve_runtime_api_backend(runtime, model, backend)
-    except ValueError as error:
-        raise click.UsageError(str(error)) from error
-    # AC 11 (mockup spec): --top-k requires --op-tracing. Outside the
-    # op-tracing section the flag is meaningless, so reject it explicitly
-    # rather than silently ignoring a user's intent.
-    if top_k is not None and op_tracing is None:
-        raise click.UsageError("--top-k requires --op-tracing to be set.")
-    if top_k is not None and top_k < 1:
-        raise click.UsageError("--top-k must be >= 1.")
-
-    # Retain multiple trace samples for timing stability without the full
-    # benchmark's trace volume. Explicit iteration counts always take precedence.
-    if op_tracing and ctx.get_parameter_source("iterations") == click.core.ParameterSource.DEFAULT:
-        iterations = 10
-
     # Apply build config defaults (CLI explicit options take precedence).
     # Read raw JSON so missing keys are distinguishable from dataclass defaults.
-    if config_file is not None:
+    if config_file is not None and not is_gguf:
         build_cfg, raw_cfg = cli_utils.load_build_config(config_file)
         lc = raw_cfg.get("loader") or {}
         cc = raw_cfg.get("compile") or {}
@@ -3507,19 +3526,65 @@ def perf(
             elif "execution_provider" in cc:
                 ep = (cc["execution_provider"], None)
 
-    if runtime == "winml-runtime" and ep_provider_options and not is_gguf:
-        logger.warning("--ep-options are ignored with --runtime winml-runtime.")
-        ep_provider_options = None
+    cgep_trace = (
+        etw_tracing is not None
+        and runtime == "winml-ort"
+        and ep is not None
+        and ep[0].lower() in ("winmlcg", "winmlcgexecutionprovider")
+    )
+    if etw_tracing is not None and (
+        (not cgep_trace and (runtime != "winml-runtime" or backend not in (None, "cgc")))
+        or device.lower() != "gpu"
+        or Path(model).suffix.lower() not in (".onnx", ".mlir")
+        or monitor
+        or op_tracing
+        or module_class
+        or compare_devices
+    ):
+        raise click.UsageError(
+            "--etw-tracing requires --device gpu and either winml-runtime with CGC "
+            "(ONNX/MLIR) or winml-ort with --ep winmlcg (ONNX), without "
+            "monitor/op-tracing/module/compare-devices modes."
+        )
+    try:
+        effective_backend = resolve_runtime_api_backend(runtime, model, backend)
+    except ValueError as error:
+        raise click.UsageError(str(error)) from error
+    if cgc_lowering_target is not None and (
+        not cgep_trace and (runtime != "winml-runtime" or effective_backend != "cgc")
+    ):
+        raise click.UsageError(
+            "--cgc-lowering-target requires winml-runtime with the CGC backend, "
+            "or winml-ort with --ep winmlcg and --etw-tracing."
+        )
+    if cgep_trace and (cgc_lowering_target == "d3d12" or Path(model).suffix.lower() != ".onnx"):
+        raise click.UsageError("WinMLCG EP tracing requires ONNX and auto/dml lowering.")
+
+    # AC 11 (mockup spec): --top-k requires --op-tracing. Outside the
+    # op-tracing section the flag is meaningless, so reject it explicitly
+    # rather than silently ignoring a user's intent.
+    if top_k is not None and op_tracing is None:
+        raise click.UsageError("--top-k requires --op-tracing to be set.")
+    if top_k is not None and top_k < 1:
+        raise click.UsageError("--top-k must be >= 1.")
+
+    # Retain multiple trace samples for timing stability without the full
+    # benchmark's trace volume. Explicit iteration counts always take precedence.
+    if op_tracing and ctx.get_parameter_source("iterations") == click.core.ParameterSource.DEFAULT:
+        iterations = 10
 
     json_mode = output_format == "json"
     console = SafeConsole(stderr=True) if json_mode else SafeConsole()
 
-    # =========================================================================
-    # GGUF (experimental): Windows ML Tasks over a Runtime llama.cpp pipeline
-    # =========================================================================
+    # GGUF ignores ONNX build configuration. Route it before loading config
+    # dataclasses, which import unrelated EP/ORT session dependencies.
     if is_gguf:
         _run_gguf_runtime(ctx, model=model, runtime=runtime, console=console, json_mode=json_mode)
         return
+
+    if runtime == "winml-runtime" and ep_provider_options and not is_gguf:
+        logger.warning("--ep-options are ignored with --runtime winml-runtime.")
+        ep_provider_options = None
 
     # =========================================================================
     # GENAI RUNTIME: benchmark an onnxruntime-genai bundle folder
@@ -3834,6 +3899,7 @@ def perf(
         model_id=hf_model,
         runtime=runtime,
         backend=effective_backend,
+        cgc_lowering_target=cgc_lowering_target,
         task=task,
         submodel=submodel,
         device=device.lower(),
@@ -3926,7 +3992,24 @@ def perf(
             suppress_huggingface_warning_logs(verbosity=verbose, quiet=quiet),
             suppress_third_party_progress(verbosity=verbose, quiet=quiet),
         ):
-            result = benchmark.run()
+            if etw_tracing is None:
+                result = benchmark.run()
+            else:
+                from ..session.gpu_capture import GpuCapture
+
+                try:
+                    with GpuCapture(etw_tracing.resolve()) as capture:
+                        capture.execution_path = "winmlcgep" if cgep_trace else "runtime-api"
+                        capture.lowering_target = cgc_lowering_target or "auto"
+                        try:
+                            result = benchmark.run()
+                        finally:
+                            benchmark.close()
+                    if isinstance(result, dict):
+                        raise click.UsageError("--etw-tracing does not support composite models.")
+                    result.gpu_execution = capture.finish()
+                except (OSError, RuntimeError) as exc:
+                    raise click.ClickException(str(exc)) from exc
 
         # Composite models (e.g. CLIP/SigLIP dual-encoders) have no single ORT
         # session; each sub-model is benchmarked individually and reported as

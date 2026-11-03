@@ -46,6 +46,7 @@ if TYPE_CHECKING:
 
     from ..build import BuildResult
     from ..session import WinMLEPDevice
+    from ..utils import CGCLoweringTarget
     from ..utils.constants import RuntimeBackend, RuntimeName
     from .winml.base import WinMLPreTrainedModel
     from .winml.composite_model import WinMLCompositeModel
@@ -169,6 +170,7 @@ class WinMLAutoModel:
         hf_config: PretrainedConfig | None = None,
         runtime: RuntimeName = "winml-ort",
         backend: RuntimeBackend | None = None,
+        cgc_lowering_target: CGCLoweringTarget | None = None,
         **kwargs: Any,
     ) -> WinMLPreTrainedModel | WinMLCompositeModel:
         """Build from a pre-exported ONNX file.
@@ -226,6 +228,7 @@ class WinMLAutoModel:
                 session_options=session_options,
                 runtime=runtime,
                 backend=backend,
+                cgc_lowering_target=cgc_lowering_target,
                 **kwargs,
             )
 
@@ -280,6 +283,7 @@ class WinMLAutoModel:
                 session_options=session_options,
                 runtime=runtime,
                 backend=backend,
+                cgc_lowering_target=cgc_lowering_target,
             )
 
         # Resolve output directory
@@ -336,6 +340,7 @@ class WinMLAutoModel:
             session_options=session_options,
             runtime=runtime,
             backend=backend,
+            cgc_lowering_target=cgc_lowering_target,
         )
 
     @classmethod
@@ -347,6 +352,7 @@ class WinMLAutoModel:
         task: str | None = None,
         runtime: RuntimeName = "winml-runtime",
         backend: RuntimeBackend = "cgc",
+        cgc_lowering_target: CGCLoweringTarget | None = None,
     ) -> WinMLPreTrainedModel:
         """Load a pre-built CGC MLIR artifact."""
         if runtime != "winml-runtime":
@@ -366,6 +372,7 @@ class WinMLAutoModel:
             ep_device=ep_device,
             runtime=runtime,
             backend=resolved_backend,
+            cgc_lowering_target=cgc_lowering_target,
         )
 
     @classmethod
@@ -394,6 +401,7 @@ class WinMLAutoModel:
         hack_max_optim_iterations: int = 3,
         runtime: RuntimeName = "winml-ort",
         backend: RuntimeBackend | None = None,
+        cgc_lowering_target: CGCLoweringTarget | None = None,
         **kwargs: Any,
     ) -> WinMLPreTrainedModel | WinMLCompositeModel:
         """Load appropriate WinML model based on task detection.
@@ -478,6 +486,7 @@ class WinMLAutoModel:
                 session_options=session_options,
                 runtime=runtime,
                 backend=backend,
+                cgc_lowering_target=cgc_lowering_target,
                 allow_unsupported_nodes=allow_unsupported_nodes,
                 skip_optimize=skip_optimize,
                 hack_max_optim_iterations=hack_max_optim_iterations,
@@ -531,6 +540,7 @@ class WinMLAutoModel:
                     ep_device=ep_device,
                     runtime=runtime,
                     backend=backend,
+                    cgc_lowering_target=cgc_lowering_target,
                     use_cache=use_cache,
                     force_rebuild=force_rebuild,
                     skip_build=skip_build,
@@ -590,6 +600,7 @@ class WinMLAutoModel:
             session_options=session_options,
             runtime=runtime,
             backend=backend,
+            cgc_lowering_target=cgc_lowering_target,
         )
         model._build_config = artifact.build_config
         return model

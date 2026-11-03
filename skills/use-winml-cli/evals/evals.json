@@ -1,0 +1,154 @@
+{
+  "skill_name": "use-winml-cli",
+  "description": "Recovered advice-only response regressions: 11 cases and 60 concept assertions. Compare matched with_skill and baseline sessions using independent grading. Validate every concrete CLI command separately against versioned help evidence, as described in README.md.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "snapdragon-resnet-build",
+      "prompt": "i just got a snapdragon x elite dev box and i want to run microsoft/resnet-50 on the npu. can you walk me through getting it built and benchmarked? i want to see latency numbers at the end. give me actual commands i can copy paste.",
+      "files": [],
+      "assertions": [
+        { "id": "inspect-first", "text": "Recommends inspecting the model before starting the build pipeline.", "passed": null, "evidence": "" },
+        { "id": "identifies-qnn", "text": "Identifies QNN as the target EP for Snapdragon X Elite and checks that it is available.", "passed": null, "evidence": "" },
+        { "id": "no-wrong-ep", "text": "Does not substitute OpenVINO or VitisAI for the requested Qualcomm NPU. Any fallback is explicitly identified as not meeting the NPU target.", "passed": null, "evidence": "" },
+        { "id": "covers-pipeline-stages", "text": "Explains a model-producing build path, using config plus build or the necessary primitive stages, before benchmarking the published artifact.", "passed": null, "evidence": "" },
+        { "id": "ends-with-benchmark", "text": "Includes a perf step that would measure latency, without fabricating a measured number in this advice-only response.", "passed": null, "evidence": "" },
+        { "id": "no-fabricated-flags", "text": "Every concrete command uses subcommands, flags, and argument shapes supported by the supplied or consulted CLI-help evidence; a generic check-help disclaimer does not excuse invalid commands.", "passed": null, "evidence": "" },
+        { "id": "includes-install-prereq", "text": "Includes installation prerequisites or a clear pointer to them because this is a fresh dev box.", "passed": null, "evidence": "" }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "ryzen-ai-quick-benchmark",
+      "prompt": "I have an AMD Ryzen AI laptop and I want to know the fastest way to see how fast facebook/convnext-tiny-224 runs on my NPU. I don't really care about the artifact, just the number.",
+      "files": [],
+      "assertions": [
+        { "id": "identifies-vitisai", "text": "Identifies VitisAI as the target AMD NPU provider, subject to actual device and EP availability.", "passed": null, "evidence": "" },
+        { "id": "single-perf-command", "text": "Recommends perf against the source model as the primary benchmark action rather than requiring a separately saved model artifact.", "passed": null, "evidence": "" },
+        { "id": "no-full-pipeline", "text": "Does not require manually executing export, optimize, quantize, and compile as separate steps before the benchmark.", "passed": null, "evidence": "" },
+        { "id": "inspect-as-sanity-check", "text": "Mentions inspecting the model first as a sanity check.", "passed": null, "evidence": "" },
+        { "id": "no-fabricated-flags", "text": "Every concrete command is supported by versioned CLI-help evidence; plausible-looking flags alone do not pass.", "passed": null, "evidence": "" },
+        { "id": "includes-install-prereq", "text": "Includes installation prerequisites or a pointer because the prompt gives no signal of an existing winml installation.", "passed": null, "evidence": "" }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "npu-vs-cpu-comparison",
+      "prompt": "i have a ViT model (google/vit-base-patch16-224) and im trying to decide whether to ship the NPU version or just use CPU. running on a snapdragon x elite. whats the cleanest way to get apples-to-apples latency numbers from both?",
+      "files": [],
+      "assertions": [
+        { "id": "inspect-first", "text": "Recommends inspecting the model before building or benchmarking it.", "passed": null, "evidence": "" },
+        { "id": "identifies-qnn", "text": "Identifies QNN as the Snapdragon NPU target and verifies its availability.", "passed": null, "evidence": "" },
+        { "id": "build-once-perf-twice", "text": "Recommends one build workflow with published intermediate and compiled outputs, then benchmarks the appropriate outputs on NPU and CPU with comparable measurement settings.", "passed": null, "evidence": "" },
+        { "id": "cpu-uses-pre-compile", "text": "Uses a published pre-compile ONNX artifact for the CPU benchmark rather than the QNN-compiled model or an assumed private cache file.", "passed": null, "evidence": "" },
+        { "id": "ep-locked-warning", "text": "Explains that EP-compiled artifacts are tied to their target provider and cannot serve as the CPU comparison artifact.", "passed": null, "evidence": "" },
+        { "id": "no-fabricated-flags", "text": "All concrete commands and any intermediate-output options are supported by versioned CLI-help evidence.", "passed": null, "evidence": "" },
+        { "id": "includes-install-prereq", "text": "Includes installation prerequisites or a pointer because prior winml installation is not established.", "passed": null, "evidence": "" }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "is-model-supported",
+      "prompt": "Before I commit to building `nvidia/segformer-b1-finetuned-ade-512-512` end-to-end on my Intel NPU, is there a way to know if it's going to make it through the full pipeline? Burned half a day last time on a model that exported fine but then died at the optimize stage.",
+      "files": [],
+      "assertions": [
+        { "id": "recommends-inspect", "text": "Starts with inspect as a cheap configuration-only check that does not download model weights.", "passed": null, "evidence": "" },
+        { "id": "recommends-analyze", "text": "Recommends analyze on an available exported ONNX after inspection, explaining that an export is needed if no ONNX exists yet.", "passed": null, "evidence": "" },
+        { "id": "identifies-openvino", "text": "Identifies OpenVINO as the Intel NPU target, subject to device and provider availability.", "passed": null, "evidence": "" },
+        { "id": "explains-analyze-role", "text": "Explains the analyzer's supported/partial/unsupported operator checks for the target EP without promising that inspection or analysis guarantees full build success.", "passed": null, "evidence": "" },
+        { "id": "no-just-try-it", "text": "Does not answer only by asking the user to attempt the entire expensive build pipeline.", "passed": null, "evidence": "" }
+      ]
+    },
+    {
+      "id": 6,
+      "name": "optimize-failure-recovery",
+      "prompt": "i'm building microsoft/swin-large-patch4-window7-224 for QNN on snapdragon x elite. inspect and export went through fine but winml optimize keeps erroring with something about an unsupported op pattern. what do i do?",
+      "files": [],
+      "assertions": [
+        { "id": "run-analyze", "text": "Recommends analyzing the already exported ONNX as an early diagnostic step.", "passed": null, "evidence": "" },
+        { "id": "analyze-names-op", "text": "Explains how target-EP operator analysis can help identify the problematic pattern without inventing a diagnosis not supported by the actual error.", "passed": null, "evidence": "" },
+        { "id": "no-hand-edit-onnx", "text": "Does not recommend hand-editing the ONNX graph as the normal recovery path.", "passed": null, "evidence": "" },
+        { "id": "try-different-config-or-escalate", "text": "Suggests a supported optimization/quantization configuration change or an explicit model/EP limitation, instead of an unsupported workaround.", "passed": null, "evidence": "" },
+        { "id": "reads-error-message", "text": "Requests or inspects the actual error and relevant help before guessing the failing operator, provider, or stage.", "passed": null, "evidence": "" }
+      ]
+    },
+    {
+      "id": 7,
+      "name": "install-setup",
+      "prompt": "i just got my snapdragon x elite dev box and i don't have winml installed yet. python 3.10 is already on the system. give me the actual install commands i should run to get going before i can do anything else.",
+      "files": [],
+      "assertions": [
+        { "id": "python-3-11-required", "text": "Recommends Python 3.11 and explains that the existing Python 3.10 does not satisfy the package's >=3.11,<3.12 requirement.", "passed": null, "evidence": "" },
+        { "id": "uses-uv-venv", "text": "Creates an isolated Python 3.11 environment using uv or an equivalent explicit interpreter selection, rather than installing into system Python 3.10.", "passed": null, "evidence": "" },
+        { "id": "points-to-correct-source", "text": "Installs the winml-cli package from PyPI into that environment, not a different generic winml package.", "passed": null, "evidence": "" },
+        { "id": "verifies-after-install", "text": "Includes a post-install CLI and/or provider-discovery verification step.", "passed": null, "evidence": "" }
+      ]
+    },
+    {
+      "id": 8,
+      "name": "local-onnx-file",
+      "prompt": "i already have a resnet50.onnx file on disk from a previous export \u2014 about 100MB. how do i get it benchmarked on my intel core ultra NPU without re-downloading anything from huggingface?",
+      "files": [],
+      "assertions": [
+        { "id": "identifies-openvino", "text": "Identifies OpenVINO as the Intel Core Ultra NPU target, subject to actual availability.", "passed": null, "evidence": "" },
+        { "id": "accepts-local-onnx-input", "text": "Uses perf on the local ONNX as the benchmark entry point, passing its path through the supported model flag rather than an unsupported positional argument.", "passed": null, "evidence": "" },
+        { "id": "skips-export", "text": "Does not re-export or re-download the source Hugging Face model when the local ONNX is already available.", "passed": null, "evidence": "" },
+        { "id": "no-fabricated-flags", "text": "Every concrete command uses flags and argument shapes supported by the evaluated CLI-help evidence.", "passed": null, "evidence": "" }
+      ]
+    },
+    {
+      "id": 9,
+      "name": "config-build-for-ci",
+      "prompt": "we want to add a CI job that rebuilds an optimized resnet50 (targeting qnn) every time the model config changes. i want one json config that lives in the repo and a reproducible build step. how should i set this up?",
+      "files": [],
+      "assertions": [
+        { "id": "recommends-config-plus-build", "text": "Recommends generating a config and invoking build from that config rather than maintaining a manually chained primitive pipeline.", "passed": null, "evidence": "" },
+        { "id": "config-committed-to-git", "text": "Identifies the generated build configuration JSON as the version-controlled build input.", "passed": null, "evidence": "" },
+        { "id": "cli-precedence-not-reversed", "text": "Does not claim config values override explicit CLI flags; if discussing precedence, correctly states CLI options override config defaults.", "passed": null, "evidence": "" },
+        { "id": "reproducibility-or-rebuild", "text": "Addresses controlled model revisions, CLI/dependency versions, target hardware/EP availability, or cache/rebuild policy for repeatability; does not promise byte-identical artifacts from a config alone.", "passed": null, "evidence": "" },
+        { "id": "ci-includes-install-step", "text": "Includes installing winml-cli in a compatible environment on the fresh CI runner before invoking the build.", "passed": null, "evidence": "" }
+      ]
+    },
+    {
+      "id": 10,
+      "name": "seq2seq-out-of-scope",
+      "prompt": "i want to deploy salesforce/codet5p-220m on my snapdragon x elite NPU for offline code summarization in a VSCode extension. the model takes a code snippet and outputs a natural-language summary. walk me through the winml pipeline?",
+      "files": [],
+      "assertions": [
+        { "id": "identifies-generative-architecture", "text": "Identifies the generative seq2seq architecture and applies the skill's general scope rule, not a checkpoint-name blacklist.", "passed": null, "evidence": "" },
+        { "id": "out-of-scope-clearly", "text": "Clearly states that the request is outside this skill's declared scope without incorrectly claiming that all current CLI generative paths are unsupported.", "passed": null, "evidence": "" },
+        { "id": "does-not-walk-pipeline", "text": "Does not prescribe this skill's classic-model export/optimize/quantize/compile/build/perf pipeline for the generative model.", "passed": null, "evidence": "" },
+        { "id": "alternative-or-roadmap", "text": "Points to current model/runtime documentation or an appropriate generative workflow; does not promise unverified model support or repeat an expired roadmap as current fact.", "passed": null, "evidence": "" }
+      ]
+    },
+    {
+      "id": 11,
+      "name": "ambiguous-run-intent",
+      "prompt": "i want to run resnet-50 on my snapdragon x elite. how do i do that with winml?",
+      "files": [],
+      "assertions": [
+        { "id": "disambiguates-intent", "text": "Acknowledges the distinction between measuring latency and producing a deployable artifact, by clarifying intent or presenting both paths with a reasoned recommendation.", "passed": null, "evidence": "" },
+        { "id": "no-perf-build-perf-sequence", "text": "Does not prescribe perf, then build, then perf again as the normal workflow.", "passed": null, "evidence": "" },
+        { "id": "correct-order-if-both-steps", "text": "If prescribing both model building and benchmarking, publishes the model through build before running perf on that artifact.", "passed": null, "evidence": "" },
+        { "id": "inspect-first", "text": "Recommends inspecting the model before starting the pipeline.", "passed": null, "evidence": "" },
+        { "id": "identifies-qnn", "text": "Identifies QNN as the Snapdragon NPU target and checks availability.", "passed": null, "evidence": "" },
+        { "id": "no-fabricated-flags", "text": "All concrete commands are supported by versioned CLI-help evidence, not inferred from plausible naming.", "passed": null, "evidence": "" },
+        { "id": "includes-install-prereq", "text": "Includes installation prerequisites because the prompt does not establish a working installation.", "passed": null, "evidence": "" }
+      ]
+    },
+    {
+      "id": 12,
+      "name": "perf-output-recovery",
+      "prompt": "i already ran `winml perf -m microsoft/resnet-50 --device npu` on my snapdragon x elite and got latency numbers back. now i want to take that optimized onnx and ship it with my app. where did winml perf put the model file?",
+      "files": [],
+      "assertions": [
+        { "id": "perf-output-is-metrics-json", "text": "Explains that perf's published output is benchmark metrics JSON, not the deployable model.", "passed": null, "evidence": "" },
+        { "id": "artifact-not-exposed", "text": "Treats perf's internal build/cache artifacts as opaque rather than a supported deployment output.", "passed": null, "evidence": "" },
+        { "id": "recommends-build-for-artifact", "text": "Recommends build with an explicit supported output location to publish the deployable model.", "passed": null, "evidence": "" },
+        { "id": "mentions-config-step", "text": "Explains that the build configuration should first be generated or supplied.", "passed": null, "evidence": "" },
+        { "id": "no-fake-perf-output-path", "text": "Does not invent a cache path or a hidden perf flag that supposedly publishes the model.", "passed": null, "evidence": "" },
+        { "id": "no-fabricated-flags", "text": "All concrete commands and output flags are supported by the evaluated CLI-help evidence.", "passed": null, "evidence": "" }
+      ]
+    }
+  ]
+}

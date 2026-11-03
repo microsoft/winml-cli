@@ -15,9 +15,9 @@ the :class:`~winml.modelkit.session.backend.InferenceBackend` protocol, so
 Unlike the ORT path (which may run the full export/optimize/quantize/compile
 pipeline), this backend loads a prebuilt ``.onnx`` or ``.mlir`` directly via
 ``Runtime.load_model`` and drives inference through a single model stage. Output
-retrieval is by tensor name for ORT-backed stages (``OrtNamedBindings.output``)
-and by ordinal for non-ORT stages (``Stage.output``); both return caller-owned
-NumPy copies, so ``run`` yields real named outputs for parity/eval.
+retrieval uses prebound NumPy buffers for static shapes and ``Stage.output`` for
+dynamic shapes; both return caller-owned NumPy arrays, so ``run`` yields real
+named outputs for parity/eval.
 
 Runtime availability is optional: importing ``windowsml.runtime`` loads the
 preview ``WinMLRuntimeCore.dll`` and, for ONNX models, a matching
@@ -46,9 +46,11 @@ from ._runtime_import import import_runtime
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping
+    from typing import Literal
 
     import numpy as np
 
+    from ..utils import CGCLoweringTarget
     from ..utils.constants import RuntimeBackend
     from .ep_registry import WinMLEPDevice
     from .session import PerfContext
@@ -536,13 +538,18 @@ def _compile_runtime_model(
     *,
     symbolic_dimensions: Mapping[str, int] | None = None,
     compiled_form: Any | None = None,
+    cgc_lowering_target: CGCLoweringTarget | None = None,
 ) -> None:
     """Compile a loaded Runtime model while owning compiler/options lifetimes."""
     with _translate_native_errors("build", device_class=resolved_target.device_class):
         compiler = resolved_target.execution_target.model_compiler()
         options = None
         try:
-            if symbolic_dimensions or compiled_form is not None:
+            if (
+                symbolic_dimensions
+                or compiled_form is not None
+                or cgc_lowering_target is not None
+            ):
                 options = compiler.create_options()
                 if symbolic_dimensions:
                     if not options.supports_symbolic_dimensions:
@@ -557,6 +564,13 @@ def _compile_runtime_model(
                             "Runtime does not support DEVICE_TARGETED CG Output IR."
                         )
                     options.form = compiled_form
+                if cgc_lowering_target is not None:
+                    wr = import_runtime()
+                    options.cgc_lowering_target = {
+                        "auto": wr.CgcLoweringTarget.AUTOMATIC,
+                        "dml": wr.CgcLoweringTarget.DML,
+                        "d3d12": wr.CgcLoweringTarget.D3D12,
+                    }[cgc_lowering_target]
                 compiler.compile_to_file(source_model, str(output_path), options=options)
             else:
                 compiler.compile_to_file(source_model, str(output_path))
@@ -573,6 +587,13 @@ def _normalized_schema_descriptors(schema: Any) -> tuple[list[Any], list[Any]]:
         return [(dtype, tuple(_shape_with_dynamic_dims(shape))) for dtype, shape in items]
 
     return normalize(schema.inputs()), normalize(schema.outputs())
+
+
+def _serialize_mlir_as_text(path: Path) -> None:
+    """Replace an MLIR bytecode artifact with its UTF-8 text representation."""
+    from ..export.cgc.ir import read_mlir_text
+
+    path.write_text(read_mlir_text(path), encoding="utf-8", newline="\n")
 
 
 def _resolve_onnx_target(
@@ -624,38 +645,6 @@ def _resolve_onnx_target(
     return _ResolvedRuntimeTarget(target, device_class, provider_name, adapter)
 
 
-def _bind_inputs(
-    runtime: Any,
-    wr: Any,
-    stage: Any,
-    input_names: list[str],
-    inputs: dict[str, Any],
-    *,
-    use_named_bindings: bool = True,
-) -> Any:
-    """Bind inputs, preferring name-based ORT bindings.
-
-    Returns the :class:`OrtNamedBindings` handle when the stage is ORT-backed
-    (so outputs can later be fetched by name), else ``None`` after binding by
-    ordinal.
-    """
-    named = None
-    if use_named_bindings:
-        try:
-            named = stage.ort_bindings()
-        except wr.NotSupportedError:
-            named = None
-
-    if named is not None:
-        for name in input_names:
-            named.bind_input(name, runtime.tensor_from_numpy(inputs[name]))
-        return named
-
-    for index, name in enumerate(input_names):
-        stage.bind_input(index, runtime.tensor_from_numpy(inputs[name]))
-    return None
-
-
 def _stage_diagnostics(wr: Any, stage: Any) -> tuple[str | None, bool]:
     """Return ``(selected_provider, is_pinned)`` when the stage exposes ORT diagnostics."""
     try:
@@ -694,6 +683,7 @@ class WinMLRuntimeSession:
         session_options: Callable[[], Any] | None = None,
         backend: RuntimeBackend,
         device_luid: int | None = None,
+        cgc_lowering_target: CGCLoweringTarget | None = None,
     ) -> None:
         """Initialize a Runtime session.
 
@@ -706,11 +696,23 @@ class WinMLRuntimeSession:
                 rejected for ONNX because the Runtime pipeline API does not
                 expose a per-EP option hook.
             backend: Resolved backend used for model execution.
+            cgc_lowering_target: Optional CGC compilation target; defaults to automatic.
         """
+        from ..utils import CGC_LOWERING_TARGETS
+
+        if cgc_lowering_target is not None:
+            if cgc_lowering_target not in CGC_LOWERING_TARGETS:
+                raise ValueError(
+                    f"Invalid CGC lowering target {cgc_lowering_target!r}; "
+                    f"expected one of {CGC_LOWERING_TARGETS}."
+                )
+            if backend != "cgc":
+                raise ValueError("cgc_lowering_target requires backend='cgc'.")
         self._lock = threading.RLock()
         self._model_path = Path(model_path)
         self._is_mlir = self._model_path.suffix.lower() in {".mlir", ".mlirbc"}
         self._backend = backend
+        self._cgc_lowering_target = cgc_lowering_target
         if self._backend == "cgc" and ep_device is None and device_luid is None:
             raise ValueError("ep_device or device_luid is required for CGC Runtime sessions.")
         self._ep_device = ep_device
@@ -802,16 +804,16 @@ class WinMLRuntimeSession:
             model = runtime.load_model(str(self._model_path))
         return model, model.ort_schema(), True
 
-    def _load_onnx_on_cgc(
+    def _load_on_cgc(
         self,
         runtime: Any,
         resolved_target: _ResolvedRuntimeTarget,
     ) -> tuple[Any, Any, bool]:
-        """Compile ONNX to CGIR and reload it for execution by the CGC backend."""
+        """Compile ONNX or MLIR to CG Output IR and reload it for execution."""
         with _translate_native_errors("load"):
             source_model = runtime.load_model(str(self._model_path))
         try:
-            ort_schema = source_model.ort_schema()
+            ort_schema = None if self._is_mlir else source_model.ort_schema()
 
             self._compiled_artifacts = TemporaryDirectory(prefix="winml-runtime-cgc-")
             artifact_path = Path(self._compiled_artifacts.name) / "model.mlir"
@@ -820,19 +822,14 @@ class WinMLRuntimeSession:
                 resolved_target,
                 artifact_path,
                 symbolic_dimensions=self._symbolic_dimensions,
+                cgc_lowering_target=self._cgc_lowering_target,
             )
 
             with _translate_native_errors("load"):
                 model = runtime.load_model(str(artifact_path))
             return model, ort_schema, False
-        except Exception:
+        finally:
             source_model.close()
-            raise
-
-    def _load_mlir(self, runtime: Any) -> tuple[Any, None, bool]:
-        """Load MLIR directly for execution by the CGC backend."""
-        with _translate_native_errors("load"):
-            return runtime.load_model(str(self._model_path)), None, False
 
     def _ensure_built_locked(self) -> None:
         if self._built:
@@ -842,10 +839,8 @@ class WinMLRuntimeSession:
         runtime = wr.Runtime()
         resolved_target = self._resolve_target(runtime, wr)
         try:
-            if self._is_mlir:
-                model, ort_schema, has_named_bindings = self._load_mlir(runtime)
-            elif self._backend == "cgc":
-                model, ort_schema, has_named_bindings = self._load_onnx_on_cgc(
+            if self._backend == "cgc":
+                model, ort_schema, has_named_bindings = self._load_on_cgc(
                     runtime, resolved_target
                 )
             else:
@@ -953,22 +948,34 @@ class WinMLRuntimeSession:
             prepared[name] = arr if arr.flags.c_contiguous else np.ascontiguousarray(arr)
         return prepared
 
-    def _read_outputs(self, named: Any) -> dict[str, np.ndarray]:
-        """Fetch every declared output as a caller-owned NumPy array.
+    def _bind_input_output(self, inputs: dict[str, np.ndarray]) -> list[np.ndarray | None]:
+        """Bind NumPy inputs and fresh static outputs; request dynamic outputs."""
+        import numpy as np
 
-        ORT-backed stages fetch by tensor name via the bound
-        :class:`OrtNamedBindings`; non-ORT stages fetch by ordinal.
-        """
         assert self._io_config is not None
-        output_names = self._io_config["output_names"]
-        outputs: dict[str, np.ndarray] = {}
-        if named is not None:
-            for name in output_names:
-                outputs[name] = named.output(name).to_numpy()
-        else:
-            for index, name in enumerate(output_names):
-                outputs[name] = self._stage.output(index).to_numpy()
+        outputs = [
+            np.empty(tuple(shape), dtype=dtype) if all(dim is not None for dim in shape) else None
+            for shape, dtype in zip(
+                self._io_config["output_shapes"], self._io_config["output_types"], strict=True,
+            )
+        ]
+        for index, output in enumerate(outputs):
+            if output is None:
+                self._stage.request_output(index)
+        self._stage.bind_buffers(
+            [inputs[name] for name in self._io_config["input_names"]], outputs,
+        )
         return outputs
+
+    def _read_outputs(self, buffers: list[np.ndarray | None]) -> dict[str, np.ndarray]:
+        """Return host-bound outputs, reading back only dynamic outputs."""
+        assert self._io_config is not None
+        return {
+            name: buffer if buffer is not None else self._stage.output(index).to_numpy()
+            for index, (name, buffer) in enumerate(
+                zip(self._io_config["output_names"], buffers, strict=True)
+            )
+        }
 
     def run(self, inputs: dict[str, Any]) -> dict[str, np.ndarray]:
         """Run one inference and return ``{output_name: ndarray}``.
@@ -986,43 +993,49 @@ class WinMLRuntimeSession:
             raise ValueError("inputs cannot be empty")
         self._ensure_built_locked()
         prepared = self._prepare_inputs(inputs)
-        assert self._io_config is not None
-        input_names = self._io_config["input_names"]
-        output_count = len(self._io_config["output_names"])
+        outputs: list[np.ndarray | None] = []
 
         def _do() -> dict[str, np.ndarray]:
-            named = _bind_inputs(
-                self._runtime,
-                self._wr,
-                self._stage,
-                input_names,
-                prepared,
-                use_named_bindings=self._has_named_bindings,
-            )
-            with _translate_native_errors("run"):
-                # Older projections (including 2.7.9) materialize outputs automatically.
-                # Newer projections require an explicit request on every execution.
-                request_output = getattr(self._stage, "request_output", None)
-                if callable(request_output):
-                    for index in range(output_count):
-                        request_output(index)
-                self._pipeline.run()
-            return self._read_outputs(named)
+            nonlocal outputs
+            outputs = self._bind_input_output(prepared)
+            from .gpu_capture import active_capture
 
-        if self._perf_stats is not None:
-            return self._perf_stats.record(_do)
-        return _do()
+            capture = active_capture.get()
+            measured = (capture is not None and self._perf_stats is not None
+                        and len(self._perf_stats.all_samples_ms) >= self._perf_stats.warmup)
+            begin = capture.mark() if measured else None
+            self._pipeline.run()
+            if begin is not None:
+                capture.record(begin)
+            return self._read_outputs(outputs)
+
+        with _translate_native_errors("run"):
+            try:
+                if self._perf_stats is not None:
+                    return self._perf_stats.record(_do)
+                return _do()
+            finally:
+                for index, output in enumerate(outputs):
+                    if output is not None:
+                        self._stage.request_output(index)
 
     def compile(self) -> None:
         """Build the Runtime pipeline if it has not already been built."""
         self._ensure_built()
 
-    def compile_to_file(self, output_path: str | Path, *, validate: bool = True) -> None:
+    def compile_to_file(
+        self,
+        output_path: str | Path,
+        *,
+        validate: bool = True,
+        output_format: Literal["bytecode", "text"] = "bytecode",
+    ) -> None:
         """Persist this CGIR model as device-targeted CG Output IR.
 
         The output is compiled through the same Runtime compiler path used by
-        session-backed ONNX-to-CGC execution. Optional validation reloads the
-        artifact, builds a stage and compares normalized I/O schemas.
+        session-backed ONNX-to-CGC execution. Text output is serialized after
+        Runtime compilation. Optional validation reloads the final artifact,
+        builds a stage and compares normalized I/O schemas.
         """
         if self._backend != "cgc" or not self._is_mlir:
             raise ValueError("Persistent Runtime compilation requires a CGIR model.")
@@ -1040,7 +1053,10 @@ class WinMLRuntimeSession:
                 resolved_target,
                 destination,
                 compiled_form=wr.CompiledModelForm.DEVICE_TARGETED,
+                cgc_lowering_target=self._cgc_lowering_target,
             )
+            if output_format == "text":
+                _serialize_mlir_as_text(destination)
             if not validate:
                 return
             with _translate_native_errors("load"):

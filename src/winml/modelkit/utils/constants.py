@@ -13,6 +13,7 @@ from typing import Any, Literal, TypeAlias, cast, get_args, overload
 __all__ = [
     "ACCELERATOR_DEVICE_TYPES",
     "ALL_EP_NAMES",
+    "CGC_LOWERING_TARGETS",
     "COMPILER_NAMES",
     "DEVICE_PRIORITY",
     "EPS_WITH_INTERNAL_QUANT",
@@ -26,6 +27,7 @@ __all__ = [
     "RUNTIME_NAMES",
     "SUPPORTED_DEVICES",
     "SUPPORTED_EPS",
+    "CGCLoweringTarget",
     "CompilerName",
     "DeviceType",
     "EPAlias",
@@ -95,6 +97,9 @@ RUNTIME_NAMES: tuple[RuntimeName, ...] = get_args(RuntimeName)
 
 RuntimeBackend = Literal["ort", "cgc"]
 RUNTIME_BACKENDS: tuple[RuntimeBackend, ...] = get_args(RuntimeBackend)
+
+CGCLoweringTarget = Literal["auto", "dml", "d3d12"]
+CGC_LOWERING_TARGETS: tuple[CGCLoweringTarget, ...] = get_args(CGCLoweringTarget)
 
 
 def resolve_runtime_api_backend(
