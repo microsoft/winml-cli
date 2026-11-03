@@ -44,8 +44,6 @@ _BOS = 1
 _RAW_PROMPT = [1, 2]
 _TEMPLATED_PROMPT = [1, 2, 3]
 _DYNAMIC = 0xFFFFFFFFFFFFFFFF
-# Sentinel: the stage reports the kind of the target it was built on.
-_KEEP_TARGET_KIND = object()
 
 
 # ---------------------------------------------------------------------------
@@ -84,9 +82,9 @@ class _DataTypes:
 
 
 class _Target(_Closable):
-    def __init__(self, kind: str | None) -> None:
+    def __init__(self, kind: str) -> None:
         super().__init__()
-        self.kind = SimpleNamespace(name=kind) if kind is not None else None
+        self.kind = SimpleNamespace(name=kind)
 
 
 class _Schema(_Closable):
@@ -108,29 +106,11 @@ class _Schema(_Closable):
 class _Stage(_Closable):
     """Runtime metadata consumed by the Task configuration."""
 
-    # Stateful-stage draft options; class attributes so a test can delete one
-    # to model an older projection.
-    draft_token_limit_hint = 0
-    model_draft_predictor_enabled = False
-    draft_predictor_path = None
-
-    def __init__(
-        self,
-        target: _Target,
-        *,
-        token_type: Any,
-        token_rank: int,
-        declared_capacity: int | None = None,
-        reported_kind: Any = _KEEP_TARGET_KIND,
-    ) -> None:
+    def __init__(self, target: _Target, *, token_type: Any, token_rank: int) -> None:
         super().__init__()
         self._target_kind = target.kind.name
-        self._reported_kind = (
-            self._target_kind if reported_kind is _KEEP_TARGET_KIND else reported_kind
-        )
         self._token_type = token_type
         self._token_rank = token_rank
-        self._declared_capacity = declared_capacity
         self.requested_outputs: set[int] = set()
         self.capacity_hint: int | None = None
         self.default_capacity = 64
@@ -141,12 +121,8 @@ class _Stage(_Closable):
         return self.capacity_hint or self.default_capacity
 
     @property
-    def declared_sequence_capacity(self) -> int | None:
-        return self._declared_capacity
-
-    @property
     def execution_target(self) -> _Target:
-        return _Target(self._reported_kind)
+        return _Target(self._target_kind)
 
     def request_output(self, index: int) -> None:
         self.requested_outputs.add(index)
@@ -182,8 +158,6 @@ class _Builder(_Closable):
             target,
             token_type=self._runtime.token_type,
             token_rank=self._runtime.token_rank,
-            declared_capacity=self._runtime._api.declared_capacity,
-            reported_kind=self._runtime._api.target_kind,
         )
         return self._runtime.stage
 
@@ -515,8 +489,6 @@ def _runtime_api(
     load_hresult: int | None = None,
     token_type: Any = _DataTypes.INT32,
     token_rank: int = 2,
-    declared_capacity: int | None = None,
-    target_kind: Any = _KEEP_TARGET_KIND,
 ) -> SimpleNamespace:
     api = SimpleNamespace(
         WinMLError=_WinMLError,
@@ -534,8 +506,6 @@ def _runtime_api(
         load_hresult=load_hresult,
         token_type=token_type,
         token_rank=token_rank,
-        declared_capacity=declared_capacity,
-        target_kind=target_kind,
         eos_arguments=[],
         runtimes=[],
         tokenizers=[],
@@ -735,52 +705,6 @@ class TestLoadReadback:
         session, _api = _session(tmp_path)
         with pytest.raises(LlamaSessionError, match="load"):
             _ = session.task_default_eos_token_ids
-
-    def test_declared_capacity_and_speculative_readback(self, tmp_path: Path) -> None:
-        session, _api = _session(tmp_path, declared_capacity=128)
-        session.load(context_length=32)
-        assert session.declared_context_length == 128
-        assert session.speculative_readback == {
-            "model_draft_predictor_enabled": False,
-            "draft_token_limit_hint": 0,
-            "draft_predictor_path": None,
-            "reason": None,
-        }
-
-    def test_missing_stage_draft_property_is_reported(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.delattr(_Stage, "draft_predictor_path")  # older projection
-        session, _api = _session(tmp_path)
-        session.load(context_length=32)
-        readback = session.speculative_readback
-        assert readback["draft_predictor_path"] is None
-        assert "draft_predictor_path" in readback["reason"]
-
-    def test_resolved_target_kind_has_no_requested_fallback(self, tmp_path: Path) -> None:
-        session, _api = _session(tmp_path, device="gpu", target_kind=None)
-        session.load(context_length=16)
-        assert session.resolved_target_kind is None
-        assert session.effective_device == "gpu"
-
-    def test_initialization_spans_follow_execution_order(self, tmp_path: Path) -> None:
-        session, _api = _session(tmp_path)
-        session.load(context_length=32)
-        spans = session.initialization_spans
-        assert [name for name, _, _ in spans] == [
-            "runtime_create",
-            "tokenizer_open",
-            "model_load",
-            "pipeline_build",
-            "task_create",
-            "session_create",
-        ]
-        bounds = [value for _, start, end in spans for value in (start, end)]
-        assert bounds == sorted(bounds)
-        by_name = {name: (start, end) for name, start, end in spans}
-        assert session.load_timings_ms["task_create_duration_ms"] == (
-            (by_name["session_create"][1] - by_name["task_create"][0]) / 1e6
-        )
 
     def test_greedy_options_set_all_eleven_fields(self, tmp_path: Path) -> None:
         session, _api = _session(tmp_path)

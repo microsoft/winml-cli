@@ -375,26 +375,6 @@ def _fixed_size(dimension: int) -> int | None:
     return int(dimension)
 
 
-# Stateful-stage draft-prediction options and the type each read-back takes.
-_DRAFT_READBACKS: tuple[tuple[str, Callable[[Any], Any]], ...] = (
-    ("model_draft_predictor_enabled", bool),
-    ("draft_token_limit_hint", int),
-    ("draft_predictor_path", str),
-)
-
-
-def _stage_readback(stage: Any, name: str) -> tuple[Any, str | None]:
-    """Read one stage property, returning ``(value, None)`` or ``(None, reason)``.
-
-    Read-backs are diagnostics, so any failure (a missing projection property,
-    an unsupported native getter) is reported instead of raised.
-    """
-    try:
-        return getattr(stage, name), None
-    except Exception as exc:  # diagnostics never fail the run
-        return None, f"{name}: {type(exc).__name__}: {exc}"
-
-
 # =============================================================================
 # Session
 # =============================================================================
@@ -453,8 +433,6 @@ class WinMLLlamaSession:
         self._vocabulary_size: int | None = None
         self._sequence_capacity = 0
         self._effective_device: str | None = None
-        self._resolved_target_kind: str | None = None
-        self._initialization_spans: list[tuple[str, int, int]] = []
 
     # -- metadata -----------------------------------------------------------
     @property
@@ -478,19 +456,6 @@ class WinMLLlamaSession:
         return self._sequence_capacity or None
 
     @property
-    def declared_context_length(self) -> int | None:
-        """Sequence capacity the model declares, or ``None`` when the stage cannot report it."""
-        unavailable: tuple[type[BaseException], ...] = (
-            AttributeError,
-            TypeError,
-            *self._runtime_errors(),
-        )
-        try:
-            return int(self._stage.declared_sequence_capacity)
-        except unavailable:
-            return None
-
-    @property
     def task_default_eos_token_ids(self) -> tuple[int, ...]:
         """EOS IDs the native Task stops on, read back after :meth:`load`.
 
@@ -503,47 +468,6 @@ class WinMLLlamaSession:
             )
         with _translate_native_errors("EOS read-back", device=self._device):
             return tuple(int(token) for token in self._task.default_eos_token_ids)
-
-    @property
-    def tokenizer_eos_token_ids(self) -> tuple[int, ...]:
-        """EOS IDs declared by the GGUF tokenizer metadata.
-
-        Raises:
-            LlamaSessionError: The tokenizer is not open.
-        """
-        if self._tokenizer is None:
-            raise LlamaSessionError(
-                "WinMLLlamaSession.open_tokenizer() must be called before reading "
-                "tokenizer EOS IDs."
-            )
-        return tuple(int(token) for token in self._tokenizer.eos_token_ids)
-
-    @property
-    def speculative_readback(self) -> dict[str, Any]:
-        """Draft-prediction settings of the built stage; the CLI never sets them.
-
-        Each value is ``None`` when its read fails, and ``reason`` joins the
-        failures (``None`` when every read succeeded).
-        """
-        readback: dict[str, Any] = {}
-        reasons: list[str] = []
-        for name, convert in _DRAFT_READBACKS:
-            value, reason = _stage_readback(self._stage, name)
-            readback[name] = None if value is None else convert(value)
-            if reason:
-                reasons.append(reason)
-        readback["reason"] = "; ".join(reasons) or None
-        return readback
-
-    @property
-    def resolved_target_kind(self) -> str | None:
-        """Execution-target kind the stage reports, without the requested-device fallback."""
-        return self._resolved_target_kind
-
-    @property
-    def initialization_spans(self) -> list[tuple[str, int, int]]:
-        """``(name, start_ns, end_ns)`` for each initialization step that completed."""
-        return list(self._initialization_spans)
 
     # -- lifecycle ----------------------------------------------------------
     def open_tokenizer(self) -> None:
@@ -563,19 +487,19 @@ class WinMLLlamaSession:
         if self._check_payload:
             self.payload = _require_llama_backend(self._device)
 
-        runtime_start = time.perf_counter_ns()
+        runtime_start = time.perf_counter()
         with _translate_native_errors("runtime creation", device=self._device):
             self._runtime = self._wr.Runtime()
-        tokenizer_start = time.perf_counter_ns()
-        self._initialization_spans.append(("runtime_create", runtime_start, tokenizer_start))
+        tokenizer_start = time.perf_counter()
         with _translate_native_errors("tokenizer load", device=self._device):
             self._tokenizer = self._wr.Tokenizer.from_file(str(self._model_path))
-        tokenizer_end = time.perf_counter_ns()
-        self._initialization_spans.append(("tokenizer_open", tokenizer_start, tokenizer_end))
-        self.load_timings_ms["runtime_create_duration_ms"] = (tokenizer_start - runtime_start) / 1e6
+        tokenizer_end = time.perf_counter()
+        self.load_timings_ms["runtime_create_duration_ms"] = (
+            tokenizer_start - runtime_start
+        ) * 1000.0
         self.load_timings_ms["tokenizer_create_duration_ms"] = (
             tokenizer_end - tokenizer_start
-        ) / 1e6
+        ) * 1000.0
 
     def load(
         self,
@@ -608,11 +532,10 @@ class WinMLLlamaSession:
         try:
             with _translate_native_errors("target creation", device=self._device):
                 stage_target = self._create_target(wr, runtime)
-            model_start = time.perf_counter_ns()
+            model_start = time.perf_counter()
             with _translate_native_errors("model load", device=self._device):
                 model = runtime.load_model(str(self._model_path))
-            build_start = time.perf_counter_ns()
-            self._initialization_spans.append(("model_load", model_start, build_start))
+            build_start = time.perf_counter()
             with _translate_native_errors("pipeline build", device=self._device):
                 builder = runtime.create_pipeline_builder()
                 stage = builder.add_model_stage(model, stage_target, "decoder")
@@ -621,17 +544,15 @@ class WinMLLlamaSession:
                 if context_length:
                     stage.set_sequence_capacity_hint(int(context_length))
                 pipeline = builder.build()
-            build_end = time.perf_counter_ns()
-            self._initialization_spans.append(("pipeline_build", build_start, build_end))
+            build_end = time.perf_counter()
             _close_quietly(builder)
             builder = None
 
             self._token_input_contract(wr, stage)
             self._sequence_capacity = self._probe_sequence_capacity(wr, stage)
             self._vocabulary_size = self._discover_vocabulary(stage)
-            resolved_target_kind = self._resolved_device(stage)
-            effective_device = resolved_target_kind or self._device
-            task_start = time.perf_counter_ns()
+            effective_device = self._resolved_device(stage) or self._device
+            task_start = time.perf_counter()
             with _translate_native_errors("Task creation", device=self._device):
                 try:
                     tasks = wt.Tasks(runtime)
@@ -659,11 +580,8 @@ class WinMLLlamaSession:
                     task = tasks.create_text_generation_task(
                         self._tokenizer, tuple(int(token) for token in eos_token_ids)
                     )
-                task_created = time.perf_counter_ns()
-                self._initialization_spans.append(("task_create", task_start, task_created))
                 task_session = task.create_session(configuration)
-            task_end = time.perf_counter_ns()
-            self._initialization_spans.append(("session_create", task_created, task_end))
+            task_end = time.perf_counter()
         except Exception:
             for resource in (
                 task_session,
@@ -688,10 +606,9 @@ class WinMLLlamaSession:
         self._task = task
         self._task_session = task_session
         self._effective_device = effective_device
-        self._resolved_target_kind = resolved_target_kind
-        self.load_timings_ms["model_create_duration_ms"] = (build_start - model_start) / 1e6
-        self.load_timings_ms["pipeline_build_duration_ms"] = (build_end - build_start) / 1e6
-        self.load_timings_ms["task_create_duration_ms"] = (task_end - task_start) / 1e6
+        self.load_timings_ms["model_create_duration_ms"] = (build_start - model_start) * 1000.0
+        self.load_timings_ms["pipeline_build_duration_ms"] = (build_end - build_start) * 1000.0
+        self.load_timings_ms["task_create_duration_ms"] = (task_end - task_start) * 1000.0
 
     def close(self) -> None:
         """Release native handles (best-effort; safe to call more than once)."""
