@@ -15,6 +15,7 @@ import dataclasses
 import sys
 from dataclasses import dataclass
 from enum import IntEnum
+from itertools import pairwise
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
@@ -380,8 +381,6 @@ class _GenerationSession(_Closable):
         self._retained: list[int] = []
 
     def reset(self) -> None:
-        if self.api.reset_hresult is not None:
-            raise _WinMLError("Session reset failed", self.api.reset_hresult)
         assert not self.closed
         assert all(stream.closed for stream in self.streams)
         self.reset_count += 1
@@ -394,16 +393,11 @@ class _GenerationSession(_Closable):
             self._retained = []
 
     @property
-    def state(self) -> SimpleNamespace:
-        return SimpleNamespace(name="READY" if self._retained else "EMPTY")
-
-    @property
     def sequence_state(self) -> SimpleNamespace:
         if self.api.disclosure_unsupported:
             raise _NotSupportedError("sequence state disclosure is not supported")
+        self.api.clock.advance(1.0)
         return SimpleNamespace(
-            disclosure=SimpleNamespace(name="RETAINED" if self._retained else "NONE"),
-            session_state=self.state,
             evaluated_token_count=len(self._retained),
             retained_token_count=len(self._retained),
         )
@@ -442,12 +436,7 @@ class _TaskResult:
         self.text = "".join(stream.fragments) + api.result_suffix
         self.finish_reason = api.finish_override or stream.finish_reason
         self.error_code = api.result_hresult or 0
-        self.speculative_statistics = SimpleNamespace(
-            method=SimpleNamespace(name="NONE"),
-            verification_step_count=0,
-            draft_token_count=0,
-            accepted_draft_token_count=0,
-        )
+        self.speculative_statistics = None
 
     def raise_for_error(self) -> None:
         if self.error_code:
@@ -564,7 +553,6 @@ def _runtime_api(
         result_count_mismatch=False,
         result_prompt_offset=0,
         finish_override=None,
-        reset_hresult=None,
         disclosure_unsupported=False,
         reset_keeps_tokens=False,
     )
@@ -898,9 +886,51 @@ class TestGenerateTimed:
         first = session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
         second = session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
         assert first.response_text == second.response_text == "<4><5><6>"
+        assert first.cached_tokens == second.cached_tokens == 0
         assert len(api.generation_sessions) == 1
         assert api.generation_sessions[0].reset_count == 2
         assert all(stream.closed for stream in api.generation_sessions[0].streams)
+
+    def test_cached_tokens_count_what_the_reset_left_behind(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path)
+        api.reset_keeps_tokens = True
+        session.load(context_length=32)
+        first = session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
+        second = session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
+        stream = api.generation_sessions[0].streams[0]
+        assert first.cached_tokens == 0
+        assert second.cached_tokens == len(stream.prompt) + len(stream.tokens)
+
+    def test_unreadable_session_state_leaves_cached_tokens_unknown(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path)
+        api.disclosure_unsupported = True
+        session.load(context_length=32)
+        timing = session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
+        assert timing.cached_tokens is None
+        assert timing.response_text == "<4><5><6>"
+
+    def test_returns_the_clock_readings_behind_the_spans(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path)
+        session.load(context_length=32)
+        timing = session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16, clock=api.clock)
+        stream = api.generation_sessions[0].streams[0]
+
+        # The fake's 1 s state read falls after the 2 s reset and before the submit.
+        assert (timing.reset_s, timing.submit_time) == (2.0, 3.0)
+        assert timing.token_ids == tuple(stream.tokens)
+        assert timing.token_times[0] - timing.submit_time == timing.first_token_s
+        assert [later - earlier for earlier, later in pairwise(timing.token_times)] == (
+            timing.decode_s
+        )
+        assert timing.completed_time - timing.token_times[-1] == timing.completion_s
+
+    def test_explicit_empty_eos_set_runs_to_the_limit(self, tmp_path: Path) -> None:
+        session, _api = _session(tmp_path)
+        session.load(context_length=32, eos_token_ids=())
+        timing = session.generate_timed([_EOS - 1], max_new_tokens=4)
+        assert timing.stop_reason == "MAX_TOKENS"
+        assert timing.token_ids[0] == _EOS
+        assert timing.generated_tokens == 4
 
     def test_phase_spans_follow_the_clock(self, tmp_path: Path) -> None:
         session, api = _session(tmp_path)
@@ -999,112 +1029,6 @@ class TestGenerateTimed:
         session.load(context_length=32)
         with pytest.raises(LlamaSessionError, match="vocabulary"):
             session.generate_timed([_VOCABULARY], max_new_tokens=4)
-
-
-def _ns(api: SimpleNamespace) -> Any:
-    """Integer-nanosecond view of the fake clock (which advances in seconds)."""
-    return lambda: round(api.clock.value * 1_000_000_000)
-
-
-class TestRunRequest:
-    def test_records_reset_disclosure_and_one_event_per_update(self, tmp_path: Path) -> None:
-        session, api = _session(tmp_path)
-        session.load(context_length=32)
-        record = session.run_request(
-            _TEMPLATED_PROMPT, options=session.greedy_options(16), clock_ns=_ns(api)
-        )
-        s = 1_000_000_000
-        stream = api.generation_sessions[0].streams[0]
-        assert record.reset_end_ns - record.reset_start_ns == 2 * s
-        assert record.reset_disclosure == {
-            "state": "EMPTY",
-            "sequence_state": {
-                "disclosure": "NONE",
-                "session_state": "EMPTY",
-                "evaluated_token_count": 0,
-                "retained_token_count": 0,
-            },
-            "retained_token_ids": [],
-        }
-        assert record.stream_created_ns - record.submit_ns == 3 * s
-        assert record.events == tuple(
-            (record.submit_ns + (3 + 5 * (i + 1)) * s, token)
-            for i, token in enumerate(stream.tokens)
-        )
-        assert record.completed_ns - record.events[-1][0] == 7 * s
-        assert record.result_fetched_ns - record.completed_ns == 11 * s
-        assert (
-            record.result_token_ids,
-            record.prompt_token_count,
-            record.finish_reason,
-            record.error_code,
-        ) == (tuple(stream.tokens), len(_TEMPLATED_PROMPT), "EOS_TOKEN", 0)
-        assert record.speculative_statistics == {
-            "method": "NONE",
-            "verification_step_count": 0,
-            "draft_token_count": 0,
-            "accepted_draft_token_count": 0,
-        }
-        assert record.task_stop_reason == "EOS"
-        assert record.error is None
-        assert stream.closed
-
-    def test_explicit_empty_eos_set_runs_to_the_limit(self, tmp_path: Path) -> None:
-        session, _api = _session(tmp_path)
-        session.load(context_length=32, eos_token_ids=())
-        record = session.run_request([_EOS - 1], options=session.greedy_options(4))
-        assert record.finish_reason == "MAX_TOKENS"
-        assert record.result_token_ids[0] == _EOS
-        assert len(record.result_token_ids) == 4
-
-    @pytest.mark.parametrize("failure_source", ["read_hresult", "result_hresult"])
-    def test_task_failures_are_recorded_not_raised(
-        self, tmp_path: Path, failure_source: str
-    ) -> None:
-        session, api = _session(tmp_path)
-        setattr(api, failure_source, 0x80004005)
-        session.load(context_length=32)
-        record = session.run_request(_TEMPLATED_PROMPT, options=session.greedy_options(16))
-        assert record.error.hresult == 0x80004005
-        assert record.result_fetched_ns is None
-        assert api.generation_sessions[0].streams[0].closed
-
-    def test_reset_failure_returns_before_submit(self, tmp_path: Path) -> None:
-        session, api = _session(tmp_path)
-        session.load(context_length=32)
-        api.reset_hresult = 0x80004005
-        record = session.run_request(_TEMPLATED_PROMPT, options=session.greedy_options(16))
-        assert record.reset_error.hresult == 0x80004005
-        assert (record.reset_end_ns, record.submit_ns, record.events) == (None, None, ())
-        assert api.generation_sessions[0].streams == []
-
-    def test_unsupported_disclosure_is_recorded_and_generation_continues(
-        self, tmp_path: Path
-    ) -> None:
-        session, api = _session(tmp_path)
-        api.disclosure_unsupported = True
-        session.load(context_length=32)
-        record = session.run_request(_TEMPLATED_PROMPT, options=session.greedy_options(16))
-        assert record.reset_disclosure is None
-        assert isinstance(record.disclosure_error, _NotSupportedError)
-        assert record.finish_reason == "EOS_TOKEN"
-
-    def test_retained_tokens_after_reset_are_disclosed(self, tmp_path: Path) -> None:
-        session, api = _session(tmp_path)
-        api.reset_keeps_tokens = True
-        session.load(context_length=32)
-        options = session.greedy_options(16)
-        session.run_request(_TEMPLATED_PROMPT, options=options)
-        second = session.run_request(_TEMPLATED_PROMPT, options=options)
-        first = api.generation_sessions[0].streams[0]
-        retained = [*first.prompt, *first.tokens]
-        assert second.reset_disclosure["sequence_state"]["retained_token_count"] == len(retained)
-        assert second.reset_disclosure["retained_token_ids"] == retained
-
-    def test_requires_load(self, tmp_path: Path) -> None:
-        session, _api = _session(tmp_path)
-        with pytest.raises(LlamaSessionError, match="load"):
-            session.run_request(_TEMPLATED_PROMPT, options=None)
 
 
 class TestClose:

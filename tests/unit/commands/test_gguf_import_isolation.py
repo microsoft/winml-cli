@@ -203,7 +203,7 @@ def test_gguf_evidence_run_without_heavy_dependency_imports(tmp_path: Path) -> N
         from click.testing import CliRunner
         from winml.modelkit.cli import main
         from winml.modelkit.commands import _perf_gguf
-        from winml.modelkit.session.llama_session import LlamaRequestRecord
+        from winml.modelkit.session.llama_session import LlamaGenerationTiming
         from winml.modelkit.telemetry.telemetry import Telemetry
 
         Telemetry.get_or_init = classmethod(lambda cls: SimpleNamespace(disabled=True))
@@ -255,30 +255,17 @@ def test_gguf_evidence_run_without_heavy_dependency_imports(tmp_path: Path) -> N
             def greedy_options(self, max_new_tokens):
                 return Options(max_new_tokens=max_new_tokens)
 
-            def run_request(self, token_ids, *, options, clock_ns):
-                start = clock_ns()
-                times = [start + 1000 * step for step in range(9)]
-                tokens = tuple(range(10, 10 + options.max_new_tokens))
+            def generate_timed(self, token_ids, *, max_new_tokens, clock):
+                assert list(token_ids) == [1, 2, 3, 4] and max_new_tokens == 3
+                submit, *token_times, completed = (clock() for _ in range(max_new_tokens + 2))
                 self.requests += 1
-                return LlamaRequestRecord(
-                    input_ids=tuple(token_ids), reset_start_ns=times[0],
-                    reset_end_ns=times[1],
-                    reset_disclosure={
-                        "state": "EMPTY",
-                        "sequence_state": {"disclosure": "NONE", "session_state": "EMPTY",
-                                           "evaluated_token_count": 0,
-                                           "retained_token_count": 0},
-                        "retained_token_ids": [],
-                    },
-                    submit_ns=times[2], stream_created_ns=times[3],
-                    events=tuple(zip(times[4:7], tokens)), completed_ns=times[7],
-                    result_fetched_ns=times[8], result_token_ids=tokens,
-                    prompt_token_count=len(token_ids), finish_reason="MAX_TOKENS",
-                    error_code=0,
-                    speculative_statistics={"method": "NONE", "verification_step_count": 0,
-                                            "draft_token_count": 0,
-                                            "accepted_draft_token_count": 0},
-                    response_text="abc",
+                return LlamaGenerationTiming(
+                    input_tokens=len(token_ids), generated_tokens=max_new_tokens,
+                    reset_s=0.001, stream_create_s=0.001, first_token_s=0.01,
+                    decode_s=[0.002, 0.003], completion_s=0.001, result_fetch_s=0.001,
+                    generation_s=0.017, response_text="abc", stop_reason="MAX_TOKENS",
+                    submit_time=submit, token_times=tuple(token_times),
+                    completed_time=completed, token_ids=(10, 11, 12), cached_tokens=0,
                 )
 
             def close(self):

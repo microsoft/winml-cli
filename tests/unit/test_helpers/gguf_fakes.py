@@ -5,17 +5,21 @@
 """Test doubles for GGUF evidence.
 
 A llama log API that calls back through ctypes, Task options, a native error
-carrying an HRESULT, and request records with generated time points.
+carrying an HRESULT, and ``generate_timed`` results read from a test clock.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import itertools
-from typing import Any
+from typing import TYPE_CHECKING
 
 from winml.modelkit.commands._gguf_native_log import LOG_CALLBACK
-from winml.modelkit.session import LlamaRequestRecord
+from winml.modelkit.session import LlamaGenerationTiming
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
 
 
 # Stand-in address of the Runtime adapter's own llama log callback.
@@ -47,54 +51,41 @@ class FakeOptions:
     seed: int = 0
 
 
-def make_record(
+def make_timing(
+    clock: Callable[[], float],
     *,
-    input_ids: tuple[int, ...] | list[int] = (1, 2, 3, 4),
-    tokens: Any = (10, 11, 12),
-    start_ns: int = 1_000,
-    **overrides: Any,
-) -> LlamaRequestRecord:
-    """A successful request record that ran to its token limit.
+    tokens: Iterable[int] = (10, 11, 12),
+    input_tokens: int = 4,
+    cached_tokens: int | None = 0,
+) -> LlamaGenerationTiming:
+    """A request that ran to its token limit, read from ``clock`` like ``generate_timed``.
 
-    Time points accumulate from ``start_ns``: reset start, reset end (+20),
-    submit (+5), stream created (+30), one event per token (+50 each),
-    completion (+70) and result fetch (+110). ``overrides`` replace fields.
+    ``clock`` is read in order at the reset start, the reset end, the submit,
+    the stream creation, once per token update, the end of the stream and the
+    checked result; the spans are differences of those readings.
     """
-    tokens = tuple(tokens)
-    count = len(tokens)
-    times = list(itertools.accumulate([start_ns, 20, 5, 30, *[50] * count, 70, 110]))
-    record = LlamaRequestRecord(
-        input_ids=tuple(input_ids),
-        reset_start_ns=times[0],
-        reset_end_ns=times[1],
-        reset_disclosure={
-            "state": "EMPTY",
-            "sequence_state": {
-                "disclosure": "NONE",
-                "session_state": "EMPTY",
-                "evaluated_token_count": 0,
-                "retained_token_count": 0,
-            },
-            "retained_token_ids": [],
-        },
-        submit_ns=times[2],
-        stream_created_ns=times[3],
-        events=tuple(zip(times[4 : 4 + count], tokens, strict=True)),
-        completed_ns=times[4 + count],
-        result_fetched_ns=times[5 + count],
-        result_token_ids=tokens,
-        prompt_token_count=len(input_ids),
-        finish_reason="MAX_TOKENS",
-        error_code=0,
-        speculative_statistics={
-            "method": "NONE",
-            "verification_step_count": 0,
-            "draft_token_count": 0,
-            "accepted_draft_token_count": 0,
-        },
-        response_text="".join(f"<{token}>" for token in tokens),
+    token_ids = tuple(tokens)
+    reset_start, reset_end, submit, created = clock(), clock(), clock(), clock()
+    token_times = tuple(clock() for _ in token_ids)
+    completed, fetched = clock(), clock()
+    return LlamaGenerationTiming(
+        input_tokens=input_tokens,
+        generated_tokens=len(token_ids),
+        reset_s=reset_end - reset_start,
+        stream_create_s=created - submit,
+        first_token_s=token_times[0] - submit if token_times else None,
+        decode_s=[later - earlier for earlier, later in itertools.pairwise(token_times)],
+        completion_s=completed - (token_times[-1] if token_times else created),
+        result_fetch_s=fetched - completed,
+        generation_s=fetched - submit,
+        response_text="".join(f"<{token}>" for token in token_ids),
+        stop_reason="MAX_TOKENS",
+        submit_time=submit,
+        token_times=token_times,
+        completed_time=completed,
+        token_ids=token_ids,
+        cached_tokens=cached_tokens,
     )
-    return dataclasses.replace(record, **overrides)
 
 
 class FakeLogApi:

@@ -39,7 +39,7 @@ from ._gguf_native_log import NATIVE_VALUE_KEYS, parse_native_values
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
-    from ..session import LlamaRequestRecord, WinMLLlamaSession
+    from ..session import LlamaGenerationTiming, WinMLLlamaSession
     from ._gguf_native_log import NativeLogCapture
 
 
@@ -56,15 +56,6 @@ MISSING_READY = (
 MISSING_PREFILL_TPS = (
     "Windows ML 2.7.2021a0 Task/Runtime does not expose synchronized prefill timing."
 )
-# Native Task finish reasons and the evidence stop reasons they map to.
-STOP_REASONS: dict[str, str] = {
-    "MAX_TOKENS": "limit",
-    "EOS_TOKEN": "eos",
-    "STOP_TOKEN": "stop_token",
-    "SEQUENCE_CAPACITY": "capacity",
-    "CANCELED": "cancelled",
-    "ERROR": "error",
-}
 
 CACHE_STATE_EVIDENCE = (
     "Every model shard was hashed before initialization, which can warm the OS file cache; "
@@ -143,146 +134,59 @@ def planned_requests(warmup: int, iterations: int) -> list[tuple[str, int]]:
     ]
 
 
-def _reset_object(record: LlamaRequestRecord) -> dict[str, Any] | None:
-    if record.reset_disclosure is None:
-        return None
-    return {
-        "start_ns": record.reset_start_ns,
-        "end_ns": record.reset_end_ns,
-        **record.reset_disclosure,
-    }
+def _ns(seconds: float) -> int:
+    """A ``time.perf_counter()`` reading as integer nanoseconds on the same QPC clock."""
+    return round(seconds * 1e9)
 
 
-def _cached_tokens(disclosure: Mapping[str, Any] | None) -> int | None:
-    """0 for a verified-empty session after reset; otherwise the largest disclosed count.
-
-    The count is at least 1 whenever any token was evaluated or retained, so a
-    session that was not cleared can never read as prompt-reuse free.
-    """
-    if disclosure is None:
-        return None
-    sequence = disclosure["sequence_state"]
-    retained_ids = list(disclosure["retained_token_ids"])
-    evaluated = int(sequence["evaluated_token_count"])
-    retained = int(sequence["retained_token_count"])
-    if evaluated == 0 and retained == 0 and not retained_ids:
-        return 0
-    return max(retained, evaluated, len(retained_ids))
-
-
-def _consistency_failures(
-    record: LlamaRequestRecord, *, max_new_tokens: int, ignore_eos: bool
-) -> list[str]:
-    result_ids = list(record.result_token_ids or ())
-    failures: list[str] = []
-    if [token for _, token in record.events] != result_ids:
-        failures.append("stream_result_ids_differ")
-    if record.prompt_token_count != len(record.input_ids):
-        failures.append("prompt_count_differs")
-    if len(result_ids) > max_new_tokens:
-        failures.append("output_exceeds_limit")
-    if ignore_eos and record.finish_reason == "MAX_TOKENS" and len(result_ids) != max_new_tokens:
-        failures.append("ignore_eos_limit_not_reached")
-    return failures
-
-
-def _base_row(kind: str, index: int, input_ids: Sequence[int]) -> dict[str, Any]:
+def _base_row(kind: str, index: int) -> dict[str, Any]:
     """Every row key in contract order, with the values of a request that never ran."""
     return {
         "id": f"{kind}-{index}",
         "kind": kind,
         "index": index,
         "status": "incomplete",
-        "observation": "caller",
-        "input_ids": list(input_ids),
-        "actual_input_tokens": None,
-        "reset": None,
-        "reset_completed_before_submit": False,
         "submit_ns": None,
-        "stream_created_ns": None,
-        "output_events": [],
         "completed_ns": None,
-        "result_fetched_ns": None,
-        "finish_reason": None,
-        "error_code": None,
+        "output_events": [],
         "stop_reason": None,
-        "truncated": None,
-        "truncated_source": "task_result",
+        "prompt_tokens": None,
         "cached_tokens": None,
-        "cached_tokens_source": "task_state_after_reset",
-        "speculative_statistics": None,
         "prefill": None,
         "missing_reasons": {"prefill_tps": MISSING_PREFILL_TPS},
-        "consistency_failures": [],
         "error": None,
     }
 
 
-def request_row(
-    record: LlamaRequestRecord, *, kind: str, index: int, max_new_tokens: int, ignore_eos: bool
-) -> dict[str, Any]:
-    """Build the evidence row of one executed request.
+def request_row(kind: str, index: int, timing: LlamaGenerationTiming) -> dict[str, Any]:
+    """Build the evidence row of a completed request from its ``generate_timed`` readings.
 
-    The row fails when the request raised, reported ``ERROR``, produced no
-    result, or failed a consistency check; early stops (EOS, stop token,
-    capacity, cancellation) still succeed and keep their stop reason.
+    A request that fails raises instead of returning a timing, so every
+    executed row succeeded; the stop reason is the normalized Task reason.
     """
-    has_result = record.result_token_ids is not None
-    failures = (
-        _consistency_failures(record, max_new_tokens=max_new_tokens, ignore_eos=ignore_eos)
-        if has_result
-        else []
-    )
-    error = record.error if record.error is not None else record.reset_error
-    failed = (
-        error is not None or bool(failures) or record.finish_reason == "ERROR" or not has_result
-    )
-    truncated = None
-    if has_result:
-        truncated = (record.prompt_token_count or 0) < len(record.input_ids) or (
-            record.finish_reason == "SEQUENCE_CAPACITY"
-        )
-    row = _base_row(kind, index, record.input_ids)
+    row = _base_row(kind, index)
     row.update(
         {
-            "status": "failed" if failed else "succeeded",
-            "actual_input_tokens": record.prompt_token_count,
-            "reset": _reset_object(record),
-            "reset_completed_before_submit": record.reset_end_ns is not None,
-            "submit_ns": record.submit_ns,
-            "stream_created_ns": record.stream_created_ns,
+            "status": "succeeded",
+            "submit_ns": _ns(timing.submit_time),
+            "completed_ns": _ns(timing.completed_time),
             "output_events": [
-                {"observed_ns": observed_ns, "token_ids": [token]}
-                for observed_ns, token in record.events
+                {"observed_ns": _ns(observed), "token_id": token}
+                for observed, token in zip(timing.token_times, timing.token_ids, strict=True)
             ],
-            "completed_ns": record.completed_ns,
-            "result_fetched_ns": record.result_fetched_ns,
-            "finish_reason": record.finish_reason,
-            "error_code": record.error_code,
-            "stop_reason": STOP_REASONS.get(record.finish_reason) if record.finish_reason else None,
-            "truncated": truncated,
-            "cached_tokens": _cached_tokens(record.reset_disclosure),
-            "speculative_statistics": record.speculative_statistics,
-            "consistency_failures": failures,
-            "error": None if error is None else error_object(error),
+            "stop_reason": timing.stop_reason,
+            "prompt_tokens": timing.input_tokens,
+            "cached_tokens": timing.cached_tokens,
         }
     )
-    if record.disclosure_error is not None:
-        row["missing_reasons"]["reset_disclosure"] = (
-            f"{type(record.disclosure_error).__name__}: {record.disclosure_error}"
-        )
     return row
 
 
 def incomplete_row(
-    *,
-    kind: str,
-    index: int,
-    input_ids: Sequence[int],
-    error: dict[str, Any] | None = None,
+    *, kind: str, index: int, error: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """Row of a planned request that never ran (same keys as an executed row)."""
-    row = _base_row(kind, index, input_ids)
+    row = _base_row(kind, index)
     row["error"] = error
     return row
 
@@ -452,7 +356,6 @@ class EvidenceRecorder:
         self._native_log: dict[str, Any] = {}
         self._missing_reasons: dict[str, str] = {}
         self._cache_state: dict[str, Any] = {}
-        self._prompt_ids: list[int] | None = None
         self._init_start_ns: int | None = None
         self._package_dir: Path | None = None
         self.warmup0_submit_ns: int | None = None
@@ -521,9 +424,9 @@ class EvidenceRecorder:
 
     def record_prompt(self, prompt_ids: Sequence[int]) -> None:
         """Record the token IDs every request submits."""
-        self._prompt_ids = [int(token) for token in prompt_ids]
-        self._workload["input_ids_sha256"] = token_ids_sha256(self._prompt_ids)
-        self._workload["input_token_count"] = len(self._prompt_ids)
+        ids = [int(token) for token in prompt_ids]
+        self._workload["input_ids_sha256"] = token_ids_sha256(ids)
+        self._workload["input_token_count"] = len(ids)
 
     def record_load(self, session: WinMLLlamaSession, *, requested_context: int) -> None:
         """Record what the built session reports back about its configuration."""
@@ -561,19 +464,12 @@ class EvidenceRecorder:
         sampling["stop_token_ids"] = list(sampling["stop_token_ids"])
         self._workload["sampling"] = sampling
 
-    def record_request(self, kind: str, index: int, record: LlamaRequestRecord) -> dict[str, Any]:
-        """Add one executed request to the document and the rows sidecar."""
-        row = request_row(
-            record,
-            kind=kind,
-            index=index,
-            max_new_tokens=self._config.max_new_tokens,
-            ignore_eos=self._config.ignore_eos,
-        )
+    def record_request(self, kind: str, index: int, timing: LlamaGenerationTiming) -> None:
+        """Add one completed request to the document and the rows sidecar."""
+        row = request_row(kind, index, timing)
         self._append(row)
         if (kind, index) == ("warmup", 0):
-            self.warmup0_submit_ns = record.submit_ns
-        return row
+            self.warmup0_submit_ns = row["submit_ns"]
 
     def record_loaded_modules(self, stage: Literal["after_warmup0", "at_end"]) -> None:
         """Record the modules loaded in this process now."""
@@ -620,8 +516,7 @@ class EvidenceRecorder:
             error = None
             if position == 0 and self._failure_phase in _REQUEST_PHASES and self._cause:
                 error = error_object(self._cause)
-            planned_ids = self._prompt_ids or []
-            self._append(incomplete_row(kind=kind, index=index, input_ids=planned_ids, error=error))
+            self._append(incomplete_row(kind=kind, index=index, error=error))
         self._native_log = capture.to_dict(self.warmup0_submit_ns)
         values = parse_native_values(self._native_log["lines"])
         missing = _NATIVE_LINE_MISSING if capture.installed else capture.reason or ""

@@ -27,7 +27,6 @@ import time
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from itertools import pairwise
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -52,7 +51,7 @@ if TYPE_CHECKING:
 
     from rich.console import Console
 
-    from ..session import LlamaRequestRecord
+    from ..session import LlamaGenerationTiming
     from ..utils.constants import RuntimeName
 
 logger = logging.getLogger(__name__)
@@ -287,44 +286,6 @@ class _GGUFRequestSample:
         return result
 
 
-def _sample_from_record(record: LlamaRequestRecord, *, kind: str, index: int) -> _GGUFRequestSample:
-    """Convert the QPC time points of a completed request to a schema 3 sample.
-
-    The spans match :meth:`WinMLLlamaSession.generate_timed`; exact token IDs
-    are not tokenized, so the template and tokenization spans are ``0``.
-
-    Raises:
-        ValueError: The record lacks a time point a completed request has.
-    """
-    reset_end = record.reset_end_ns
-    submit = record.submit_ns
-    created = record.stream_created_ns
-    completed = record.completed_ns
-    fetched = record.result_fetched_ns
-    if reset_end is None or submit is None or created is None or completed is None:
-        raise ValueError("Only a completed request record has a timing sample.")
-    if fetched is None:
-        raise ValueError("Only a completed request record has a timing sample.")
-    arrivals = [observed_ns for observed_ns, _ in record.events]
-    return _GGUFRequestSample(
-        kind=kind,
-        index=index,
-        prompt_tokens=record.prompt_token_count or 0,
-        generated_tokens=len(arrivals),
-        template_duration_ms=0.0,
-        tokenization_duration_ms=0.0,
-        generator_create_duration_ms=(reset_end - record.reset_start_ns) / 1e6,
-        task_ttft_duration_ms=(arrivals[0] - submit) / 1e6 if arrivals else None,
-        task_generation_duration_ms=(fetched - submit) / 1e6,
-        task_stream_create_duration_ms=(created - submit) / 1e6,
-        task_stream_completion_duration_ms=(completed - (arrivals[-1] if arrivals else created))
-        / 1e6,
-        result_fetch_duration_ms=(fetched - completed) / 1e6,
-        decode_token_durations_ms=[(end - start) / 1e6 for start, end in pairwise(arrivals)],
-        response_text=record.response_text or "",
-    )
-
-
 @dataclass
 class GGUFBenchmarkResult:
     """Canonical results from a GGUF generation benchmark."""
@@ -478,9 +439,11 @@ class GGUFPerfBenchmark:
 
         The order is the evidence definition: the model is hashed before any
         initialization; native log lines are captured from the tokenizer open
-        through warmup 0; a failed request is kept and the run continues unless
-        the session can no longer reset. The Runtime log callback is restored
-        before the caller closes the session.
+        through warmup 0. Every request runs through
+        :meth:`WinMLLlamaSession.generate_timed`, whose readings give both the
+        evidence row and the schema 3 sample, and the first failed request ends
+        the run. The Runtime log callback is restored before the caller closes
+        the session.
         """
         config = self._config
         recorder = EvidenceRecorder(config, clock_ns=self._clock_ns)
@@ -510,32 +473,29 @@ class GGUFPerfBenchmark:
             # leaves both values in the evidence.
             recorder.record_load(session, requested_context=context)
             self._verify_load(session, prompt_ids)
-            options = session.greedy_options(config.max_new_tokens)
-            recorder.record_options(options)
+            recorder.record_options(session.greedy_options(config.max_new_tokens))
             capture.raise_if_interrupted()
             planned = planned_requests(config.warmup, config.iterations)
             for position, (kind, index) in enumerate(planned):
                 phase = kind
-                record = session.run_request(prompt_ids, options=options, clock_ns=self._clock_ns)
+                timing = session.generate_timed(
+                    prompt_ids, max_new_tokens=config.max_new_tokens, clock=self._clock
+                )
                 if position == 0:
                     capture.restore()
-                if record.reset_error is not None:
-                    # Nothing was submitted and the session can no longer reset.
-                    recorder.fail(kind, record.reset_error)
-                    break
-                row = recorder.record_request(kind, index, record)
+                recorder.record_request(kind, index, timing)
                 if position == 0:
                     recorder.record_loaded_modules("after_warmup0")
                     capture.raise_if_interrupted()
-                if row["status"] == "succeeded":
-                    sample_kind = "warmup" if kind == "warmup" else "timed"
-                    samples.append(_sample_from_record(record, kind=sample_kind, index=position))
-                    stop_reason = record.task_stop_reason or str(record.finish_reason)
-                    self._stop_reasons.append((sample_kind, stop_reason))
-            if recorder.failure_phase is None:
-                phase = "finalization"
-                recorder.record_loaded_modules("at_end")
-                recorder.record_hashed_modules()
+                sample_kind = "warmup" if kind == "warmup" else "timed"
+                samples.append(
+                    self._request_sample(
+                        timing, kind=sample_kind, index=position, tokenization_ms=0.0
+                    )
+                )
+            phase = "finalization"
+            recorder.record_loaded_modules("at_end")
+            recorder.record_hashed_modules()
         except Exception as exc:
             recorder.fail(phase, exc)
         except BaseException as exc:
@@ -659,8 +619,6 @@ class GGUFPerfBenchmark:
         The tokenizer renders the chat template and tokenizes in one call, so that
         span is reported as ``tokenization_duration_ms``; ``template_duration_ms``
         is ``0``. Exact prompt IDs are not tokenized, so that span is ``0`` too.
-        Resetting the sequence state for a new request is reported as
-        ``generator_create_duration_ms``.
         """
         config = self._config
         tokenize_start = self._clock()
@@ -674,6 +632,21 @@ class GGUFPerfBenchmark:
             max_new_tokens=config.max_new_tokens,
             clock=self._clock,
         )
+        return self._request_sample(timing, kind=kind, index=index, tokenization_ms=tokenization_ms)
+
+    def _request_sample(
+        self,
+        timing: LlamaGenerationTiming,
+        *,
+        kind: str,
+        index: int,
+        tokenization_ms: float,
+    ) -> _GGUFRequestSample:
+        """Keep a generation's stop reason and convert its spans to a canonical request sample.
+
+        Resetting the sequence state for a new request is reported as
+        ``generator_create_duration_ms``.
+        """
         self._stop_reasons.append((kind, timing.stop_reason))
         if index == 0:
             logger.info("Model response (iteration 1): %s", timing.response_text)
@@ -857,14 +830,7 @@ def display_gguf_report(result: GGUFBenchmarkResult, console: Console) -> None:
         console.print(
             f"  [dim]Excluded first {cfg.warmup} warmup generation(s) from statistics[/dim]"
         )
-    if not aggregate.get("timed_request_count"):
-        # Only an evidence run keeps going after a request fails.
-        console.print(
-            "[yellow]Warning:[/yellow] no measured request succeeded, so there are no TTFT, "
-            "decode or warm-start statistics. The evidence file records each failed "
-            "request's error."
-        )
-    elif result.generated_tokens == 0:
+    if result.generated_tokens == 0:
         console.print(
             "[yellow]Warning:[/yellow] the model stopped before generating a token, so "
             f"decode metrics are empty. {_zero_token_advice(result)}"
@@ -905,9 +871,8 @@ def run_gguf_perf(
     """Run a GGUF benchmark, print the report, and persist JSON.
 
     Translates session failures into ``click`` errors so the CLI exits cleanly
-    instead of dumping a traceback. An evidence run exits non-zero unless every
-    planned request succeeded: a ``partial`` run still reports and saves its
-    schema 3 results; a ``failed`` run saves only its evidence.
+    instead of dumping a traceback. A failed evidence run saves only its
+    evidence and exits non-zero.
     """
     benchmark = GGUFPerfBenchmark(config)
     try:
@@ -928,11 +893,6 @@ def run_gguf_perf(
     console.print(f"[green]Results saved to:[/green] {output_path}")
     if config.evidence_path is not None:
         _print_evidence_line(console, config.evidence_path, result.evidence_status)
-        if result.evidence_status != "complete":
-            raise click.ClickException(
-                f"GGUF evidence status {result.evidence_status}: at least one request did not "
-                "succeed; the evidence file above records which."
-            )
     return result
 
 

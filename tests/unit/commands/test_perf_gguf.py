@@ -11,7 +11,6 @@ makes aggregation deterministic without importing Windows ML Tasks. The session 
 
 from __future__ import annotations
 
-import dataclasses
 import json
 import os
 from io import StringIO
@@ -19,7 +18,7 @@ from itertools import accumulate, count, pairwise
 from pathlib import Path
 from random import Random
 from statistics import fmean
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
 import click
@@ -27,13 +26,7 @@ import pytest
 from click.testing import CliRunner
 from rich.console import Console
 
-from tests.unit.test_helpers import (
-    RUNTIME_CALLBACK,
-    FakeLogApi,
-    FakeOptions,
-    HResultError,
-    make_record,
-)
+from tests.unit.test_helpers import RUNTIME_CALLBACK, FakeLogApi, FakeOptions, make_timing
 from winml.modelkit.commands import _gguf_evidence
 from winml.modelkit.commands import _perf_gguf as perf_gguf
 from winml.modelkit.commands._gguf_evidence import rows_path, token_ids_sha256
@@ -43,7 +36,6 @@ from winml.modelkit.commands._perf_gguf import (
     GGUFEvidenceError,
     GGUFPerfBenchmark,
     GGUFPerfConfig,
-    _sample_from_record,
     display_gguf_report,
     gguf_output_path,
     is_gguf_model,
@@ -55,9 +47,12 @@ from winml.modelkit.session import (
     LlamaGenerationTiming,
     LlamaLoadError,
     LlamaNotInstalledError,
-    LlamaRequestRecord,
     LlamaSessionError,
 )
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 # ---------------------------------------------------------------------------
@@ -235,8 +230,10 @@ def _line_count(path: Path) -> int:
 class _FakeProtocolSession(_FakeLlamaSession):
     """Session double for evidence runs; ``failures`` maps a request position to a fault.
 
-    ``ctrl_c_in_log`` ("load" or "warmup-0") makes llama.cpp log one line at that point
-    while a Ctrl+C arrives, so the capture's log callback runs into the KeyboardInterrupt.
+    A fault is ``raise`` (the request raises, as ``generate_timed`` does on any Task
+    failure) or ``interrupt`` (Ctrl+C). ``ctrl_c_in_log`` ("load" or "warmup-0") makes
+    llama.cpp log one line at that point while a Ctrl+C arrives, so the capture's log
+    callback runs into the KeyboardInterrupt.
     """
 
     def __init__(
@@ -269,6 +266,7 @@ class _FakeProtocolSession(_FakeLlamaSession):
         self.callback_at_close: int | None = None
         self.callback_at_request: list[int | None] = []
         self.rows_at_request: list[int | None] = []
+        self.results: list[LlamaGenerationTiming] = []
 
     def _log_callback(self) -> int | None:
         return self._log_api.callback if self._log_api is not None else None
@@ -286,11 +284,12 @@ class _FakeProtocolSession(_FakeLlamaSession):
     def greedy_options(self, max_new_tokens: int) -> FakeOptions:
         return FakeOptions(max_new_tokens=max_new_tokens)
 
-    def run_request(
-        self, token_ids: list[int], *, options: FakeOptions, clock_ns: Any
-    ) -> LlamaRequestRecord:
+    def generate_timed(
+        self, prompt_token_ids: list[int], *, max_new_tokens: int, clock: Callable[[], float]
+    ) -> LlamaGenerationTiming:
         position = len(self.callback_at_request)
-        self.calls.append("run_request")
+        self.calls.append("generate_timed")
+        self.submitted_ids.append(list(prompt_token_ids))
         self.callback_at_request.append(self._log_callback())
         evidence = self._evidence_path
         self.rows_at_request.append(_line_count(rows_path(evidence)) if evidence else None)
@@ -299,22 +298,13 @@ class _FakeProtocolSession(_FakeLlamaSession):
             raise RuntimeError("native session crashed")
         if failure == "interrupt":
             raise KeyboardInterrupt
-        record = make_record(
-            input_ids=token_ids, tokens=range(options.max_new_tokens), start_ns=clock_ns()
+        timing = make_timing(
+            clock, tokens=range(max_new_tokens), input_tokens=len(prompt_token_ids)
         )
         if position == 0:
             self._log_during_ctrl_c("warmup-0")
-        if failure == "error":
-            return dataclasses.replace(
-                record, finish_reason="ERROR", error=HResultError(0x80004005)
-            )
-        if failure == "reset":
-            return LlamaRequestRecord(
-                input_ids=tuple(token_ids),
-                reset_start_ns=record.reset_start_ns,
-                reset_error=HResultError(0x80004005),
-            )
-        return record
+        self.results.append(timing)
+        return timing
 
     def close(self) -> None:
         super().close()
@@ -498,9 +488,14 @@ class TestEvidenceRun:
         assert (doc["status"], doc["failure_phase"], doc["error"]) == ("complete", None, None)
         assert [row["id"] for row in doc["requests"]] == ["warmup-0", "measured-0", "measured-1"]
         assert all(
-            row["status"] == "succeeded" and row["stop_reason"] == "limit"
+            row["status"] == "succeeded" and row["stop_reason"] == "MAX_TOKENS"
             for row in doc["requests"]
         )
+        # Each row holds the readings of the generate_timed call that ran the request.
+        assert [(row["submit_ns"], row["completed_ns"]) for row in doc["requests"]] == [
+            (round(timing.submit_time * 1e9), round(timing.completed_time * 1e9))
+            for timing in session.results
+        ]
         assert session.calls[:2] == ["open_tokenizer", "load"]
         assert session.load_kwargs == {"context_length": 16, "eos_token_ids": ()}
         assert [span["name"] for span in doc["initialization"]["spans"]] == [
@@ -512,7 +507,7 @@ class TestEvidenceRun:
         ]
 
     def test_run_returns_schema3_samples_and_status(self, tmp_path: Path) -> None:
-        benchmark, _, _ = _protocol_benchmark(tmp_path)
+        benchmark, session, _ = _protocol_benchmark(tmp_path)
         result = benchmark.run()
 
         assert result.evidence_status == "complete"
@@ -520,6 +515,10 @@ class TestEvidenceRun:
             ("warmup", 0),
             ("timed", 1),
             ("timed", 2),
+        ]
+        # The samples come from the same generate_timed spans as the evidence rows.
+        assert [sample.task_generation_duration_ms for sample in result.requests] == [
+            timing.generation_s * 1000.0 for timing in session.results
         ]
         assert result.aggregate["stop_reason_counts"] == {"MAX_TOKENS": 2}
         info = result.to_dict()["benchmark_info"]
@@ -563,7 +562,7 @@ class TestEvidenceRun:
 
         assert session.calls.count("encode_prompt") == 1
         assert doc["workload"]["input_mode"] == "text"
-        assert all(row["input_ids"] == session._prompt_ids for row in doc["requests"])
+        assert session.submitted_ids == [session._prompt_ids] * 3
 
     def test_memory_tracker_is_never_used(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -572,64 +571,14 @@ class TestEvidenceRun:
 
         assert _protocol_run(tmp_path, memory=True)[0]["status"] == "complete"
 
-    def test_schema3_samples_derive_from_qpc_records(self) -> None:
-        record = make_record()
-        sample = _sample_from_record(record, kind="timed", index=1)
-        assert record.submit_ns is not None
-        assert record.stream_created_ns is not None
-        assert record.completed_ns is not None
-        assert record.result_fetched_ns is not None
-        assert record.reset_end_ns is not None
-
-        assert (sample.kind, sample.index) == ("timed", 1)
-        assert sample.prompt_tokens == record.prompt_token_count
-        assert sample.generated_tokens == len(record.events)
-        assert (sample.template_duration_ms, sample.tokenization_duration_ms) == (0.0, 0.0)
-        assert sample.generator_create_duration_ms == (
-            (record.reset_end_ns - record.reset_start_ns) / 1e6
-        )
-        assert sample.task_stream_create_duration_ms == (
-            (record.stream_created_ns - record.submit_ns) / 1e6
-        )
-        assert sample.task_ttft_duration_ms == (record.events[0][0] - record.submit_ns) / 1e6
-        assert sample.decode_token_durations_ms == [
-            (later[0] - earlier[0]) / 1e6 for earlier, later in pairwise(record.events)
-        ]
-        assert sample.task_stream_completion_duration_ms == (
-            (record.completed_ns - record.events[-1][0]) / 1e6
-        )
-        assert sample.result_fetch_duration_ms == (
-            (record.result_fetched_ns - record.completed_ns) / 1e6
-        )
-        assert sample.task_generation_duration_ms == (
-            (record.result_fetched_ns - record.submit_ns) / 1e6
-        )
-        assert sample.response_text == record.response_text
-
-    def test_sample_without_updates_has_no_ttft(self) -> None:
-        record = make_record(tokens=())
-        sample = _sample_from_record(record, kind="warmup", index=0)
-        assert record.completed_ns is not None
-        assert record.stream_created_ns is not None
-
-        assert sample.task_ttft_duration_ms is None
-        assert sample.decode_token_durations_ms == []
-        assert sample.task_stream_completion_duration_ms == (
-            (record.completed_ns - record.stream_created_ns) / 1e6
-        )
-
 
 class TestEvidenceFailures:
-    def test_failed_request_is_retained_and_later_requests_run(self, tmp_path: Path) -> None:
-        doc, _, _ = _protocol_run(tmp_path, failures={1: "error"})
-
-        assert doc["status"] == "partial"
-        assert [row["status"] for row in doc["requests"]] == ["succeeded", "failed", "succeeded"]
-
-    def test_reset_failure_marks_the_remaining_requests_incomplete(self, tmp_path: Path) -> None:
+    def test_first_failed_request_ends_the_run(self, tmp_path: Path) -> None:
+        benchmark, session, _ = _protocol_benchmark(tmp_path, failures={1: "raise"})
         with pytest.raises(GGUFEvidenceError, match="during a measured request"):
-            _protocol_run(tmp_path, failures={1: "reset"})
+            benchmark.run()
 
+        assert session.calls.count("generate_timed") == 2
         doc = _read(tmp_path / "ev.json")
         assert (doc["status"], doc["failure_phase"]) == ("failed", "measured")
         assert [row["status"] for row in doc["requests"]] == [
@@ -637,7 +586,7 @@ class TestEvidenceFailures:
             "incomplete",
             "incomplete",
         ]
-        assert doc["requests"][1]["error"]["hresult"] == "0x80004005"
+        assert doc["requests"][1]["error"]["message"] == "native session crashed"
 
     def test_context_mismatch_records_both_values_then_fails(self, tmp_path: Path) -> None:
         with pytest.raises(GGUFEvidenceError, match="during initialization"):
@@ -730,7 +679,7 @@ class TestEvidenceFailures:
         assert (doc["status"], doc["failure_phase"]) == ("failed", "initialization")
         assert doc["error"]["type"] == "KeyboardInterrupt"
         assert {row["status"] for row in doc["requests"]} == {"incomplete"}
-        assert "run_request" not in session.calls
+        assert "generate_timed" not in session.calls
         assert api.callback == RUNTIME_CALLBACK
 
     def test_ctrl_c_during_warmup0_logging_keeps_its_row_and_stops(self, tmp_path: Path) -> None:
@@ -746,7 +695,7 @@ class TestEvidenceFailures:
             "incomplete",
             "incomplete",
         ]
-        assert session.calls.count("run_request") == 1
+        assert session.calls.count("generate_timed") == 1
         assert api.callback == RUNTIME_CALLBACK
 
     def test_interrupt_writes_failed_evidence_and_propagates(self, tmp_path: Path) -> None:
@@ -759,7 +708,7 @@ class TestEvidenceFailures:
 class TestEvidenceCli:
     @pytest.mark.parametrize(
         ("failures", "exit_code", "status"),
-        [({}, 0, "complete"), ({1: "error"}, 1, "partial"), ({1: "reset"}, 1, "failed")],
+        [({}, 0, "complete"), ({1: "raise"}, 1, "failed")],
     )
     def test_exit_code_follows_the_evidence_status(
         self,
@@ -1091,17 +1040,6 @@ class TestReporting:
         display_gguf_report(result, Console(file=buffer, width=200, color_system=None))
 
         assert advice in buffer.getvalue()
-
-    def test_report_says_when_no_measured_request_succeeded(self, tmp_path: Path) -> None:
-        benchmark, _, _ = _protocol_benchmark(tmp_path, failures={1: "error", 2: "error"})
-        result = benchmark.run()
-        buffer = StringIO()
-        display_gguf_report(result, Console(file=buffer, width=200, color_system=None))
-
-        output = buffer.getvalue()
-        assert result.evidence_status == "partial"
-        assert "no measured request succeeded, so there are no TTFT, decode" in output
-        assert "stopped before generating a token" not in output
 
     def test_write_report_round_trips(self, tmp_path: Path) -> None:
         timings = [_timing() for _ in range(3)]

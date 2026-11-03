@@ -12,17 +12,16 @@ import itertools
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from tests.unit.test_helpers import FakeLogApi, FakeOptions, HResultError, make_record
+from tests.unit.test_helpers import FakeLogApi, FakeOptions, HResultError, make_timing
 from winml.modelkit.commands import _gguf_evidence
 from winml.modelkit.commands._gguf_evidence import (
     MISSING_LOAD,
     MISSING_PREFILL_TPS,
     MISSING_READY,
-    STOP_REASONS,
     EvidenceRecorder,
     EvidenceWriter,
     error_object,
@@ -42,10 +41,14 @@ from winml.modelkit.commands._gguf_identity import (
 from winml.modelkit.commands._gguf_native_log import NATIVE_VALUE_KEYS, NativeLogCapture
 
 
-def _row(**overrides: Any) -> dict[str, Any]:
-    return request_row(
-        make_record(**overrides), kind="measured", index=0, max_new_tokens=3, ignore_eos=False
-    )
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+
+def _clock(start_ns: int = 1_000, step_ns: int = 50) -> Callable[[], float]:
+    """A ``time.perf_counter()`` stand-in reading ``start_ns``, then every ``step_ns``."""
+    ticks = itertools.count(start_ns, step_ns)
+    return lambda: next(ticks) / 1e9
 
 
 # ---------------------------------------------------------------------------
@@ -53,148 +56,41 @@ def _row(**overrides: Any) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(("finish", "stop"), list(STOP_REASONS.items()))
-def test_row_maps_native_finish_to_contract_stop_reason(finish: str, stop: str) -> None:
-    row = _row(finish_reason=finish)
-    assert (row["finish_reason"], row["stop_reason"]) == (finish, stop)
-    assert STOP_REASONS == {
-        "MAX_TOKENS": "limit",
-        "EOS_TOKEN": "eos",
-        "STOP_TOKEN": "stop_token",
-        "SEQUENCE_CAPACITY": "capacity",
-        "CANCELED": "cancelled",
-        "ERROR": "error",
+def test_row_keeps_the_generate_timed_readings_as_integer_nanoseconds() -> None:
+    start = 345_678_123_456_789  # about four days of QPC uptime, in nanoseconds
+    timing = make_timing(_clock(start, 50), tokens=(10, 11, 12), cached_tokens=0)
+    # make_timing reads the clock at the reset start and end, the submit, the stream
+    # creation, each token, the end of the stream and the checked result.
+    assert request_row("warmup", 2, timing) == {
+        "id": "warmup-2",
+        "kind": "warmup",
+        "index": 2,
+        "status": "succeeded",
+        "submit_ns": start + 100,
+        "completed_ns": start + 350,
+        "output_events": [
+            {"observed_ns": start + 200, "token_id": 10},
+            {"observed_ns": start + 250, "token_id": 11},
+            {"observed_ns": start + 300, "token_id": 12},
+        ],
+        "stop_reason": "MAX_TOKENS",
+        "prompt_tokens": 4,
+        "cached_tokens": 0,
+        "prefill": None,
+        "missing_reasons": {"prefill_tps": MISSING_PREFILL_TPS},
+        "error": None,
     }
-
-
-def test_row_copies_qpc_events_without_merging() -> None:
-    record = make_record()
-    row = request_row(record, kind="warmup", index=2, max_new_tokens=3, ignore_eos=True)
-    assert (row["id"], row["kind"], row["index"], row["observation"], row["status"]) == (
-        "warmup-2",
-        "warmup",
-        2,
-        "caller",
-        "succeeded",
-    )
-    assert row["output_events"] == [
-        {"observed_ns": observed, "token_ids": [token]} for observed, token in record.events
-    ]
-    assert row["reset"] == {
-        "start_ns": record.reset_start_ns,
-        "end_ns": record.reset_end_ns,
-        **record.reset_disclosure,
-    }
-    assert row["prefill"] is None
-    assert row["missing_reasons"] == {"prefill_tps": MISSING_PREFILL_TPS}
-    assert (
-        row["truncated"],
-        row["truncated_source"],
-        row["cached_tokens"],
-        row["cached_tokens_source"],
-    ) == (False, "task_result", 0, "task_state_after_reset")
-    assert MISSING_PREFILL_TPS == (
-        "Windows ML 2.7.2021a0 Task/Runtime does not expose synchronized prefill timing."
-    )
-
-
-def test_row_keys_follow_the_contract_order() -> None:
-    assert list(_row()) == [
-        "id",
-        "kind",
-        "index",
-        "status",
-        "observation",
-        "input_ids",
-        "actual_input_tokens",
-        "reset",
-        "reset_completed_before_submit",
-        "submit_ns",
-        "stream_created_ns",
-        "output_events",
-        "completed_ns",
-        "result_fetched_ns",
-        "finish_reason",
-        "error_code",
-        "stop_reason",
-        "truncated",
-        "truncated_source",
-        "cached_tokens",
-        "cached_tokens_source",
-        "speculative_statistics",
-        "prefill",
-        "missing_reasons",
-        "consistency_failures",
-        "error",
-    ]
-
-
-def test_truncated_and_cached_tokens_are_derived() -> None:
-    assert _row(finish_reason="SEQUENCE_CAPACITY")["truncated"] is True
-    short = _row(prompt_token_count=3)
-    assert short["truncated"] is True
-    assert short["consistency_failures"] == ["prompt_count_differs"]
-    kept = dict(make_record().reset_disclosure, retained_token_ids=[1, 2])
-    kept["sequence_state"] = dict(kept["sequence_state"], retained_token_count=2)
-    assert _row(reset_disclosure=kept)["cached_tokens"] == 2
-    unknown = _row(reset_disclosure=None, disclosure_error=HResultError(0x80004002, "no QI"))
-    assert unknown["cached_tokens"] is None
-    assert unknown["reset"] is None
-    assert unknown["reset_completed_before_submit"] is True
-    assert "reset_disclosure" in unknown["missing_reasons"]
-
-
-@pytest.mark.parametrize(
-    ("overrides", "ignore_eos", "code"),
-    [
-        ({"result_token_ids": (10, 11, 99)}, False, "stream_result_ids_differ"),
-        ({"prompt_token_count": 5}, False, "prompt_count_differs"),
-        ({"tokens": (10, 11, 12, 13)}, False, "output_exceeds_limit"),
-        ({"tokens": (10, 11)}, True, "ignore_eos_limit_not_reached"),
-    ],
-)
-def test_consistency_failures_fail_the_row(
-    overrides: dict[str, Any], ignore_eos: bool, code: str
-) -> None:
-    # prompt_token_count 5 exceeds the submitted 4 IDs, so truncation is not reported.
-    row = request_row(
-        make_record(**overrides), kind="measured", index=0, max_new_tokens=3, ignore_eos=ignore_eos
-    )
-    assert row["consistency_failures"] == [code]
-    assert row["status"] == "failed"
-
-
-def test_early_stops_still_succeed() -> None:
-    assert _row(finish_reason="EOS_TOKEN")["status"] == "succeeded"
-
-
-def test_native_error_fails_the_row_with_hresult() -> None:
-    row = _row(error=HResultError(0x80004005, "boom"), result_fetched_ns=None)
-    assert row["status"] == "failed"
-    assert row["error"] == {"type": "HResultError", "message": "boom", "hresult": "0x80004005"}
-
-
-def test_missing_result_fails_the_row_without_consistency_checks() -> None:
-    row = _row(
-        result_token_ids=None, prompt_token_count=None, finish_reason=None,
-        error=RuntimeError("stream failed"),
-    )
-    assert row["status"] == "failed"
-    assert row["consistency_failures"] == []
-    assert (row["truncated"], row["stop_reason"]) == (None, None)
 
 
 def test_incomplete_row_has_the_same_fields() -> None:
-    row = incomplete_row(kind="measured", index=4, input_ids=[1, 2])
-    assert set(row) == set(_row())
-    assert (
-        row["status"],
-        row["input_ids"],
-        row["reset_completed_before_submit"],
-        row["output_events"],
-        row["error"],
-    ) == ("incomplete", [1, 2], False, [], None)
-    assert row["id"] == "measured-4"
+    row = incomplete_row(kind="measured", index=4)
+    assert set(row) == set(request_row("measured", 0, make_timing(_clock())))
+    assert (row["id"], row["status"], row["output_events"], row["error"]) == (
+        "measured-4",
+        "incomplete",
+        [],
+        None,
+    )
 
 
 def test_run_status_rules() -> None:
@@ -338,9 +234,9 @@ def _no_capture() -> NativeLogCapture:
 
 
 def _run_all(recorder: EvidenceRecorder, cfg: SimpleNamespace) -> None:
-    for position, (kind, index) in enumerate(planned_requests(cfg.warmup, cfg.iterations)):
-        record = make_record(input_ids=cfg.prompt_ids, start_ns=10_000 * (position + 1))
-        recorder.record_request(kind, index, record)
+    clock = _clock(10_000)
+    for kind, index in planned_requests(cfg.warmup, cfg.iterations):
+        recorder.record_request(kind, index, make_timing(clock))
 
 
 class _RaisingEosSession(SimpleNamespace):
@@ -467,12 +363,12 @@ class TestEvidenceRecorder:
         capture.install()
         recorder = EvidenceRecorder(cfg)
         api.emit(2, b"llama_context: n_ctx                 = 4096\n")
-        recorder.record_request("warmup", 0, make_record(start_ns=10_000))
+        recorder.record_request("warmup", 0, make_timing(_clock(10_000)))
         api.emit(2, b"llama_context: n_ctx                 = 9\n")
         capture.restore()
         recorder.finish(capture=capture, initialization_spans=[])
         doc = _read(cfg.evidence_path)
-        assert recorder.warmup0_submit_ns == 10_025
+        assert recorder.warmup0_submit_ns == 10_100  # the third reading: after the reset
         assert [line["phase"] for line in doc["native_log"]["lines"]] == ["load", "warmup-0"]
         assert doc["configuration"]["native"]["values"]["n_ctx"] == {"value": 4096, "line": 0}
         assert doc["configuration"]["native"]["unknown"]["n_batch"] == (
@@ -501,7 +397,7 @@ class TestEvidenceRecorder:
         cfg = _cfg(tmp_path)
         recorder = EvidenceRecorder(cfg)
         recorder.record_configuration()
-        recorder.record_request("warmup", 0, make_record(input_ids=cfg.prompt_ids))
+        recorder.record_request("warmup", 0, make_timing(_clock()))
         exc = HResultError(0x80004005, "session unusable")
         recorder.fail(phase, exc)
         recorder.fail("finalization", RuntimeError("later"))  # only the first failure counts
@@ -512,7 +408,6 @@ class TestEvidenceRecorder:
         assert [row["id"] for row in rows] == ["warmup-0", "measured-0", "measured-1"]
         assert rows[1]["error"] == (error_object(exc) if first_error else None)
         assert rows[2]["error"] is None
-        assert rows[1]["input_ids"] == list(cfg.prompt_ids)
         assert (status, doc["failure_phase"], doc["error"]) == (
             "failed",
             phase,
@@ -521,16 +416,6 @@ class TestEvidenceRecorder:
         assert recorder.cause is exc
         sidecar = rows_path(cfg.evidence_path).read_text(encoding="utf-8").splitlines()
         assert [json.loads(line) for line in sidecar] == rows
-
-    def test_unknown_planned_ids_are_written_empty(self, tmp_path: Path) -> None:
-        cfg = _cfg(tmp_path, prompt_ids=None, prompt="hello")
-        recorder = EvidenceRecorder(cfg)
-        recorder.record_configuration()
-        recorder.fail("initialization", RuntimeError("tokenizer failed"))
-        recorder.finish(capture=_no_capture(), initialization_spans=[])
-        doc = _read(cfg.evidence_path)
-        assert doc["workload"]["input_mode"] == "text"
-        assert {tuple(row["input_ids"]) for row in doc["requests"]} == {()}
 
     def test_modules_and_ort_sidecar_are_recorded(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
