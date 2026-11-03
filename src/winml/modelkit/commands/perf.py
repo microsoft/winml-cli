@@ -3060,40 +3060,8 @@ def _validate_duration(
     ),
 )
 @click.option(
-    "--dxcgc-host",
-    hidden=True,
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="[dxcgc] Built native benchmark host.",
-)
-@click.option(
-    "--dxcgc-dir",
-    hidden=True,
-    type=click.Path(exists=True, file_okay=False, path_type=Path),
-    help="[dxcgc] DLL directory (default: installed windowsml/lib).",
-)
-@click.option(
-    "--dxcgc-sdk-path",
-    hidden=True,
-    type=click.Path(exists=True, file_okay=False, path_type=Path),
-    help="[dxcgc] Agility SDK directory (default: installed windowsml/lib).",
-)
-@click.option("--dxcgc-sdk-version", type=click.IntRange(min=1), default=721, hidden=True)
-@click.option("--dxcgc-gpu-timing", is_flag=True, hidden=True,
-              help="[dxcgc] Collect GPU timestamps in a separate diagnostic run.")
-@click.option(
-    "--disable-d3d-mlir-programs", is_flag=True, hidden=True,
-    help="[dxcgc] Disable the D3D12 MLIR programs target when compiling Input IR.",
-)
-@click.option(
-    "--dxcgc-adapter",
-    hidden=True,
-    type=click.IntRange(min=0),
-    default=0,
-    help="[dxcgc] DXGI high-performance adapter index.",
-)
-@click.option(
     "--runtime",
-    type=click.Choice([*RUNTIME_NAMES, "dxcgc"]),
+    type=click.Choice(list(RUNTIME_NAMES)),
     default="auto",
     show_default=True,
     metavar=f"[{'|'.join(name for name in RUNTIME_NAMES if name != 'winml-runtime')}]",
@@ -3326,14 +3294,7 @@ def perf(
     ctx: click.Context,
     etw_tracing: Path | None,
     model: str | None,
-    runtime: RuntimeName | Literal["dxcgc"],
-    dxcgc_host: Path | None,
-    dxcgc_dir: Path | None,
-    dxcgc_sdk_path: Path | None,
-    dxcgc_sdk_version: int,
-    dxcgc_adapter: int,
-    dxcgc_gpu_timing: bool,
-    disable_d3d_mlir_programs: bool,
+    runtime: RuntimeName,
     backend: RuntimeBackend | None,
     cgc_lowering_target: CGCLoweringTarget | None,
     prompt: str,
@@ -3420,19 +3381,6 @@ def perf(
     """
     if not model:
         raise click.UsageError("A model is required via -m/--model.")
-
-    if runtime == "dxcgc":
-        from ._perf_dxcgc import run_dxcgc
-
-        run_dxcgc(ctx)
-        return
-    if disable_d3d_mlir_programs:
-        raise click.UsageError("--disable-d3d-mlir-programs requires --runtime dxcgc")
-    if any(
-        ctx.get_parameter_source(name) == click.core.ParameterSource.COMMANDLINE
-        for name in ctx.params if name.startswith("dxcgc_")
-    ):
-        raise click.UsageError("--dxcgc-* options require --runtime dxcgc")
 
     ep_provider_options = cli_utils.parse_ep_options(ep_options)
     ctx.params["ep_options"] = ep_provider_options
