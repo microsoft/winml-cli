@@ -88,11 +88,16 @@ def test_gguf_module_and_perf_help_do_not_import_unrelated_runtimes() -> None:
 
 
 @pytest.mark.parametrize(
-    ("device", "memory", "ignored_config"),
-    [("cpu", False, False), ("gpu", True, False), ("cpu", True, True)],
+    ("device", "memory", "ignored_config", "evidence"),
+    [
+        ("cpu", False, False, False),
+        ("gpu", True, False, False),
+        ("cpu", True, True, False),
+        ("cpu", False, False, True),
+    ],
 )
 def test_gguf_command_runs_without_heavy_dependency_imports(
-    tmp_path: Path, device: str, memory: bool, ignored_config: bool
+    tmp_path: Path, device: str, memory: bool, ignored_config: bool, evidence: bool
 ) -> None:
     outcome = _run_isolated(
         """
@@ -101,11 +106,11 @@ def test_gguf_command_runs_without_heavy_dependency_imports(
         from click.testing import CliRunner
         from winml.modelkit.cli import main
         from winml.modelkit.commands import _perf_gguf
-        from winml.modelkit.session.llama_session import LlamaGenerationTiming
+        from winml.modelkit.session import LlamaGenerationTiming
         from winml.modelkit.telemetry.telemetry import Telemetry
 
         Telemetry.get_or_init = classmethod(lambda cls: SimpleNamespace(disabled=True))
-        root, device, memory, ignored_config = sys.argv[1:]
+        root, device, memory, ignored_config, evidence = sys.argv[1:]
         memory = memory == "True"
         root = Path(root)
         model = root / "placeholder.gguf"
@@ -141,19 +146,23 @@ def test_gguf_command_runs_without_heavy_dependency_imports(
             def generate_timed(self, token_ids, *, max_new_tokens, clock):
                 assert token_ids == [1, 2, 3, 4] and max_new_tokens == 3
                 self.generated += 1
+                submit, *token_times, completed = (clock() for _ in range(max_new_tokens + 2))
                 return LlamaGenerationTiming(
                     input_tokens=4, generated_tokens=3, reset_s=0.001,
                     stream_create_s=0.001, first_token_s=0.01,
                     decode_s=[0.002, 0.003], completion_s=0.001,
                     result_fetch_s=0.001, generation_s=0.017,
                     response_text="abc", stop_reason="MAX_TOKENS",
+                    submit_time=submit, token_times=tuple(token_times),
+                    completed_time=completed, token_ids=(10, 11, 12),
                 )
 
             def close(self):
                 self.closed = True
 
         # Only the native session is replaced; dispatch, aggregation, memory
-        # checkpoint readers and report persistence execute their real code.
+        # checkpoint readers, the native log capture, the evidence writes and
+        # report persistence execute their real code.
         _perf_gguf.WinMLLlamaSession = FakeSession
         args = ["perf", "-m", str(model), "--device", device,
                 "--prompt", "test prompt", "--max-new-tokens", "3",
@@ -164,10 +173,13 @@ def test_gguf_command_runs_without_heavy_dependency_imports(
             config = root / "ignored-config.json"
             config.write_text("{}", encoding="utf-8")
             args.extend(["--config", str(config)])
+        if evidence == "True":
+            args.extend(["--evidence", str(root / "task-events.json")])
         result = CliRunner().invoke(main, args)
         assert result.exit_code == 0, (result.output, repr(result.exception))
         assert not attempts, attempts
         assert not [name for name in sys.modules if is_blocked(name)]
+        assert "windowsml" not in sys.modules
         assert len(sessions) == 1 and sessions[0].generated == 3 and sessions[0].closed
         data = json.loads(output.read_text(encoding="utf-8"))
         assert data["schema_version"] == 3
@@ -184,92 +196,22 @@ def test_gguf_command_runs_without_heavy_dependency_imports(
             assert data["memory"]["rss_after_compile_mb"] > 0
             assert data["memory"]["rss_after_inference_mb"] > 0
             assert not any(key.startswith("vram") for key in data["memory"])
-        print(json.dumps({"device": device, "memory": memory, "imports": attempts}))
+        rows = None
+        if evidence == "True":
+            document = json.loads((root / "task-events.json").read_text(encoding="utf-8"))
+            assert document["status"] == "complete", document
+            rows = len(document["requests"])
+        print(json.dumps({"device": device, "memory": memory, "rows": rows, "imports": attempts}))
         """,
         str(tmp_path),
         device,
         str(memory),
         str(ignored_config),
+        str(evidence),
     )
-    assert outcome == {"device": device, "memory": memory, "imports": []}
-
-
-def test_gguf_evidence_run_without_heavy_dependency_imports(tmp_path: Path) -> None:
-    outcome = _run_isolated(
-        """
-        from pathlib import Path
-        from types import SimpleNamespace
-        from click.testing import CliRunner
-        from winml.modelkit.cli import main
-        from winml.modelkit.commands import _perf_gguf
-        from winml.modelkit.session.llama_session import LlamaGenerationTiming
-        from winml.modelkit.telemetry.telemetry import Telemetry
-
-        Telemetry.get_or_init = classmethod(lambda cls: SimpleNamespace(disabled=True))
-        root = Path(sys.argv[1])
-        model = root / "placeholder.gguf"
-        model.write_bytes(b"GGUF")
-        ids = root / "ids.json"
-        ids.write_text("[1, 2, 3, 4]", encoding="utf-8")
-        evidence = root / "task-events.json"
-        output = root / "report.json"
-        sessions = []
-
-        class FakeSession:
-            def __init__(self, model_path, *, device):
-                assert model_path == model
-                self.context_length = None
-                self.effective_device = None
-                self.chat_template_applied = None
-                self.load_timings_ms = {}
-                self.payload = None
-                self.task_default_eos_token_ids = ()
-                self.requests = 0
-                self.closed = False
-                sessions.append(self)
-
-            def open_tokenizer(self):
-                pass
-
-            def load(self, *, context_length, eos_token_ids=None):
-                assert (context_length, eos_token_ids) == (16, ())
-                self.context_length = context_length
-                self.effective_device = "cpu"
-
-            def generate_timed(self, token_ids, *, max_new_tokens, clock):
-                assert list(token_ids) == [1, 2, 3, 4] and max_new_tokens == 3
-                submit, *token_times, completed = (clock() for _ in range(max_new_tokens + 2))
-                self.requests += 1
-                return LlamaGenerationTiming(
-                    input_tokens=len(token_ids), generated_tokens=max_new_tokens,
-                    reset_s=0.001, stream_create_s=0.001, first_token_s=0.01,
-                    decode_s=[0.002, 0.003], completion_s=0.001, result_fetch_s=0.001,
-                    generation_s=0.017, response_text="abc", stop_reason="MAX_TOKENS",
-                    submit_time=submit, token_times=tuple(token_times),
-                    completed_time=completed, token_ids=(10, 11, 12), cached_tokens=0,
-                )
-
-            def close(self):
-                self.closed = True
-
-        # Only the native session is replaced; the native log capture, request
-        # rows and the atomic writer execute their real code.
-        _perf_gguf.WinMLLlamaSession = FakeSession
-        args = ["perf", "-m", str(model), "--prompt-ids-file", str(ids),
-                "--context-length", "16", "--ignore-eos", "--evidence", str(evidence),
-                "--warmup", "1", "--iterations", "2", "--max-new-tokens", "3",
-                "--output", str(output)]
-        result = CliRunner().invoke(main, args)
-        assert result.exit_code == 0, (result.output, repr(result.exception))
-        assert not attempts, attempts
-        assert not [name for name in sys.modules if is_blocked(name)]
-        assert "windowsml" not in sys.modules
-        assert len(sessions) == 1 and sessions[0].requests == 3 and sessions[0].closed
-        document = json.loads(evidence.read_text(encoding="utf-8"))
-        assert json.loads(output.read_text(encoding="utf-8"))["schema_version"] == 3
-        print(json.dumps({"status": document["status"], "rows": len(document["requests"]),
-                          "imports": attempts}))
-        """,
-        str(tmp_path),
-    )
-    assert outcome == {"status": "complete", "rows": 3, "imports": []}
+    assert outcome == {
+        "device": device,
+        "memory": memory,
+        "rows": 3 if evidence else None,
+        "imports": [],
+    }
