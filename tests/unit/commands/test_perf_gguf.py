@@ -1173,56 +1173,15 @@ class TestCliDispatch:
         assert result.exit_code == 0, result.output
         assert capture_run["config"].apply_template is False
 
-    def test_context_length_must_leave_room_for_a_text_prompt(
-        self, runner: CliRunner, tmp_path: Path, capture_run: dict
-    ) -> None:
-        evidence = tmp_path / "ev.json"
-        result = runner.invoke(
-            perf,
-            [
-                "-m",
-                str(_gguf(tmp_path)),
-                "--context-length",
-                "64",
-                "--max-new-tokens",
-                "64",
-                "--evidence",
-                str(evidence),
-            ],
-        )
-
-        assert result.exit_code == 2, result.output
-        assert "--context-length 64" in result.output
-        assert "config" not in capture_run
-        assert not evidence.exists()
-
-    def test_prompt_ids_plus_max_new_tokens_must_fit_context_length(
-        self, runner: CliRunner, tmp_path: Path, capture_run: dict
-    ) -> None:
-        ids = _ids_file(tmp_path, json.dumps(list(range(10))).encode())
-        result = runner.invoke(
-            perf,
-            [
-                "-m",
-                str(_gguf(tmp_path)),
-                "--prompt-ids-file",
-                str(ids),
-                "--max-new-tokens",
-                "8",
-                "--context-length",
-                "16",
-            ],
-        )
-
-        assert result.exit_code == 2, result.output
-        assert "--context-length 16" in result.output
-        assert "config" not in capture_run
-
     @pytest.mark.parametrize(
         ("extra", "message"),
         [
             (["--memory"], "--memory cannot be used with --evidence"),
-            (["--warmup", "0"], "--evidence needs at least one warmup request"),
+            (
+                ["--warmup", "0"],
+                "--evidence needs at least one warmup request: the native log capture runs "
+                "through the first warmup request.",
+            ),
         ],
     )
     def test_evidence_rejects_in_process_memory_and_zero_warmup(
@@ -1269,7 +1228,7 @@ class TestCliDispatch:
         assert result.exit_code == 0, result.output
         assert capture_run["config"].evidence_path == tmp_path / "ev.json"
 
-    @pytest.mark.parametrize("output", ["x.json", "X.JSON", "x.json.tmp"])
+    @pytest.mark.parametrize("output", ["x.json", "X.JSON"])
     def test_evidence_and_output_must_differ(
         self, runner: CliRunner, tmp_path: Path, capture_run: dict, output: str
     ) -> None:

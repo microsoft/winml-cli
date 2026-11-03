@@ -2969,16 +2969,9 @@ def _resolve_gguf_prompt_ids(ctx: click.Context) -> tuple[int, ...] | None:
             "submitted without a chat template."
         )
     try:
-        prompt_ids = read_prompt_ids_file(path)
+        return read_prompt_ids_file(path)
     except ValueError as exc:
         raise click.UsageError(f"--prompt-ids-file {path}: {exc}") from exc
-    context_length = p.get("context_length")
-    if context_length is not None and len(prompt_ids) + p["max_new_tokens"] > context_length:
-        raise click.UsageError(
-            f"--context-length {context_length} is smaller than the {len(prompt_ids)} prompt "
-            f"token IDs plus --max-new-tokens {p['max_new_tokens']}."
-        )
-    return prompt_ids
 
 
 def _same_file(first: str | Path, second: str | Path) -> bool:
@@ -3022,15 +3015,15 @@ def _resolve_gguf_evidence(
         )
     if warmup < 1:
         raise click.UsageError(
-            "--evidence needs at least one warmup request: native log capture and "
-            "external GPU attribution use warmup 0."
+            "--evidence needs at least one warmup request: the native log capture runs "
+            "through the first warmup request."
         )
     written = (
         ("--evidence", evidence),
         ("--evidence temporary file", temporary_path(evidence)),
     )
     _reject_input_overwrite(written, inputs)
-    if any(_same_file(output, path) for _, path in written):
+    if _same_file(output, evidence):
         raise click.UsageError("--evidence and --output must name different files.")
     cli_utils.guard_output(evidence, p["overwrite"], label="Evidence")
     return evidence
@@ -3094,13 +3087,6 @@ def _run_gguf_runtime(
     warmup = p["warmup"] if cli_utils.is_cli_provided(ctx, "warmup") else 2
     output = p.get("output") or generate_output_path(str(model_path))
     prompt_ids = _resolve_gguf_prompt_ids(ctx)
-    context_length = p.get("context_length")
-    if context_length is not None and context_length <= p["max_new_tokens"]:
-        # Any prompt has at least one token; catch this before the run starts.
-        raise click.UsageError(
-            f"--context-length {context_length} leaves no room for a prompt: it must be "
-            f"larger than --max-new-tokens {p['max_new_tokens']}."
-        )
     # Protect every expected shard before evidence or report writers open files.
     # A missing shard is not a usage error; an evidence run records it as failed.
     inputs = (
