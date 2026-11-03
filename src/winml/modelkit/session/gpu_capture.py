@@ -201,6 +201,8 @@ class GpuCapture:
                 with (self.directory / "capture.log").open("a", encoding="utf-8") as log:
                     log.write(json.dumps({"command": args, "timeout_seconds": timeout}) + chr(10))
             except OSError:
+                # Preserve the timeout as the primary error when diagnostic logging
+                # fails (for example, on a full disk), so owned-session cleanup runs.
                 pass
             raise RuntimeError(
                 f"GPU timing command timed out after {timeout}s: {args[0]}"
