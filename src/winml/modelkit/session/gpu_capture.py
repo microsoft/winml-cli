@@ -133,7 +133,7 @@ def analyze_trace(directory: Path) -> dict:
             stops[key] = (tid, stamp, int(data["Result"], 0))
     # A steady-memory trace can contain hundreds of thousands of measured runs.
     # Index once; rescanning all starts for each window is quadratic.
-    starts_by_thread = {}
+    starts_by_thread: dict[int, tuple[list[int], list[RunKey]]] = {}
     for key, thread, stamp in sorted(starts, key=lambda value: value[2]):
         stamps, run_keys = starts_by_thread.setdefault(thread, ([], []))
         stamps.append(stamp)
