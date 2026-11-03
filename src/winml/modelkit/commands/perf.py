@@ -3002,12 +3002,13 @@ def _resolve_gguf_evidence(
     inputs: Sequence[tuple[str, Path | None]],
 ) -> Path | None:
     """Check ``--evidence`` against the in-process options, the inputs and the report path."""
-    from ._gguf_evidence import temporary_path
-
     p = ctx.params
     evidence: Path | None = p.get("evidence")
     if evidence is None:
         return None
+    # Only evidence runs load the evidence module.
+    from ._gguf_evidence import temporary_path
+
     if cli_utils.is_cli_provided(ctx, "memory") and p["memory"]:
         raise click.UsageError(
             "--memory cannot be used with --evidence: an evidence run performs no "

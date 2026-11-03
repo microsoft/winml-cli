@@ -20,6 +20,11 @@ import pytest
 
 
 SOURCE = Path(__file__).resolve().parents[3] / "src"
+# GGUF helper modules that only an evidence run loads: the evidence writer and the log capture.
+EVIDENCE_MODULES = [
+    "winml.modelkit.commands._gguf_evidence",
+    "winml.modelkit.commands._gguf_native_log",
+]
 GUARD = """
 import importlib.abc
 import json
@@ -214,6 +219,9 @@ def test_gguf_command_runs_without_heavy_dependency_imports(
         print(json.dumps({
             "device": device, "memory": memory, "context_length": info["context_length"],
             "ignore_eos": info["ignore_eos"], "prompt": info["prompt"], "rows": rows,
+            "gguf_modules": sorted(
+                name for name in sys.modules if name.startswith("winml.modelkit.commands._gguf_")
+            ),
             "imports": attempts,
         }))
         """,
@@ -230,5 +238,6 @@ def test_gguf_command_runs_without_heavy_dependency_imports(
         "ignore_eos": evidence,
         "prompt": None if evidence else "test prompt",
         "rows": 3 if evidence else None,
+        "gguf_modules": EVIDENCE_MODULES if evidence else [],
         "imports": [],
     }
