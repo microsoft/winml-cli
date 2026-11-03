@@ -93,7 +93,8 @@ def test_gguf_module_and_perf_help_do_not_import_unrelated_runtimes() -> None:
         ("cpu", False, False, False),
         ("gpu", True, False, False),
         ("cpu", True, True, False),
-        ("cpu", False, False, True),
+        # The benchmark skill's flag set: exact IDs, a fixed capacity, no EOS stop.
+        ("gpu", False, False, True),
     ],
 )
 def test_gguf_command_runs_without_heavy_dependency_imports(
@@ -125,6 +126,7 @@ def test_gguf_command_runs_without_heavy_dependency_imports(
                 self.context_length = None
                 self.effective_device = None
                 self.chat_template_applied = None
+                self.task_default_eos_token_ids = None
                 self.load_timings_ms = {}
                 self.payload = None
                 self.generated = 0
@@ -135,6 +137,7 @@ def test_gguf_command_runs_without_heavy_dependency_imports(
                 pass
 
             def encode_prompt(self, prompt, *, apply_template):
+                assert evidence != "True", "exact token IDs are never encoded"
                 assert prompt == "test prompt"
                 self.chat_template_applied = apply_template
                 return [1, 2, 3, 4]
@@ -142,6 +145,8 @@ def test_gguf_command_runs_without_heavy_dependency_imports(
             def load(self, *, context_length, eos_token_ids=None):
                 self.context_length = context_length
                 self.effective_device = self.device
+                eos = (2,) if eos_token_ids is None else tuple(eos_token_ids)
+                self.task_default_eos_token_ids = eos
 
             def generate_timed(self, token_ids, *, max_new_tokens, clock):
                 assert token_ids == [1, 2, 3, 4] and max_new_tokens == 3
@@ -164,17 +169,22 @@ def test_gguf_command_runs_without_heavy_dependency_imports(
         # checkpoint readers, the native log capture, the evidence writes and
         # report persistence execute their real code.
         _perf_gguf.WinMLLlamaSession = FakeSession
-        args = ["perf", "-m", str(model), "--device", device,
-                "--prompt", "test prompt", "--max-new-tokens", "3",
+        args = ["perf", "-m", str(model), "--device", device, "--max-new-tokens", "3",
                 "--warmup", "1", "--iterations", "2", "--output", str(output)]
-        if not memory:
-            args.append("--no-memory")
+        if evidence == "True":
+            # As the skill runs it: no memory option, since --evidence turns sampling off.
+            ids = root / "prompt-ids.json"
+            ids.write_text("[1, 2, 3, 4]", encoding="utf-8")
+            args.extend(["--prompt-ids-file", str(ids), "--context-length", "256",
+                         "--ignore-eos", "--evidence", str(root / "task-events.json")])
+        else:
+            args.extend(["--prompt", "test prompt"])
+            if not memory:
+                args.append("--no-memory")
         if ignored_config == "True":
             config = root / "ignored-config.json"
             config.write_text("{}", encoding="utf-8")
             args.extend(["--config", str(config)])
-        if evidence == "True":
-            args.extend(["--evidence", str(root / "task-events.json")])
         result = CliRunner().invoke(main, args)
         assert result.exit_code == 0, (result.output, repr(result.exception))
         assert not attempts, attempts
@@ -185,7 +195,6 @@ def test_gguf_command_runs_without_heavy_dependency_imports(
         assert data["schema_version"] == 3
         assert data["benchmark_info"]["api"] == "windowsml.tasks"
         assert data["benchmark_info"]["effective_device"] == device
-        assert data["benchmark_info"]["context_length"] == 7
         assert data["aggregate"]["warmup_request_count"] == 1
         assert data["aggregate"]["timed_request_count"] == 2
         assert len(data["requests"]) == 3
@@ -201,7 +210,12 @@ def test_gguf_command_runs_without_heavy_dependency_imports(
             document = json.loads((root / "task-events.json").read_text(encoding="utf-8"))
             assert document["status"] == "complete", document
             rows = len(document["requests"])
-        print(json.dumps({"device": device, "memory": memory, "rows": rows, "imports": attempts}))
+        info = data["benchmark_info"]
+        print(json.dumps({
+            "device": device, "memory": memory, "context_length": info["context_length"],
+            "ignore_eos": info["ignore_eos"], "prompt": info["prompt"], "rows": rows,
+            "imports": attempts,
+        }))
         """,
         str(tmp_path),
         device,
@@ -212,6 +226,9 @@ def test_gguf_command_runs_without_heavy_dependency_imports(
     assert outcome == {
         "device": device,
         "memory": memory,
+        "context_length": 256 if evidence else 7,
+        "ignore_eos": evidence,
+        "prompt": None if evidence else "test prompt",
         "rows": 3 if evidence else None,
         "imports": [],
     }
