@@ -27,4 +27,4 @@ WinMLCG EP capture disables CPU fallback by default. Explicitly permit CPU fallb
 winml perf -m model.onnx --runtime winml-ort --ep winmlcg --device gpu --etw-tracing trace --allow-cpu-fallback
 ```
 
-This option requires WinMLCG EP ETW capture. The trace and GPU result record the policy; actual CPU fallback usage remains unknown. GPU samples cover captured CGC work, not end-to-end inference or CPU execution. Existing event-loss and unambiguous Run matching requirements still apply; permitting fallback does not turn missing or ambiguous GPU samples into valid measurements.
+This option requires WinMLCG EP ETW capture. The trace and GPU result record the policy; usage is false when fallback is disabled, and unknown when it is allowed. Like other CGC-specific options, this advanced option is accepted but hidden from public help. GPU samples cover captured CGC work, not end-to-end inference or CPU execution. Existing event-loss and unambiguous Run matching requirements still apply; permitting fallback does not turn missing or ambiguous GPU samples into valid measurements.

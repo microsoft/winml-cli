@@ -3333,6 +3333,7 @@ def _validate_duration(
     "--allow-cpu-fallback",
     is_flag=True,
     default=False,
+    hidden=True,
     help="Allow CPU fallback for WinMLCG EP ETW capture; GPU timing excludes CPU work.",
 )
 def perf(

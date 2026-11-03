@@ -157,7 +157,7 @@ def analyze_trace(directory: Path) -> dict:
     result["execution_path"] = markers.get("execution_path", "runtime-api")
     if result["execution_path"] == "winmlcgep":
         result["cpu_fallback_policy"] = markers.get("cpu_fallback_policy", "disabled")
-        result["cpu_fallback_used"] = None
+        result["cpu_fallback_used"] = False if result["cpu_fallback_policy"] == "disabled" else None
         result["timing_scope"] = "Captured CGC GPU work only; excludes CPU fallback work"
     result["collection_profile"] = markers.get("collection_profile", "runtime-gpu-timing")
     result["unavailable_providers"] = markers.get("unavailable_providers", [])
