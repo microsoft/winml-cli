@@ -159,7 +159,7 @@ class TestPerfCacheOptions:
         assert config is not None
         assert config.backend == expected
 
-    @pytest.mark.parametrize("lowering", ["auto", "dml", "d3d12"])
+    @pytest.mark.parametrize("lowering", ["auto", "disable-d3d12", "d3d12"])
     def test_cgc_lowering_reaches_benchmark_config(self, runner, tmp_path, lowering):
         result, config = self._capture_config(
             runner, tmp_path,
@@ -168,7 +168,7 @@ class TestPerfCacheOptions:
         assert result.exit_code == 0, result.output
         assert config.cgc_lowering_target == lowering
 
-    @pytest.mark.parametrize("lowering", ["auto", "dml", "d3d12"])
+    @pytest.mark.parametrize("lowering", ["auto", "disable-d3d12", "d3d12"])
     @pytest.mark.parametrize(
         "runtime_args",
         [

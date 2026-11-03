@@ -58,7 +58,7 @@ def native(tmp_path, monkeypatch):
     )
 
 
-@pytest.mark.parametrize("lowering", [None, "auto", "dml", "d3d12"])
+@pytest.mark.parametrize("lowering", [None, "auto", "disable-d3d12", "d3d12"])
 def test_compile_routes_through_runtime_session_and_publishes_bundle(native, lowering):
     result = compile_cgc_ir(native.source, native.output, cgc_lowering_target=lowering)
 

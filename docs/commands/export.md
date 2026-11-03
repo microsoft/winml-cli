@@ -19,7 +19,9 @@ $ winml export [options]
 | Flag | Short | Type | Default | Description |
 |---|---|---|---|---|
 | `--model` | `-m` | string | *(required)* | Hugging Face model name or local path (e.g., `prajjwal1/bert-tiny`). |
-| `--output` | `-o` | path | *(required)* | Output ONNX file path (e.g., `model.onnx`). |
+| `--output` | `-o` | path | *(required)* | Output model file path (e.g., `model.onnx`). |
+| `--target` | | `onnx\|cgir` | `onnx` | Export format: ONNX or CGC Input IR. |
+| `--cgc-options` | | `KEY=VALUE` | *(none)* | CGIR conversion options (repeatable). Overrides config values per key; requires `--target cgir`. |
 | `--batch-size` | | integer | `1` | Static batch size for generated model inputs. |
 | `--with-report/--no-with-report` | | flag | `false` | Generate full export reports: Markdown, JSON, and a console tree. |
 | `--hierarchy/--no-hierarchy` | | flag | `true` | Preserve `hierarchy_tag` metadata in ONNX nodes (use `--no-hierarchy` for a clean ONNX file). |
@@ -114,6 +116,18 @@ dummy input tensor. For example, `{"input_ids": {"dtype": "int64", "shape":
 # Produce clean ONNX without hierarchy metadata (for third-party optimizers)
 winml export -m microsoft/resnet-50 -o resnet50_clean.onnx --no-hierarchy
 ```
+
+## CGC options
+
+`--cgc-options` supports `external-weights`, `update-opset`, `topo-sort-nodes`,
+and `freeze-dims`. It is also available on `winml config` and `winml build`
+when CGIR conversion is enabled.
+
+```bash
+winml export -m model.onnx --target cgir -o model.mlir --cgc-options freeze-dims=batch=1,seq=128
+```
+
+Use the symbolic dimension names from your ONNX model in place of `batch` and `seq`.
 
 ## See also
 

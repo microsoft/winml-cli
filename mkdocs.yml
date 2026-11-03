@@ -13,10 +13,6 @@ exclude_docs: |
   /pytest-best-practices.md
   /reports/download_report.py
   /reports/README.md
-  /commands/cgc.md
-  /getting-started/cgc-onboarding.md
-  /samples/resnet50-cgir.md
-  /samples/yolo11-cgir.md
 
 extra:
   version:
@@ -91,6 +87,7 @@ nav:
   - Getting Started:
       - Installation: getting-started/installation.md
       - Quickstart: getting-started/quickstart.md
+      - CGC onboarding: getting-started/cgc-onboarding.md
       - UI Quickstart: getting-started/ui-quickstart.md
       - Use with AI Agent:
           - Overview: getting-started/agent-skill/index.md
@@ -118,6 +115,7 @@ nav:
           - sys: commands/sys.md
           - inspect: commands/inspect.md
           - catalog: commands/catalog.md
+          - cgc: commands/cgc.md
       - Configure:
           - config: commands/config.md
       - Build:
@@ -131,6 +129,8 @@ nav:
           - perf: commands/perf.md
           - eval: commands/eval.md
   - Samples:
+      - ResNet-50 - PyTorch to CGIR: samples/resnet50-cgir.md
+      - YOLO11 - ONNX to CGIR: samples/yolo11-cgir.md
       - BERT — Config + Build + Perf: samples/bert-config-build.md
       - CLIP — Composite Models: samples/clip-composite.md
       - Qwen3 — Genai Bundle: samples/qwen3-genai-bundle.md

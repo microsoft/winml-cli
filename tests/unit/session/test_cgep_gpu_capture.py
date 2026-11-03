@@ -12,7 +12,7 @@ from winml.modelkit.session.gpu_capture import GpuCapture, active_capture
 from winml.modelkit.session.session import _build_session_options
 
 
-@pytest.mark.parametrize(("target", "flag"), [("dml", "1"), ("auto", "0")])
+@pytest.mark.parametrize(("target", "flag"), [("disable-d3d12", "1"), ("auto", "0")])
 @pytest.mark.parametrize("allow_fallback", [False, True])
 def test_cgep_capture_session_options(tmp_path, target, flag, allow_fallback):
     capture = GpuCapture(tmp_path)

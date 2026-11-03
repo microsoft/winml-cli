@@ -83,7 +83,7 @@ def _make_cpu_ep_device_with_bridge_name() -> WinMLEPDevice:
 class TestFromOnnx:
     """Test WinMLAutoModel.from_onnx()."""
 
-    @pytest.mark.parametrize("lowering", ["auto", "dml", "d3d12"])
+    @pytest.mark.parametrize("lowering", ["auto", "disable-d3d12", "d3d12"])
     @pytest.mark.parametrize("loader", ["from_onnx", "from_pretrained", "from_mlir"])
     def test_cgc_lowering_reaches_runtime_session(
         self, fake_onnx, cpu_ep_device, lowering, loader
@@ -103,7 +103,7 @@ class TestFromOnnx:
         assert model._session is factory.return_value
         assert factory.call_args.kwargs["cgc_lowering_target"] == lowering
 
-    @pytest.mark.parametrize("lowering", ["auto", "dml", "d3d12"])
+    @pytest.mark.parametrize("lowering", ["auto", "disable-d3d12", "d3d12"])
     @pytest.mark.parametrize("loader", ["from_onnx", "from_pretrained"])
     def test_cgc_lowering_rejected_for_ort(
         self, fake_onnx, cpu_ep_device, lowering, loader
