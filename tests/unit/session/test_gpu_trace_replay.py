@@ -192,3 +192,61 @@ def test_failed_stop_retains_ownership_for_retry(tmp_path, monkeypatch):
     assert capture.started
     capture.stop()
     assert not capture.started
+
+
+@pytest.mark.skipif(os.name != "nt", reason="ETW capture requires Windows")
+@pytest.mark.parametrize("verbose", [False, True])
+def test_provider_scope_and_profile_are_explicit(tmp_path, monkeypatch, verbose):
+    monkeypatch.setenv("WINML_FULL_DIAGNOSTICS", "1" if verbose else "0")
+    run = Mock(return_value=subprocess.CompletedProcess([], 0, "ok", ""))
+    monkeypatch.setattr(subprocess, "run", run)
+    capture = GpuCapture(tmp_path / "capture")
+    with capture:
+        pass
+    commands = [call.args[0] for call in run.call_args_list]
+    creation = commands[0]
+    assert creation[creation.index("-p") + 1 :] == (
+        GPU_PROVIDER,
+        "0xffffffffffffffff" if verbose else "0x1",
+        "5" if verbose else "4",
+    )
+    updates = [args for args in commands if args[1] == "update"]
+    if verbose:
+        assert len(updates) == 9
+        assert all(args[-2:] == ("0xffffffffffffffff", "5") for args in updates)
+    else:
+        assert len(updates) == 1
+        assert updates[0][-3:] == (RUNTIME_PROVIDER, "0x2", "4")
+    markers = json.loads((capture.directory / "windows.json").read_text())
+    assert markers["collection_profile"] == (
+        "runtime-ort-gpu-diagnostics-verbose" if verbose else "runtime-gpu-timing-minimal"
+    )
+    session = json.loads((capture.directory / "session.json").read_text())
+    assert session["name"] == capture.name
+    assert session["trace"] == str(capture.directory / "trace.etl")
+
+
+@pytest.mark.parametrize(("tool", "timeout"), [("logman", 30), ("tracerpt", 120)])
+def test_trace_tools_have_bounded_deadlines(tmp_path, monkeypatch, tool, timeout):
+    run = Mock(return_value=subprocess.CompletedProcess([], 0, "", ""))
+    monkeypatch.setattr(subprocess, "run", run)
+    GpuCapture(tmp_path).command(tool, "test")
+    assert run.call_args.kwargs["timeout"] == timeout
+    record = json.loads((tmp_path / "capture.log").read_text().splitlines()[0])
+    assert record["returncode"] == 0
+
+
+@pytest.mark.skipif(os.name != "nt", reason="ETW capture requires Windows")
+def test_timed_out_create_attempts_owned_cleanup(tmp_path, monkeypatch):
+    run = Mock(
+        side_effect=[
+            subprocess.TimeoutExpired("logman", 30),
+            subprocess.CompletedProcess([], 0, "", ""),
+        ]
+    )
+    monkeypatch.setattr(subprocess, "run", run)
+    capture = GpuCapture(tmp_path / "capture")
+    with pytest.raises(RuntimeError, match="timed out"):
+        capture.__enter__()
+    assert [call.args[0][1] for call in run.call_args_list] == ["create", "stop"]
+    assert not capture.started
