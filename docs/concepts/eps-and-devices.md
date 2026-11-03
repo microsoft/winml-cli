@@ -64,6 +64,56 @@ winml analyze --model model.onnx --ep all
 
 The `--ep` flag accepts a free-form string and is not restricted to the choices listed above. This allows forward compatibility with EP names that winml-cli does not yet enumerate.
 
+## Custom EP locations
+
+Set `WINMLCLI_EP_PATH` to discover custom builds of supported EP plugins. It accepts
+both directories and individual DLL files, separated by `;` on Windows:
+
+```powershell
+$env:WINMLCLI_EP_PATH = "C:\custom-ep;D:\qnn\onnxruntime_providers_qnn.dll"
+winml sys --list-ep
+winml perf -m "C:\models\model.onnx" --ep qnn@directory --device npu
+```
+
+Directories are scanned for known EP DLL filenames. A file entry selects only
+that DLL, not other EPs in its folder. Known filenames identify the EP
+case-insensitively. For arbitrary DLL filenames, specify the EP explicitly:
+
+```powershell
+$env:WINMLCLI_EP_PATH = "D:\custom\my_ep.dll;C:\other-ep"
+winml perf -m "C:\models\model.onnx" --ep vitisai@directory --device npu
+```
+
+Unknown-name DLL file entries are tried for the requested EP. Known filenames
+belonging to a different EP are not tried. Folder entries never scan arbitrary
+DLL names. `winml sys --list-ep` ignores unknown filenames because it has no
+requested EP to associate them with. Missing paths and non-DLL files produce
+warnings and are skipped.
+
+Entries are considered left to right, before default discovery. Runtime device
+selection uses the first candidate that loads and exposes the requested EP and
+device; a failed candidate does not prevent trying later entries.
+Listing the same DLL as both a file and
+through its directory does not create duplicate entries. Both forms use the
+`directory` source tag, so commands supporting source pinning can use
+`--ep qnn@directory`; `build` and `config` currently require plain `--ep qnn`.
+
+Keep the plugin's dependencies available as required by its distribution. The
+DLL must be compatible with the installed ONNX Runtime and process architecture;
+discovery by filename does not guarantee that it can be loaded.
+
+Explicit DLL file paths are treated literally, including brackets in filenames.
+ORT GenAI validates each candidate's EP identity through regular ORT before
+loading it into GenAI, since GenAI does not expose EP enumeration. Its cache
+tracks both DLL path and validated EP. Failed identity checks or GenAI library
+loads allow the next candidate to be tried. This preflight does not guarantee
+GenAI model compatibility; that is checked when the model is loaded.
+
+Default discovery only inspects already-ready Windows ML Catalog providers; it
+does not prepare or download non-ready providers. A source-pinned request such
+as `--ep vitisai@directory` does not acquire a Catalog package if the requested
+directory source is missing.
+
 ## See also
 
 - [Graphs and IR](graphs-and-ir.md) — ONNX graph format, operator sets, and the IR that EPs consume
