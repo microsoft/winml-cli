@@ -499,9 +499,7 @@ class TestCGCHelpVisibility:
                 visible_choices = [
                     value
                     for value in option.type.choices
-                    if value not in (
-                        "winmlcg", "WinMLCGExecutionProvider", "winml-runtime", "cgc", "dxcgc"
-                    )
+                    if value not in ("winmlcg", "WinMLCGExecutionProvider", "winml-runtime", "cgc")
                 ]
                 assert option.make_metavar(help_ctx) == f"[{'|'.join(visible_choices)}]"
                 help_record = option.get_help_record(help_ctx)

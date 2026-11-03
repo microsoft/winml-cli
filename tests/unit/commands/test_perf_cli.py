@@ -176,7 +176,6 @@ class TestPerfCacheOptions:
             ["--runtime", "winml-ort"],
             ["--runtime", "winml-runtime", "--backend", "ort"],
             ["--runtime", "ort-genai"],
-            ["--runtime", "dxcgc"],
         ],
     )
     def test_cgc_lowering_rejects_incompatible_runtime(
