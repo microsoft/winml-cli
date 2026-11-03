@@ -17,7 +17,16 @@ from statistics import mean
 from typing import TYPE_CHECKING
 from xml.etree import ElementTree
 
-from .gpu_timing import GPU_PROVIDER, RUNTIME_PROVIDER, GpuSubmission, RunKey, analyze_gpu_timing
+from .gpu_timing import (
+    GPU_KEYWORD,
+    GPU_PROVIDER,
+    INFORMATION_LEVEL,
+    RUN_KEYWORD,
+    RUNTIME_PROVIDER,
+    GpuSubmission,
+    RunKey,
+    analyze_gpu_timing,
+)
 
 
 if TYPE_CHECKING:
@@ -156,11 +165,19 @@ active_capture: ContextVar = ContextVar("runtime_gpu_capture", default=None)
 
 class GpuCapture:
     """Runtime ETW GpuCapture."""
+
     def __init__(self, directory: Path) -> None:
         """Runtime ETW __init__."""
         self.directory = directory
         self.execution_path = "runtime-api"
         self.lowering_target = "auto"
+        self.verbose_diagnostics = os.environ.get("WINML_GPU_TIMING_DIAGNOSTICS") == "1"
+        self.collection_profile = (
+            "runtime-ort-gpu-diagnostics-verbose"
+            if self.verbose_diagnostics
+            else "runtime-gpu-timing-minimal"
+        )
+
         self.name = "WinMLCLI-" + uuid.uuid4().hex
         self.windows: list[tuple[int, int, int]] = []
         self.started = False
@@ -170,12 +187,30 @@ class GpuCapture:
         self, *args: str, optional_provider: bool = False, session_started: bool | None = None
     ) -> bool | None:
         """Runtime ETW command."""
-        run = subprocess.run(args, capture_output=True, text=True, errors="replace")  # noqa: S603 -- fixed tracing tools, no shell
+        timeout = 120 if args[0] == "tracerpt" else 30
+        try:
+            run = subprocess.run(  # noqa: S603 -- fixed tracing tools, no shell
+                args, capture_output=True, text=True, errors="replace", timeout=timeout
+            )
+        except subprocess.TimeoutExpired as error:
+            # A timed-out create may already have registered our unique logger.
+            # Let __enter__ stop that owned name instead of leaking the session.
+            if session_started is True:
+                self.started = True
+            try:
+                with (self.directory / "capture.log").open("a", encoding="utf-8") as log:
+                    log.write(json.dumps({"command": args, "timeout_seconds": timeout}) + chr(10))
+            except OSError:
+                pass
+            raise RuntimeError(
+                f"GPU timing command timed out after {timeout}s: {args[0]}"
+            ) from error
         # Track ownership before diagnostic I/O can fail (for example, a full disk).
         if run.returncode == 0 and session_started is not None:
             self.started = session_started
         try:
             with (self.directory / "capture.log").open("a", encoding="utf-8") as log:
+                log.write(json.dumps({"command": args, "returncode": run.returncode}) + chr(10))
                 log.write(run.stdout + run.stderr)
         except OSError:
             # Cleanup must succeed even when the capture log is unwritable.
@@ -195,6 +230,17 @@ class GpuCapture:
         if os.name != "nt":
             raise RuntimeError("GPU ETW timing requires Windows.")
         self.directory.mkdir(parents=True, exist_ok=False)
+        (self.directory / "session.json").write_text(
+            json.dumps(
+                {
+                    "name": self.name,
+                    "pid": os.getpid(),
+                    "trace": str(self.directory / "trace.etl"),
+                    "collection_profile": self.collection_profile,
+                }
+            ),
+            encoding="utf-8",
+        )
         try:
             self.command(
                 "logman",
@@ -211,11 +257,16 @@ class GpuCapture:
                 "256",
                 "-p",
                 GPU_PROVIDER,
-                "0xffffffffffffffff",
-                "5",
+                "0xffffffffffffffff" if self.verbose_diagnostics else hex(GPU_KEYWORD),
+                "5" if self.verbose_diagnostics else str(INFORMATION_LEVEL),
                 session_started=True,
             )
-            for name, provider in DIAGNOSTIC_PROVIDERS:
+            providers = (
+                DIAGNOSTIC_PROVIDERS
+                if self.verbose_diagnostics
+                else (("RuntimeCore", RUNTIME_PROVIDER),)
+            )
+            for name, provider in providers:
                 enabled = self.command(
                     "logman",
                     "update",
@@ -224,8 +275,8 @@ class GpuCapture:
                     "-ets",
                     "-p",
                     provider,
-                    "0xffffffffffffffff",
-                    "5",
+                    "0xffffffffffffffff" if self.verbose_diagnostics else hex(RUN_KEYWORD),
+                    "5" if self.verbose_diagnostics else str(INFORMATION_LEVEL),
                     optional_provider=provider != RUNTIME_PROVIDER,
                 )
                 if enabled is False:
@@ -266,7 +317,7 @@ class GpuCapture:
                     "pid": os.getpid(),
                     "execution_path": self.execution_path,
                     "windows": self.windows,
-                    "collection_profile": "runtime-ort-gpu-diagnostics-verbose",
+                    "collection_profile": self.collection_profile,
                     "unavailable_providers": self.unavailable_providers,
                 }
             ),
