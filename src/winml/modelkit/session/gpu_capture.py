@@ -155,6 +155,10 @@ def analyze_trace(directory: Path) -> dict:
     result["aggregation"] = "per-run; single-window median"
     result["trace_directory"] = str(directory.resolve())
     result["execution_path"] = markers.get("execution_path", "runtime-api")
+    if result["execution_path"] == "winmlcgep":
+        result["cpu_fallback_policy"] = markers.get("cpu_fallback_policy", "disabled")
+        result["cpu_fallback_used"] = None
+        result["timing_scope"] = "Captured CGC GPU work only; excludes CPU fallback work"
     result["collection_profile"] = markers.get("collection_profile", "runtime-gpu-timing")
     result["unavailable_providers"] = markers.get("unavailable_providers", [])
     return result
@@ -171,6 +175,7 @@ class GpuCapture:
         self.directory = directory
         self.execution_path = "runtime-api"
         self.lowering_target = "auto"
+        self.allow_cpu_fallback = False
         self.verbose_diagnostics = os.environ.get("WINML_FULL_DIAGNOSTICS") == "1"
         self.collection_profile = (
             "runtime-ort-gpu-diagnostics-verbose"
@@ -318,6 +323,7 @@ class GpuCapture:
                 {
                     "pid": os.getpid(),
                     "execution_path": self.execution_path,
+                    "cpu_fallback_policy": "allowed" if self.allow_cpu_fallback else "disabled",
                     "windows": self.windows,
                     "collection_profile": self.collection_profile,
                     "unavailable_providers": self.unavailable_providers,

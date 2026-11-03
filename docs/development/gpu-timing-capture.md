@@ -20,3 +20,11 @@ Trace-control commands have a 30-second deadline; each tracerpt export has a
 120-second deadline. Command return codes and timeout details are recorded in
 capture.log. A timed-out create attempts cleanup of its generated logger name;
 cleanup never targets other logger names.
+
+WinMLCG EP capture disables CPU fallback by default. Explicitly permit CPU fallback:
+
+```cmd
+winml perf -m model.onnx --runtime winml-ort --ep winmlcg --device gpu --etw-tracing trace --allow-cpu-fallback
+```
+
+This option requires WinMLCG EP ETW capture. The trace and GPU result record the policy; actual CPU fallback usage remains unknown. GPU samples cover captured CGC work, not end-to-end inference or CPU execution. Existing event-loss and unambiguous Run matching requirements still apply; permitting fallback does not turn missing or ambiguous GPU samples into valid measurements.
