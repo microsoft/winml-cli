@@ -45,9 +45,9 @@ $ winml perf [options]
 | `--apply-template/--no-apply-template` | | flag | `true` | *(ort-genai, GGUF)* Wrap `--prompt` in the model's chat template before timing. |
 | `--max-new-tokens` | | `INTEGER` | `128` | *(ort-genai, GGUF)* Number of new tokens to generate per iteration. |
 | `--prompt-ids-file` | | `PATH` | — | *(GGUF)* JSON array of exact prompt token IDs submitted on every request, without a chat template. Cannot be combined with `--prompt`, `--prompt-file`, or `--apply-template`. |
-| `--context-length` | | `INTEGER` | prompt + `--max-new-tokens` | *(GGUF)* Sequence capacity to load the model with. The run fails unless the Runtime reports exactly this capacity. |
+| `--context-length` | | `INTEGER` | prompt + `--max-new-tokens` | *(GGUF)* Sequence capacity to load the model with; use a multiple of 256. The run fails unless the Runtime reports exactly this capacity. |
 | `--ignore-eos/--no-ignore-eos` | | flag | `false` | *(GGUF)* Create the Task with an empty end-of-sequence set so every request generates `--max-new-tokens` tokens unless it reaches the sequence capacity. |
-| `--evidence` | | `PATH` | — | *(GGUF)* Write raw `gguf-task-events-1.1` request evidence to this new JSON file and a `.rows.jsonl` file next to it. Needs `--warmup` of at least 1 and turns off `--memory`. Other inputs reject this option and the three above. |
+| `--evidence` | | `PATH` | — | *(GGUF)* Write raw `gguf-task-events-2` request evidence to this new JSON file. Needs `--warmup` of at least 1 and turns off `--memory`. Other inputs reject this option and the three above. |
 
 ## How it works
 
@@ -196,8 +196,8 @@ the `ort-genai` metric definitions above; `ort-genai` remains unchanged.
 For a fixed workload, `--prompt-ids-file`, `--context-length`, and `--ignore-eos`
 submit exact token IDs, pin the sequence capacity, and run every request to
 `--max-new-tokens`. `--evidence PATH` also writes raw per-request time points and
-the effective configuration in the `gguf-task-events-1.1` format; the command exits
-with code 1 unless every planned request succeeded. See
+the native llama.cpp log in the `gguf-task-events-2` format. The first failure ends
+the run, and the command exits with code 1 unless every request succeeded. See
 [Protocol runs with exact token IDs](../samples/gguf-llama-perf.md#protocol-runs-with-exact-token-ids).
 
 ## Examples
