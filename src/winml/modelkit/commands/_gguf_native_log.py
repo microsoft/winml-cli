@@ -227,10 +227,12 @@ class NativeLogCapture:
         """Return the evidence ``native_log`` object.
 
         ``intact`` is whether the capturing callback was still installed when
-        :meth:`restore` ran (``None`` before that), and ``restored`` whether the
-        Runtime callback is back. ``fragments`` lists every callback call in
-        order, each with its ``level``, its ``text`` exactly as emitted (line
-        breaks included) and its own ``qpc_ns`` stamp.
+        :meth:`restore` ran: ``None`` before that, and also when the
+        ``llama_log_get`` read inside :meth:`restore` raised (restore suppresses
+        that error). ``restored`` is whether the Runtime callback is back.
+        ``fragments`` lists every callback call in order, each with its
+        ``level``, its ``text`` exactly as emitted (line breaks included) and
+        its own ``qpc_ns`` stamp.
         """
         return {
             "installed": self.installed,

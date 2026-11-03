@@ -78,7 +78,7 @@ def test_restore_reinstates_and_verifies_runtime_callback(
 
 def test_restore_leaves_a_replaced_logger_alone(
     capture: NativeLogCapture, api: FakeLogApi
-) -> None:  # Review Focus 5
+) -> None:
     capture.install()
     api.callback = 0x9999
     calls = len(api.set_calls)
@@ -89,9 +89,25 @@ def test_restore_leaves_a_replaced_logger_alone(
     assert (doc["intact"], doc["restored"]) == (False, False)
 
 
+def test_a_failed_read_during_restore_leaves_intact_unknown(
+    capture: NativeLogCapture, api: FakeLogApi
+) -> None:
+    capture.install()
+
+    def get() -> tuple[int | None, int | None]:
+        raise OSError("llama_log_get failed")
+
+    api.get = get  # type: ignore[method-assign]
+    calls = len(api.set_calls)
+    capture.restore()  # the error is suppressed: the capture never fails the run
+    assert len(api.set_calls) == calls
+    doc = capture.to_dict()
+    assert (doc["intact"], doc["restored"]) == (None, False)
+
+
 def test_callback_tolerates_invalid_utf8_and_null_text(
     capture: NativeLogCapture, api: FakeLogApi, monkeypatch: pytest.MonkeyPatch
-) -> None:  # Review Focus 4
+) -> None:
     raised: list[Any] = []
     monkeypatch.setattr(sys, "unraisablehook", raised.append)
     capture.install()
@@ -137,7 +153,7 @@ def test_a_broken_swap_puts_the_runtime_callback_back(
 
 def test_ctrl_c_in_the_callback_is_kept_for_the_caller(
     api: FakeLogApi, monkeypatch: pytest.MonkeyPatch
-) -> None:  # Review Focus 5
+) -> None:
     raised: list[Any] = []
     monkeypatch.setattr(sys, "unraisablehook", raised.append)
     ticks = itertools.count(100, 10)
