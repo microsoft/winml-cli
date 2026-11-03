@@ -145,8 +145,11 @@ def read_prompt_ids_file(path: Path) -> tuple[int, ...]:
         data = json.loads(path.read_bytes())
     except OSError as exc:
         raise ValueError(f"could not be read: {exc}") from exc
-    except (ValueError, RecursionError) as exc:  # RecursionError: nested too deeply
+    # UnicodeDecodeError: undecodable bytes; RecursionError: nested too deeply.
+    except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as exc:
         raise ValueError(f"not valid JSON: {exc}") from exc
+    except ValueError as exc:  # valid JSON, but int() refuses an integer this long
+        raise ValueError("contains an integer too large to be a token ID") from exc
     if (
         not isinstance(data, list)
         or not data

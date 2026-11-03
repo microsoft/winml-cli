@@ -1100,7 +1100,11 @@ class TestCliDispatch:
             (b"1,2", "not valid JSON"),
             (b"\xff[1]", "not valid JSON"),
             pytest.param(b"[" * 100_000 + b"]" * 100_000, "not valid JSON", id="deeply-nested"),
-            pytest.param(b"[" + b"9" * 5000 + b"]", "not valid JSON", id="huge-integer"),
+            pytest.param(
+                b"[" + b"9" * 5000 + b"]",
+                "contains an integer too large to be a token ID",
+                id="huge-integer",
+            ),
         ],
     )
     def test_prompt_ids_file_rejects_malformed_content(
