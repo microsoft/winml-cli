@@ -264,9 +264,7 @@ class VitisAIOpMonitor(EPMonitor):
             result.status = "no_data"
             result.error = (
                 "No measured VitisAI Kernel events were found. A fused EP node alone "
-                "does not provide operator timings. Check that vitisai_profiling=1 "
-                "and XRT ml_timeline=true were enabled before AMD initialization, "
-                f"and that VitisAI EP {_MINIMUM_VITISAI_EP_VERSION} or newer is installed."
+                "does not provide operator timings. Check that VitisAI EP {_MINIMUM_VITISAI_EP_VERSION} or newer is installed."
             )
             return result
 
