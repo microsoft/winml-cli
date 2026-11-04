@@ -19,7 +19,7 @@ import hashlib
 import json
 import os
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from .. import __version__
 from ..session import llama_package_versions
@@ -31,7 +31,6 @@ if TYPE_CHECKING:
 
     from ..session import LlamaGenerationTiming
     from ._gguf_native_log import NativeLogCapture
-    from ._perf_gguf import GGUFPerfConfig
 
 
 EVIDENCE_SCHEMA_VERSION = "gguf-task-events-2"
@@ -107,6 +106,22 @@ def _header(status: str) -> dict[str, Any]:
     return {"schema_version": EVIDENCE_SCHEMA_VERSION, "status": status, "pid": os.getpid()}
 
 
+class _EvidenceConfig(Protocol):
+    """The run settings :class:`EvidenceRecorder` reads; ``GGUFPerfConfig`` provides them.
+
+    A protocol, not an import of ``GGUFPerfConfig``: ``_perf_gguf`` imports this
+    module, and CodeQL reports the cycle even under ``TYPE_CHECKING``.
+    """
+
+    evidence_path: Path | None
+    prompt_ids: tuple[int, ...] | None
+    max_new_tokens: int
+    context_length: int | None
+    ignore_eos: bool
+    warmup: int
+    iterations: int
+
+
 class EvidenceRecorder:
     """Write the evidence of one GGUF ``--evidence`` run.
 
@@ -122,7 +137,7 @@ class EvidenceRecorder:
         ValueError: ``config.evidence_path`` is not set.
     """
 
-    def __init__(self, config: GGUFPerfConfig, *, capture: NativeLogCapture) -> None:
+    def __init__(self, config: _EvidenceConfig, *, capture: NativeLogCapture) -> None:
         if config.evidence_path is None:
             raise ValueError("EvidenceRecorder needs config.evidence_path")
         self.path = config.evidence_path
