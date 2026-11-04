@@ -440,8 +440,7 @@ class TestEvalHelp:
 
         assert result.exit_code == 0, result.output
         assert "--model-id" in result.output
-        assert "ONNX" in result.output
-        assert "MLIR" not in result.output
+        assert "MLIR" in result.output
         assert "role=path" in result.output
 
     def test_help_mentions_input_data(self, runner: CliRunner):
@@ -652,7 +651,7 @@ def eval_config_file(tmp_path):
 
 class TestEvalConfigPrecedence:
     @pytest.mark.parametrize("backend", [None, "cgc"])
-    @pytest.mark.parametrize("lowering", ["auto", "dml", "d3d12"])
+    @pytest.mark.parametrize("lowering", ["auto", "disable-d3d12", "d3d12"])
     @pytest.mark.parametrize("from_cli", [False, True])
     def test_cgc_lowering_config_and_cli_precedence(
         self, runner, tmp_path, lowering, from_cli, backend
@@ -678,7 +677,7 @@ class TestEvalConfigPrecedence:
         assert evaluate.call_args.args[0].cgc_lowering_target == lowering
         assert "--cgc-lowering-target" not in runner.invoke(eval_cmd, ["--help"]).output
 
-    @pytest.mark.parametrize("lowering", ["auto", "dml", "d3d12"])
+    @pytest.mark.parametrize("lowering", ["auto", "disable-d3d12", "d3d12"])
     @pytest.mark.parametrize("from_cli", [False, True])
     @pytest.mark.parametrize(
         ("runtime", "backend"),

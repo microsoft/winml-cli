@@ -280,7 +280,7 @@ def test_stage_schema_falls_back_to_projection_interface() -> None:
     )
 
 
-@pytest.mark.parametrize("lowering", [None, "auto", "dml", "d3d12"])
+@pytest.mark.parametrize("lowering", [None, "auto", "disable-d3d12", "d3d12"])
 def test_persistent_compile_normalizes_dynamic_schema_dimensions(
     tmp_path, monkeypatch, lowering
 ) -> None:
@@ -337,7 +337,7 @@ def test_persistent_compile_normalizes_dynamic_schema_dimensions(
     assert output.read_text(encoding="utf-8") == "module { cgc.output }"
     assert options.form == "device-targeted"
     if lowering is not None:
-        enum_name = "AUTOMATIC" if lowering == "auto" else lowering.upper()
+        enum_name = {"auto": "AUTOMATIC", "disable-d3d12": "DML", "d3d12": "D3D12"}[lowering]
         assert options.cgc_lowering_target is getattr(wr.CgcLoweringTarget, enum_name)
     compiler.compile_to_file.assert_called_once_with(
         source_model, str(output), options=options
@@ -363,7 +363,7 @@ def test_serialize_mlir_as_text_replaces_bytecode(tmp_path, monkeypatch) -> None
     read_text.assert_called_once_with(path)
 
 
-@pytest.mark.parametrize("lowering", [None, "auto", "dml", "d3d12"])
+@pytest.mark.parametrize("lowering", [None, "auto", "disable-d3d12", "d3d12"])
 @pytest.mark.parametrize("suffix", [".onnx", ".mlir", ".mlirbc"])
 def test_inference_loaders_forward_lowering_to_api(monkeypatch, tmp_path, lowering, suffix):
     enum = SimpleNamespace(AUTOMATIC=object(), DML=object(), D3D12=object())
@@ -394,7 +394,7 @@ def test_inference_loaders_forward_lowering_to_api(monkeypatch, tmp_path, loweri
             )
             options.close.assert_not_called()
         else:
-            enum_name = "AUTOMATIC" if lowering == "auto" else lowering.upper()
+            enum_name = {"auto": "AUTOMATIC", "disable-d3d12": "DML", "d3d12": "D3D12"}[lowering]
             assert options.cgc_lowering_target is getattr(enum, enum_name)
             compiler.compile_to_file.assert_called_once_with(
                 source, runtime.load_model.call_args.args[0], options=options
@@ -438,7 +438,7 @@ def test_cgc_loader_closes_source_on_failure(tmp_path, suffix, failure_point):
         session.close()
 
 
-@pytest.mark.parametrize("lowering", ["auto", "dml", "d3d12"])
+@pytest.mark.parametrize("lowering", ["auto", "disable-d3d12", "d3d12"])
 def test_lowering_rejects_ort_backend(tmp_path, lowering):
     with pytest.raises(ValueError, match="requires backend='cgc'"):
         WinMLRuntimeSession(
@@ -454,7 +454,7 @@ def test_lowering_rejects_invalid_config_value(tmp_path):
         )
 
 
-@pytest.mark.parametrize("lowering", ["auto", "dml", "d3d12"])
+@pytest.mark.parametrize("lowering", ["auto", "disable-d3d12", "d3d12"])
 def test_lowering_preserves_other_options_and_propagates_failure(monkeypatch, lowering):
     enum = SimpleNamespace(AUTOMATIC=object(), DML=object(), D3D12=object())
     monkeypatch.setattr(
@@ -473,7 +473,7 @@ def test_lowering_preserves_other_options_and_propagates_failure(monkeypatch, lo
             symbolic_dimensions={"batch": 2}, compiled_form="device-targeted",
             cgc_lowering_target=lowering,
         )
-    enum_name = "AUTOMATIC" if lowering == "auto" else lowering.upper()
+    enum_name = {"auto": "AUTOMATIC", "disable-d3d12": "DML", "d3d12": "D3D12"}[lowering]
     assert options.cgc_lowering_target is getattr(enum, enum_name)
     assert options.symbolic_dimensions == {"batch": 2}
     assert options.form == "device-targeted"

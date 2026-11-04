@@ -3215,20 +3215,20 @@ def _validate_duration(
     type=click.Choice([*RUNTIME_NAMES, "dxcgc"]),
     default="auto",
     show_default=True,
-    metavar=f"[{'|'.join(name for name in RUNTIME_NAMES if name != 'winml-runtime')}]",
     help="'auto' selects ort-genai for folders containing genai_config.json, "
-    "Windows ML Tasks on llama.cpp for .gguf files (experimental; requires preview "
+    "winml-runtime for .mlir files, Windows ML Tasks on llama.cpp for .gguf files "
+    "(experimental; requires preview "
     "Windows ML packages), otherwise winml-ort. "
     "'winml-ort' benchmarks single-shot ONNX inference; "
     "'ort-genai' benchmarks an onnxruntime-genai bundle folder "
-    "(LLM generation: TTFT + decode tokens/sec).",
+    "(LLM generation: TTFT + decode tokens/sec); 'winml-runtime' performs "
+    "online conversion for ONNX/PyTorch inputs or loads CGC MLIR directly.",
 )
 @cli_utils.cgc_lowering_target_option()
 @click.option(
     "--backend",
     type=click.Choice(list(RUNTIME_BACKENDS)),
     default=None,
-    hidden=True,
     help="[winml-runtime] Execution backend for ONNX inputs (default: cgc). "
     "MLIR inputs always use cgc.",
 )
@@ -3689,7 +3689,7 @@ def perf(
             "or winml-ort with --ep winmlcg and --etw-tracing."
         )
     if cgep_trace and (cgc_lowering_target == "d3d12" or Path(model).suffix.lower() != ".onnx"):
-        raise click.UsageError("WinMLCG EP tracing requires ONNX and auto/dml lowering.")
+        raise click.UsageError("WinMLCG EP tracing requires ONNX and auto/disable-d3d12 lowering.")
 
     # AC 11 (mockup spec): --top-k requires --op-tracing. Outside the
     # op-tracing section the flag is meaningless, so reject it explicitly

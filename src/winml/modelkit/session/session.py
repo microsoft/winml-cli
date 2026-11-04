@@ -357,7 +357,7 @@ def _build_session_options(
         )
         so.add_session_config_entry(
             "ep.winmlcgexecutionprovider.compile_target_flags",
-            "1" if capture.lowering_target == "dml" else "0",
+            "1" if capture.lowering_target == "disable-d3d12" else "0",
         )
 
     handle = ep_device.device._ort

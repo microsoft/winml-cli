@@ -86,7 +86,7 @@ keep ONNX as its model contract:
 winml perf -m .\model.onnx --runtime winml-runtime -o .\model-runtime-perf.json
 ```
 
-The CLI calls the Runtime compiler API to convert ONNX to temporary CGIR,
+The CLI calls the Runtime compiler API to compile ONNX to temporary CG output IR,
 then loads that artifact and runs it through DXCGC. No EP is selected and no
 reusable CGIR artifact is retained. Applications using this path must likewise
 invoke the compiler API before pipeline execution.
@@ -105,8 +105,7 @@ invoke the compiler API before pipeline execution.
 ## Build the model
 
 Build a reusable `.mlir` model directly. No configuration file is required.
-For PyTorch models, build first exports to ONNX. It then applies CGC
-compatibility rewrites for supported operator patterns, quantizes the model,
+For PyTorch models, build first exports to ONNX. It then quantizes the model,
 and converts it to MLIR.
 
 > **Note:** By default, the CGC build converts FP32 to FP16. This may improve
@@ -225,8 +224,7 @@ text artifact and checks I/O; it does not run inference or performance tests.
 
 - [`winml export`](../commands/export.md) documents `--target cgir` and CGIR
   export options.
-- [`winml optimize`](../commands/optimize.md) documents ONNX optimization and
-  CGC compatibility rewrites.
+- [`winml optimize`](../commands/optimize.md) documents ONNX optimization.
 - [`winml perf`](../commands/perf.md) documents `.mlir`, `winml-runtime`, and
   WinMLCG performance measurement.
 - [`winml eval`](../commands/eval.md) documents evaluation of supported CGIR

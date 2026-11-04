@@ -71,7 +71,7 @@ Build the reusable `.mlir` model:
 winml build -m .\yolo11n.onnx -c .\cgc-config.json -o .\model-cgir
 ```
 
-The default configuration applies CGC compatibility rewrites and FP16
+The default configuration applies FP16
 conversion before exporting MLIR. FP16 can change accuracy; add `--no-quant`
 to the build command to skip quantization.
 

@@ -118,7 +118,9 @@ def test_ort_options_are_fresh_and_receive_dimensions_before_use(monkeypatch):
 
 @pytest.mark.parametrize(
     ("runtime", "lowering"),
-    [("winml-ort", None), *[("winml-runtime", value) for value in (None, "auto", "dml", "d3d12")]],
+    [("winml-ort", None), *[
+        ("winml-runtime", value) for value in (None, "auto", "disable-d3d12", "d3d12")
+    ]],
 )
 def test_perf_hands_shapes_to_runtime_before_compilation(
     tmp_path, monkeypatch, runtime, lowering
