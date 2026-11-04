@@ -83,6 +83,111 @@ def _make_cpu_ep_device_with_bridge_name() -> WinMLEPDevice:
 class TestFromOnnx:
     """Test WinMLAutoModel.from_onnx()."""
 
+    @pytest.mark.parametrize("loader", ["from_onnx", "from_pretrained"])
+    def test_profiling_options_reach_runtime(self, fake_onnx, cpu_ep_device, loader):
+        import onnxruntime as ort
+
+        from winml.modelkit.compiler import EPConfig
+
+        ep_config = EPConfig(enable_ep_context=False)
+        def session_options():
+            options = ort.SessionOptions()
+            options.enable_profiling = True
+            return options
+
+        provider_options = {"vitisai_profiling": "1"}
+        factory = MagicMock()
+        with patch.dict(
+            "winml.modelkit.models.winml.base.SESSION_CLASSES", {"winml-ort": factory}
+        ):
+            model = getattr(WinMLAutoModel, loader)(
+                fake_onnx, ep_device=cpu_ep_device, skip_build=True,
+                provider_options=provider_options, session_options=session_options,
+                ep_config=ep_config,
+            )
+        assert model._session is factory.return_value
+        assert "ep_monitor" not in factory.call_args.kwargs
+        assert factory.call_args.kwargs["ep_config"] is ep_config
+        assert factory.call_args.kwargs["provider_options"] == provider_options
+        assert factory.call_args.kwargs["session_options"] is session_options
+        assert factory.call_args.kwargs["session_options"]().enable_profiling
+
+    @pytest.mark.parametrize("loader", ["from_onnx", "from_pretrained"])
+    @pytest.mark.parametrize("enable_context", [None, False, True])
+    def test_runtime_ep_config_preserves_defaults_and_merges_options(
+        self, fake_onnx, cpu_ep_device, loader, enable_context
+    ):
+        from winml.modelkit.compiler import EPConfig
+
+        ep_config = (
+            EPConfig(
+                enable_ep_context=enable_context,
+                provider_options={"use_arena": "0"},
+            )
+            if enable_context is not None else None
+        )
+        with (
+            patch("winml.modelkit.session.session.ort.InferenceSession") as native,
+            patch("winml.modelkit.session.session.ort.SessionOptions"),
+        ):
+            model = getattr(WinMLAutoModel, loader)(
+                fake_onnx, ep_device=cpu_ep_device, skip_build=True,
+                ep_config=ep_config, provider_options={"use_arena": "1"},
+            )
+        expected = EPConfig().enable_ep_context if enable_context is None else enable_context
+        assert model._session._persist_jit is expected
+        assert model._session._provider_options["use_arena"] == "1"
+        assert native.call_count == (0 if expected else 1)
+        if ep_config is not None:
+            assert ep_config.provider_options == {"use_arena": "0"}
+            assert ep_config.enable_ep_context is enable_context
+
+    @pytest.mark.parametrize("loader", ["from_onnx", "from_pretrained"])
+    def test_runtime_ep_config_rejected_for_other_runtimes(self, fake_onnx, loader):
+        from winml.modelkit.compiler import EPConfig
+
+        with (
+            patch("winml.modelkit.session.WinMLEPRegistry.instance") as registry,
+            pytest.raises(ValueError, match="ep_config requires runtime='winml-ort'"),
+        ):
+            getattr(WinMLAutoModel, loader)(
+                fake_onnx, runtime="winml-runtime",
+                ep_config=EPConfig(enable_ep_context=False),
+            )
+        registry.assert_not_called()
+
+    @pytest.mark.parametrize("loader", ["from_onnx", "from_pretrained"])
+    def test_runtime_ep_config_does_not_reach_build_stage(
+        self, fake_onnx, cpu_ep_device, loader
+    ):
+        from types import SimpleNamespace
+
+        from winml.modelkit.compiler import EPConfig
+
+        ep_config = EPConfig(enable_ep_context=False)
+        factory = MagicMock()
+        artifact = SimpleNamespace(
+            result=SimpleNamespace(final_onnx_path=fake_onnx),
+            model_type=None, task=None, hf_config=None, build_config=None,
+        )
+        with (
+            patch("winml.modelkit.build.build_onnx_model", return_value=artifact.result) as build,
+            patch.object(
+                WinMLAutoModel, "_build_pretrained_artifact", return_value=artifact
+            ) as hf_build,
+            patch.dict(
+                "winml.modelkit.models.winml.base.SESSION_CLASSES", {"winml-ort": factory}
+            ),
+        ):
+            getattr(WinMLAutoModel, loader)(
+                fake_onnx if loader == "from_onnx" else "test/generated",
+                ep_device=cpu_ep_device, ep_config=ep_config, use_cache=False,
+            )
+        assert factory.call_args.kwargs["ep_config"] is ep_config
+        active_build = build if loader == "from_onnx" else hf_build
+        active_build.assert_called_once()
+        assert "ep_config" not in active_build.call_args.kwargs
+
     @pytest.mark.parametrize("lowering", ["auto", "dml", "d3d12"])
     @pytest.mark.parametrize("loader", ["from_onnx", "from_pretrained", "from_mlir"])
     def test_cgc_lowering_reaches_runtime_session(

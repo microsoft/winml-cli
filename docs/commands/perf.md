@@ -406,11 +406,59 @@ $ winml perf -m model.onnx --device npu --ep vitisai --op-tracing basic
 ```
 
 AMD NPU operator profiling requires **VitisAI EP 2.1000.81 or newer**.
-The monitor enables ONNX Runtime profiling and reads the JSON after session
+The monitor enables ONNX Runtime profiling and `vitisai_profiling=1`, then reads the JSON after session
 teardown. The raw trace is retained at
 `hw_monitor.ep_proof.artifacts.profile`. A missing trace or a trace containing
-only fused EP nodes reports `no_data` with minimum-version guidance rather than
+only fused EP nodes reports `no_data` with setup/version guidance rather than
 presenting fused-node time as operator time. `detail` tracing is not supported.
+
+Before EP discovery or baseline session creation, `perf` sets `XRT_INI_PATH`
+to a temporary configuration enabling `Debug.ml_timeline=true`, both timeline
+buffer sizes to `2304k`, and `Runtime.verbosity=5`. Existing settings are copied
+from `XRT_INI_PATH`, or the first `xrt.ini` beside the Python executable or in
+the working directory; the original file is never edited. The environment
+variable is restored and the temporary configuration removed on success or
+failure. This also applies to automatic NPU selection, which can load AMD
+during discovery. No manual `xrt.ini` or `--ep-options` is needed.
+XRT caches settings in-process: use a fresh CLI process if AMD was already
+initialized without timeline profiling. Library callers must enter
+`VitisAIOpMonitor.profiling_environment(output_dir)` before registering the EP.
+
+AMD tracing configures the first native inference session for profiling during
+model loading. The benchmark reuses that session for both latency and operator
+timings, then destroys it to flush the trace without creating a replacement.
+Model-load memory is measured before input allocation, just as in an ordinary
+benchmark. This is a temporary AMD workaround: model loading receives only
+ordinary `provider_options` and a `session_options` factory, not a monitor.
+`session.perf(monitor=..., reuse_session=True)` explicitly skips reconstruction
+and baseline restoration for an already-configured session. Its provider and
+session-config entries must match; the caller must configure native profiling
+settings before creation. Other perf calls keep the normal rebuild/restore
+behavior. AMD profiling explicitly supplies `EPConfig(enable_ep_context=False)`
+to avoid runtime EPContext compilation; defaults for other callers are unchanged.
+
+Library callers can pass `ep_config` to `WinMLAutoModel.from_onnx()` or
+`from_pretrained()` for the `winml-ort` runtime:
+
+```python
+from winml.modelkit.compiler import EPConfig
+from winml.modelkit.models import WinMLAutoModel
+
+model = WinMLAutoModel.from_onnx(
+    "model.onnx",
+    device="npu",
+    ep="vitisai",
+    skip_build=True,
+    ep_config=EPConfig(enable_ep_context=False),
+    provider_options={"vitisai_profiling": "1"},
+)
+```
+
+This configures the runtime session, not the build pipeline. Explicit
+`provider_options` override matching options in `ep_config` without mutating it.
+If `ep_config` is omitted, the previous behavior remains: supplying
+`provider_options` (even `{}`) creates an `EPConfig` whose
+`enable_ep_context` defaults to `True`.
 
 Kernel events are associated with their enclosing VitisAI node spans. ORT
 `model_run` spans identify inference boundaries, including repeated partition

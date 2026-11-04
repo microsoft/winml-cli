@@ -9,10 +9,16 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import re
+import sys
 from bisect import bisect_left, bisect_right
 from collections import defaultdict
+from configparser import ConfigParser
+from configparser import Error as ConfigError
+from contextlib import contextmanager
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 from uuid import uuid4
 
@@ -21,6 +27,7 @@ from .op_metrics import OperatorMetrics, OpTraceResult
 
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from typing import Self
 
     import onnxruntime as ort
@@ -103,6 +110,68 @@ class VitisAIOpMonitor(EPMonitor):
         """Enable profiling on the dedicated inference session."""
         session_options.enable_profiling = True
         session_options.profile_file_prefix = str(self._profile_prefix)
+
+    def get_provider_options(self) -> dict[str, str]:
+        """Enable the EP's kernel event collection, not just ORT node profiling."""
+        return {"vitisai_profiling": "1"}
+
+    @staticmethod
+    @contextmanager
+    def profiling_environment(output_dir: Path) -> Iterator[None]:
+        """Enable XRT timelines before EP discovery without editing the user's INI.
+
+        XRT caches configuration on first use, so callers must enter this scope
+        before loading an AMD EP or creating the baseline inference session.
+        """
+        previous = os.environ.get("XRT_INI_PATH")
+        source = (
+            Path(previous)
+            if previous
+            else next(
+                (
+                    path
+                    for path in (Path(sys.executable).parent / "xrt.ini", Path.cwd() / "xrt.ini")
+                    if path.is_file()
+                ),
+                None,
+            )
+        )
+        config = ConfigParser(interpolation=None)
+        if source is not None:
+            try:
+                with source.open(encoding="utf-8-sig") as file:
+                    config.read_file(file)
+            except (OSError, UnicodeError, ConfigError) as exc:
+                raise RuntimeError(f"Cannot read XRT configuration {source}: {exc}") from exc
+
+        settings = {
+            "Runtime": {"verbosity": "5"},
+            "Debug": {"ml_timeline": "true", "ml_timeline_buffer_size": "2304k"},
+            "ML_timeline_settings": {"buffer_size": "2304k"},
+        }
+        for section, options in settings.items():
+            actual_section = next(
+                (name for name in config.sections() if name.casefold() == section.casefold()),
+                section,
+            )
+            if not config.has_section(actual_section):
+                config.add_section(actual_section)
+            config[actual_section].update(options)
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+        with TemporaryDirectory(prefix="vitisai_xrt_", dir=output_dir) as directory:
+            ini_path = (Path(directory) / "xrt.ini").resolve()
+            with ini_path.open("w", encoding="utf-8") as file:
+                config.write(file)
+            os.environ["XRT_INI_PATH"] = str(ini_path)
+            logger.debug("VitisAI profiling uses XRT configuration %s", ini_path)
+            try:
+                yield
+            finally:
+                if previous is None:
+                    os.environ.pop("XRT_INI_PATH", None)
+                else:
+                    os.environ["XRT_INI_PATH"] = previous
 
     def set_onnx_model_path(self, onnx_model_path: Path) -> None:
         """Read graph output names without loading external tensor data."""
@@ -195,8 +264,9 @@ class VitisAIOpMonitor(EPMonitor):
             result.status = "no_data"
             result.error = (
                 "No measured VitisAI Kernel events were found. A fused EP node alone "
-                "does not provide operator timings. Operator profiling requires "
-                f"VitisAI EP {_MINIMUM_VITISAI_EP_VERSION} or newer."
+                "does not provide operator timings. Check that vitisai_profiling=1 "
+                "and XRT ml_timeline=true were enabled before AMD initialization, "
+                f"and that VitisAI EP {_MINIMUM_VITISAI_EP_VERSION} or newer is installed."
             )
             return result
 

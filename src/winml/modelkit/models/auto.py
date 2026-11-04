@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from transformers import PretrainedConfig
 
     from ..build import BuildResult
+    from ..compiler import EPConfig
     from ..session import WinMLEPDevice
     from ..utils import CGCLoweringTarget
     from ..utils.constants import RuntimeBackend, RuntimeName
@@ -167,6 +168,7 @@ class WinMLAutoModel:
         provider_options: dict[str, str] | None = None,
         compile_provider_options: dict[str, str] | None = None,
         session_options: Callable[[], Any] | None = None,
+        ep_config: EPConfig | None = None,
         hf_config: PretrainedConfig | None = None,
         runtime: RuntimeName = "winml-ort",
         backend: RuntimeBackend | None = None,
@@ -188,6 +190,9 @@ class WinMLAutoModel:
             cache_dir: Override cache directory.
             use_cache: Whether to use persistent cache.
             force_rebuild: Force rebuild even if cached.
+            ep_config: Runtime winml-ort session configuration, separate from
+                build-stage compilation settings. Explicit provider_options
+                override matching entries without modifying this configuration.
             hf_config: HF ``PretrainedConfig`` for composite (dict) dispatch only.
                 Required when ``onnx_path`` is a dict so the composite registry
                 lookup can resolve ``(model_type, task)``. Ignored for single-file
@@ -198,6 +203,8 @@ class WinMLAutoModel:
             WinMLPreTrainedModel inference wrapper.
         """
         backend = resolve_runtime_api_backend(runtime, onnx_path, backend)
+        if ep_config is not None and runtime != "winml-ort":
+            raise ValueError("ep_config requires runtime='winml-ort'.")
 
         # Ergonomic path: resolve ep_device from device/ep shortcuts.
         if ep_device is None:
@@ -226,6 +233,7 @@ class WinMLAutoModel:
                 provider_options=provider_options,
                 compile_provider_options=compile_provider_options,
                 session_options=session_options,
+                ep_config=ep_config,
                 runtime=runtime,
                 backend=backend,
                 cgc_lowering_target=cgc_lowering_target,
@@ -281,6 +289,7 @@ class WinMLAutoModel:
                 ep_device=ep_device,
                 provider_options=provider_options,
                 session_options=session_options,
+                ep_config=ep_config,
                 runtime=runtime,
                 backend=backend,
                 cgc_lowering_target=cgc_lowering_target,
@@ -338,6 +347,7 @@ class WinMLAutoModel:
             ep_device=ep_device,
             provider_options=provider_options,
             session_options=session_options,
+            ep_config=ep_config,
             runtime=runtime,
             backend=backend,
             cgc_lowering_target=cgc_lowering_target,
@@ -395,6 +405,7 @@ class WinMLAutoModel:
         model_type: str | None = None,
         provider_options: dict[str, str] | None = None,
         session_options: Callable[[], Any] | None = None,
+        ep_config: EPConfig | None = None,
         allow_unsupported_nodes: bool = False,
         no_compile: bool = False,
         skip_optimize: bool = False,
@@ -430,6 +441,9 @@ class WinMLAutoModel:
                 If False, build in a temp directory and always rebuild.
             force_rebuild: If True, rebuild even if cached model exists.
             skip_build: Use the original ONNX or HF export without further build stages.
+            ep_config: Runtime winml-ort session configuration, separate from
+                build-stage compilation settings. Explicit provider_options
+                override matching entries without modifying this configuration.
             trust_remote_code: Whether to trust remote code in HF models
             shape_config: Shape overrides passed to generate_build_config().
                 Valid keys -- text: sequence_length; vision: height, width;
@@ -446,6 +460,8 @@ class WinMLAutoModel:
         """
         from ..utils.model_input import resolve_model_input
 
+        if ep_config is not None and runtime != "winml-ort":
+            raise ValueError("ep_config requires runtime='winml-ort'.")
         model_input = resolve_model_input(str(model_id_or_path))
         model_id = model_input.local_path or model_input.raw
         backend = resolve_runtime_api_backend(runtime, model_id, backend)
@@ -484,6 +500,7 @@ class WinMLAutoModel:
                 no_compile=no_compile,
                 provider_options=provider_options,
                 session_options=session_options,
+                ep_config=ep_config,
                 runtime=runtime,
                 backend=backend,
                 cgc_lowering_target=cgc_lowering_target,
@@ -551,6 +568,7 @@ class WinMLAutoModel:
                     cache_dir=cache_dir,
                     provider_options=provider_options,
                     session_options=session_options,
+                    ep_config=ep_config,
                     allow_unsupported_nodes=allow_unsupported_nodes,
                     no_compile=no_compile,
                     skip_optimize=skip_optimize,
@@ -598,6 +616,7 @@ class WinMLAutoModel:
             ep_device=ep_device,
             provider_options=provider_options,
             session_options=session_options,
+            ep_config=ep_config,
             runtime=runtime,
             backend=backend,
             cgc_lowering_target=cgc_lowering_target,

@@ -41,6 +41,7 @@ from ...session.session import WinMLSession
 if TYPE_CHECKING:
     from transformers import PretrainedConfig
 
+    from ...compiler import EPConfig
     from ...session import WinMLEPDevice
 
 logger = logging.getLogger(__name__)
@@ -81,6 +82,7 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         runtime: RuntimeName = "winml-ort",
         backend: RuntimeBackend | None = None,
         cgc_lowering_target: CGCLoweringTarget | None = None,
+        ep_config: EPConfig | None = None,
     ) -> None:
         """Initialize inference model.
 
@@ -89,6 +91,8 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
             ep_device: Resolved (EP, device) target — required. Use
                 ``resolve_device(EPDeviceTarget(...))`` from ``session.ep_device``.
             config: HuggingFace PretrainedConfig (num_labels, id2label, etc.)
+            ep_config: Runtime winml-ort session configuration. Explicit
+                provider_options override matching entries.
         """
         self._onnx_path = Path(onnx_path)
         self._ep_device = ep_device
@@ -105,6 +109,10 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
             {"backend": backend, "cgc_lowering_target": cgc_lowering_target}
             if runtime == "winml-runtime" else {}
         )
+        if ep_config is not None:
+            if runtime != "winml-ort":
+                raise ValueError("ep_config requires runtime='winml-ort'.")
+            runtime_kwargs["ep_config"] = ep_config
         self._session = SESSION_CLASSES[runtime](
             self._onnx_path,
             ep_device=ep_device,
