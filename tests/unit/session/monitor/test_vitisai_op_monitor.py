@@ -14,9 +14,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
-import onnx
 import pytest
-from onnx import TensorProto, helper
+from onnx import TensorProto, checker, helper, save
 
 from winml.modelkit.commands.perf import _monitor_to_json_dict, _resolve_ep_monitor
 from winml.modelkit.session import VitisAIOpMonitor
@@ -39,9 +38,9 @@ def source_model(tmp_path):
         [helper.make_tensor_value_info(nodes[-1].output[0], TensorProto.FLOAT, [2, 3])],
     )
     model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)], ir_version=9)
-    onnx.checker.check_model(model)
+    checker.check_model(model)
     path = tmp_path / "source.onnx"
-    onnx.save(model, path)
+    save(model, path)
     return path, nodes
 
 
