@@ -69,6 +69,7 @@ if TYPE_CHECKING:
     from .runtime_session import WinMLRuntimeSession
     from .session import InferenceError, PerfContext, SessionState, WinMLSession
     from .stats import PerfStats
+    from .task_generation import TaskGenerationTiming, TaskSessionError
 
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
@@ -136,6 +137,8 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "SessionState": (".session", "SessionState"),
     "WinMLSession": (".session", "WinMLSession"),
     "PerfStats": (".stats", "PerfStats"),
+    "TaskGenerationTiming": (".task_generation", "TaskGenerationTiming"),
+    "TaskSessionError": (".task_generation", "TaskSessionError"),
 }
 _PRIVATE_LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "_format_bytes": (".ep_device", "_format_bytes"),
@@ -174,6 +177,8 @@ __all__ = [
     "PerfStats",
     "QNNMonitor",
     "SessionState",
+    "TaskGenerationTiming",
+    "TaskSessionError",
     "UnknownListingPick",
     "VitisAIMonitor",
     "WinMLDevice",

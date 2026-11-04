@@ -10,11 +10,23 @@ Guardrail:
 
 from .gguf_fakes import RUNTIME_CALLBACK, FakeLogApi, make_timing
 from .stable_node_keys import stable_test_node_keys
+from .task_fakes import (
+    FakeTaskResult,
+    FakeTaskSession,
+    FakeTaskStream,
+    TaskOptions11,
+    TaskOptions12,
+)
 
 
 __all__ = [
     "RUNTIME_CALLBACK",
     "FakeLogApi",
+    "FakeTaskResult",
+    "FakeTaskSession",
+    "FakeTaskStream",
+    "TaskOptions11",
+    "TaskOptions12",
     "make_timing",
     "stable_test_node_keys",
 ]

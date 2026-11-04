@@ -32,20 +32,28 @@ detokenization timing, so those model phases are not estimated.
 from __future__ import annotations
 
 import importlib
-import importlib.metadata
 import importlib.util
-import logging
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .task_generation import (
+    TaskGenerationTiming,
+    TaskSessionError,
+    _close_quietly,
+    _distribution_version,
+    _encode_user_prompt,
+    _greedy_task_options,
+    _hresult,
+    _run_timed_generation,
+    _validate_token_ids,
+)
+
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Sequence
-
-logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -81,7 +89,7 @@ _DYNAMIC_DIMENSION = 0xFFFFFFFFFFFFFFFF
 # =============================================================================
 
 
-class LlamaSessionError(RuntimeError):
+class LlamaSessionError(TaskSessionError):
     """A GGUF Runtime session could not complete the requested operation."""
 
 
@@ -97,57 +105,8 @@ class LlamaLoadError(LlamaSessionError):
 # Data classes
 # =============================================================================
 
-
-@dataclass(frozen=True)
-class LlamaGenerationTiming:
-    """Task stream wall-clock spans (seconds) for one greedy generation.
-
-    The spans are differences of ``clock`` readings. ``submit_time``,
-    ``token_times`` and ``completed_time`` are the readings themselves; with the
-    default ``time.perf_counter`` they are machine-wide QPC times that another
-    process can align with its own samples. The session state is read after the
-    reset and before ``submit_time``, outside every span.
-
-    Attributes:
-        input_tokens: Prompt token count reported by the Task result.
-        generated_tokens: Tokens reported by the Task, excluding terminating EOS.
-        reset_s: Resetting the native generation session between requests.
-        stream_create_s: Creating the Task stream from encoded prompt tokens.
-        first_token_s: From stream creation start through the first token update.
-            ``None`` when no token is emitted. Includes sampling and text decoding.
-        decode_s: Arrival intervals between successive token updates, including
-            native generation, sampling, text decoding, and stream overhead.
-        completion_s: From the final update (or stream creation completion) to
-            the terminal stream read. Includes EOS detection and finalization.
-        result_fetch_s: Reading and checking the terminal result.
-        generation_s: Total from stream creation start through result retrieval.
-        response_text: Canonical text returned by the Task result.
-        stop_reason: Normalized Task finish reason.
-        submit_time: Clock reading immediately before ``generate_tokens``.
-        token_times: Clock reading as each token update returned from ``read_next()``.
-        completed_time: Clock reading when ``read_next()`` returned the end of the stream.
-        token_ids: Token ID of each update, in stream order.
-        cached_tokens: Tokens the Task session still held right after the reset;
-            ``0`` means the prompt was evaluated from an empty session, ``None``
-            that the session could not report its state.
-    """
-
-    input_tokens: int
-    generated_tokens: int
-    reset_s: float
-    stream_create_s: float
-    first_token_s: float | None
-    decode_s: list[float]
-    completion_s: float
-    result_fetch_s: float
-    generation_s: float
-    response_text: str
-    stop_reason: str
-    submit_time: float = 0.0
-    token_times: tuple[float, ...] = ()
-    completed_time: float = 0.0
-    token_ids: tuple[int, ...] = ()
-    cached_tokens: int | None = None
+# The Task stream timing every Task engine reports, under its llama.cpp name.
+LlamaGenerationTiming = TaskGenerationTiming
 
 
 @dataclass(frozen=True)
@@ -170,13 +129,6 @@ class LlamaPayload:
 # =============================================================================
 # Package and payload discovery
 # =============================================================================
-
-
-def _distribution_version(name: str) -> str | None:
-    try:
-        return importlib.metadata.version(name)
-    except importlib.metadata.PackageNotFoundError:
-        return None
 
 
 def llama_package_versions() -> dict[str, str | None]:
@@ -305,14 +257,6 @@ def _import_tasks_api() -> Any:
 # =============================================================================
 
 
-def _hresult(exc: BaseException) -> int | None:
-    """Return a ``WinMLError``'s normalized 32-bit HRESULT, or ``None``."""
-    hr = getattr(exc, "hresult", None)
-    if isinstance(hr, int):
-        return hr & 0xFFFFFFFF
-    return None
-
-
 @contextmanager
 def _translate_native_errors(phase: str, *, device: str) -> Iterator[None]:
     """Translate native ``WinMLError``s into session errors with guidance.
@@ -338,34 +282,6 @@ def _translate_native_errors(phase: str, *, device: str) -> Iterator[None]:
         if phase == "run":
             raise LlamaSessionError(f"GGUF inference failed ({hex_hr}): {exc}") from exc
         raise LlamaLoadError(f"GGUF {phase} failed ({hex_hr}): {exc}") from exc
-
-
-def _cached_tokens_after_reset(session: Any) -> int | None:
-    """Count the tokens a Task session still holds right after a reset.
-
-    The largest of the evaluated count, the retained count and the retained IDs,
-    so any token left behind reads above ``0``. ``None`` when the projection or
-    the native session cannot report its state; generation still proceeds.
-    """
-    try:
-        sequence = session.sequence_state
-        return max(
-            int(sequence.evaluated_token_count),
-            int(sequence.retained_token_count),
-            len(session.retained_token_ids),
-        )
-    except Exception:  # the count is evidence only, never a reason to fail the request
-        return None
-
-
-def _close_quietly(resource: Any) -> None:
-    close = getattr(resource, "close", None)
-    if not callable(close):
-        return
-    try:
-        close()
-    except Exception:  # teardown is best-effort
-        logger.debug("Failed to close %s", type(resource).__name__, exc_info=True)
 
 
 def _fixed_size(dimension: int) -> int | None:
@@ -652,49 +568,24 @@ class WinMLLlamaSession:
         """
         if self._tokenizer is None:
             self.open_tokenizer()
-        if apply_template:
-            # AttributeError covers Runtime builds without the conversation types.
-            template_errors: tuple[type[BaseException], ...] = (
-                AttributeError,
-                *self._runtime_errors(),
-            )
-            try:
-                token_ids = self._format_user_turn(prompt)
-            except template_errors as exc:
-                logger.info("GGUF chat template unavailable (%s); encoding the raw prompt", exc)
-            else:
-                self.chat_template_applied = True
-                return token_ids
-        self.chat_template_applied = False
-        return [int(token) for token in self._tokenizer.encode(prompt, add_special_tokens=True)]
-
-    def _format_user_turn(self, prompt: str) -> list[int]:
-        """Render one user turn with the GGUF chat template and return its token IDs."""
-        wr = self._wr
-        request = wr.ChatCompletionRequest(
-            messages=(wr.ChatCompletionMessage(role=wr.ChatRole.USER, content=prompt),),
+        token_ids, self.chat_template_applied = _encode_user_prompt(
+            self._wr,
+            self._tokenizer,
+            prompt,
+            apply_template=apply_template,
+            engine_label="GGUF",
         )
-        with self._tokenizer.format_conversation(request) as formatted:
-            return [int(token) for token in formatted.token_ids]
+        return token_ids
 
     # -- generation -----------------------------------------------------------
     def greedy_options(self, max_new_tokens: int) -> Any:
-        """Greedy Task options with all eleven fields explicit (neutral filters, no stops)."""
+        """Greedy Task options (neutral filters, no stops).
+
+        Every field explicit; watermark disabled when the Task API declares it.
+        """
         if self._wt is None:
             self._wt = _import_tasks_api()
-        return self._wt.TextGenerationOptions(
-            max_new_tokens=max_new_tokens,
-            stop_token_ids=(),
-            temperature=0.0,
-            top_k=0,
-            top_p=1.0,
-            min_p=0.0,
-            repetition_penalty=1.0,
-            repetition_penalty_window=0,
-            presence_penalty=0.0,
-            frequency_penalty=0.0,
-            seed=0,
-        )
+        return _greedy_task_options(self._wt, max_new_tokens)
 
     def generate_timed(
         self,
@@ -727,110 +618,19 @@ class WinMLLlamaSession:
             raise ValueError("max_new_tokens must be positive")
         if self._task_session is None:
             raise LlamaSessionError("WinMLLlamaSession.load() must be called before generation.")
-        token_ids = [int(token) for token in prompt_token_ids]
-        if not token_ids:
-            raise LlamaSessionError("the tokenizer produced an empty prompt")
-        self._validate_token_ids(token_ids, "prompt")
-        capacity = self._sequence_capacity
-        if capacity and len(token_ids) >= capacity:
-            raise LlamaSessionError(
-                f"the prompt ({len(token_ids)} tokens) does not fit the model sequence "
-                f"capacity ({capacity} tokens)"
-            )
-
-        options = self.greedy_options(max_new_tokens)
-        with _translate_native_errors("run", device=self._device):
-            reset_start = clock()
-            self._task_session.reset()
-            reset_end = clock()
-            cached_tokens = _cached_tokens_after_reset(self._task_session)
-            generation_start = clock()
-            stream = self._task_session.generate_tokens(token_ids, options)
-            try:
-                create_end = clock()
-                previous_arrival = create_end
-                first_token_s: float | None = None
-                emitted_ids: list[int] = []
-                token_times: list[float] = []
-                decode_s: list[float] = []
-                while True:
-                    update = stream.read_next()
-                    arrival = clock()
-                    if update is None:
-                        completion_s = arrival - previous_arrival
-                        break
-                    if emitted_ids:
-                        decode_s.append(arrival - previous_arrival)
-                    else:
-                        first_token_s = arrival - generation_start
-                    emitted_ids.append(int(update.token_id))
-                    token_times.append(arrival)
-                    previous_arrival = arrival
-                result = stream.result
-                result.raise_for_error()
-                result_end = clock()
-                stop_reason = self._task_stop_reason(result.finish_reason)
-                result_ids = tuple(int(token) for token in result.token_ids)
-                if result_ids != tuple(emitted_ids):
-                    raise LlamaSessionError(
-                        "The Task result token IDs disagree with its stream updates."
-                    )
-                if int(result.prompt_token_count) != len(token_ids):
-                    raise LlamaSessionError(
-                        "The Task result prompt count disagrees with the submitted prompt."
-                    )
-                if len(result_ids) > max_new_tokens:
-                    raise LlamaSessionError(
-                        "The Task result exceeds the requested generated token limit."
-                    )
-            finally:
-                _close_quietly(stream)
-
-        return LlamaGenerationTiming(
-            input_tokens=int(result.prompt_token_count),
-            generated_tokens=len(result_ids),
-            reset_s=reset_end - reset_start,
-            stream_create_s=create_end - generation_start,
-            first_token_s=first_token_s,
-            decode_s=decode_s,
-            completion_s=completion_s,
-            result_fetch_s=result_end - arrival,
-            generation_s=result_end - generation_start,
-            response_text=str(result.text),
-            stop_reason=stop_reason,
-            submit_time=generation_start,
-            token_times=tuple(token_times),
-            completed_time=arrival,
-            token_ids=tuple(emitted_ids),
-            cached_tokens=cached_tokens,
+        return _run_timed_generation(
+            self._task_session,
+            self._wt,
+            prompt_token_ids,
+            max_new_tokens=max_new_tokens,
+            sequence_capacity=self._sequence_capacity or None,
+            vocabulary_size=self._vocabulary_size,
+            clock=clock,
+            error_type=LlamaSessionError,
+            engine_label="GGUF",
         )
 
     # -- internals --------------------------------------------------------------
-    @staticmethod
-    def _task_stop_reason(reason: Any) -> str:
-        name = str(getattr(reason, "name", ""))
-        normalized = {
-            "EOS_TOKEN": "EOS",
-            "STOP_TOKEN": "STOP_TOKEN",
-            "MAX_TOKENS": "MAX_TOKENS",
-            "SEQUENCE_CAPACITY": "CAPACITY",
-            "CANCELED": "CANCELED",
-        }
-        if name not in normalized:
-            raise LlamaSessionError(f"The Task ended with an unsuccessful finish reason: {name}.")
-        return normalized[name]
-
-    def _runtime_errors(self) -> tuple[type[BaseException], ...]:
-        errors = tuple(
-            error
-            for error in (
-                getattr(self._wr, "NotSupportedError", None),
-                getattr(self._wr, "WinMLError", None),
-            )
-            if isinstance(error, type) and issubclass(error, BaseException)
-        )
-        return errors or (RuntimeError,)
-
     def _create_target(self, wr: Any, runtime: Any) -> Any:
         if self._device == "cpu":
             return runtime.create_cpu_target()
@@ -874,7 +674,12 @@ class WinMLLlamaSession:
         bos_token = self._tokenizer.bos_token_id
         if bos_token is not None:
             special.append(int(bos_token))
-        self._validate_token_ids(special, "tokenizer special")
+        _validate_token_ids(
+            special,
+            "tokenizer special",
+            vocabulary_size=vocabulary_size,
+            error_type=LlamaSessionError,
+        )
         return vocabulary_size
 
     @staticmethod
@@ -887,15 +692,6 @@ class WinMLLlamaSession:
         finally:
             _close_quietly(target)
         return str(name).lower() if name else None
-
-    def _validate_token_ids(self, token_ids: Sequence[int], label: str) -> None:
-        vocabulary_size = self._vocabulary_size
-        for token_id in token_ids:
-            if token_id < 0 or (vocabulary_size is not None and token_id >= vocabulary_size):
-                raise LlamaSessionError(
-                    f"{label} token {token_id} is outside the model vocabulary of "
-                    f"{vocabulary_size if vocabulary_size is not None else 'unknown'} entries"
-                )
 
 
 __all__ = [
