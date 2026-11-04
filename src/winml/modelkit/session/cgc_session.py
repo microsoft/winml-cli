@@ -59,7 +59,8 @@ _CGC_MODULES: tuple[str, ...] = ("windowsml.runtime", "windowsml.tasks")
 # HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED): the CGC route does not serve the request.
 _HRESULT_NOT_SUPPORTED = 0x80070032
 # E_FAIL: in the 2.8.183.dev0 preview, set_model rejects some models the CGC
-# backend cannot run with this HRESULT instead (an encoder-only checkpoint).
+# backend cannot run with this HRESULT instead (an encoder-only checkpoint), and
+# create_session rejects a GPU that cannot run the model with it (an integrated GPU).
 _HRESULT_FAIL = 0x80004005
 # HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND) and HRESULT_FROM_WIN32(ERROR_PATH_NOT_FOUND).
 _HRESULTS_NOT_FOUND = frozenset({0x80070002, 0x80070003})
@@ -72,6 +73,9 @@ _MODEL_CALLS: dict[str, tuple[str, frozenset[int]]] = {
     "model load": ("load_model", frozenset({_HRESULT_NOT_SUPPORTED})),
     "set_model": ("set_model", frozenset({_HRESULT_NOT_SUPPORTED, _HRESULT_FAIL})),
 }
+# HRESULTs with which create_session rejects the selected GPU or the requested
+# options (logical capacity) for this model.
+_SESSION_REJECTIONS = frozenset({_HRESULT_NOT_SUPPORTED, _HRESULT_FAIL})
 
 
 # =============================================================================
@@ -655,12 +659,12 @@ class WinMLCGCSession:
             if self._model_format == "gguf":
                 message += " To run this .gguf file on llama.cpp, omit --backend cgc."
             return CGCLoadError(f"{message} Windows ML reported: {exc}")
-        if hr == _HRESULT_NOT_SUPPORTED and phase == "create_session":
+        if phase == "create_session" and hr in _SESSION_REJECTIONS:
             return CGCLoadError(
                 f"The selected GPU {self._adapter_label} or the requested options cannot run "
                 f"this model with Windows ML CGC (create_session returned {hex_hr}). Select "
                 "another GPU with --device-luid (see 'winml sys'), or lower --context-length "
-                "or --max-new-tokens."
+                f"or --max-new-tokens. Windows ML reported: {exc}"
             )
         return CGCLoadError(f"CGC {phase} failed ({hex_hr}): {exc}")
 

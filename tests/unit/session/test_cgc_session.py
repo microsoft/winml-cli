@@ -745,6 +745,35 @@ def test_set_model_rejection_keeps_the_hresult_and_native_text(
     assert apis.calls[-1] == "set_model"
 
 
+@pytest.mark.parametrize("hr", [0x80070032, _E_FAIL], ids=["not-supported", "e-fail"])
+def test_create_session_rejection_names_the_gpu_and_keeps_the_native_text(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, hr: int
+) -> None:
+    # The 2.8 CGC backend fails the GPU compile on an integrated GPU with E_FAIL
+    # instead of ERROR_NOT_SUPPORTED; both mean this GPU or these options cannot
+    # run the model.
+    error = _WinMLError(hr, "IWinMLTextGenerationTask.CreateSession")
+    apis = _FakeApis(fail={"create_session": error})
+    session = _session(monkeypatch, apis, tmp_path / "model.gguf")
+
+    with pytest.raises(CGCLoadError) as excinfo:
+        session.load(context_length=_CAPACITY)
+    session.close()
+
+    assert excinfo.value.__cause__ is error
+    message = str(excinfo.value)
+    assert (
+        f"The selected GPU {_ADAPTER_NAME} ({_ADAPTER_LUID}) or the requested options "
+        "cannot run this model"
+    ) in message
+    assert f"create_session returned 0x{hr:08X}" in message
+    assert "--device-luid" in message
+    assert str(error) in message
+    # The session failure points at the GPU and options; no other engine is named or tried.
+    assert "omit --backend cgc" not in message
+    assert apis.calls[-1] == "create_session"
+
+
 def test_tasks_api_without_set_model_needs_the_preview(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
