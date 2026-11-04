@@ -617,6 +617,138 @@ def test_program_cache_needs_backend_cgc(
     assert "config" not in capture_cgc
 
 
+_PROTOCOL_REJECTION = (
+    "Options that only apply to GGUF models (.gguf) or to --backend cgc text generation "
+    "cannot be used with '{folder}': "
+)
+
+
+@pytest.mark.usefixtures("no_llama")
+@pytest.mark.parametrize(
+    ("runtime", "options", "rejection"),
+    [
+        (
+            "winml-runtime",
+            ["--program-cache", "{cache}"],
+            "--program-cache only applies to --backend cgc text generation",
+        ),
+        ("winml-runtime", ["--context-length", "256"], f"{_PROTOCOL_REJECTION}--context-length."),
+        ("winml-runtime", ["--ignore-eos"], f"{_PROTOCOL_REJECTION}--ignore-eos/--no-ignore-eos."),
+        (
+            "winml-runtime",
+            ["--prompt-ids-file", "{ids}"],
+            f"{_PROTOCOL_REJECTION}--prompt-ids-file.",
+        ),
+        ("winml-ort", [], "--backend is only supported with --runtime winml-runtime."),
+        (
+            "ort-genai",
+            ["--program-cache", "{cache}"],
+            "--backend is only supported with --runtime winml-runtime.",
+        ),
+    ],
+    ids=["program-cache", "context-length", "ignore-eos", "prompt-ids-file", "ort", "genai"],
+)
+def test_explicit_runtime_rejection_points_a_checkpoint_folder_to_text_generation(
+    runner: CliRunner,
+    inputs: dict[str, str],
+    tmp_path: Path,
+    capture_cgc: dict[str, Any],
+    runtime: str,
+    options: list[str],
+    rejection: str,
+) -> None:
+    # Only --runtime auto runs a checkpoint folder as CGC text generation, so a
+    # rejection of a command line that already has --backend cgc names --runtime.
+    values = {
+        **inputs,
+        "{cache}": str(tmp_path / "programs"),
+        "{ids}": str(_ids_file(tmp_path, [1, 2, 3])),
+    }
+    command = [
+        "-m",
+        inputs["{folder}"],
+        "--backend",
+        "cgc",
+        *_expand(options, values),
+        "-o",
+        str(tmp_path / "report.json"),
+    ]
+    rejected = runner.invoke(perf, [*command, "--runtime", runtime])
+
+    assert rejected.exit_code == 2, rejected.output
+    text = _text(rejected)
+    assert rejection.replace("{folder}", inputs["{folder}"]) in text
+    assert (
+        f"With --runtime {runtime}, a checkpoint folder does not run as CGC text generation; "
+        "omit --runtime to use --backend cgc text generation."
+    ) in text
+    assert "config" not in capture_cgc
+
+    # The hint holds: without --runtime, the same command runs CGC text generation.
+    followed = runner.invoke(perf, command)
+
+    assert followed.exit_code == 0, followed.output
+    assert capture_cgc["config"].model_path == Path(inputs["{folder}"])
+
+
+@pytest.mark.usefixtures("no_llama")
+@pytest.mark.parametrize(
+    ("args", "rejection"),
+    [
+        # Without --backend cgc, the rejection already names the way out.
+        (
+            ["{folder}", "--runtime", "winml-runtime", "--program-cache", "{cache}"],
+            "--program-cache only applies to --backend cgc text generation",
+        ),
+        # A .gguf file runs on CGC with --runtime winml-runtime; an ONNX file never does.
+        (
+            ["{gguf}", "--runtime", "winml-ort", "--backend", "cgc"],
+            "--backend is only supported with --runtime winml-runtime",
+        ),
+        (
+            ["{onnx}", "--runtime", "winml-ort", "--backend", "cgc"],
+            "--backend is only supported with --runtime winml-runtime",
+        ),
+        # A model ID is neither CGC text generation input, as the rejection says.
+        (
+            [
+                f"Qwen/{_CHECKPOINT}",
+                "--runtime",
+                "winml-runtime",
+                "--backend",
+                "cgc",
+                "--program-cache",
+                "{cache}",
+            ],
+            "(a .gguf file or a local checkpoint folder).",
+        ),
+        # --evidence never applies to a checkpoint folder, so no route is offered for it.
+        (
+            ["{folder}", "--runtime", "winml-runtime", "--backend", "cgc", "--evidence", "{ev}"],
+            "--evidence applies only to a .gguf file on llama.cpp",
+        ),
+    ],
+    ids=["no-backend", "gguf", "onnx", "model-id", "evidence"],
+)
+def test_runtime_hint_appears_only_where_omitting_runtime_runs_text_generation(
+    runner: CliRunner,
+    inputs: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capture_cgc: dict[str, Any],
+    args: list[str],
+    rejection: str,
+) -> None:
+    monkeypatch.chdir(tmp_path)  # no local folder may shadow the model ID
+    values = {**inputs, "{cache}": str(tmp_path / "programs")}
+    result = runner.invoke(perf, ["-m", *_expand(args, values)])
+
+    assert result.exit_code == 2, result.output
+    assert rejection in _text(result)
+    assert "omit --runtime" not in _text(result)
+    assert "config" not in capture_cgc
+
+
 # ---------------------------------------------------------------------------
 # Output paths and input protection
 # ---------------------------------------------------------------------------

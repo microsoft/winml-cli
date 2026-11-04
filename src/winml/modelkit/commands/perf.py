@@ -3003,8 +3003,13 @@ _CGC_GENERATION_REJECTED_FLAGS: dict[str, str] = {
 _CGC_ONLY_FLAGS: dict[str, str] = {"program_cache": "--program-cache"}
 
 
-def _reject_gguf_only_options(ctx: click.Context) -> None:
-    """Reject GGUF-only options for other inputs rather than silently ignoring them."""
+def _reject_gguf_only_options(ctx: click.Context, *, runtime_hint: str = "") -> None:
+    """Reject GGUF-only options for other inputs rather than silently ignoring them.
+
+    ``runtime_hint`` (see :func:`_explicit_runtime_cgc_hint`) follows the text
+    generation options it explains; ``--evidence`` never applies to a checkpoint
+    folder, so its sentence points to no other route.
+    """
     model = ctx.params["model"]
     provided = [
         flag for param, flag in _GGUF_ONLY_FLAGS.items() if cli_utils.is_cli_provided(ctx, param)
@@ -3013,7 +3018,7 @@ def _reject_gguf_only_options(ctx: click.Context) -> None:
     if provided:
         problems.append(
             "Options that only apply to GGUF models (.gguf) or to --backend cgc text generation "
-            f"cannot be used with '{model}': {', '.join(provided)}."
+            f"cannot be used with '{model}': {', '.join(provided)}.{runtime_hint}"
         )
     if cli_utils.is_cli_provided(ctx, "evidence"):
         problems.append(f"{_EVIDENCE_SCOPE}; it cannot be used with '{model}'.")
@@ -3021,15 +3026,18 @@ def _reject_gguf_only_options(ctx: click.Context) -> None:
         raise click.UsageError(" ".join(problems))
 
 
-def _reject_cgc_only_options(ctx: click.Context) -> None:
-    """Reject CGC text generation options for other routes rather than silently ignoring them."""
+def _reject_cgc_only_options(ctx: click.Context, *, runtime_hint: str = "") -> None:
+    """Reject CGC text generation options for other routes rather than silently ignoring them.
+
+    ``runtime_hint`` (see :func:`_explicit_runtime_cgc_hint`) is appended to the rejection.
+    """
     provided = [
         flag for param, flag in _CGC_ONLY_FLAGS.items() if cli_utils.is_cli_provided(ctx, param)
     ]
     if provided:
         raise click.UsageError(
             f"{', '.join(provided)} only applies to --backend cgc text generation (a .gguf file "
-            "or a local checkpoint folder)."
+            f"or a local checkpoint folder).{runtime_hint}"
         )
 
 
@@ -3336,6 +3344,33 @@ def _wants_cgc_generation(runtime: str, model: str, backend: str | None) -> bool
     if suffix == ".gguf":
         return runtime in ("auto", "winml-runtime")
     return runtime == "auto" and suffix not in (".onnx", ".mlir")  # .mlir + cgc: MLIR benchmark
+
+
+def _explicit_runtime_cgc_hint(runtime: str, model: str, backend: str | None) -> str:
+    """Name ``--runtime`` as what kept a checkpoint folder off CGC text generation.
+
+    ``runtime`` is the raw ``--runtime`` value. :func:`_wants_cgc_generation`
+    sends a checkpoint folder to CGC text generation only with ``--runtime
+    auto``, so with an explicit runtime a rejection of ``--backend`` or of a text
+    generation option would otherwise contradict a command line that already
+    has ``--backend cgc``.
+
+    Returns:
+        The sentence, with a leading space, to append to such a rejection; ``""``
+        when omitting ``--runtime`` would not run ``model`` as CGC text generation.
+    """
+    path = Path(model)
+    if (
+        backend != "cgc"
+        or runtime == "auto"
+        or not path.is_dir()
+        or path.suffix.lower() in (".gguf", ".onnx", ".mlir")
+    ):
+        return ""
+    return (
+        f" With --runtime {runtime}, a checkpoint folder does not run as CGC text generation; "
+        "omit --runtime to use --backend cgc text generation."
+    )
 
 
 def _resolve_cgc_generation_input(model: str) -> tuple[Path, Literal["gguf", "safetensors"]]:
@@ -4039,6 +4074,9 @@ def perf(
     if _wants_cgc_generation(runtime, model, backend):
         _run_cgc_generation_runtime(ctx, model=model, console=console, json_mode=json_mode)
         return
+    # Read from the raw --runtime value: it ends each rejection of --backend cgc or of a
+    # CGC text generation option for a checkpoint folder that an explicit runtime kept.
+    cgc_runtime_hint = _explicit_runtime_cgc_hint(runtime, model, backend)
     runtime = _resolve_runtime(runtime, model)
     is_gguf = Path(model).suffix.lower() == ".gguf"
     # Apply build config defaults (CLI explicit options take precedence).
@@ -4104,7 +4142,7 @@ def perf(
     try:
         effective_backend = resolve_runtime_api_backend(runtime, model, backend)
     except ValueError as error:
-        raise click.UsageError(str(error)) from error
+        raise click.UsageError(f"{error}{cgc_runtime_hint}") from error
     if cgc_lowering_target is not None and (
         not cgep_trace and (runtime != "winml-runtime" or effective_backend != "cgc")
     ):
@@ -4133,8 +4171,8 @@ def perf(
     if is_gguf:
         _run_gguf_runtime(ctx, model=model, runtime=runtime, console=console, json_mode=json_mode)
         return
-    _reject_gguf_only_options(ctx)
-    _reject_cgc_only_options(ctx)
+    _reject_gguf_only_options(ctx, runtime_hint=cgc_runtime_hint)
+    _reject_cgc_only_options(ctx, runtime_hint=cgc_runtime_hint)
 
     if runtime == "winml-runtime" and ep_provider_options and not is_gguf:
         logger.warning("--ep-options are ignored with --runtime winml-runtime.")
