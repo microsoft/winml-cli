@@ -140,14 +140,14 @@ Packages:       windowsml 2.8.183.dev0, winml-cli 0.4.0
 Prompt:         40 tokens   Generated: 128 tokens (max_new_tokens=128, stop=MAX_TOKENS)
 ...
 Startup
-  Session load: 18039.96 ms  |  Native load: 17468.73 ms
-  set_model: 2481.61 ms  |  First session (GPU compile): 14937.27 ms
-  Cold TTFT: 18082.38 ms  |  Cold total: 19432.49 ms
+  Session load: 15275.56 ms  |  Native load: 14722.48 ms
+  set_model: 1783.05 ms  |  First session (GPU compile): 12926.91 ms
+  Cold TTFT: 15298.75 ms  |  Cold total: 16650.29 ms
 ...
-Decode (Task stream): 93.28 tokens/sec  |  10.72 ms/token (TPOT)
+Decode (Task stream): 93.79 tokens/sec  |  10.66 ms/token (TPOT)
 ...
 Memory:
-  RAM:  1702.0 MB -> model load: +1650.1 MB  |  inference: +4.4 MB  |  total: +1654.4 MB
+  RAM:  1699.6 MB -> model load: +1646.9 MB  |  inference: +5.0 MB  |  total: +1651.9 MB
   GPU local/shared: 1156.5/111.2 MiB after load  |  1156.5/112.2 MiB after inference
 ```
 
