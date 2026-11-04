@@ -56,7 +56,7 @@ from ._pre_bench import print_pre_bench_block
 
 if TYPE_CHECKING:
     import contextlib
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Sequence
 
     import numpy as np
     from rich.console import Console
@@ -589,6 +589,7 @@ class BenchmarkConfig:
     precision: str = "auto"
     iterations: int = 100
     warmup: int = 10
+    warmup_seconds: float = 0.0
     # When set, the benchmark phase runs for this many wall-clock seconds (after
     # warmup) instead of a fixed ``iterations`` count. Ideal with --monitor,
     # whose PDH counters need time to emit real utilization data.
@@ -606,6 +607,7 @@ class BenchmarkConfig:
     allow_unsupported_nodes: bool = False
     monitor: bool = False
     memory: bool = True
+    memory_backend: str = "pdh"
     ep: EPNameOrAlias | None = None
     ep_source: str | None = None  # parsed from '--ep <name>@<source>' syntax
     device_luid: str | None = None
@@ -654,6 +656,7 @@ class BenchmarkResult:
     # Raw samples (for advanced analysis)
     raw_samples_ms: list[float] = field(default_factory=list)
     gpu_execution: dict[str, Any] | None = None
+    warmup_measurement: dict[str, Any] | None = None
 
     # Throughput
     samples_per_sec: float = 0.0
@@ -688,6 +691,7 @@ class BenchmarkResult:
         result: dict[str, Any] = {
             "schema_version": 2,
             **({"gpu_execution": self.gpu_execution} if self.gpu_execution is not None else {}),
+            **({"warmup_measurement": self.warmup_measurement} if self.warmup_measurement else {}),
             "benchmark_info": {
                 "runtime": self.config.runtime,
                 "timing_scope": (
@@ -708,12 +712,12 @@ class BenchmarkResult:
                 "device_luid": self.config.device_luid,
                 "ep_options": self.config.ep_options,
                 "precision": self.config.precision,
-                # In duration mode the run isn't bounded by a fixed count, so
+                # Duration and DXGI minima can extend the requested count, so
                 # report the actual number of timed (post-warmup) samples rather
                 # than the unused ``--iterations`` default.
                 "iterations": (
                     len(self.raw_samples_ms)
-                    if self.config.duration is not None
+                    if self.config.duration is not None or self.config.memory_backend == "dxgi"
                     else self.config.iterations
                 ),
                 "warmup": self.config.warmup,
@@ -1224,7 +1228,10 @@ class PerfBenchmark:
         if self.config.memory:
             from ..session.monitor import ProcessMemoryTracker
 
-            self._memory_tracker = ProcessMemoryTracker()
+            self._memory_tracker = ProcessMemoryTracker(
+                backend=self.config.memory_backend,
+                interval=0.01 if self.config.memory_backend == "dxgi" else 0.05,
+            )
             self._memory_tracker.start()
         try:
             # [1] Load model (build pipeline: optimize, cache, etc.)
@@ -1296,6 +1303,7 @@ class PerfBenchmark:
             self._memory_tracker = ProcessMemoryTracker(
                 adapter_luid=self._resolve_adapter_luid(),
                 scope="already_loaded_component_through_inference",
+                backend=self.config.memory_backend,
             )
             self._memory_tracker.start()
             self._memory_tracker.checkpoint("after_load")
@@ -1479,8 +1487,7 @@ class PerfBenchmark:
             "backend": self._runtime_backend,
             # ORT CGEP lowering is applied to SessionOptions by the ETW collector.
             "cgc_lowering_target": (
-                self.config.cgc_lowering_target
-                if self.config.runtime == "winml-runtime" else None
+                self.config.cgc_lowering_target if self.config.runtime == "winml-runtime" else None
             ),
             # optimize/analyze/max-optim toggles, forwarded by WinMLAutoModel to
             # build_hf_model / build_onnx_model. Shared mapping with build/eval.
@@ -1626,13 +1633,43 @@ class PerfBenchmark:
 
         session = self._single._session
         with _native_warning_filtered_perf(session, warmup=self.config.warmup) as ctx:
-            _run_simple_loop(
-                session,
-                self._inputs,
-                total_iterations,
-                warmup=self.config.warmup,
-                duration_sec=self.config.duration,
-            )
+            if self.config.warmup_seconds > 0:
+                started = time.perf_counter()
+                count = 0
+                while (count < self.config.warmup or
+                       time.perf_counter() - started < self.config.warmup_seconds):
+                    ctx.stats.warmup = count + 1
+                    session.run(self._inputs)
+                    count += 1
+                self._timed_warmup = {
+                    "count": count, "duration_ms": (time.perf_counter() - started) * 1000,
+                    "minimum_count": self.config.warmup,
+                    "minimum_seconds": self.config.warmup_seconds,
+                }
+                total_iterations = self.config.iterations
+                if self._memory_tracker is not None:
+                    self._memory_tracker.checkpoint("steady_inference")
+            if self.config.memory_backend == "dxgi":
+                steady_start = time.perf_counter()
+                measured = 0
+                minimum_seconds = max(10.0, self.config.duration or 0.0)
+                while (
+                    measured < self.config.iterations
+                    or time.perf_counter() - steady_start < minimum_seconds
+                ):
+                    session.run(self._inputs)
+                    measured += 1
+                self._steady_measurement = {
+                    "count": measured, "duration_ms": (time.perf_counter() - steady_start) * 1000
+                }
+            else:
+                _run_simple_loop(
+                    session,
+                    self._inputs,
+                    total_iterations,
+                    warmup=0 if self.config.warmup_seconds > 0 else self.config.warmup,
+                    duration_sec=self.config.duration,
+                )
 
         # Expose ctx for post-benchmark reporting (parity with monitored path).
         self._perf_ctx = ctx
@@ -1765,11 +1802,12 @@ class PerfBenchmark:
         std_ms = float(np.std(samples)) if samples else 0.0
 
         # Calculate warmup mean latency
-        warmup_samples = stats.all_samples_ms[: self.config.warmup]
+        warmup_samples = stats.all_samples_ms[: stats.warmup]
         warmup_mean_ms = float(np.mean(warmup_samples)) if warmup_samples else 0.0
 
         return BenchmarkResult(
             config=self.config,
+            warmup_measurement=getattr(self, "_timed_warmup", None),
             # Model info
             input_names=io_config["input_names"],
             input_shapes=[list(s) if s else [] for s in io_config["input_shapes"]],
@@ -3003,6 +3041,105 @@ _GGUF_IGNORED_FLAGS: dict[str, str] = {
     "config_file": "--config",
 }
 
+# Exact-workload options only the GGUF Task path implements, mapped to the flag.
+_GGUF_ONLY_FLAGS: dict[str, str] = {
+    "prompt_ids_file": "--prompt-ids-file",
+    "context_length": "--context-length",
+    "ignore_eos": "--ignore-eos/--no-ignore-eos",
+    "evidence": "--evidence",
+}
+
+
+def _reject_gguf_only_options(ctx: click.Context) -> None:
+    """Reject GGUF-only options for other inputs rather than silently ignoring them."""
+    provided = [
+        flag for param, flag in _GGUF_ONLY_FLAGS.items() if cli_utils.is_cli_provided(ctx, param)
+    ]
+    if provided:
+        raise click.UsageError(
+            "Options that only apply to GGUF models (.gguf) cannot be used with "
+            f"'{ctx.params['model']}': {', '.join(provided)}"
+        )
+
+
+def _resolve_gguf_prompt_ids(ctx: click.Context) -> tuple[int, ...] | None:
+    """Read ``--prompt-ids-file`` after checking it against the text-prompt options."""
+    from ._perf_gguf import read_prompt_ids_file
+
+    p = ctx.params
+    path: Path | None = p.get("prompt_ids_file")
+    if path is None:
+        return None
+    if cli_utils.is_cli_provided(ctx, "prompt") or p.get("prompt_file") is not None:
+        raise click.UsageError(
+            "--prompt-ids-file cannot be combined with --prompt or --prompt-file."
+        )
+    if cli_utils.is_cli_provided(ctx, "apply_template") and p["apply_template"]:
+        raise click.UsageError(
+            "--apply-template cannot be used with --prompt-ids-file: exact token IDs are "
+            "submitted without a chat template."
+        )
+    try:
+        return read_prompt_ids_file(path)
+    except ValueError as exc:
+        raise click.UsageError(f"--prompt-ids-file {path}: {exc}") from exc
+
+
+def _same_file(first: str | Path, second: str | Path) -> bool:
+    """Whether two paths name one file: by identity when either exists, else by path."""
+    first, second = Path(first), Path(second)
+    if first.exists() or second.exists():
+        return first.exists() and second.exists() and first.samefile(second)
+    return first.resolve() == second.resolve()
+
+
+def _reject_input_overwrite(
+    outputs: Sequence[tuple[str, Path]], inputs: Sequence[tuple[str, Path | None]]
+) -> None:
+    """Refuse an output that names an input file; ``--overwrite`` never allows this."""
+    for label, output in outputs:
+        for flag, source in inputs:
+            if source is not None and _same_file(output, source):
+                raise click.UsageError(
+                    f"{label} would overwrite the {flag} input '{source}'. Choose a different path."
+                )
+
+
+def _resolve_gguf_evidence(
+    ctx: click.Context,
+    *,
+    warmup: int,
+    output: str | Path,
+    inputs: Sequence[tuple[str, Path | None]],
+) -> Path | None:
+    """Check ``--evidence`` against the in-process options, the inputs and the report path."""
+    p = ctx.params
+    evidence: Path | None = p.get("evidence")
+    if evidence is None:
+        return None
+    # Only evidence runs load the evidence module.
+    from ._gguf_evidence import temporary_path
+
+    if cli_utils.is_cli_provided(ctx, "memory") and p["memory"]:
+        raise click.UsageError(
+            "--memory cannot be used with --evidence: an evidence run performs no "
+            "in-process resource sampling."
+        )
+    if warmup < 1:
+        raise click.UsageError(
+            "--evidence needs at least one warmup request: the native log capture runs "
+            "through the first warmup request."
+        )
+    written = (
+        ("--evidence", evidence),
+        ("--evidence temporary file", temporary_path(evidence)),
+    )
+    _reject_input_overwrite(written, inputs)
+    if any(_same_file(output, path) for _, path in written):
+        raise click.UsageError("--evidence and --output must name different files.")
+    cli_utils.guard_output(evidence, p["overwrite"], label="Evidence")
+    return evidence
+
 
 def _run_gguf_runtime(
     ctx: click.Context,
@@ -3019,7 +3156,7 @@ def _run_gguf_runtime(
     function-local so ``winml perf --help`` and the other runtimes never load
     them.
     """
-    from ._perf_gguf import GGUFPerfConfig, run_gguf_perf
+    from ._perf_gguf import GGUFPerfConfig, gguf_shard_paths, run_gguf_perf
 
     if runtime != "winml-runtime":
         raise click.UsageError(
@@ -3061,8 +3198,19 @@ def _run_gguf_runtime(
     iterations = p["iterations"] if cli_utils.is_cli_provided(ctx, "iterations") else 10
     warmup = p["warmup"] if cli_utils.is_cli_provided(ctx, "warmup") else 2
     output = p.get("output") or generate_output_path(str(model_path))
+    prompt_ids = _resolve_gguf_prompt_ids(ctx)
+    # Protect every expected shard before evidence or report writers open files.
+    # A missing shard is not a usage error; an evidence run records it as failed.
+    inputs = (
+        ("--model", model_path),
+        *(("--model", shard) for shard in gguf_shard_paths(model_path, require_exists=False)),
+        ("--prompt-ids-file", p.get("prompt_ids_file")),
+    )
+    _reject_input_overwrite((("--output", Path(output)),), inputs)
+    evidence = _resolve_gguf_evidence(ctx, warmup=warmup, output=output, inputs=inputs)
     cli_utils.guard_output(output, p["overwrite"])
-    prompt = _resolve_prompt(ctx)
+    # Exact token IDs bypass the text prompt and its chat template.
+    prompt = _resolve_prompt(ctx) if prompt_ids is None else p["prompt"]
 
     config = GGUFPerfConfig(
         model_path=model_path,
@@ -3070,12 +3218,16 @@ def _run_gguf_runtime(
         device="cpu" if requested_device == "auto" else requested_device,
         requested_device=requested_device,
         prompt=prompt,
-        apply_template=p["apply_template"],
+        apply_template=p["apply_template"] and prompt_ids is None,
         max_new_tokens=p["max_new_tokens"],
         iterations=iterations,
         warmup=warmup,
-        memory=bool(p.get("memory")),
+        memory=bool(p.get("memory")) and evidence is None,
         output_path=output,
+        prompt_ids=prompt_ids,
+        context_length=p.get("context_length"),
+        ignore_eos=bool(p.get("ignore_eos")),
+        evidence_path=evidence,
     )
     run_gguf_perf(config, console=console, json_mode=json_mode)
 
@@ -3150,10 +3302,16 @@ def _validate_duration(
     help="[dxcgc] Agility SDK directory (default: installed windowsml/lib).",
 )
 @click.option("--dxcgc-sdk-version", type=click.IntRange(min=1), default=721, hidden=True)
-@click.option("--dxcgc-gpu-timing", is_flag=True, hidden=True,
-              help="[dxcgc] Collect GPU timestamps in a separate diagnostic run.")
 @click.option(
-    "--disable-d3d-mlir-programs", is_flag=True, hidden=True,
+    "--dxcgc-gpu-timing",
+    is_flag=True,
+    hidden=True,
+    help="[dxcgc] Collect GPU timestamps in a separate diagnostic run.",
+)
+@click.option(
+    "--disable-d3d-mlir-programs",
+    is_flag=True,
+    hidden=True,
     help="[dxcgc] Disable the D3D12 MLIR programs target when compiling Input IR.",
 )
 @click.option(
@@ -3168,20 +3326,20 @@ def _validate_duration(
     type=click.Choice([*RUNTIME_NAMES, "dxcgc"]),
     default="auto",
     show_default=True,
-    metavar=f"[{'|'.join(name for name in RUNTIME_NAMES if name != 'winml-runtime')}]",
     help="'auto' selects ort-genai for folders containing genai_config.json, "
-    "Windows ML Tasks on llama.cpp for .gguf files (experimental; requires preview "
+    "winml-runtime for .mlir files, Windows ML Tasks on llama.cpp for .gguf files "
+    "(experimental; requires preview "
     "Windows ML packages), otherwise winml-ort. "
     "'winml-ort' benchmarks single-shot ONNX inference; "
     "'ort-genai' benchmarks an onnxruntime-genai bundle folder "
-    "(LLM generation: TTFT + decode tokens/sec).",
+    "(LLM generation: TTFT + decode tokens/sec); 'winml-runtime' performs "
+    "online conversion for ONNX/PyTorch inputs or loads CGC MLIR directly.",
 )
 @cli_utils.cgc_lowering_target_option()
 @click.option(
     "--backend",
     type=click.Choice(list(RUNTIME_BACKENDS)),
     default=None,
-    hidden=True,
     help="[winml-runtime] Execution backend for ONNX inputs (default: cgc). "
     "MLIR inputs always use cgc.",
 )
@@ -3213,6 +3371,36 @@ def _validate_duration(
     default=128,
     show_default=True,
     help="[ort-genai, GGUF] Number of new tokens to generate per iteration.",
+)
+@click.option(
+    "--prompt-ids-file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="[GGUF] Read exact prompt token IDs from a JSON array file and submit them on "
+    "every request without a chat template. Cannot be combined with --prompt, "
+    "--prompt-file, or --apply-template.",
+)
+@click.option(
+    "--context-length",
+    type=click.IntRange(min=1),
+    default=None,
+    help="[GGUF] Sequence capacity to load the model with; use a multiple of 256. The run "
+    "fails unless the Runtime reports exactly this capacity. Default: prompt tokens plus "
+    "--max-new-tokens.",
+)
+@click.option(
+    "--ignore-eos/--no-ignore-eos",
+    default=False,
+    show_default=True,
+    help="[GGUF] Create the Task with an empty EOS set so every request generates "
+    "--max-new-tokens tokens unless it reaches the sequence capacity.",
+)
+@click.option(
+    "--evidence",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="[GGUF] Write raw gguf-task-events-2 request evidence to this new JSON file. "
+    "Needs --warmup 1 or more and turns off --memory.",
 )
 @click.option(
     "--compile-timeout",
@@ -3389,14 +3577,31 @@ def _validate_duration(
 @cli_utils.verbosity_options()
 @cli_utils.no_color_option()
 @click.pass_context
+@click.option("--memory-backend", type=click.Choice(["pdh", "dxgi"]), default="pdh",
+              help="GPU memory counter backend; dxgi queries in-process application usage.")
+@click.option("--warmup-seconds", type=click.FloatRange(min=0), default=0.0,
+              callback=_validate_duration,
+              help="Minimum warmup duration in seconds, in addition to --warmup count.")
 @click.option(
-    "--etw-tracing", type=click.Path(path_type=Path), default=None,
+    "--etw-tracing",
+    type=click.Path(path_type=Path),
+    default=None,
     help="Collect Runtime ETW events to a new directory and report GPU execution timing "
     "(ETW access required).",
 )
+@click.option(
+    "--allow-cpu-fallback",
+    is_flag=True,
+    default=False,
+    hidden=True,
+    help="Allow CPU fallback for WinMLCG EP ETW capture; GPU timing excludes CPU work.",
+)
 def perf(
     ctx: click.Context,
+    memory_backend: str,
+    warmup_seconds: float,
     etw_tracing: Path | None,
+    allow_cpu_fallback: bool,
     model: str | None,
     runtime: RuntimeName | Literal["dxcgc"],
     dxcgc_host: Path | None,
@@ -3412,6 +3617,10 @@ def perf(
     prompt_file: Path | None,
     apply_template: bool,
     max_new_tokens: int,
+    prompt_ids_file: Path | None,
+    context_length: int | None,
+    ignore_eos: bool,
+    evidence: Path | None,
     compile_timeout: int,
     task: str | None,
     submodel: str | None,
@@ -3494,6 +3703,10 @@ def perf(
         raise click.UsageError("A model is required via -m/--model.")
 
     if runtime == "dxcgc":
+        if memory_backend == "dxgi" or warmup_seconds > 0:
+            raise click.UsageError(
+                "DXGI memory and timed warmup options are not supported by the raw CLI route."
+            )
         from ._perf_dxcgc import run_dxcgc
 
         run_dxcgc(ctx)
@@ -3502,7 +3715,8 @@ def perf(
         raise click.UsageError("--disable-d3d-mlir-programs requires --runtime dxcgc")
     if any(
         ctx.get_parameter_source(name) == click.core.ParameterSource.COMMANDLINE
-        for name in ctx.params if name.startswith("dxcgc_")
+        for name in ctx.params
+        if name.startswith("dxcgc_")
     ):
         raise click.UsageError("--dxcgc-* options require --runtime dxcgc")
 
@@ -3563,20 +3777,39 @@ def perf(
             elif "execution_provider" in cc:
                 ep = (cc["execution_provider"], None)
 
+    if memory_backend == "dxgi":
+        if not etw_tracing or not memory or device.lower() != "gpu":
+            raise click.UsageError(
+                "DXGI memory measurement requires GPU, memory and --etw-tracing."
+            )
+        warmup_seconds = max(2.0, warmup_seconds)
+        warmup = max(10, warmup)
+        iterations = max(200, iterations)
+    if warmup_seconds > 0 and (monitor or op_tracing or module_class or runtime == "ort-genai"):
+        raise click.UsageError("--warmup-seconds supports unmonitored single-model inference.")
+
     cgep_trace = (
         etw_tracing is not None
         and runtime == "winml-ort"
         and ep is not None
         and ep[0].lower() in ("winmlcg", "winmlcgexecutionprovider")
     )
+    if allow_cpu_fallback and not cgep_trace:
+        raise click.UsageError("--allow-cpu-fallback requires WinMLCG EP --etw-tracing.")
     if etw_tracing is not None and (
-            (not cgep_trace and (runtime != "winml-runtime" or backend not in (None, "cgc")))
-            or device.lower() != "gpu" or Path(model).suffix.lower() not in (".onnx", ".mlir")
-            or monitor or op_tracing or module_class or compare_devices):
+        (not cgep_trace and (runtime != "winml-runtime" or backend not in (None, "cgc")))
+        or device.lower() != "gpu"
+        or Path(model).suffix.lower() not in (".onnx", ".mlir")
+        or monitor
+        or op_tracing
+        or module_class
+        or compare_devices
+    ):
         raise click.UsageError(
             "--etw-tracing requires --device gpu and either winml-runtime with CGC "
             "(ONNX/MLIR) or winml-ort with --ep winmlcg (ONNX), without "
-            "monitor/op-tracing/module/compare-devices modes.")
+            "monitor/op-tracing/module/compare-devices modes."
+        )
     try:
         effective_backend = resolve_runtime_api_backend(runtime, model, backend)
     except ValueError as error:
@@ -3588,10 +3821,8 @@ def perf(
             "--cgc-lowering-target requires winml-runtime with the CGC backend, "
             "or winml-ort with --ep winmlcg and --etw-tracing."
         )
-    if cgep_trace and (
-        cgc_lowering_target == "d3d12" or Path(model).suffix.lower() != ".onnx"
-    ):
-        raise click.UsageError("WinMLCG EP tracing requires ONNX and auto/dml lowering.")
+    if cgep_trace and (cgc_lowering_target == "d3d12" or Path(model).suffix.lower() != ".onnx"):
+        raise click.UsageError("WinMLCG EP tracing requires ONNX and auto/disable-d3d12 lowering.")
 
     # AC 11 (mockup spec): --top-k requires --op-tracing. Outside the
     # op-tracing section the flag is meaningless, so reject it explicitly
@@ -3614,6 +3845,7 @@ def perf(
     if is_gguf:
         _run_gguf_runtime(ctx, model=model, runtime=runtime, console=console, json_mode=json_mode)
         return
+    _reject_gguf_only_options(ctx)
 
     if runtime == "winml-runtime" and ep_provider_options and not is_gguf:
         logger.warning("--ep-options are ignored with --runtime winml-runtime.")
@@ -3930,6 +4162,8 @@ def perf(
     # ``ep_source_part`` were unpacked once from the --ep tuple above.
     config = BenchmarkConfig(
         model_id=hf_model,
+        memory_backend=memory_backend,
+        warmup_seconds=warmup_seconds,
         runtime=runtime,
         backend=effective_backend,
         cgc_lowering_target=cgc_lowering_target,
@@ -4034,6 +4268,7 @@ def perf(
                     with GpuCapture(etw_tracing.resolve()) as capture:
                         capture.execution_path = "winmlcgep" if cgep_trace else "runtime-api"
                         capture.lowering_target = cgc_lowering_target or "auto"
+                        capture.allow_cpu_fallback = allow_cpu_fallback
                         try:
                             result = benchmark.run()
                         finally:
@@ -4041,6 +4276,34 @@ def perf(
                     if isinstance(result, dict):
                         raise click.UsageError("--etw-tracing does not support composite models.")
                     result.gpu_execution = capture.finish()
+                    if memory_backend == "dxgi":
+                        gpu_ms = sum(result.gpu_execution["samples_ms"])
+                        if gpu_ms < 2000:
+                            raise click.ClickException(
+                                "Below 2 GPU seconds; increase --iterations."
+                                " Trace retained; steady-memory result is invalid."
+                            )
+                        result.process_memory = result.process_memory or {}
+                        steady = result.process_memory.get("phase_statistics", {}).get(
+                            "steady_inference", {}
+                        )
+                        required = ("rss", "private_commit", "vram_local", "vram_shared")
+                        if any(key not in steady for key in required) or result.process_memory.get(
+                            "phase_query_errors", {}
+                        ).get("steady_inference", 0):
+                            raise click.ClickException("Incomplete steady memory samples.")
+                        result.process_memory["steady_validation"] = {
+                            **benchmark._steady_measurement, "gpu_time_ms": gpu_ms,
+                            "status": "valid", "performance_acceptance": False,
+                            "resource_lifetime_tracking": "unavailable",
+                        }
+                        result.process_memory["steady_bytes"] = {
+                            name: steady[key]["median_mib"] * 1048576
+                            for name, key in (("working_set", "rss"),
+                                              ("private_commit", "private_commit"),
+                                              ("local_usage", "vram_local"),
+                                              ("nonlocal_usage", "vram_shared"))
+                        }
                 except (OSError, RuntimeError) as exc:
                     raise click.ClickException(str(exc)) from exc
 

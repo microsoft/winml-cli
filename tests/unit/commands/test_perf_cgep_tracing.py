@@ -69,7 +69,7 @@ def invoke(model, tmp_path):
         yield run
 
 
-@pytest.mark.parametrize("target", ["auto", "dml", "d3d12"])
+@pytest.mark.parametrize("target", ["auto", "disable-d3d12", "d3d12"])
 def test_untraced_cgep_rejects_lowering(invoke, target):
     result, capture_type, _, instances = invoke(
         "--ep", "winmlcg", "--device", "gpu", "--cgc-lowering-target", target
@@ -80,8 +80,33 @@ def test_untraced_cgep_rejects_lowering(invoke, target):
     capture_type.assert_not_called()
 
 
+def test_cpu_fallback_is_explicitly_enabled_for_cgep_capture(invoke, tmp_path):
+    result, _, capture, instances = invoke(
+        "--ep",
+        "winmlcg",
+        "--device",
+        "gpu",
+        "--etw-tracing",
+        str(tmp_path / "trace"),
+        "--allow-cpu-fallback",
+    )
+    assert result.exit_code == 0, result.output
+    assert capture.allow_cpu_fallback is True
+    assert instances
+
+
+def test_cpu_fallback_cannot_silently_change_untraced_execution(invoke):
+    result, capture_type, _, instances = invoke(
+        "--ep", "winmlcg", "--device", "gpu", "--allow-cpu-fallback"
+    )
+    assert result.exit_code == 2
+    assert "--etw-tracing" in result.output
+    assert not instances
+    capture_type.assert_not_called()
+
+
 @pytest.mark.parametrize("structured", [False, True])
-@pytest.mark.parametrize("target", ["auto", "dml"])
+@pytest.mark.parametrize("target", ["auto", "disable-d3d12"])
 def test_config_target_enables_cgep_trace(invoke, tmp_path, structured, target):
     compile_config = (
         {"ep_device": {"ep": "winmlcg", "device": "gpu"}}
@@ -145,6 +170,6 @@ def test_invalid_cgep_trace_fails_before_start(invoke, model, tmp_path, suffix, 
         target,
     )
     assert result.exit_code == 2, result.output
-    assert "ONNX and auto/dml" in result.output
+    assert "ONNX and auto/disable-d3d12" in result.output
     assert not instances
     capture_type.assert_not_called()

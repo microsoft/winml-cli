@@ -72,7 +72,7 @@ def test_ir_defaults_and_skipped_validation(ir_cli):
     assert "skipped" in result.output
 
 
-@pytest.mark.parametrize("lowering", ["auto", "dml", "d3d12"])
+@pytest.mark.parametrize("lowering", ["auto", "disable-d3d12", "d3d12"])
 @pytest.mark.parametrize("suffix", [".mlir", ".mlirbc"])
 def test_ir_lowering_target_is_forwarded(ir_cli, lowering, suffix):
     source, operation, _ = ir_cli
@@ -83,7 +83,7 @@ def test_ir_lowering_target_is_forwarded(ir_cli, lowering, suffix):
     assert operation.call_args.kwargs["cgc_lowering_target"] == lowering
 
 
-@pytest.mark.parametrize("lowering", ["auto", "dml", "d3d12"])
+@pytest.mark.parametrize("lowering", ["auto", "disable-d3d12", "d3d12"])
 @pytest.mark.parametrize("compiler", [None, "ort", "ort_session", "qairt"])
 def test_non_cgc_compiler_rejects_lowering_target(ir_cli, lowering, compiler):
     source, operation, _ = ir_cli
@@ -188,9 +188,13 @@ def test_ir_filesystem_error_is_actionable(ir_cli):
     assert "CGC compilation failed: Disk write failed" in result.output
 
 
-def test_ir_options_are_hidden_in_help():
+def test_ir_flags_visible_in_help():
     result = CliRunner().invoke(compile, ["--help"])
     assert result.exit_code == 0
-    assert "--compiler" in result.output
-    for value in ("cgc", "cgir", "mlir", "--device-luid", "--cgc-lowering-target"):
-        assert value not in result.output.casefold()
+    for value in (
+        "--compiler",
+        "cgc",
+        ".mlir",
+    ):
+        assert value in result.output
+    assert "--cgc-lowering-target" not in result.output

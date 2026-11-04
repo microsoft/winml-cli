@@ -568,7 +568,7 @@ def _compile_runtime_model(
                     wr = import_runtime()
                     options.cgc_lowering_target = {
                         "auto": wr.CgcLoweringTarget.AUTOMATIC,
-                        "dml": wr.CgcLoweringTarget.DML,
+                        "disable-d3d12": wr.CgcLoweringTarget.DML,
                         "d3d12": wr.CgcLoweringTarget.D3D12,
                     }[cgc_lowering_target]
                 compiler.compile_to_file(source_model, str(output_path), options=options)

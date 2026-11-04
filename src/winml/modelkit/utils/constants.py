@@ -98,7 +98,7 @@ RUNTIME_NAMES: tuple[RuntimeName, ...] = get_args(RuntimeName)
 RuntimeBackend = Literal["ort", "cgc"]
 RUNTIME_BACKENDS: tuple[RuntimeBackend, ...] = get_args(RuntimeBackend)
 
-CGCLoweringTarget = Literal["auto", "dml", "d3d12"]
+CGCLoweringTarget = Literal["auto", "disable-d3d12", "d3d12"]
 CGC_LOWERING_TARGETS: tuple[CGCLoweringTarget, ...] = get_args(CGCLoweringTarget)
 
 

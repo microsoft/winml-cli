@@ -188,7 +188,7 @@ class TestFromOnnx:
         active_build.assert_called_once()
         assert "ep_config" not in active_build.call_args.kwargs
 
-    @pytest.mark.parametrize("lowering", ["auto", "dml", "d3d12"])
+    @pytest.mark.parametrize("lowering", ["auto", "disable-d3d12", "d3d12"])
     @pytest.mark.parametrize("loader", ["from_onnx", "from_pretrained", "from_mlir"])
     def test_cgc_lowering_reaches_runtime_session(
         self, fake_onnx, cpu_ep_device, lowering, loader
@@ -208,7 +208,7 @@ class TestFromOnnx:
         assert model._session is factory.return_value
         assert factory.call_args.kwargs["cgc_lowering_target"] == lowering
 
-    @pytest.mark.parametrize("lowering", ["auto", "dml", "d3d12"])
+    @pytest.mark.parametrize("lowering", ["auto", "disable-d3d12", "d3d12"])
     @pytest.mark.parametrize("loader", ["from_onnx", "from_pretrained"])
     def test_cgc_lowering_rejected_for_ort(
         self, fake_onnx, cpu_ep_device, lowering, loader

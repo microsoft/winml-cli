@@ -160,7 +160,7 @@ class TestPrintConfig:
 
         assert restored.backend == "ort"
 
-    @pytest.mark.parametrize("lowering", [None, "auto", "dml", "d3d12"])
+    @pytest.mark.parametrize("lowering", [None, "auto", "disable-d3d12", "d3d12"])
     def test_config_roundtrip_preserves_cgc_lowering(self, lowering):
         config = WinMLEvaluationConfig(
             runtime="winml-runtime", backend="cgc", cgc_lowering_target=lowering
@@ -1733,7 +1733,7 @@ class TestLoadModel:
             == config.device_luid
         )
 
-    @pytest.mark.parametrize("lowering", [None, "auto", "dml", "d3d12"])
+    @pytest.mark.parametrize("lowering", [None, "auto", "disable-d3d12", "d3d12"])
     def test_load_onnx_without_model_id_returns_generic_winml_model(self, lowering):
         import importlib
         import sys
@@ -1769,7 +1769,7 @@ class TestLoadModel:
         assert mock_auto.from_onnx.call_args.kwargs["skip_build"] is True
         assert mock_auto.from_onnx.call_args.kwargs["cgc_lowering_target"] == lowering
 
-    @pytest.mark.parametrize("lowering", [None, "auto", "dml", "d3d12"])
+    @pytest.mark.parametrize("lowering", [None, "auto", "disable-d3d12", "d3d12"])
     def test_load_mlir_uses_runtime_model_loader(self, lowering):
         import importlib
         import sys

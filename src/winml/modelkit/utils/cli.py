@@ -469,9 +469,6 @@ def ep_option(
         default=default if not required else None,
         show_default=True,
         type=click.Choice(choices, case_sensitive=False),
-        metavar="["
-        + "|".join(name for name in choices if name not in ("winmlcg", "WinMLCGExecutionProvider"))
-        + "]",
         help=help_text,
     )
 
@@ -551,7 +548,6 @@ def cgc_options_option() -> Callable[[F], F]:
         "cgc_options",
         multiple=True,
         metavar="KEY=VALUE",
-        hidden=True,
         help=(
             "Additional CGIR target options (repeatable). Supports external-weights, "
             "update-opset, topo-sort-nodes, and freeze-dims "
@@ -695,8 +691,6 @@ def cgc_lowering_target_option() -> Callable[[F], F]:
 def device_luid_option(
     option_name: str = "--device-luid",
     optional_message: str | None = None,
-    *,
-    hidden: bool = False,
 ) -> Callable[[F], F]:
     """Add a LUID-based adapter-selection option."""
     help_text = (
@@ -726,7 +720,6 @@ def device_luid_option(
         default=None,
         callback=validate,
         help=help_text,
-        hidden=hidden,
     )
 
 

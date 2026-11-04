@@ -105,9 +105,16 @@ These options apply to GGUF models:
 | `--prompt`, `--prompt-file` | The prompt for every generation. |
 | `--apply-template/--no-apply-template` | Render the prompt with the chat template stored in the GGUF file. Without a template, the raw prompt is used and the report sets `chat_template_applied` to `false`. |
 | `--max-new-tokens` | Upper bound on generated tokens per generation. |
+| `--prompt-ids-file` | A JSON array of token IDs submitted unchanged on every generation, with no chat template and no tokenization. Cannot be combined with `--prompt`, `--prompt-file`, or `--apply-template`. |
+| `--context-length` | Sequence capacity to load the model with, instead of the prompt tokens plus `--max-new-tokens`. Use a multiple of 256, because llama.cpp can round other values up. The run fails before the first generation unless the Runtime reports exactly this capacity. |
+| `--ignore-eos/--no-ignore-eos` | Create the Task with an empty end-of-sequence set, so each generation runs to `--max-new-tokens` unless it reaches the sequence capacity. The run fails if the Task still reports end-of-sequence tokens. |
+| `--evidence` | Write raw `gguf-task-events-2` request evidence to this JSON file, which must be new unless you pass `--overwrite`. The evidence file, its temporary file (the same name plus `.tmp`), and `--output` cannot name any model shard or the `--prompt-ids-file` input, even with `--overwrite`. Evidence paths must also differ from `--output`. Needs `--warmup` of at least `1` and turns off `--memory`; an explicit `--memory` is an error. |
 | `--iterations`, `--warmup` | Timed and warmup generations (defaults `10` and `2`). |
 | `--memory/--no-memory` | Process RAM at the load and inference checkpoints. |
-| `--output`, `--overwrite`, `--format json` | Same as for the other runtimes. |
+| `--output`, `--overwrite`, `--format json` | Same as for the other runtimes, except that `--output` cannot name the model, any of its shards, or the `--prompt-ids-file` input, even with `--overwrite`. |
+
+`--prompt-ids-file`, `--context-length`, `--ignore-eos`, and `--evidence` apply only
+to GGUF models; `winml perf` rejects them for other inputs.
 
 Options that select another benchmark target are rejected: `--ep`, `--ep-options`,
 `--backend`, `--device-luid`, `--input-data`, `--module`, and `--submodel`.
@@ -127,6 +134,79 @@ capacity. The stop reason of the first timed generation is saved as
 `benchmark_info.stop_reason`, and `aggregate.stop_reason_counts` counts all timed
 generations. The Task session is reset before every warmup and timed request, so
 each generation evaluates its prompt independently.
+
+## Protocol runs with exact token IDs
+
+To compare the Task API with another llama.cpp host on the same workload, fix the
+prompt tokens, the sequence capacity, and the output length, and record raw
+per-request evidence:
+
+```powershell
+winml perf -m models\qwen2.5-0.5b-instruct-q4_k_m.gguf --device gpu `
+  --prompt-ids-file prompt-ids.json --max-new-tokens 128 --context-length 4096 `
+  --ignore-eos --warmup 10 --iterations 25 `
+  --evidence runs\task-events.json --format json --output runs\winml-perf.json
+```
+
+`prompt-ids.json` holds a JSON array of token IDs, for example `[151644, 872, 198]`.
+Every request checks the IDs against the model vocabulary and the sequence capacity,
+then submits them unchanged. `--context-length` must hold the prompt plus
+`--max-new-tokens`, and `--ignore-eos` makes every request generate exactly
+`--max-new-tokens` tokens unless it reaches the capacity. Each request uses greedy
+Task options with every field set explicitly.
+
+`--evidence PATH` writes one JSON document in the `gguf-task-events-2` format, twice.
+Each write goes to `PATH.tmp` first and then replaces `PATH`, so a reader never sees
+a partial document. The start write, made before the Runtime is imported, holds only
+`schema_version`, `status: running`, and the `pid` of the measuring process, so an
+external observer can attach to that process before the model loads. The end write
+follows when the run ends:
+
+| Field | Contents |
+|---|---|
+| `status` | `complete` when every request succeeded, or `failed` when anything failed (exit code 1). The end write comes before the schema 3 report is printed and saved, so after `complete` the command exits with code 0 unless that step fails. A `running` document after the command exits means the process ended without its end write. |
+| `error` | `null`, or the `type` and `message` of the error that ended the run. |
+| `workload` | The requested workload: `input_ids_sha256` (SHA-256 of the IDs as a compact JSON array, such as `[1,2,3]`) and `input_token_count`, both `null` for a text prompt; `max_new_tokens`; `context_length` (`null` without `--context-length`); `ignore_eos`; `warmup`; and `iterations`. |
+| `packages` | Installed versions of the packages in `benchmark_info.packages`, and of `winml-cli`. |
+| `requests[]` | One row per finished request, in order (below). |
+| `native_log` | The native log capture (below). |
+
+The first failure ends the run: no later request runs, the rows of the requests that
+finished are kept, and no schema 3 report is saved. Each request row has these
+fields:
+
+| Field | Contents |
+|---|---|
+| `kind`, `index` | `warmup` or `timed`, and the position in the run, as in the schema 3 `requests`. |
+| `submit_ns` | Immediately before `generate_tokens`, after the session reset. |
+| `output_events[]` | One per token update: `observed_ns` when `read_next()` returned it, and its `token_id`. |
+| `completed_ns` | When `read_next()` returned the end of the stream. |
+| `stop_reason` | `MAX_TOKENS`, `EOS`, `STOP_TOKEN`, `CAPACITY`, or `CANCELED`. |
+| `prompt_tokens` | The prompt token count the Task reported. |
+| `cached_tokens` | Tokens the Task session still held right after its reset: `0` when the prompt was evaluated from an empty session, `null` when the session could not report its state. |
+
+`native_log` holds the raw llama.cpp log from model load through the first warmup
+request; then the Runtime's own log callback is restored. It is one flat object with
+five keys:
+
+| Key | Contents |
+|---|---|
+| `installed` | Whether the capturing callback was installed. |
+| `reason` | Why the capture was not installed, or `null` when it was. |
+| `intact` | Whether the capturing callback was still installed when the capture ended; `null` when the capture was not installed or reading the current callback failed. |
+| `restored` | Whether the Runtime's own callback is back; `false` when the capture was not installed. |
+| `fragments[]` | One entry per call of the llama.cpp log callback, in order: its `level`, its `text` as emitted (line breaks included), and its own `qpc_ns` stamp. Continuation fragments (level 5) stay separate entries; a reader joins them to the line they continue. |
+
+Backend registration and device lines go to the process's stderr before the Runtime
+installs its logger, so they are not captured.
+
+Row stamps are `time.perf_counter()` readings converted to integer nanoseconds, and
+fragment stamps are `time.perf_counter_ns()` readings. Both are in the machine-wide
+QPC domain, so another process on the same machine can align its own samples with
+them.
+
+Every GGUF schema 3 report has `benchmark_info.ignore_eos`. With
+`--prompt-ids-file`, `benchmark_info.prompt` is `null`.
 
 ## Run on a GPU
 
@@ -235,7 +315,7 @@ TTFT or token-update intervals as the earlier model-compute phases.
 | `load.pipeline_build_duration_ms` | Building the one-stage decoder pipeline. `native_load_duration_ms` is model load plus pipeline build. |
 | `load.task_create_duration_ms` | Creating the Task configuration, Task, and generation session. |
 | `load.weight_upload_*` | `null` / `unavailable`. The Runtime does not expose weight-upload timing. |
-| `requests[].tokenization_duration_ms` | Chat-template rendering and tokenization, which the Runtime performs in one call. `template_duration_ms` is `0`. |
+| `requests[].tokenization_duration_ms` | Chat-template rendering and tokenization, which the Runtime performs in one call; `0` with `--prompt-ids-file`, whose IDs are submitted without either. `template_duration_ms` is `0`. |
 | `requests[].generator_create_duration_ms` | Resetting the Task session before a new generation. |
 | `requests[].task_stream_create_duration_ms` | The `generate_tokens` call that creates the pull stream. |
 | `requests[].task_ttft_duration_ms` | From immediately before `generate_tokens` through the first token update; includes stream creation. |
@@ -284,6 +364,9 @@ present, are `null` rather than estimated from stream timing:
 | `--device gpu needs a llama.cpp GPU backend`, or HRESULT `0x80070032` | Build a matching backend and provide its vendor runtime DLLs (see [Run on a GPU](#run-on-a-gpu)), or use `--device cpu`. For CUDA, check that the toolkit dependencies are present under `LlamaBackends\cuda` and the driver supports that toolkit. |
 | `the prompt (...) does not fit the model sequence capacity` | The model's maximum context is smaller than the prompt plus `--max-new-tokens`. Shorten the prompt or lower `--max-new-tokens`. |
 | `The installed 'windowsml' package does not ship the Runtime native library` | The installed `windowsml` is not a preview build with the Runtime API. Reinstall the preview version. |
+| `--context-length N resolved to an effective sequence capacity of M` | The Runtime did not apply the requested capacity, for example because the model supports less or llama.cpp rounded it up to a multiple of 256. Use a multiple of 256 that the model supports. |
+| `--ignore-eos requested an empty EOS set, but the Task reports EOS token IDs` | The installed Runtime does not honor an explicit empty EOS set. Use a Windows ML version that does, or run without `--ignore-eos`. |
+| `prompt token ... is outside the model vocabulary` | A token ID in `--prompt-ids-file` is not valid for this model. Regenerate the IDs with this model's tokenizer. |
 
 To leave the experimental setup, delete the `.venv-gguf` environment. Your regular
 environment is unchanged.

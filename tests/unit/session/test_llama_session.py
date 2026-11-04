@@ -11,9 +11,11 @@ but must not be used for a Python-managed generation loop.
 
 from __future__ import annotations
 
+import dataclasses
 import sys
 from dataclasses import dataclass
 from enum import IntEnum
+from itertools import pairwise
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
@@ -294,21 +296,35 @@ class _Tasks(_Closable):
     def create_text_generation_task(
         self, tokenizer: _Tokenizer, eos_token_ids: Any = None, **kwargs: Any
     ) -> _GenerationTask:
-        assert eos_token_ids is None
-        task = _GenerationTask(self, tokenizer, kwargs.get("default_configuration"))
+        self.api.eos_arguments.append(eos_token_ids)
+        task = _GenerationTask(
+            self, tokenizer, kwargs.get("default_configuration"), eos_token_ids
+        )
         self.api.generation_tasks.append(task)
         return task
 
 
 class _GenerationTask(_Closable):
     def __init__(
-        self, owner: _Tasks, tokenizer: _Tokenizer, configuration: _TaskConfiguration | None
+        self,
+        owner: _Tasks,
+        tokenizer: _Tokenizer,
+        configuration: _TaskConfiguration | None,
+        eos_token_ids: Any = None,
     ) -> None:
         super().__init__()
         self.owner = owner
         self.tokenizer = tokenizer
         self.configuration = configuration
+        self._explicit_eos = None if eos_token_ids is None else tuple(eos_token_ids)
         self._default_session: _GenerationSession | None = None
+
+    @property
+    def default_eos_token_ids(self) -> tuple[int, ...]:
+        """An explicit set (even an empty one) replaces the tokenizer's EOS IDs."""
+        if self._explicit_eos is not None:
+            return self._explicit_eos
+        return tuple(self.tokenizer.eos_token_ids)
 
     def create_session(self, configuration: _TaskConfiguration) -> _GenerationSession:
         assert configuration.validated
@@ -336,6 +352,7 @@ class _GenerationSession(_Closable):
         self.api = task.owner.api
         self.reset_count = 0
         self.streams: list[_TaskStream] = []
+        self._retained: list[int] = []
 
     def reset(self) -> None:
         assert not self.closed
@@ -343,6 +360,26 @@ class _GenerationSession(_Closable):
         self.reset_count += 1
         self.api.clock.advance(2.0)
         self.task.owner.runtime.stage.sequence_position = 0
+        if self.api.reset_keeps_tokens and self.streams:
+            last = self.streams[-1]
+            self._retained = [*last.prompt, *last.tokens]
+        else:
+            self._retained = []
+
+    @property
+    def sequence_state(self) -> SimpleNamespace:
+        if self.api.disclosure_unsupported:
+            raise _NotSupportedError("sequence state disclosure is not supported")
+        self.api.clock.advance(1.0)
+        sources = self.api.kept_token_sources
+        return SimpleNamespace(
+            evaluated_token_count=len(self._retained) if "evaluated" in sources else 0,
+            retained_token_count=len(self._retained) if "retained" in sources else 0,
+        )
+
+    @property
+    def retained_token_ids(self) -> tuple[int, ...]:
+        return tuple(self._retained) if "ids" in self.api.kept_token_sources else ()
 
     def generate_tokens(self, token_ids: Any, options: _TaskOptions) -> _TaskStream:
         assert not self.closed
@@ -397,7 +434,7 @@ class _TaskStream(_Closable):
         self.finish_reason = _FinishReason.MAX_TOKENS
         for _ in range(options.max_new_tokens):
             token = (previous + 1) % _VOCABULARY
-            if token in session.task.tokenizer.eos_token_ids:
+            if token in session.task.default_eos_token_ids:
                 self.finish_reason = _FinishReason.EOS_TOKEN
                 break
             if len(prompt) + len(self.tokens) >= capacity:
@@ -470,6 +507,7 @@ def _runtime_api(
         load_hresult=load_hresult,
         token_type=token_type,
         token_rank=token_rank,
+        eos_arguments=[],
         runtimes=[],
         tokenizers=[],
         tasks=[],
@@ -486,6 +524,10 @@ def _runtime_api(
         result_count_mismatch=False,
         result_prompt_offset=0,
         finish_override=None,
+        disclosure_unsupported=False,
+        reset_keeps_tokens=False,
+        # The state reads that report the tokens a reset kept; the others report none.
+        kept_token_sources=("evaluated", "retained", "ids"),
     )
     api.Runtime = lambda: _Runtime(api)
 
@@ -649,6 +691,42 @@ class TestLoad:
         assert api.runtimes[0].stage.closed
 
 
+class TestLoadReadback:
+    def test_default_eos_policy_is_unchanged(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path)
+        session.load(context_length=32)
+        assert api.eos_arguments == [None]
+        assert session.task_default_eos_token_ids == api.tokenizers[0].eos_token_ids == (_EOS,)
+
+    def test_explicit_empty_eos_set_is_read_back(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path)
+        session.load(context_length=32, eos_token_ids=())
+        assert api.eos_arguments == [()]
+        assert session.task_default_eos_token_ids == ()
+
+    def test_readback_before_load_raises(self, tmp_path: Path) -> None:
+        session, _api = _session(tmp_path)
+        with pytest.raises(LlamaSessionError, match="load"):
+            _ = session.task_default_eos_token_ids
+
+    def test_greedy_options_set_all_eleven_fields(self, tmp_path: Path) -> None:
+        session, _api = _session(tmp_path)
+        session.load(context_length=32)
+        assert dataclasses.asdict(session.greedy_options(128)) == {
+            "max_new_tokens": 128,
+            "stop_token_ids": (),
+            "temperature": 0.0,
+            "top_k": 0,
+            "top_p": 1.0,
+            "min_p": 0.0,
+            "repetition_penalty": 1.0,
+            "repetition_penalty_window": 0,
+            "presence_penalty": 0.0,
+            "frequency_penalty": 0.0,
+            "seed": 0,
+        }
+
+
 # ---------------------------------------------------------------------------
 # Prompting and generation
 # ---------------------------------------------------------------------------
@@ -724,9 +802,70 @@ class TestGenerateTimed:
         first = session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
         second = session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
         assert first.response_text == second.response_text == "<4><5><6>"
+        assert first.cached_tokens == second.cached_tokens == 0
         assert len(api.generation_sessions) == 1
         assert api.generation_sessions[0].reset_count == 2
         assert all(stream.closed for stream in api.generation_sessions[0].streams)
+
+    def test_cached_tokens_count_what_the_reset_left_behind(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path)
+        api.reset_keeps_tokens = True
+        session.load(context_length=32)
+        first = session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
+        second = session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
+        stream = api.generation_sessions[0].streams[0]
+        assert first.cached_tokens == 0
+        assert second.cached_tokens == len(stream.prompt) + len(stream.tokens)
+
+    @pytest.mark.parametrize(
+        "sources",
+        [("evaluated", "retained"), ("evaluated",), ("retained",), ("ids",)],
+        ids=["counts-without-ids", "evaluated-only", "retained-only", "ids-only"],
+    )
+    def test_cached_tokens_take_the_largest_state_count(
+        self, tmp_path: Path, sources: tuple[str, ...]
+    ) -> None:
+        # A kept state the Task cannot reuse reports its counts but no retained IDs;
+        # any one read that still sees the kept tokens must count them.
+        session, api = _session(tmp_path)
+        api.reset_keeps_tokens = True
+        api.kept_token_sources = sources
+        session.load(context_length=32)
+        session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
+        second = session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
+        stream = api.generation_sessions[0].streams[0]
+        assert second.cached_tokens == len(stream.prompt) + len(stream.tokens)
+
+    def test_unreadable_session_state_leaves_cached_tokens_unknown(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path)
+        api.disclosure_unsupported = True
+        session.load(context_length=32)
+        timing = session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
+        assert timing.cached_tokens is None
+        assert timing.response_text == "<4><5><6>"
+
+    def test_returns_the_clock_readings_behind_the_spans(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path)
+        session.load(context_length=32)
+        timing = session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16, clock=api.clock)
+        stream = api.generation_sessions[0].streams[0]
+
+        # The fake's 1 s state read falls after the 2 s reset and before the submit.
+        assert (timing.reset_s, timing.submit_time) == (2.0, 3.0)
+        assert timing.token_ids == tuple(stream.tokens)
+        assert timing.token_times[0] - timing.submit_time == timing.first_token_s
+        assert [later - earlier for earlier, later in pairwise(timing.token_times)] == (
+            timing.decode_s
+        )
+        assert timing.completed_time - timing.token_times[-1] == timing.completion_s
+
+    def test_explicit_empty_eos_set_runs_to_the_limit(self, tmp_path: Path) -> None:
+        session, _api = _session(tmp_path)
+        session.load(context_length=32, eos_token_ids=())
+        timing = session.generate_timed([_EOS - 1], max_new_tokens=4)
+        assert timing.stop_reason == "MAX_TOKENS"
+        assert timing.token_ids[0] == _EOS
+        assert timing.generated_tokens == 4
 
     def test_phase_spans_follow_the_clock(self, tmp_path: Path) -> None:
         session, api = _session(tmp_path)

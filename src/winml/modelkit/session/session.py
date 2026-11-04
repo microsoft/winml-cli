@@ -352,10 +352,12 @@ def _build_session_options(
             raise ValueError("ETW EP timing requires WinMLCGExecutionProvider.")
         so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
         so.intra_op_num_threads = 1
-        so.add_session_config_entry("session.disable_cpu_ep_fallback", "1")
+        so.add_session_config_entry(
+            "session.disable_cpu_ep_fallback", "0" if capture.allow_cpu_fallback else "1"
+        )
         so.add_session_config_entry(
             "ep.winmlcgexecutionprovider.compile_target_flags",
-            "1" if capture.lowering_target == "dml" else "0",
+            "1" if capture.lowering_target == "disable-d3d12" else "0",
         )
 
     handle = ep_device.device._ort
@@ -1235,8 +1237,11 @@ class WinMLSession:
                 from .gpu_capture import active_capture
 
                 capture = active_capture.get()
-                measured = (capture is not None and capture.execution_path == "winmlcgep"
-                            and len(self._perf_stats.all_samples_ms) >= self._perf_stats.warmup)
+                measured = (
+                    capture is not None
+                    and capture.execution_path == "winmlcgep"
+                    and len(self._perf_stats.all_samples_ms) >= self._perf_stats.warmup
+                )
 
                 def run_measured() -> list[Any]:
                     begin = capture.mark() if measured and capture is not None else None
