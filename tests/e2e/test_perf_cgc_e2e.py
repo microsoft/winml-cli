@@ -59,7 +59,11 @@ def cgc_gpu() -> tuple[str, str]:
     """
     try:
         installed = importlib.util.find_spec("windowsml.tasks") is not None
-    except ModuleNotFoundError:  # windowsml itself is not installed
+    except ModuleNotFoundError as exc:
+        # find_spec imports windowsml itself. Only its absence means not installed;
+        # a windowsml that fails to import (a missing comtypes) is a broken install.
+        if exc.name != "windowsml":
+            raise
         installed = False
     if not installed:
         pytest.skip(f"windowsml.tasks is not installed; {_NEEDS_PREVIEW}")
