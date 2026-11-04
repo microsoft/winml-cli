@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Keep heavy numerical dependencies out of GGUF perf and memory checkpoints.
+"""Keep heavy numerical dependencies out of GGUF and CGC perf and memory checkpoints.
 
 The test process's conftest imports ORT, so these checks use clean interpreters
 and fail on attempted imports even if production code catches the exception.
@@ -25,6 +25,21 @@ EVIDENCE_MODULES = [
     "winml.modelkit.commands._gguf_evidence",
     "winml.modelkit.commands._gguf_native_log",
 ]
+# Blocked on top of the GUARD list for --backend cgc, which must load none of these
+# before Windows ML: ONNX and the modules that import ONNX or ORT (another
+# DirectML.dll breaks the windowsml.runtime import), comtypes (imported first, it
+# skips the COM apartment setup of windowsml) and the llama.cpp binding.
+CGC_BLOCKED = (
+    "onnx",
+    "comtypes",
+    "winml.modelkit.export",
+    "winml.modelkit.compiler",
+    "winml.modelkit.session.runtime_session",
+    "winml.modelkit.session.ep_device",
+    "winml.modelkit.session.ep_registry",
+    "winml.modelkit.session.llama_session",
+    "winml.modelkit.commands._perf_gguf",
+)
 GUARD = """
 import importlib.abc
 import json
@@ -37,7 +52,7 @@ blocked = (
     "torch",
     "transformers",
     "winml.modelkit.commands._perf_genai",
-)
+) + EXTRA_BLOCKED
 attempts = []
 
 def is_blocked(name):
@@ -56,8 +71,12 @@ sys.meta_path.insert(0, RejectHeavyImports())
 """
 
 
-def _run_isolated(code: str, *arguments: str) -> dict:
-    script = f"import sys; sys.path.insert(0, {str(SOURCE)!r})\n" + GUARD + dedent(code)
+def _run_isolated(code: str, *arguments: str, extra_blocked: tuple[str, ...] = ()) -> dict:
+    """Run ``code`` in a clean interpreter after ``GUARD``, which also blocks ``extra_blocked``."""
+    script = (
+        f"import sys; sys.path.insert(0, {str(SOURCE)!r})\n"
+        f"EXTRA_BLOCKED = {extra_blocked!r}\n" + GUARD + dedent(code)
+    )
     result = subprocess.run(  # noqa: S603 - fixed interpreter and test-owned source
         [sys.executable, "-I", "-c", script, *arguments],
         check=False,
@@ -239,5 +258,159 @@ def test_gguf_command_runs_without_heavy_dependency_imports(
         "prompt": None if evidence else "test prompt",
         "rows": 3 if evidence else None,
         "gguf_modules": EVIDENCE_MODULES if evidence else [],
+        "imports": [],
+    }
+
+
+def test_extra_blocked_names_are_enforced() -> None:
+    # Control: a name passed in extra_blocked is refused like the built-in ones.
+    outcome = _run_isolated(
+        """
+        try:
+            import winml.modelkit.session.cgc_session
+        except AssertionError as exc:
+            error = str(exc)
+        else:
+            error = None
+        print(json.dumps({"imports": attempts, "error": error}))
+        """,
+        extra_blocked=("winml.modelkit.session.cgc_session",),
+    )
+    assert outcome == {
+        "imports": ["winml.modelkit.session.cgc_session"],
+        "error": "GGUF imported unrelated runtime: winml.modelkit.session.cgc_session",
+    }
+
+
+@pytest.mark.parametrize(
+    ("kind", "memory", "ignored_config"),
+    [("gguf", True, False), ("folder", False, True), ("folder", True, False)],
+)
+def test_cgc_command_runs_without_heavy_dependency_imports(
+    tmp_path: Path, kind: str, memory: bool, ignored_config: bool
+) -> None:
+    outcome = _run_isolated(
+        """
+        import time
+        from pathlib import Path
+        from types import SimpleNamespace
+        from click.testing import CliRunner
+        from winml.modelkit.cli import main
+        from winml.modelkit.commands import _perf_cgc
+        from winml.modelkit.session import TaskGenerationTiming
+        from winml.modelkit.telemetry.telemetry import Telemetry
+
+        Telemetry.get_or_init = classmethod(lambda cls: SimpleNamespace(disabled=True))
+        root, kind, memory, ignored_config = sys.argv[1:]
+        memory = memory == "True"
+        root = Path(root)
+        if kind == "gguf":
+            model = root / "placeholder.gguf"
+            model.write_bytes(b"GGUF")
+        else:
+            # The report and the --config file stay outside the checkpoint folder.
+            model = root / "ckpt"
+            model.mkdir()
+            (model / "config.json").write_text("{}", encoding="utf-8")
+            (model / "model.safetensors").write_bytes(b"")
+        output = root / "report.json"
+        sessions = []
+
+        class FakeSession:
+            # The whole WinMLCGCSession surface, so a missing attribute never
+            # reads as an import failure.
+            def __init__(self, model_path, *, model_format, device_luid, program_cache_dir):
+                assert model_path == model
+                self.model_path = model_path
+                self.model_format = model_format
+                self.adapter_name = "Fake GPU"
+                self.adapter_luid = "0x00000000_0x0000BEEF"
+                self.adapter_selection = "high-performance"
+                self.vocabulary_size = None
+                self.context_length = None
+                self.effective_device = None
+                self.chat_template_applied = None
+                self.task_default_eos_token_ids = None
+                self.load_timings_ms = dict.fromkeys(
+                    ("runtime_create_duration_ms", "target_create_duration_ms",
+                     "model_create_duration_ms", "set_model_duration_ms",
+                     "session_create_duration_ms"),
+                    1.0,
+                )
+                self.generated = 0
+                self.closed = False
+                sessions.append(self)
+
+            def open_tokenizer(self):
+                pass
+
+            def encode_prompt(self, prompt, *, apply_template=True):
+                assert prompt == "test prompt"
+                self.chat_template_applied = apply_template
+                return [1, 2, 3, 4]
+
+            def load(self, *, context_length=None, eos_token_ids=None):
+                self.context_length = context_length
+                self.effective_device = "gpu"
+                eos = (2,) if eos_token_ids is None else tuple(eos_token_ids)
+                self.task_default_eos_token_ids = eos
+
+            def generate_timed(self, token_ids, *, max_new_tokens, clock=time.perf_counter):
+                assert token_ids == [1, 2, 3, 4] and max_new_tokens == 3
+                self.generated += 1
+                submit, *token_times, completed = (clock() for _ in range(max_new_tokens + 2))
+                return TaskGenerationTiming(
+                    input_tokens=4, generated_tokens=3, reset_s=0.001,
+                    stream_create_s=0.001, first_token_s=0.01,
+                    decode_s=[0.002, 0.003], completion_s=0.001,
+                    result_fetch_s=0.001, generation_s=0.017,
+                    response_text="abc", stop_reason="MAX_TOKENS",
+                    submit_time=submit, token_times=tuple(token_times),
+                    completed_time=completed, token_ids=(10, 11, 12),
+                )
+
+            def close(self):
+                self.closed = True
+
+        # Only the native session is replaced; routing, aggregation, the memory
+        # checkpoints and report persistence execute their real code.
+        _perf_cgc.WinMLCGCSession = FakeSession
+        args = ["perf", "-m", str(model), "--backend", "cgc", "--prompt", "test prompt",
+                "--max-new-tokens", "3", "--warmup", "1", "--iterations", "2",
+                "--output", str(output)]
+        if not memory:
+            args.append("--no-memory")
+        if ignored_config == "True":
+            config = root / "ignored-config.json"
+            config.write_text("{}", encoding="utf-8")
+            args.extend(["--config", str(config)])
+        result = CliRunner().invoke(main, args)
+        assert result.exit_code == 0, (result.output, repr(result.exception))
+        assert not attempts, attempts
+        assert not [name for name in sys.modules if is_blocked(name)]
+        assert "windowsml" not in sys.modules
+        assert len(sessions) == 1 and sessions[0].generated == 3 and sessions[0].closed
+        data = json.loads(output.read_text(encoding="utf-8"))
+        assert ("memory" in data) == memory
+        if memory:
+            # The pinned GPU's VRAM is recorded next to process RAM.
+            assert "vram_local_after_compile_mb" in data["memory"]
+        info = data["benchmark_info"]
+        print(json.dumps({
+            "kind": kind, "memory": memory, "backend": info["backend"],
+            "model_format": info["model_format"], "imports": attempts,
+        }))
+        """,
+        str(tmp_path),
+        kind,
+        str(memory),
+        str(ignored_config),
+        extra_blocked=CGC_BLOCKED,
+    )
+    assert outcome == {
+        "kind": kind,
+        "memory": memory,
+        "backend": "cgc",
+        "model_format": "gguf" if kind == "gguf" else "safetensors",
         "imports": [],
     }
