@@ -696,12 +696,12 @@ class BenchmarkResult:
                 "device_luid": self.config.device_luid,
                 "ep_options": self.config.ep_options,
                 "precision": self.config.precision,
-                # In duration mode the run isn't bounded by a fixed count, so
+                # Duration and DXGI minima can extend the requested count, so
                 # report the actual number of timed (post-warmup) samples rather
                 # than the unused ``--iterations`` default.
                 "iterations": (
                     len(self.raw_samples_ms)
-                    if self.config.duration is not None
+                    if self.config.duration is not None or self.config.memory_backend == "dxgi"
                     else self.config.iterations
                 ),
                 "warmup": self.config.warmup,

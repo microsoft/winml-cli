@@ -426,11 +426,18 @@ class ProcessMemoryTracker:
             from ._dxgi_memory import DxgiMemoryReader
 
             self._dxgi_reader = DxgiMemoryReader(adapter_luid)
-        self._baseline_owner = MemoryTracker(
-            adapter_luid, baseline="before_model_load", device=device
-        )
-        self._baseline_owner.capture("before_model_load")
-        values, errors = _device_memory(adapter_luid)
+        if self.backend == "dxgi":
+            # DXGI queries application usage directly; PDH counter preparation
+            # must neither supply this baseline nor create a baseline device.
+            observed, reasons = self._observe()
+            values = {key: observed[key] for key in ("vram_local", "vram_shared")}
+            errors = {key: reasons[key] for key in values if key in reasons}
+        else:
+            self._baseline_owner = MemoryTracker(
+                adapter_luid, baseline="before_model_load", device=device
+            )
+            self._baseline_owner.capture("before_model_load")
+            values, errors = _device_memory(adapter_luid)
         self.checkpoints["baseline"].update(values)
         for key in values:
             self.availability["baseline"].pop(key, None)

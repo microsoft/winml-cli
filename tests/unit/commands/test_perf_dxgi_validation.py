@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 import pytest
 from click.testing import CliRunner
 
-from winml.modelkit.commands.perf import BenchmarkConfig, PerfBenchmark, perf
+from winml.modelkit.commands.perf import BenchmarkConfig, BenchmarkResult, PerfBenchmark, perf
 
 
 @pytest.mark.parametrize(
@@ -55,6 +55,18 @@ def test_dxgi_honors_duration_and_iteration_minima(duration, iterations, expecte
         assert benchmark._run_benchmark_simple() is context.stats
     assert count == expected
     assert benchmark._steady_measurement["duration_ms"] == expected * 100
+    result = BenchmarkResult(config=benchmark.config, raw_samples_ms=[100.0] * count)
+    report = result.to_dict()
+    assert report["benchmark_info"]["iterations"] == benchmark._steady_measurement["count"]
+    assert report["benchmark_info"]["iterations"] == len(report["raw_samples_ms"])
+
+
+def test_fixed_count_pdh_report_preserves_requested_iterations():
+    result = BenchmarkResult(
+        config=BenchmarkConfig(model_id="model.onnx", iterations=200),
+        raw_samples_ms=[1.0] * 10,
+    )
+    assert result.to_dict()["benchmark_info"]["iterations"] == 200
 
 
 @pytest.mark.parametrize("seconds", ["inf", "+inf", "-inf", "nan"])
