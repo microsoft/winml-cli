@@ -7,6 +7,9 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
+from configparser import ConfigParser
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -120,8 +123,161 @@ def test_exports_and_session_configuration(tmp_path):
     assert monitor.configures_session_options
     assert monitor.requires_session_teardown
     assert monitor.ep_name == "vitisai"
-    assert monitor.get_provider_options() == {}
+    assert monitor.get_provider_options() == {"vitisai_profiling": "1"}
     assert monitor.result is None
+
+
+@pytest.mark.parametrize("source_kind", ["none", "cwd", "executable", "environment"])
+@pytest.mark.parametrize("fail", [False, True])
+def test_xrt_environment_preserves_settings_and_cleans_up(tmp_path, monkeypatch, source_kind, fail):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("XRT_INI_PATH", raising=False)
+    executable_dir = tmp_path / "python"
+    executable_dir.mkdir()
+    monkeypatch.setattr(sys, "executable", str(executable_dir / "python.exe"))
+    source = None
+    if source_kind != "none":
+        source = {
+            "cwd": tmp_path / "xrt.ini",
+            "executable": executable_dir / "xrt.ini",
+            "environment": tmp_path / "custom.ini",
+        }[source_kind]
+        original = ConfigParser(interpolation=None)
+        original["debug"] = {"ml_timeline": "false", "other_setting": str(tmp_path)}
+        original["Runtime"] = {"runtime_log": "console"}
+        with source.open("w", encoding="utf-8") as file:
+            original.write(file)
+        before = source.read_bytes()
+        if source_kind == "environment":
+            monkeypatch.setenv("XRT_INI_PATH", str(source))
+    previous = os.environ.get("XRT_INI_PATH")
+    generated = None
+    try:
+        with VitisAIOpMonitor.profiling_environment(tmp_path):
+            generated = Path(os.environ["XRT_INI_PATH"])
+            config = ConfigParser(interpolation=None)
+            config.read(generated)
+            debug = "debug" if source is not None else "Debug"
+            assert config.getboolean(debug, "ml_timeline")
+            assert config[debug]["ml_timeline_buffer_size"] == "2304k"
+            assert config["ML_timeline_settings"]["buffer_size"] == "2304k"
+            assert config["Runtime"]["verbosity"] == "5"
+            if source is not None:
+                assert config[debug]["other_setting"] == str(tmp_path)
+                assert config["Runtime"]["runtime_log"] == "console"
+                assert source.read_bytes() == before
+            if fail:
+                raise RuntimeError("benchmark failed")
+    except RuntimeError as error:
+        assert fail and str(error) == "benchmark failed"
+    assert generated is not None and not generated.exists()
+    assert os.environ.get("XRT_INI_PATH") == previous
+    if source is not None:
+        assert source.read_bytes() == before
+
+
+@pytest.mark.parametrize("invalid", ["missing", "malformed"])
+def test_invalid_explicit_xrt_config_fails_without_changing_environment(
+    tmp_path, monkeypatch, invalid
+):
+    source = tmp_path / "custom.ini"
+    if invalid == "malformed":
+        source.write_text(json.dumps({"not": "an INI"}), encoding="utf-8")
+    monkeypatch.setenv("XRT_INI_PATH", str(source))
+    with (
+        pytest.raises(RuntimeError, match="Cannot read XRT configuration"),
+        VitisAIOpMonitor.profiling_environment(tmp_path),
+    ):
+        pytest.fail("Invalid configuration must not start a benchmark")
+    assert os.environ["XRT_INI_PATH"] == str(source)
+
+
+@pytest.mark.parametrize(
+    ("ep", "device", "level", "expected"),
+    [
+        ("vitisai", "npu", "basic", True),
+        ("VitisAIExecutionProvider", "auto", "basic", True),
+        (None, "npu", "basic", True),
+        (None, "auto", "basic", True),
+        ("qnn", "npu", "basic", False),
+        ("vitisai", "npu", None, False),
+        ("vitisai", "npu", "detail", False),
+        (None, "gpu", "basic", False),
+    ],
+)
+def test_benchmark_prepares_xrt_before_model_loading(
+    tmp_path, monkeypatch, ep, device, level, expected
+):
+    from winml.modelkit.commands.perf import BenchmarkConfig, PerfBenchmark
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("XRT_INI_PATH", raising=False)
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "python.exe"))
+    benchmark = PerfBenchmark(
+        BenchmarkConfig(
+            model_id="generated.onnx",
+            ep=ep,
+            device=device,
+            op_tracing=level,
+            memory=False,
+            output_path=tmp_path / "report.json",
+        )
+    )
+    generated = []
+
+    def run():
+        path = os.environ.get("XRT_INI_PATH")
+        assert bool(path) == expected
+        if path:
+            generated.append(Path(path))
+            assert Path(path).is_file()
+        raise RuntimeError("stop before model loading")
+
+    monkeypatch.setattr(benchmark, "_run_with_memory", run)
+    with pytest.raises(RuntimeError, match="stop before model loading"):
+        benchmark.run()
+    assert "XRT_INI_PATH" not in os.environ
+    assert all(not path.exists() for path in generated)
+
+
+def test_benchmark_passes_only_profiling_options_to_model_loader(
+    source_model, tmp_path, monkeypatch
+):
+    from unittest.mock import MagicMock
+
+    from winml.modelkit.commands.perf import BenchmarkConfig, PerfBenchmark
+    from winml.modelkit.models import WinMLAutoModel
+
+    benchmark = PerfBenchmark(
+        BenchmarkConfig(
+            model_id=str(source_model[0]),
+            device="npu",
+            ep="vitisai",
+            op_tracing="basic",
+            ep_options={"vitisai_profiling": "0", "cacheDir": str(tmp_path)},
+            memory=False,
+            output_path=tmp_path / "report.json",
+        )
+    )
+    benchmark._ep_device = MagicMock()
+    benchmark._ep_device.device.ep_name = _PROVIDER
+    benchmark._ep_device.device.device_type = "NPU"
+    monkeypatch.setattr(benchmark, "_resolve_device_ep", lambda: None)
+    monkeypatch.setattr(VitisAIOpMonitor, "is_available", classmethod(lambda cls: True))
+    loader = MagicMock()
+    monkeypatch.setattr(WinMLAutoModel, "from_onnx", loader)
+    benchmark._load_model()
+    kwargs = loader.call_args.kwargs
+    assert "ep_monitor" not in kwargs
+    assert kwargs["ep_config"].enable_ep_context is False
+    assert kwargs["provider_options"] == {
+        "vitisai_profiling": "1", "cacheDir": str(tmp_path),
+    }
+    assert benchmark.config.ep_options["vitisai_profiling"] == "0"
+    options = kwargs["session_options"]()
+    assert options.enable_profiling
+    assert Path(options.profile_file_prefix).parent == tmp_path
+    assert kwargs["session_options"]() is not options
 
 
 @pytest.mark.parametrize(
