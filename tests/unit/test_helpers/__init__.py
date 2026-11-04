@@ -8,7 +8,13 @@ Guardrail:
         This package is helper-only; do not add ``test_*.py`` modules here.
 """
 
+from .gguf_fakes import RUNTIME_CALLBACK, FakeLogApi, make_timing
 from .stable_node_keys import stable_test_node_keys
 
 
-__all__ = ["stable_test_node_keys"]
+__all__ = [
+    "RUNTIME_CALLBACK",
+    "FakeLogApi",
+    "make_timing",
+    "stable_test_node_keys",
+]

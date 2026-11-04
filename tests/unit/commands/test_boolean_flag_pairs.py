@@ -104,6 +104,8 @@ from winml.modelkit.commands.serve import serve
                 "--no-monitor",
                 "--allow-unsupported-nodes",
                 "--no-allow-unsupported-nodes",
+                "--ignore-eos",
+                "--no-ignore-eos",
             ],
         ),
         (
@@ -159,6 +161,7 @@ class TestDefaultValues:
             (inspect, "hierarchy", False),
             (perf, "rebuild", False),
             (perf, "monitor", False),
+            (perf, "ignore_eos", False),
             (quantize, "per_channel", False),
             (quantize, "symmetric", False),
             (quantize, "reduce_range", False),

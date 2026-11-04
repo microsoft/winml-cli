@@ -12,12 +12,14 @@ makes aggregation deterministic without importing Windows ML Tasks. The session 
 from __future__ import annotations
 
 import json
+import os
+import re
 from io import StringIO
 from itertools import accumulate, count, pairwise
 from pathlib import Path
 from random import Random
 from statistics import fmean
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
 import click
@@ -25,13 +27,18 @@ import pytest
 from click.testing import CliRunner
 from rich.console import Console
 
+from tests.unit.test_helpers import RUNTIME_CALLBACK, FakeLogApi, make_timing
+from winml.modelkit.commands import _gguf_evidence
 from winml.modelkit.commands import _perf_gguf as perf_gguf
+from winml.modelkit.commands._gguf_evidence import request_row
+from winml.modelkit.commands._gguf_native_log import NativeLogCapture
 from winml.modelkit.commands._perf_gguf import (
     GGUFBenchmarkResult,
     GGUFPerfBenchmark,
     GGUFPerfConfig,
     display_gguf_report,
     gguf_output_path,
+    gguf_shard_paths,
     is_gguf_model,
     run_gguf_perf,
     write_gguf_report,
@@ -43,6 +50,10 @@ from winml.modelkit.session import (
     LlamaNotInstalledError,
     LlamaSessionError,
 )
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 # ---------------------------------------------------------------------------
@@ -87,10 +98,16 @@ class _FakeLlamaSession:
         *,
         prompt_ids: list[int] | None = None,
         chat_template: bool = True,
+        effective_context: int | None = None,
+        eos_readback: tuple[int, ...] | None = None,
     ) -> None:
         self._timings = list(timings)
         self._prompt_ids = prompt_ids if prompt_ids is not None else list(range(4))
         self._chat_template = chat_template
+        self._effective_context = effective_context
+        self._eos_readback = eos_readback
+        self.load_kwargs: dict[str, Any] = {}
+        self.submitted_ids: list[list[int]] = []
         self.chat_template_applied: bool | None = None
         self.context_length: int | None = None
         self.effective_device: str | None = None
@@ -120,13 +137,25 @@ class _FakeLlamaSession:
         self.chat_template_applied = apply_template and self._chat_template
         return list(self._prompt_ids)
 
-    def load(self, *, context_length: int | None = None) -> None:
+    def load(
+        self, *, context_length: int | None = None, eos_token_ids: tuple[int, ...] | None = None
+    ) -> None:
         self.calls.append("load")
-        self.context_length = context_length
+        self.load_kwargs = {"context_length": context_length, "eos_token_ids": eos_token_ids}
+        self.context_length = (
+            self._effective_context if self._effective_context is not None else context_length
+        )
         self.effective_device = "cpu"
+
+    @property
+    def task_default_eos_token_ids(self) -> tuple[int, ...]:
+        if self._eos_readback is not None:
+            return self._eos_readback
+        return () if self.load_kwargs.get("eos_token_ids") == () else (7,)
 
     def generate_timed(self, prompt_token_ids: list[int], **kwargs: Any) -> LlamaGenerationTiming:
         self.generate_kwargs.append(kwargs)
+        self.submitted_ids.append(list(prompt_token_ids))
         return self._timings.pop(0)
 
     def close(self) -> None:
@@ -162,9 +191,327 @@ def _gguf(tmp_path: Path, name: str = "model.gguf") -> Path:
     return model
 
 
+def _ids_file(tmp_path: Path, content: bytes) -> Path:
+    path = tmp_path / "ids.json"
+    path.write_bytes(content)
+    return path
+
+
+# The usage error for any ID file that parses but is not a list of token IDs.
+_NOT_AN_ID_ARRAY = "expected a non-empty JSON array of non-negative integer token IDs"
+
+
+class _LoggingSession(_FakeLlamaSession):
+    """Session double whose native calls log through ``api``, as llama.cpp does.
+
+    A fragment reaches the capture only while the capturing callback is installed.
+    ``fail_at`` makes that request raise as a failed Task request does, and
+    ``ctrl_c_in`` (``"load"`` or ``"request 0"``) makes a Ctrl+C arrive while
+    that native call logs.
+    """
+
+    def __init__(
+        self,
+        api: FakeLogApi,
+        evidence_path: Path,
+        *,
+        fail_at: int | None = None,
+        ctrl_c_in: str | None = None,
+    ) -> None:
+        super().__init__([])
+        self._api = api
+        self._evidence_path = evidence_path
+        self._fail_at = fail_at
+        self._ctrl_c_in = ctrl_c_in
+        self.ctrl_c_now = False
+        self.evidence_at_open: dict[str, Any] | None = None
+        self.callback_at_request: list[int | None] = []
+        self.callback_at_close: int | None = None
+        self.results: list[LlamaGenerationTiming] = []
+
+    def _log(self, call: str, text: str) -> None:
+        if self._api.callback != RUNTIME_CALLBACK:
+            # The capture's clock raises the Ctrl+C while it stamps this fragment.
+            self.ctrl_c_now = call == self._ctrl_c_in
+            self._api.emit(2, text.encode())
+
+    def open_tokenizer(self) -> None:
+        super().open_tokenizer()
+        self.evidence_at_open = _read(self._evidence_path)
+
+    def load(self, **kwargs: Any) -> None:
+        super().load(**kwargs)
+        self._log("load", "load_tensors: loaded\n")
+
+    def generate_timed(
+        self, prompt_token_ids: list[int], *, max_new_tokens: int, clock: Callable[[], float]
+    ) -> LlamaGenerationTiming:
+        position = len(self.callback_at_request)
+        self.calls.append("generate_timed")
+        self.callback_at_request.append(self._api.callback)
+        if position == self._fail_at:
+            raise LlamaSessionError("native session crashed")
+        self._log(f"request {position}", f"request {position}\n")
+        timing = make_timing(
+            clock, tokens=range(max_new_tokens), input_tokens=len(prompt_token_ids)
+        )
+        self.results.append(timing)
+        return timing
+
+    def close(self) -> None:
+        super().close()
+        self.callback_at_close = self._api.callback
+
+
+def _evidence_benchmark(
+    tmp_path: Path,
+    *,
+    fail_at: int | None = None,
+    ctrl_c_in: str | None = None,
+    owned: bool = False,
+    **config_overrides: Any,
+) -> tuple[GGUFPerfBenchmark, _LoggingSession, FakeLogApi]:
+    """Build an evidence benchmark; ``owned`` leaves session creation to the benchmark."""
+    values: dict[str, Any] = {
+        "prompt_ids": (1, 2, 3, 4),
+        "context_length": 16,
+        "ignore_eos": True,
+        "evidence_path": tmp_path / "ev.json",
+        **config_overrides,
+    }
+    config = _config(tmp_path, **values)
+    api = FakeLogApi()
+    session = _LoggingSession(api, tmp_path / "ev.json", fail_at=fail_at, ctrl_c_in=ctrl_c_in)
+    # Row readings and capture stamps share one clock, as on the real QPC.
+    ticks = count(1_000, 1_000)
+
+    def capture_clock_ns() -> int:
+        if session.ctrl_c_now:
+            session.ctrl_c_now = False
+            raise KeyboardInterrupt  # Ctrl+C arrives while the log callback runs
+        return next(ticks)
+
+    benchmark = GGUFPerfBenchmark(
+        config,
+        session=None if owned else session,
+        clock=lambda: next(ticks) / 1e9,
+        log_capture=NativeLogCapture(load_api=lambda: api, clock_ns=capture_clock_ns),
+    )
+    return benchmark, session, api
+
+
+def _read(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _explode(*_args: Any, **_kwargs: Any) -> None:
+    raise AssertionError("must not be called on the evidence path")
+
+
 # ---------------------------------------------------------------------------
 # Benchmark engine
 # ---------------------------------------------------------------------------
+
+
+class TestProtocolOptions:
+    def test_prompt_ids_skip_encoding_and_size_the_context(self, tmp_path: Path) -> None:
+        ids = (5, 6, 7, 8, 9)
+        result, session = _run_fake(
+            tmp_path,
+            [_timing(input_tokens=len(ids)) for _ in range(3)],
+            prompt_ids=ids,
+            apply_template=False,
+        )
+        assert "encode_prompt" not in session.calls
+        assert session.submitted_ids == [list(ids)] * 3
+        assert session.load_kwargs == {
+            "context_length": len(ids) + result.config.max_new_tokens,
+            "eos_token_ids": None,
+        }
+        assert all(sample.tokenization_duration_ms == 0.0 for sample in result.requests)
+
+    def test_context_length_overrides_the_derived_capacity(self, tmp_path: Path) -> None:
+        _, session = _run_fake(tmp_path, [_timing()] * 3, context_length=64)
+        assert session.load_kwargs["context_length"] == 64
+
+    def test_context_length_mismatch_fails_before_any_request(self, tmp_path: Path) -> None:
+        session = _FakeLlamaSession([_timing()] * 3, effective_context=32)
+        with pytest.raises(LlamaLoadError, match="--context-length 64"):
+            GGUFPerfBenchmark(_config(tmp_path, context_length=64), session=session).run()
+        assert session.generate_kwargs == []
+
+    def test_prompt_longer_than_context_length_fails_before_load(self, tmp_path: Path) -> None:
+        session = _FakeLlamaSession([_timing()] * 3, prompt_ids=list(range(8)))
+        with pytest.raises(LlamaSessionError, match="--context-length 10"):
+            GGUFPerfBenchmark(
+                _config(tmp_path, context_length=10, max_new_tokens=3), session=session
+            ).run()
+        assert "load" not in session.calls
+
+    def test_ignore_eos_requests_and_verifies_an_empty_set(self, tmp_path: Path) -> None:
+        _, session = _run_fake(tmp_path, [_timing()] * 3, ignore_eos=True)
+        assert session.load_kwargs["eos_token_ids"] == ()
+        bad = _FakeLlamaSession([_timing()] * 3, eos_readback=(7,))
+        with pytest.raises(LlamaLoadError, match="--ignore-eos"):
+            GGUFPerfBenchmark(_config(tmp_path, ignore_eos=True), session=bad).run()
+        assert bad.generate_kwargs == []
+
+    def test_schema3_reports_ignore_eos_and_no_prompt_text_for_token_ids(
+        self, tmp_path: Path
+    ) -> None:
+        stock = _run_fake(tmp_path, [_timing()] * 3)[0].to_dict()["benchmark_info"]
+        exact = _run_fake(
+            tmp_path,
+            [_timing()] * 3,
+            prompt_ids=(1, 2, 3, 4),
+            context_length=16,
+            ignore_eos=True,
+            apply_template=False,
+        )[0].to_dict()["benchmark_info"]
+        # The options add no keys of their own; every GGUF report has the same keys.
+        assert set(exact) == set(stock)
+        assert (stock["prompt"], stock["ignore_eos"]) == (
+            GGUFPerfConfig(model_path=Path("m.gguf")).prompt,
+            False,
+        )
+        assert (exact["prompt"], exact["ignore_eos"], exact["context_length"]) == (None, True, 16)
+
+
+class TestEvidenceRun:
+    def test_start_write_precedes_the_tokenizer_and_the_end_write_follows(
+        self, tmp_path: Path
+    ) -> None:
+        benchmark, session, _ = _evidence_benchmark(tmp_path)
+        result = benchmark.run()
+
+        assert session.evidence_at_open == {
+            "schema_version": "gguf-task-events-2",
+            "status": "running",
+            "pid": os.getpid(),
+        }
+        doc = _read(tmp_path / "ev.json")
+        assert (doc["schema_version"], doc["status"], doc["pid"], doc["error"]) == (
+            "gguf-task-events-2",
+            "complete",
+            os.getpid(),
+            None,
+        )
+        assert session.load_kwargs == {"context_length": 16, "eos_token_ids": ()}
+        # One request loop: each row holds the readings of the generate_timed call
+        # behind the schema 3 sample at the same position.
+        plan = [("warmup", 0), ("timed", 1), ("timed", 2)]
+        assert doc["requests"] == [
+            request_row(kind, index, timing)
+            for (kind, index), timing in zip(plan, session.results, strict=True)
+        ]
+        assert [(sample.kind, sample.index) for sample in result.requests] == plan
+
+    def test_capture_spans_the_load_through_request_0_only(self, tmp_path: Path) -> None:
+        benchmark, session, api = _evidence_benchmark(tmp_path)
+        benchmark.run()
+
+        assert session.callback_at_request[0] not in (None, RUNTIME_CALLBACK)
+        assert session.callback_at_request[1:] == [RUNTIME_CALLBACK, RUNTIME_CALLBACK]
+        assert api.callback == RUNTIME_CALLBACK
+        native_log = _read(tmp_path / "ev.json")["native_log"]
+        assert [fragment["text"] for fragment in native_log["fragments"]] == [
+            "load_tensors: loaded\n",
+            "request 0\n",
+        ]
+        assert (native_log["intact"], native_log["restored"]) == (True, True)
+
+    @pytest.mark.parametrize("fail_at", [0, 1])
+    def test_first_failure_ends_the_run_and_restores_the_callback_before_close(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail_at: int
+    ) -> None:
+        benchmark, session, _ = _evidence_benchmark(tmp_path, fail_at=fail_at, owned=True)
+        monkeypatch.setattr(perf_gguf, "WinMLLlamaSession", lambda *_a, **_k: session)
+
+        with pytest.raises(LlamaSessionError, match="native session crashed"):
+            benchmark.run()
+
+        doc = _read(tmp_path / "ev.json")
+        assert (doc["status"], doc["error"]) == (
+            "failed",
+            {"type": "LlamaSessionError", "message": "native session crashed"},
+        )
+        # The finished requests keep their rows, and no request runs after the failure.
+        assert len(doc["requests"]) == fail_at
+        assert session.calls.count("generate_timed") == fail_at + 1
+        assert session.closed
+        assert session.callback_at_close == RUNTIME_CALLBACK
+
+    @pytest.mark.parametrize(("ctrl_c_in", "requests_run"), [("load", 0), ("request 0", 1)])
+    def test_ctrl_c_during_capture_stops_the_run_after_that_native_call(
+        self, tmp_path: Path, ctrl_c_in: str, requests_run: int
+    ) -> None:
+        benchmark, session, api = _evidence_benchmark(tmp_path, ctrl_c_in=ctrl_c_in)
+
+        with pytest.raises(KeyboardInterrupt):
+            benchmark.run()
+
+        doc = _read(tmp_path / "ev.json")
+        assert (doc["status"], doc["error"]["type"]) == ("failed", "KeyboardInterrupt")
+        # The interrupted call finishes and nothing runs after it; request 0 keeps its row.
+        assert "load" in session.calls
+        assert session.calls.count("generate_timed") == requests_run
+        assert [row["index"] for row in doc["requests"]] == list(range(requests_run))
+        assert api.callback == RUNTIME_CALLBACK
+
+    def test_memory_tracker_is_never_used(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(perf_gguf, "_GenerationMemoryTracker", _explode)
+        benchmark, _, _ = _evidence_benchmark(tmp_path, memory=True)
+
+        assert benchmark.run().memory_profile is None
+
+
+class TestEvidenceCli:
+    @pytest.mark.parametrize(
+        ("fail_at", "exit_code", "status"), [(None, 0, "complete"), (1, 1, "failed")]
+    )
+    def test_exit_code_follows_the_evidence_status(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        fail_at: int | None,
+        exit_code: int,
+        status: str,
+    ) -> None:
+        evidence = tmp_path / "ev.json"
+        report = tmp_path / "report.json"
+        session = _LoggingSession(FakeLogApi(), evidence, fail_at=fail_at)
+        monkeypatch.setattr(perf_gguf, "WinMLLlamaSession", lambda *_a, **_k: session)
+        args = [
+            "-m",
+            str(_gguf(tmp_path)),
+            "--prompt-ids-file",
+            str(_ids_file(tmp_path, b"[1, 2, 3, 4]")),
+            "--context-length",
+            "16",
+            "--ignore-eos",
+            "--evidence",
+            str(evidence),
+            "--warmup",
+            "1",
+            "--iterations",
+            "2",
+            "--max-new-tokens",
+            "3",
+            "-o",
+            str(report),
+        ]
+        result = CliRunner().invoke(perf, args)
+
+        assert result.exit_code == exit_code, result.output
+        assert _read(evidence)["status"] == status
+        assert session.closed
+        # A complete run saves its report and names the evidence; a failed one only errors.
+        complete = status == "complete"
+        assert report.exists() is complete
+        assert (f"Evidence saved to: {evidence}" in result.output) is complete
+        assert ("native session crashed" in result.output) is not complete
 
 
 class TestBenchmark:
@@ -413,6 +760,49 @@ class TestReporting:
         assert "n/a tokens/sec" in output
         assert "n/a ms/token" in output
 
+    @pytest.mark.parametrize(
+        ("ignore_eos", "advice"),
+        [(False, "Try different token IDs or --ignore-eos."), (True, "Try different token IDs.")],
+    )
+    def test_zero_token_advice_fits_exact_token_ids(
+        self, tmp_path: Path, ignore_eos: bool, advice: str
+    ) -> None:
+        empty = _timing(generated_tokens=0, stop_reason="EOS")
+        result, _session = _run_fake(
+            tmp_path,
+            [empty] * 3,
+            prompt_ids=(1, 2, 3, 4),
+            apply_template=False,
+            ignore_eos=ignore_eos,
+        )
+        buffer = StringIO()
+        display_gguf_report(result, Console(file=buffer, width=200, color_system=None))
+
+        output = buffer.getvalue()
+        assert advice in output
+        assert "--prompt" not in output
+
+    @pytest.mark.parametrize(
+        ("apply_template", "ignore_eos", "advice"),
+        [
+            (True, False, "Try another --prompt, --no-apply-template, or --ignore-eos."),
+            (False, False, "Try another --prompt or --ignore-eos."),
+            (True, True, "Try another --prompt or --no-apply-template."),
+            (False, True, "Try another --prompt."),
+        ],
+    )
+    def test_zero_token_advice_offers_only_options_not_in_use(
+        self, tmp_path: Path, apply_template: bool, ignore_eos: bool, advice: str
+    ) -> None:
+        empty = _timing(generated_tokens=0, stop_reason="EOS")
+        result, _session = _run_fake(
+            tmp_path, [empty] * 3, apply_template=apply_template, ignore_eos=ignore_eos
+        )
+        buffer = StringIO()
+        display_gguf_report(result, Console(file=buffer, width=200, color_system=None))
+
+        assert advice in buffer.getvalue()
+
     def test_write_report_round_trips(self, tmp_path: Path) -> None:
         timings = [_timing() for _ in range(3)]
         result, _session = _run_fake(tmp_path, timings)
@@ -433,6 +823,26 @@ class TestReporting:
     )
     def test_is_gguf_model(self, value: str, expected: bool) -> None:
         assert is_gguf_model(value) is expected
+
+
+class TestModelShards:
+    def test_split_model_enumerates_every_gguf_split_shard(self, tmp_path: Path) -> None:
+        names = [f"m-{i:05d}-of-00003.gguf" for i in range(1, 4)]
+        for i, name in enumerate(names):
+            (tmp_path / name).write_bytes(bytes([i]) * 8)
+        assert [p.name for p in gguf_shard_paths(tmp_path / names[1])] == names
+        # Any other name is a single-file model.
+        assert gguf_shard_paths(tmp_path / "tiny.gguf") == [tmp_path / "tiny.gguf"]
+
+    def test_missing_shard_raises_only_when_shards_must_exist(self, tmp_path: Path) -> None:
+        entry = tmp_path / "m-00001-of-00002.gguf"
+        entry.write_bytes(b"a")
+        with pytest.raises(FileNotFoundError, match=re.escape("m-00002-of-00002.gguf")):
+            gguf_shard_paths(entry)
+        assert [p.name for p in gguf_shard_paths(entry, require_exists=False)] == [
+            "m-00001-of-00002.gguf",
+            "m-00002-of-00002.gguf",
+        ]
 
 
 class TestRunGGUFPerf:
@@ -643,6 +1053,325 @@ class TestCliDispatch:
 
         assert result.exit_code == 2, result.output
         assert "mutually exclusive" in result.output
+
+    def test_protocol_options_are_forwarded(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        ids = list(range(10))
+        evidence = tmp_path / "run" / "task-events.json"
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                str(_gguf(tmp_path)),
+                "--prompt-ids-file",
+                str(_ids_file(tmp_path, json.dumps(ids).encode())),
+                "--context-length",
+                "64",
+                "--ignore-eos",
+                "--evidence",
+                str(evidence),
+                "--max-new-tokens",
+                "8",
+                "-o",
+                str(tmp_path / "r.json"),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        config = capture_run["config"]
+        assert (
+            config.prompt_ids,
+            config.context_length,
+            config.ignore_eos,
+            config.evidence_path,
+            config.memory,
+            config.apply_template,
+        ) == (tuple(ids), 64, True, evidence, False, False)
+
+    @pytest.mark.parametrize(
+        ("content", "message"),
+        [
+            (b"[]", _NOT_AN_ID_ARRAY),
+            (b"[true]", _NOT_AN_ID_ARRAY),
+            (b"[1, 1.5]", _NOT_AN_ID_ARRAY),
+            (b"[-1]", _NOT_AN_ID_ARRAY),
+            (b'{"ids": [1]}', _NOT_AN_ID_ARRAY),
+            (b"1,2", "not valid JSON"),
+            (b"\xff[1]", "not valid JSON"),
+            pytest.param(b"[" * 100_000 + b"]" * 100_000, "not valid JSON", id="deeply-nested"),
+            pytest.param(
+                b"[" + b"9" * 5000 + b"]",
+                "contains an integer too large to be a token ID",
+                id="huge-integer",
+            ),
+        ],
+    )
+    def test_prompt_ids_file_rejects_malformed_content(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict, content: bytes, message: str
+    ) -> None:
+        path = _ids_file(tmp_path, content)
+        result = runner.invoke(perf, ["-m", str(_gguf(tmp_path)), "--prompt-ids-file", str(path)])
+
+        assert result.exit_code == 2, result.output
+        assert f"--prompt-ids-file {path}" in result.output
+        assert message in result.output
+        assert "config" not in capture_run
+
+    @pytest.mark.parametrize(
+        ("extra", "message"),
+        [
+            (["--prompt", "hi"], "cannot be combined"),
+            (["--prompt-file", "<file>"], "cannot be combined"),
+            (["--apply-template"], "--apply-template cannot be used with --prompt-ids-file"),
+        ],
+    )
+    def test_prompt_ids_conflicts_are_usage_errors(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        capture_run: dict,
+        extra: list[str],
+        message: str,
+    ) -> None:
+        prompt_file = tmp_path / "prompt.txt"
+        prompt_file.write_text("hello", encoding="utf-8")
+        extra = [str(prompt_file) if value == "<file>" else value for value in extra]
+        ids = _ids_file(tmp_path, b"[1, 2]")
+        result = runner.invoke(
+            perf, ["-m", str(_gguf(tmp_path)), "--prompt-ids-file", str(ids), *extra]
+        )
+
+        assert result.exit_code == 2, result.output
+        assert message in result.output
+        assert "config" not in capture_run
+
+    def test_explicit_no_apply_template_is_allowed_with_prompt_ids(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        ids = _ids_file(tmp_path, b"[1, 2]")
+        result = runner.invoke(
+            perf,
+            ["-m", str(_gguf(tmp_path)), "--prompt-ids-file", str(ids), "--no-apply-template"],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert capture_run["config"].apply_template is False
+
+    @pytest.mark.parametrize(
+        ("extra", "message"),
+        [
+            (["--memory"], "--memory cannot be used with --evidence"),
+            (
+                ["--warmup", "0"],
+                "--evidence needs at least one warmup request: the native log capture runs "
+                "through the first warmup request.",
+            ),
+        ],
+    )
+    def test_evidence_rejects_in_process_memory_and_zero_warmup(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        capture_run: dict,
+        extra: list[str],
+        message: str,
+    ) -> None:
+        evidence = tmp_path / "ev.json"
+        result = runner.invoke(
+            perf, ["-m", str(_gguf(tmp_path)), "--evidence", str(evidence), *extra]
+        )
+
+        assert result.exit_code == 2, result.output
+        assert message in result.output
+        assert "config" not in capture_run
+
+    @pytest.mark.parametrize("extra", [[], ["--no-memory"]])
+    def test_evidence_turns_off_default_memory_sampling(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict, extra: list[str]
+    ) -> None:
+        evidence = tmp_path / "ev.json"
+        result = runner.invoke(
+            perf, ["-m", str(_gguf(tmp_path)), "--evidence", str(evidence), *extra]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert capture_run["config"].memory is False
+
+    def test_evidence_must_be_new_unless_overwrite(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict
+    ) -> None:
+        (tmp_path / "ev.json").write_text("{}", encoding="utf-8")
+        args = ["-m", str(_gguf(tmp_path)), "--evidence", str(tmp_path / "ev.json")]
+
+        result = runner.invoke(perf, args)
+        assert result.exit_code == 1, result.output
+        assert "already exists" in result.output
+        assert "config" not in capture_run
+
+        result = runner.invoke(perf, [*args, "--overwrite"])
+        assert result.exit_code == 0, result.output
+        assert capture_run["config"].evidence_path == tmp_path / "ev.json"
+
+    @pytest.mark.parametrize("output", ["x.json", "X.JSON", "x.json.tmp"])
+    def test_evidence_and_output_must_differ(
+        self, runner: CliRunner, tmp_path: Path, capture_run: dict, output: str
+    ) -> None:
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                str(_gguf(tmp_path)),
+                "--evidence",
+                str(tmp_path / "x.json"),
+                "-o",
+                str(tmp_path / output),
+            ],
+        )
+
+        assert result.exit_code == 2, result.output
+        assert "--evidence and --output must name different files" in result.output
+        assert "config" not in capture_run
+
+    @pytest.mark.parametrize(
+        ("option", "victim", "message"),
+        [
+            ("--evidence", "model.gguf", "--evidence would overwrite the --model input"),
+            ("--evidence", "MODEL.GGUF", "--evidence would overwrite the --model input"),
+            ("--evidence", "ids.json", "--evidence would overwrite the --prompt-ids-file input"),
+            ("-o", "model.gguf", "--output would overwrite the --model input"),
+            ("-o", "ids.json", "--output would overwrite the --prompt-ids-file input"),
+        ],
+    )
+    def test_outputs_never_overwrite_the_model_or_the_ids_file(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        capture_run: dict,
+        option: str,
+        victim: str,
+        message: str,
+    ) -> None:
+        model = _gguf(tmp_path)
+        ids = _ids_file(tmp_path, b"[1, 2]")
+        target = tmp_path / victim
+        protected = {path: path.read_bytes() for path in (model, ids)}
+        result = runner.invoke(
+            perf,
+            [
+                "-m",
+                str(model),
+                "--prompt-ids-file",
+                str(ids),
+                option,
+                str(target),
+                "--overwrite",
+            ],
+        )
+
+        assert result.exit_code == 2, result.output
+        assert message in result.output
+        assert "config" not in capture_run
+        assert {path: path.read_bytes() for path in protected} == protected
+
+    @pytest.mark.parametrize("collision", ["report", "evidence", "temporary"])
+    @pytest.mark.parametrize("victim_index", [0, 2])
+    @pytest.mark.parametrize("missing_shard", [False, True])
+    def test_outputs_never_overwrite_another_model_shard(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        collision: str,
+        victim_index: int,
+        missing_shard: bool,
+    ) -> None:
+        shards = [tmp_path / f"model-{index:05d}-of-00004.gguf" for index in range(1, 5)]
+        random = Random(victim_index)
+        for shard in shards[:-1] if missing_shard else shards:
+            shard.write_bytes(random.randbytes(128))
+        model, victim = shards[1], shards[victim_index]
+        evidence, output = tmp_path / "ev.json", tmp_path / "report.json"
+        if collision == "report":
+            output = victim
+        elif collision == "evidence":
+            evidence = victim
+        else:
+            _gguf_evidence.temporary_path(evidence).hardlink_to(victim)
+        for path in (output, evidence, _gguf_evidence.temporary_path(evidence)):
+            if not path.exists():
+                path.write_bytes(random.randbytes(32))
+        before = {path: path.read_bytes() for path in tmp_path.iterdir()}
+
+        def persist_outputs(config: GGUFPerfConfig, **_kwargs: Any) -> None:
+            # Only model execution is replaced; exercise the real file writers.
+            if config.evidence_path is not None:
+                capture = NativeLogCapture(load_api=lambda: None)
+                _gguf_evidence.EvidenceRecorder(config, capture=capture).finish(None)
+            assert config.output_path is not None
+            write_gguf_report(GGUFBenchmarkResult(config), config.output_path)
+
+        monkeypatch.setattr(perf_gguf, "run_gguf_perf", persist_outputs)
+        args = ["-m", str(model), "--output", str(output), "--overwrite"]
+        if collision != "report":
+            args.extend(["--evidence", str(evidence)])
+        result = runner.invoke(perf, args)
+
+        assert {path: path.read_bytes() for path in tmp_path.iterdir()} == before
+        assert result.exit_code == 2, result.output
+        assert "would overwrite the --model input" in result.output
+        assert str(victim) in result.output
+
+    def test_missing_model_shard_still_writes_configuration_failure_evidence(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        model = _gguf(tmp_path, "model-00001-of-00002.gguf")
+        before = model.read_bytes()
+        evidence, output = tmp_path / "ev.json", tmp_path / "report.json"
+        result = runner.invoke(
+            perf, ["-m", str(model), "--evidence", str(evidence), "--output", str(output)]
+        )
+
+        assert result.exit_code == 1, result.output
+        document = _read(evidence)
+        assert document["status"] == "failed"
+        assert document["error"]["type"] == "FileNotFoundError"
+        assert "model-00002-of-00002.gguf" in result.output
+        assert model.read_bytes() == before
+        assert not output.exists()
+
+    @pytest.mark.parametrize(
+        "flag",
+        [
+            ["--prompt-ids-file", "<ids>"],
+            ["--context-length", "8"],
+            ["--ignore-eos"],
+            ["--evidence", "<ev>"],
+        ],
+    )
+    @pytest.mark.parametrize("kind", ["onnx", "genai"])
+    def test_gguf_only_options_are_rejected_for_other_runtimes(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        capture_run: dict,
+        flag: list[str],
+        kind: str,
+    ) -> None:
+        if kind == "onnx":
+            model = tmp_path / "model.onnx"
+            model.write_bytes(b"")
+        else:
+            model = tmp_path / "bundle"
+            model.mkdir()
+            (model / "genai_config.json").write_text("{}", encoding="utf-8")
+        values = {"<ids>": str(_ids_file(tmp_path, b"[1]")), "<ev>": str(tmp_path / "ev.json")}
+        flag = [values.get(value, value) for value in flag]
+        result = runner.invoke(perf, ["-m", str(model), *flag])
+
+        assert result.exit_code == 2, result.output
+        assert "only apply to GGUF models" in result.output
+        assert "config" not in capture_run
 
 
 class TestAutoRuntime:

@@ -20,6 +20,11 @@ import pytest
 
 
 SOURCE = Path(__file__).resolve().parents[3] / "src"
+# GGUF helper modules that only an evidence run loads: the evidence writer and the log capture.
+EVIDENCE_MODULES = [
+    "winml.modelkit.commands._gguf_evidence",
+    "winml.modelkit.commands._gguf_native_log",
+]
 GUARD = """
 import importlib.abc
 import json
@@ -88,11 +93,17 @@ def test_gguf_module_and_perf_help_do_not_import_unrelated_runtimes() -> None:
 
 
 @pytest.mark.parametrize(
-    ("device", "memory", "ignored_config"),
-    [("cpu", False, False), ("gpu", True, False), ("cpu", True, True)],
+    ("device", "memory", "ignored_config", "evidence"),
+    [
+        ("cpu", False, False, False),
+        ("gpu", True, False, False),
+        ("cpu", True, True, False),
+        # The benchmark skill's flag set: exact IDs, a fixed capacity, no EOS stop.
+        ("gpu", False, False, True),
+    ],
 )
 def test_gguf_command_runs_without_heavy_dependency_imports(
-    tmp_path: Path, device: str, memory: bool, ignored_config: bool
+    tmp_path: Path, device: str, memory: bool, ignored_config: bool, evidence: bool
 ) -> None:
     outcome = _run_isolated(
         """
@@ -101,11 +112,11 @@ def test_gguf_command_runs_without_heavy_dependency_imports(
         from click.testing import CliRunner
         from winml.modelkit.cli import main
         from winml.modelkit.commands import _perf_gguf
-        from winml.modelkit.session.llama_session import LlamaGenerationTiming
+        from winml.modelkit.session import LlamaGenerationTiming
         from winml.modelkit.telemetry.telemetry import Telemetry
 
         Telemetry.get_or_init = classmethod(lambda cls: SimpleNamespace(disabled=True))
-        root, device, memory, ignored_config = sys.argv[1:]
+        root, device, memory, ignored_config, evidence = sys.argv[1:]
         memory = memory == "True"
         root = Path(root)
         model = root / "placeholder.gguf"
@@ -120,6 +131,7 @@ def test_gguf_command_runs_without_heavy_dependency_imports(
                 self.context_length = None
                 self.effective_device = None
                 self.chat_template_applied = None
+                self.task_default_eos_token_ids = None
                 self.load_timings_ms = {}
                 self.payload = None
                 self.generated = 0
@@ -130,36 +142,50 @@ def test_gguf_command_runs_without_heavy_dependency_imports(
                 pass
 
             def encode_prompt(self, prompt, *, apply_template):
+                assert evidence != "True", "exact token IDs are never encoded"
                 assert prompt == "test prompt"
                 self.chat_template_applied = apply_template
                 return [1, 2, 3, 4]
 
-            def load(self, *, context_length):
+            def load(self, *, context_length, eos_token_ids=None):
                 self.context_length = context_length
                 self.effective_device = self.device
+                eos = (2,) if eos_token_ids is None else tuple(eos_token_ids)
+                self.task_default_eos_token_ids = eos
 
             def generate_timed(self, token_ids, *, max_new_tokens, clock):
                 assert token_ids == [1, 2, 3, 4] and max_new_tokens == 3
                 self.generated += 1
+                submit, *token_times, completed = (clock() for _ in range(max_new_tokens + 2))
                 return LlamaGenerationTiming(
                     input_tokens=4, generated_tokens=3, reset_s=0.001,
                     stream_create_s=0.001, first_token_s=0.01,
                     decode_s=[0.002, 0.003], completion_s=0.001,
                     result_fetch_s=0.001, generation_s=0.017,
                     response_text="abc", stop_reason="MAX_TOKENS",
+                    submit_time=submit, token_times=tuple(token_times),
+                    completed_time=completed, token_ids=(10, 11, 12),
                 )
 
             def close(self):
                 self.closed = True
 
         # Only the native session is replaced; dispatch, aggregation, memory
-        # checkpoint readers and report persistence execute their real code.
+        # checkpoint readers, the native log capture, the evidence writes and
+        # report persistence execute their real code.
         _perf_gguf.WinMLLlamaSession = FakeSession
-        args = ["perf", "-m", str(model), "--device", device,
-                "--prompt", "test prompt", "--max-new-tokens", "3",
+        args = ["perf", "-m", str(model), "--device", device, "--max-new-tokens", "3",
                 "--warmup", "1", "--iterations", "2", "--output", str(output)]
-        if not memory:
-            args.append("--no-memory")
+        if evidence == "True":
+            # As the skill runs it: no memory option, since --evidence turns sampling off.
+            ids = root / "prompt-ids.json"
+            ids.write_text("[1, 2, 3, 4]", encoding="utf-8")
+            args.extend(["--prompt-ids-file", str(ids), "--context-length", "256",
+                         "--ignore-eos", "--evidence", str(root / "task-events.json")])
+        else:
+            args.extend(["--prompt", "test prompt"])
+            if not memory:
+                args.append("--no-memory")
         if ignored_config == "True":
             config = root / "ignored-config.json"
             config.write_text("{}", encoding="utf-8")
@@ -168,12 +194,12 @@ def test_gguf_command_runs_without_heavy_dependency_imports(
         assert result.exit_code == 0, (result.output, repr(result.exception))
         assert not attempts, attempts
         assert not [name for name in sys.modules if is_blocked(name)]
+        assert "windowsml" not in sys.modules
         assert len(sessions) == 1 and sessions[0].generated == 3 and sessions[0].closed
         data = json.loads(output.read_text(encoding="utf-8"))
         assert data["schema_version"] == 3
         assert data["benchmark_info"]["api"] == "windowsml.tasks"
         assert data["benchmark_info"]["effective_device"] == device
-        assert data["benchmark_info"]["context_length"] == 7
         assert data["aggregate"]["warmup_request_count"] == 1
         assert data["aggregate"]["timed_request_count"] == 2
         assert len(data["requests"]) == 3
@@ -184,11 +210,34 @@ def test_gguf_command_runs_without_heavy_dependency_imports(
             assert data["memory"]["rss_after_compile_mb"] > 0
             assert data["memory"]["rss_after_inference_mb"] > 0
             assert not any(key.startswith("vram") for key in data["memory"])
-        print(json.dumps({"device": device, "memory": memory, "imports": attempts}))
+        rows = None
+        if evidence == "True":
+            document = json.loads((root / "task-events.json").read_text(encoding="utf-8"))
+            assert document["status"] == "complete", document
+            rows = len(document["requests"])
+        info = data["benchmark_info"]
+        print(json.dumps({
+            "device": device, "memory": memory, "context_length": info["context_length"],
+            "ignore_eos": info["ignore_eos"], "prompt": info["prompt"], "rows": rows,
+            "gguf_modules": sorted(
+                name for name in sys.modules if name.startswith("winml.modelkit.commands._gguf_")
+            ),
+            "imports": attempts,
+        }))
         """,
         str(tmp_path),
         device,
         str(memory),
         str(ignored_config),
+        str(evidence),
     )
-    assert outcome == {"device": device, "memory": memory, "imports": []}
+    assert outcome == {
+        "device": device,
+        "memory": memory,
+        "context_length": 256 if evidence else 7,
+        "ignore_eos": evidence,
+        "prompt": None if evidence else "test prompt",
+        "rows": 3 if evidence else None,
+        "gguf_modules": EVIDENCE_MODULES if evidence else [],
+        "imports": [],
+    }
