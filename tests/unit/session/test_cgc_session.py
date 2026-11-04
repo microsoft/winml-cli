@@ -685,12 +685,12 @@ def test_uncreatable_program_cache_is_a_load_error(
             None,
         ),
         (
-            "set_model",
+            "load_model",
             _WinMLError(_E_FAIL),
             "gguf",
             CGCLoadError,
-            ["CGC set_model failed (0x80004005)"],
-            None,
+            ["CGC model load failed (0x80004005)"],
+            "cannot run this model",
         ),
     ],
 )
@@ -718,6 +718,31 @@ def test_windows_ml_errors_become_actionable_messages(
     for text in expected:
         assert text in message
     assert absent is None or absent not in message
+
+
+@pytest.mark.parametrize("model_format", ["gguf", "safetensors"])
+@pytest.mark.parametrize("hr", [0x80070032, _E_FAIL], ids=["not-supported", "e-fail"])
+def test_set_model_rejection_keeps_the_hresult_and_native_text(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, hr: int, model_format: str
+) -> None:
+    # The 2.8 CGC backend rejects an encoder-only checkpoint in set_model with
+    # E_FAIL instead of ERROR_NOT_SUPPORTED; both mean it cannot run the model.
+    error = _WinMLError(hr, "IWinMLModelTextGenerationConfiguration.SetModel")
+    apis = _FakeApis(fail={"set_model": error})
+    session = _session(monkeypatch, apis, tmp_path / "model", model_format=model_format)
+
+    with pytest.raises(CGCLoadError) as excinfo:
+        session.open_tokenizer()
+    session.close()
+
+    assert excinfo.value.__cause__ is error
+    message = str(excinfo.value)
+    assert f"cannot run this model on {_ADAPTER_NAME} ({_ADAPTER_LUID})" in message
+    assert f"set_model returned 0x{hr:08X}" in message
+    assert str(error) in message
+    # Only a .gguf file has another engine to point to; none is tried.
+    assert ("omit --backend cgc" in message) is (model_format == "gguf")
+    assert apis.calls[-1] == "set_model"
 
 
 def test_tasks_api_without_set_model_needs_the_preview(

@@ -58,14 +58,20 @@ _CGC_MODULES: tuple[str, ...] = ("windowsml.runtime", "windowsml.tasks")
 
 # HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED): the CGC route does not serve the request.
 _HRESULT_NOT_SUPPORTED = 0x80070032
+# E_FAIL: in the 2.8.183.dev0 preview, set_model rejects some models the CGC
+# backend cannot run with this HRESULT instead (an encoder-only checkpoint).
+_HRESULT_FAIL = 0x80004005
 # HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND) and HRESULT_FROM_WIN32(ERROR_PATH_NOT_FOUND).
 _HRESULTS_NOT_FOUND = frozenset({0x80070002, 0x80070003})
 # E_NOINTERFACE: the installed Windows ML lacks a model-backed interface.
 _HRESULT_NO_INTERFACE = 0x80004002
 
-# Phases in which ERROR_NOT_SUPPORTED means the CGC backend does not serve the
-# model, mapped to the Windows ML call that returned it.
-_MODEL_CALLS = {"model load": "load_model", "set_model": "set_model"}
+# Phases in which Windows ML can reject a model the CGC backend does not serve,
+# mapped to the call that failed and the HRESULTs that mean it cannot run the model.
+_MODEL_CALLS: dict[str, tuple[str, frozenset[int]]] = {
+    "model load": ("load_model", frozenset({_HRESULT_NOT_SUPPORTED})),
+    "set_model": ("set_model", frozenset({_HRESULT_NOT_SUPPORTED, _HRESULT_FAIL})),
+}
 
 
 # =============================================================================
@@ -639,15 +645,16 @@ class WinMLCGCSession:
                 "needs config.json, its *.safetensors weights (or model.safetensors.index.json "
                 "and every shard it lists), tokenizer.json and tokenizer_config.json."
             )
-        if hr == _HRESULT_NOT_SUPPORTED and phase in _MODEL_CALLS:
+        call, unsupported = _MODEL_CALLS.get(phase, ("", frozenset()))
+        if hr in unsupported:
             message = (
                 f"Windows ML CGC cannot run this model on {self._adapter_label} "
-                f"({_MODEL_CALLS[phase]} returned {hex_hr}): the installed CGC backend does "
-                "not support it, and winml-cli does not fall back to another engine."
+                f"({call} returned {hex_hr}): the installed CGC backend does not support it, "
+                "and winml-cli does not fall back to another engine."
             )
             if self._model_format == "gguf":
                 message += " To run this .gguf file on llama.cpp, omit --backend cgc."
-            return CGCLoadError(message)
+            return CGCLoadError(f"{message} Windows ML reported: {exc}")
         if hr == _HRESULT_NOT_SUPPORTED and phase == "create_session":
             return CGCLoadError(
                 f"The selected GPU {self._adapter_label} or the requested options cannot run "
