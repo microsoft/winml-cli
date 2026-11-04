@@ -3242,6 +3242,34 @@
 <td><code>128</code></td>
 <td><em>(ort-genai, GGUF)</em> Number of new tokens to generate per iteration.</td>
 </tr>
+<tr>
+<td><code>--prompt-ids-file</code></td>
+<td></td>
+<td><code>PATH</code></td>
+<td>—</td>
+<td><em>(GGUF)</em> JSON array of exact prompt token IDs submitted on every request, without a chat template. Cannot be combined with <code>--prompt</code>, <code>--prompt-file</code>, or <code>--apply-template</code>.</td>
+</tr>
+<tr>
+<td><code>--context-length</code></td>
+<td></td>
+<td><code>INTEGER</code></td>
+<td>prompt + <code>--max-new-tokens</code></td>
+<td><em>(GGUF)</em> Sequence capacity to load the model with; use a multiple of 256. The run fails unless the Runtime reports exactly this capacity.</td>
+</tr>
+<tr>
+<td><code>--ignore-eos/--no-ignore-eos</code></td>
+<td></td>
+<td>flag</td>
+<td><code>false</code></td>
+<td><em>(GGUF)</em> Create the Task with an empty end-of-sequence set so every request generates <code>--max-new-tokens</code> tokens unless it reaches the sequence capacity.</td>
+</tr>
+<tr>
+<td><code>--evidence</code></td>
+<td></td>
+<td><code>PATH</code></td>
+<td>—</td>
+<td><em>(GGUF)</em> Write raw <code>gguf-task-events-2</code> request evidence to this new JSON file. Needs <code>--warmup</code> of at least 1 and turns off <code>--memory</code>. Other inputs reject this option and the three above.</td>
+</tr>
 </tbody>
 </table>
 <h2 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
@@ -3407,6 +3435,12 @@ throughput without a decode interval are also <code>null</code>. See the
 <a href="../../samples/gguf-llama-perf/#report-fields">GGUF report fields</a> for exact boundaries.
 These timings differ from earlier GGUF schema version 2 Runtime measurements and
 the <code>ort-genai</code> metric definitions above; <code>ort-genai</code> remains unchanged.</p>
+<p>For a fixed workload, <code>--prompt-ids-file</code>, <code>--context-length</code>, and <code>--ignore-eos</code>
+submit exact token IDs, pin the sequence capacity, and run every request to
+<code>--max-new-tokens</code>. <code>--evidence PATH</code> also writes raw per-request time points and
+the native llama.cpp log in the <code>gguf-task-events-2</code> format. The first failure ends
+the run, and the command exits with code 1 unless every request succeeded. See
+<a href="../../samples/gguf-llama-perf/#protocol-runs-with-exact-token-ids">Protocol runs with exact token IDs</a>.</p>
 <h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h2>
 <h3 id="memory-measurement-contract">Memory measurement contract<a class="headerlink" href="#memory-measurement-contract" title="Permanent link">&para;</a></h3>
 <p>With <code>--memory</code>, classic runs use the lifecycle boundaries described

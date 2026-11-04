@@ -2250,6 +2250,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#protocol-runs-with-exact-token-ids" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Protocol runs with exact token IDs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#run-on-a-gpu" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2786,6 +2797,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#protocol-runs-with-exact-token-ids" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Protocol runs with exact token IDs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#run-on-a-gpu" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3001,6 +3023,22 @@ unless you pass <code>--output</code>.</p>
 <td>Upper bound on generated tokens per generation.</td>
 </tr>
 <tr>
+<td><code>--prompt-ids-file</code></td>
+<td>A JSON array of token IDs submitted unchanged on every generation, with no chat template and no tokenization. Cannot be combined with <code>--prompt</code>, <code>--prompt-file</code>, or <code>--apply-template</code>.</td>
+</tr>
+<tr>
+<td><code>--context-length</code></td>
+<td>Sequence capacity to load the model with, instead of the prompt tokens plus <code>--max-new-tokens</code>. Use a multiple of 256, because llama.cpp can round other values up. The run fails before the first generation unless the Runtime reports exactly this capacity.</td>
+</tr>
+<tr>
+<td><code>--ignore-eos/--no-ignore-eos</code></td>
+<td>Create the Task with an empty end-of-sequence set, so each generation runs to <code>--max-new-tokens</code> unless it reaches the sequence capacity. The run fails if the Task still reports end-of-sequence tokens.</td>
+</tr>
+<tr>
+<td><code>--evidence</code></td>
+<td>Write raw <code>gguf-task-events-2</code> request evidence to this JSON file, which must be new unless you pass <code>--overwrite</code>. The evidence file, its temporary file (the same name plus <code>.tmp</code>), and <code>--output</code> cannot name any model shard or the <code>--prompt-ids-file</code> input, even with <code>--overwrite</code>. Evidence paths must also differ from <code>--output</code>. Needs <code>--warmup</code> of at least <code>1</code> and turns off <code>--memory</code>; an explicit <code>--memory</code> is an error.</td>
+</tr>
+<tr>
 <td><code>--iterations</code>, <code>--warmup</code></td>
 <td>Timed and warmup generations (defaults <code>10</code> and <code>2</code>).</td>
 </tr>
@@ -3010,10 +3048,12 @@ unless you pass <code>--output</code>.</p>
 </tr>
 <tr>
 <td><code>--output</code>, <code>--overwrite</code>, <code>--format json</code></td>
-<td>Same as for the other runtimes.</td>
+<td>Same as for the other runtimes, except that <code>--output</code> cannot name the model, any of its shards, or the <code>--prompt-ids-file</code> input, even with <code>--overwrite</code>.</td>
 </tr>
 </tbody>
 </table>
+<p><code>--prompt-ids-file</code>, <code>--context-length</code>, <code>--ignore-eos</code>, and <code>--evidence</code> apply only
+to GGUF models; <code>winml perf</code> rejects them for other inputs.</p>
 <p>Options that select another benchmark target are rejected: <code>--ep</code>, <code>--ep-options</code>,
 <code>--backend</code>, <code>--device-luid</code>, <code>--input-data</code>, <code>--module</code>, and <code>--submodel</code>.
 Build-only and ONNX-only options, such as <code>--precision</code>, <code>--task</code>, <code>--compile</code>,
@@ -3029,6 +3069,143 @@ capacity. The stop reason of the first timed generation is saved as
 <code>benchmark_info.stop_reason</code>, and <code>aggregate.stop_reason_counts</code> counts all timed
 generations. The Task session is reset before every warmup and timed request, so
 each generation evaluates its prompt independently.</p>
+<h2 id="protocol-runs-with-exact-token-ids">Protocol runs with exact token IDs<a class="headerlink" href="#protocol-runs-with-exact-token-ids" title="Permanent link">&para;</a></h2>
+<p>To compare the Task API with another llama.cpp host on the same workload, fix the
+prompt tokens, the sequence capacity, and the output length, and record raw
+per-request evidence:</p>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">winml</span> <span class="n">perf</span> <span class="n">-m</span> <span class="n">models</span><span class="p">\</span><span class="n">qwen2</span><span class="p">.</span><span class="n">5</span><span class="p">-</span><span class="n">0</span><span class="p">.</span><span class="n">5b-instruct-q4_k_m</span><span class="p">.</span><span class="n">gguf</span> <span class="p">-</span><span class="n">-device</span> <span class="n">gpu</span> <span class="p">`</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>  <span class="p">-</span><span class="n">-prompt-ids</span><span class="o">-file</span> <span class="n">prompt-ids</span><span class="p">.</span><span class="n">json</span> <span class="p">-</span><span class="n">-max-new-tokens</span> <span class="n">128</span> <span class="p">-</span><span class="n">-context-length</span> <span class="n">4096</span> <span class="p">`</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>  <span class="p">-</span><span class="n">-ignore-eos</span> <span class="p">-</span><span class="n">-warmup</span> <span class="n">10</span> <span class="p">-</span><span class="n">-iterations</span> <span class="n">25</span> <span class="p">`</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>  <span class="p">-</span><span class="n">-evidence</span> <span class="n">runs</span><span class="p">\</span><span class="n">task-events</span><span class="p">.</span><span class="n">json</span> <span class="p">-</span><span class="n">-format</span> <span class="n">json</span> <span class="p">-</span><span class="n">-output</span> <span class="n">runs</span><span class="p">\</span><span class="n">winml-perf</span><span class="p">.</span><span class="n">json</span>
+</span></code></pre></div>
+<p><code>prompt-ids.json</code> holds a JSON array of token IDs, for example <code>[151644, 872, 198]</code>.
+Every request checks the IDs against the model vocabulary and the sequence capacity,
+then submits them unchanged. <code>--context-length</code> must hold the prompt plus
+<code>--max-new-tokens</code>, and <code>--ignore-eos</code> makes every request generate exactly
+<code>--max-new-tokens</code> tokens unless it reaches the capacity. Each request uses greedy
+Task options with every field set explicitly.</p>
+<p><code>--evidence PATH</code> writes one JSON document in the <code>gguf-task-events-2</code> format, twice.
+Each write goes to <code>PATH.tmp</code> first and then replaces <code>PATH</code>, so a reader never sees
+a partial document. The start write, made before the Runtime is imported, holds only
+<code>schema_version</code>, <code>status: running</code>, and the <code>pid</code> of the measuring process, so an
+external observer can attach to that process before the model loads. The end write
+follows when the run ends:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>status</code></td>
+<td><code>complete</code> when every request succeeded, or <code>failed</code> when anything failed (exit code 1). The end write comes before the schema 3 report is printed and saved, so after <code>complete</code> the command exits with code 0 unless that step fails. A <code>running</code> document after the command exits means the process ended without its end write.</td>
+</tr>
+<tr>
+<td><code>error</code></td>
+<td><code>null</code>, or the <code>type</code> and <code>message</code> of the error that ended the run.</td>
+</tr>
+<tr>
+<td><code>workload</code></td>
+<td>The requested workload: <code>input_ids_sha256</code> (SHA-256 of the IDs as a compact JSON array, such as <code>[1,2,3]</code>) and <code>input_token_count</code>, both <code>null</code> for a text prompt; <code>max_new_tokens</code>; <code>context_length</code> (<code>null</code> without <code>--context-length</code>); <code>ignore_eos</code>; <code>warmup</code>; and <code>iterations</code>.</td>
+</tr>
+<tr>
+<td><code>packages</code></td>
+<td>Installed versions of the packages in <code>benchmark_info.packages</code>, and of <code>winml-cli</code>.</td>
+</tr>
+<tr>
+<td><code>requests[]</code></td>
+<td>One row per finished request, in order (below).</td>
+</tr>
+<tr>
+<td><code>native_log</code></td>
+<td>The native log capture (below).</td>
+</tr>
+</tbody>
+</table>
+<p>The first failure ends the run: no later request runs, the rows of the requests that
+finished are kept, and no schema 3 report is saved. Each request row has these
+fields:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>kind</code>, <code>index</code></td>
+<td><code>warmup</code> or <code>timed</code>, and the position in the run, as in the schema 3 <code>requests</code>.</td>
+</tr>
+<tr>
+<td><code>submit_ns</code></td>
+<td>Immediately before <code>generate_tokens</code>, after the session reset.</td>
+</tr>
+<tr>
+<td><code>output_events[]</code></td>
+<td>One per token update: <code>observed_ns</code> when <code>read_next()</code> returned it, and its <code>token_id</code>.</td>
+</tr>
+<tr>
+<td><code>completed_ns</code></td>
+<td>When <code>read_next()</code> returned the end of the stream.</td>
+</tr>
+<tr>
+<td><code>stop_reason</code></td>
+<td><code>MAX_TOKENS</code>, <code>EOS</code>, <code>STOP_TOKEN</code>, <code>CAPACITY</code>, or <code>CANCELED</code>.</td>
+</tr>
+<tr>
+<td><code>prompt_tokens</code></td>
+<td>The prompt token count the Task reported.</td>
+</tr>
+<tr>
+<td><code>cached_tokens</code></td>
+<td>Tokens the Task session still held right after its reset: <code>0</code> when the prompt was evaluated from an empty session, <code>null</code> when the session could not report its state.</td>
+</tr>
+</tbody>
+</table>
+<p><code>native_log</code> holds the raw llama.cpp log from model load through the first warmup
+request; then the Runtime's own log callback is restored. It is one flat object with
+five keys:</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>installed</code></td>
+<td>Whether the capturing callback was installed.</td>
+</tr>
+<tr>
+<td><code>reason</code></td>
+<td>Why the capture was not installed, or <code>null</code> when it was.</td>
+</tr>
+<tr>
+<td><code>intact</code></td>
+<td>Whether the capturing callback was still installed when the capture ended; <code>null</code> when the capture was not installed or reading the current callback failed.</td>
+</tr>
+<tr>
+<td><code>restored</code></td>
+<td>Whether the Runtime's own callback is back; <code>false</code> when the capture was not installed.</td>
+</tr>
+<tr>
+<td><code>fragments[]</code></td>
+<td>One entry per call of the llama.cpp log callback, in order: its <code>level</code>, its <code>text</code> as emitted (line breaks included), and its own <code>qpc_ns</code> stamp. Continuation fragments (level 5) stay separate entries; a reader joins them to the line they continue.</td>
+</tr>
+</tbody>
+</table>
+<p>Backend registration and device lines go to the process's stderr before the Runtime
+installs its logger, so they are not captured.</p>
+<p>Row stamps are <code>time.perf_counter()</code> readings converted to integer nanoseconds, and
+fragment stamps are <code>time.perf_counter_ns()</code> readings. Both are in the machine-wide
+QPC domain, so another process on the same machine can align its own samples with
+them.</p>
+<p>Every GGUF schema 3 report has <code>benchmark_info.ignore_eos</code>. With
+<code>--prompt-ids-file</code>, <code>benchmark_info.prompt</code> is <code>null</code>.</p>
 <h2 id="run-on-a-gpu">Run on a GPU<a class="headerlink" href="#run-on-a-gpu" title="Permanent link">&para;</a></h2>
 <p>The <code>windowsml-llama-core</code> wheel ships only the CPU backend. Windows ML does not
 publish a <code>windowsml-llama-cuda</code> wheel for this release. Build a matching GPU
@@ -3058,19 +3235,19 @@ it discovers Visual Studio; an ordinary PowerShell session is insufficient.
 Activate the experimental Python environment in that session. From the matching
 Windows ML checkout root, set the paths for the downloaded Core package and
 installed CUDA Toolkit, then run:</p>
-<div class="language-powershell highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nv">$corePackage</span> <span class="p">=</span> <span class="s1">'&lt;path to Microsoft.Windows.AI.MachineLearning.LibLlama.Core.0.5.0.2022-experimental.nupkg&gt;'</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="nv">$expectedSha256</span> <span class="p">=</span> <span class="s1">'&lt;verified 64-character SHA-256 of that package&gt;'</span>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="nv">$cudaToolkit</span> <span class="p">=</span> <span class="s1">'&lt;installed CUDA Toolkit directory&gt;'</span>
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="nv">$library</span> <span class="p">=</span> <span class="n">python</span> <span class="n">-c</span> <span class="s2">"import pathlib, windowsml; print(pathlib.Path(windowsml.__file__).parent / 'lib')"</span>
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>
-</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="p">.\</span><span class="n">Tools</span><span class="p">\</span><span class="n">llama</span><span class="p">\</span><span class="n">Build-LlamaBackend</span><span class="p">.</span><span class="n">ps1</span> <span class="p">`</span>
-</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>  <span class="n">-Backend</span> <span class="n">cuda</span> <span class="p">`</span>
-</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>  <span class="n">-Architecture</span> <span class="n">x64</span> <span class="p">`</span>
-</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>  <span class="n">-CMakeOption</span> <span class="s2">"-DCUDAToolkit_ROOT=$cudaToolkit"</span> <span class="p">`</span>
-</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a>  <span class="n">-CorePackage</span> <span class="nv">$corePackage</span> <span class="p">`</span>
-</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>  <span class="n">-ExpectedPackageSha256</span> <span class="nv">$expectedSha256</span> <span class="p">`</span>
-</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>  <span class="n">-OutputRoot</span> <span class="nv">$library</span> <span class="p">`</span>
-</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>  <span class="n">-WorkRoot</span> <span class="p">(</span><span class="nb">Join-Path</span> <span class="nv">$PWD</span> <span class="s1">'temp\llama-cuda'</span><span class="p">)</span>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nv">$corePackage</span> <span class="p">=</span> <span class="s1">'&lt;path to Microsoft.Windows.AI.MachineLearning.LibLlama.Core.0.5.0.2022-experimental.nupkg&gt;'</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="nv">$expectedSha256</span> <span class="p">=</span> <span class="s1">'&lt;verified 64-character SHA-256 of that package&gt;'</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="nv">$cudaToolkit</span> <span class="p">=</span> <span class="s1">'&lt;installed CUDA Toolkit directory&gt;'</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="nv">$library</span> <span class="p">=</span> <span class="n">python</span> <span class="n">-c</span> <span class="s2">"import pathlib, windowsml; print(pathlib.Path(windowsml.__file__).parent / 'lib')"</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="p">.\</span><span class="n">Tools</span><span class="p">\</span><span class="n">llama</span><span class="p">\</span><span class="n">Build-LlamaBackend</span><span class="p">.</span><span class="n">ps1</span> <span class="p">`</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>  <span class="n">-Backend</span> <span class="n">cuda</span> <span class="p">`</span>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>  <span class="n">-Architecture</span> <span class="n">x64</span> <span class="p">`</span>
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>  <span class="n">-CMakeOption</span> <span class="s2">"-DCUDAToolkit_ROOT=$cudaToolkit"</span> <span class="p">`</span>
+</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>  <span class="n">-CorePackage</span> <span class="nv">$corePackage</span> <span class="p">`</span>
+</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>  <span class="n">-ExpectedPackageSha256</span> <span class="nv">$expectedSha256</span> <span class="p">`</span>
+</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>  <span class="n">-OutputRoot</span> <span class="nv">$library</span> <span class="p">`</span>
+</span><span id="__span-6-13"><a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a>  <span class="n">-WorkRoot</span> <span class="p">(</span><span class="nb">Join-Path</span> <span class="nv">$PWD</span> <span class="s1">'temp\llama-cuda'</span><span class="p">)</span>
 </span></code></pre></div>
 <p>The script checks that the environment's Core payload matches the NuGet package,
 builds the backend from the package's exact llama.cpp commit, and writes
@@ -3084,7 +3261,7 @@ with the toolkit version. NVIDIA's toolkit and runtime license terms apply to
 those files.</p>
 <p>Then run the benchmark from the directory containing the <code>models</code> folder, or
 pass an absolute model path:</p>
-<div class="language-powershell highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">winml</span> <span class="n">perf</span> <span class="n">-m</span> <span class="n">models</span><span class="p">\</span><span class="n">qwen2</span><span class="p">.</span><span class="n">5</span><span class="p">-</span><span class="n">0</span><span class="p">.</span><span class="n">5b-instruct-q4_k_m</span><span class="p">.</span><span class="n">gguf</span> <span class="p">-</span><span class="n">-device</span> <span class="n">gpu</span>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">winml</span> <span class="n">perf</span> <span class="n">-m</span> <span class="n">models</span><span class="p">\</span><span class="n">qwen2</span><span class="p">.</span><span class="n">5</span><span class="p">-</span><span class="n">0</span><span class="p">.</span><span class="n">5b-instruct-q4_k_m</span><span class="p">.</span><span class="n">gguf</span> <span class="p">-</span><span class="n">-device</span> <span class="n">gpu</span>
 </span></code></pre></div>
 <p>Other families, such as Vulkan or OpenCL, use the same script with their backend
 name and SDK. Follow the release's GPU backend guide for those prerequisites.
@@ -3162,7 +3339,7 @@ TTFT or token-update intervals as the earlier model-compute phases.</p>
 </tr>
 <tr>
 <td><code>requests[].tokenization_duration_ms</code></td>
-<td>Chat-template rendering and tokenization, which the Runtime performs in one call. <code>template_duration_ms</code> is <code>0</code>.</td>
+<td>Chat-template rendering and tokenization, which the Runtime performs in one call; <code>0</code> with <code>--prompt-ids-file</code>, whose IDs are submitted without either. <code>template_duration_ms</code> is <code>0</code>.</td>
 </tr>
 <tr>
 <td><code>requests[].generator_create_duration_ms</code></td>
@@ -3264,6 +3441,18 @@ present, are <code>null</code> rather than estimated from stream timing:</p>
 <tr>
 <td><code>The installed 'windowsml' package does not ship the Runtime native library</code></td>
 <td>The installed <code>windowsml</code> is not a preview build with the Runtime API. Reinstall the preview version.</td>
+</tr>
+<tr>
+<td><code>--context-length N resolved to an effective sequence capacity of M</code></td>
+<td>The Runtime did not apply the requested capacity, for example because the model supports less or llama.cpp rounded it up to a multiple of 256. Use a multiple of 256 that the model supports.</td>
+</tr>
+<tr>
+<td><code>--ignore-eos requested an empty EOS set, but the Task reports EOS token IDs</code></td>
+<td>The installed Runtime does not honor an explicit empty EOS set. Use a Windows ML version that does, or run without <code>--ignore-eos</code>.</td>
+</tr>
+<tr>
+<td><code>prompt token ... is outside the model vocabulary</code></td>
+<td>A token ID in <code>--prompt-ids-file</code> is not valid for this model. Regenerate the IDs with this model's tokenizer.</td>
 </tr>
 </tbody>
 </table>
