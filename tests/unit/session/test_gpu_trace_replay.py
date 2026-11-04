@@ -91,6 +91,19 @@ def test_trace_analysis_and_reporting(trace):
     assert any("GPU execution time" in str(call) for call in console.print.call_args_list)
 
 
+@pytest.mark.parametrize("policy,used", [("allowed", None), ("disabled", False)])
+def test_cgep_replay_preserves_fallback_policy_without_claiming_cpu_usage(trace, policy, used):
+    path = trace / "windows.json"
+    markers = json.loads(path.read_text(encoding="utf-8"))
+    markers.update(execution_path="winmlcgep", cpu_fallback_policy=policy)
+    path.write_text(json.dumps(markers), encoding="utf-8")
+    result = analyze_trace(trace)
+    assert result["cpu_fallback_policy"] == policy
+    assert result["cpu_fallback_used"] is used
+    assert "excludes CPU" in result["timing_scope"]
+    assert result["valid_runs"] == 2
+
+
 def test_tracerpt_uses_separate_event_and_summary_passes(trace, monkeypatch):
     capture = GpuCapture(trace)
     command = Mock()

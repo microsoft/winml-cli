@@ -234,7 +234,7 @@ class TestWinmlHelp:
         heading = f"Windows ML CLI | Version {__version__}"
         assert output.count(heading) == 1
         assert output.index(heading) < output.index("┏")
-        assert __version__ not in output[output.index("┏"):]
+        assert __version__ not in output[output.index("┏") :]
 
 
 # ===========================================================================
@@ -436,6 +436,16 @@ class TestOptionsSection:
 class TestCGCHelpVisibility:
     """CGC entry points stay parseable without being advertised in help."""
 
+    def test_cpu_fallback_capture_option_is_hidden_but_parseable(self) -> None:
+        from winml.modelkit.commands.perf import perf
+
+        assert "--allow-cpu-fallback" not in _invoke("perf", "--help").output
+        with (
+            click.Context(main) as root,
+            perf.make_context("perf", ["--allow-cpu-fallback"], parent=root) as ctx,
+        ):
+            assert ctx.params["allow_cpu_fallback"] is True
+
     @pytest.mark.parametrize("cmd", ["", *VISIBLE_COMMANDS])
     def test_help_does_not_advertise_cgc(self, cmd: str) -> None:
         result = _invoke(*([cmd] if cmd else []), "--help")
@@ -499,9 +509,8 @@ class TestCGCHelpVisibility:
                 visible_choices = [
                     value
                     for value in option.type.choices
-                    if value not in (
-                        "winmlcg", "WinMLCGExecutionProvider", "winml-runtime", "cgc", "dxcgc"
-                    )
+                    if value
+                    not in ("winmlcg", "WinMLCGExecutionProvider", "winml-runtime", "cgc", "dxcgc")
                 ]
                 assert option.make_metavar(help_ctx) == f"[{'|'.join(visible_choices)}]"
                 help_record = option.get_help_record(help_ctx)

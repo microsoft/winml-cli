@@ -1431,8 +1431,7 @@ class PerfBenchmark:
             "backend": self._runtime_backend,
             # ORT CGEP lowering is applied to SessionOptions by the ETW collector.
             "cgc_lowering_target": (
-                self.config.cgc_lowering_target
-                if self.config.runtime == "winml-runtime" else None
+                self.config.cgc_lowering_target if self.config.runtime == "winml-runtime" else None
             ),
             # optimize/analyze/max-optim toggles, forwarded by WinMLAutoModel to
             # build_hf_model / build_onnx_model. Shared mapping with build/eval.
@@ -3078,10 +3077,16 @@ def _validate_duration(
     help="[dxcgc] Agility SDK directory (default: installed windowsml/lib).",
 )
 @click.option("--dxcgc-sdk-version", type=click.IntRange(min=1), default=721, hidden=True)
-@click.option("--dxcgc-gpu-timing", is_flag=True, hidden=True,
-              help="[dxcgc] Collect GPU timestamps in a separate diagnostic run.")
 @click.option(
-    "--disable-d3d-mlir-programs", is_flag=True, hidden=True,
+    "--dxcgc-gpu-timing",
+    is_flag=True,
+    hidden=True,
+    help="[dxcgc] Collect GPU timestamps in a separate diagnostic run.",
+)
+@click.option(
+    "--disable-d3d-mlir-programs",
+    is_flag=True,
+    hidden=True,
     help="[dxcgc] Disable the D3D12 MLIR programs target when compiling Input IR.",
 )
 @click.option(
@@ -3318,13 +3323,23 @@ def _validate_duration(
 @cli_utils.no_color_option()
 @click.pass_context
 @click.option(
-    "--etw-tracing", type=click.Path(path_type=Path), default=None,
+    "--etw-tracing",
+    type=click.Path(path_type=Path),
+    default=None,
     help="Collect Runtime ETW events to a new directory and report GPU execution timing "
     "(ETW access required).",
+)
+@click.option(
+    "--allow-cpu-fallback",
+    is_flag=True,
+    default=False,
+    hidden=True,
+    help="Allow CPU fallback for WinMLCG EP ETW capture; GPU timing excludes CPU work.",
 )
 def perf(
     ctx: click.Context,
     etw_tracing: Path | None,
+    allow_cpu_fallback: bool,
     model: str | None,
     runtime: RuntimeName | Literal["dxcgc"],
     dxcgc_host: Path | None,
@@ -3430,7 +3445,8 @@ def perf(
         raise click.UsageError("--disable-d3d-mlir-programs requires --runtime dxcgc")
     if any(
         ctx.get_parameter_source(name) == click.core.ParameterSource.COMMANDLINE
-        for name in ctx.params if name.startswith("dxcgc_")
+        for name in ctx.params
+        if name.startswith("dxcgc_")
     ):
         raise click.UsageError("--dxcgc-* options require --runtime dxcgc")
 
@@ -3497,14 +3513,22 @@ def perf(
         and ep is not None
         and ep[0].lower() in ("winmlcg", "winmlcgexecutionprovider")
     )
+    if allow_cpu_fallback and not cgep_trace:
+        raise click.UsageError("--allow-cpu-fallback requires WinMLCG EP --etw-tracing.")
     if etw_tracing is not None and (
-            (not cgep_trace and (runtime != "winml-runtime" or backend not in (None, "cgc")))
-            or device.lower() != "gpu" or Path(model).suffix.lower() not in (".onnx", ".mlir")
-            or monitor or op_tracing or module_class or compare_devices):
+        (not cgep_trace and (runtime != "winml-runtime" or backend not in (None, "cgc")))
+        or device.lower() != "gpu"
+        or Path(model).suffix.lower() not in (".onnx", ".mlir")
+        or monitor
+        or op_tracing
+        or module_class
+        or compare_devices
+    ):
         raise click.UsageError(
             "--etw-tracing requires --device gpu and either winml-runtime with CGC "
             "(ONNX/MLIR) or winml-ort with --ep winmlcg (ONNX), without "
-            "monitor/op-tracing/module/compare-devices modes.")
+            "monitor/op-tracing/module/compare-devices modes."
+        )
     try:
         effective_backend = resolve_runtime_api_backend(runtime, model, backend)
     except ValueError as error:
@@ -3516,9 +3540,7 @@ def perf(
             "--cgc-lowering-target requires winml-runtime with the CGC backend, "
             "or winml-ort with --ep winmlcg and --etw-tracing."
         )
-    if cgep_trace and (
-        cgc_lowering_target == "d3d12" or Path(model).suffix.lower() != ".onnx"
-    ):
+    if cgep_trace and (cgc_lowering_target == "d3d12" or Path(model).suffix.lower() != ".onnx"):
         raise click.UsageError("WinMLCG EP tracing requires ONNX and auto/dml lowering.")
 
     # AC 11 (mockup spec): --top-k requires --op-tracing. Outside the
@@ -3962,6 +3984,7 @@ def perf(
                     with GpuCapture(etw_tracing.resolve()) as capture:
                         capture.execution_path = "winmlcgep" if cgep_trace else "runtime-api"
                         capture.lowering_target = cgc_lowering_target or "auto"
+                        capture.allow_cpu_fallback = allow_cpu_fallback
                         try:
                             result = benchmark.run()
                         finally:
