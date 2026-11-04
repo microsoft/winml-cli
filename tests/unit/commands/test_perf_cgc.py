@@ -255,6 +255,32 @@ def _console_text(result: TaskBenchmarkResult) -> str:
     return buffer.getvalue()
 
 
+# The labeled rows at the top of a CGC console report, in print order.
+_HEADER_LABELS = (
+    "Runtime",
+    "API",
+    "Device",
+    "Model",
+    "Adapter",
+    "Format",
+    "Capacity",
+    "Program cache",
+    "Packages",
+    "Prompt",
+)
+_LABELED_ROW = re.compile(r"(?P<label>[A-Z][A-Za-z ]*): +(?=\S)")
+
+
+def _header_value_columns(text: str) -> dict[str, int]:
+    """The column where each header row's value starts, keyed by label in print order."""
+    columns: dict[str, int] = {}
+    for line in text.splitlines():
+        match = _LABELED_ROW.match(line)
+        if match is not None and match["label"] in _HEADER_LABELS:
+            columns.setdefault(match["label"], match.end())
+    return columns
+
+
 # ---------------------------------------------------------------------------
 # Report
 # ---------------------------------------------------------------------------
@@ -376,7 +402,7 @@ class TestReport:
 
         assert info["context_length"] is None
         assert info["vocabulary_size"] is None
-        assert "Capacity: unavailable" in _console_text(result)
+        assert "Capacity:       unavailable" in _console_text(result)
 
 
 # ---------------------------------------------------------------------------
@@ -533,10 +559,10 @@ class TestConsoleAndEntryPoint:
 
         assert "winml-runtime (cgc, experimental)" in text
         assert lines[model_line + 1 : model_line + 5] == [
-            "Adapter: Fake GPU (0x00000000_0x0000BEEF, high-performance)",
-            "Format: safetensors",
-            "Capacity: 135 tokens",
-            "Program cache: off (cold compile every run)",
+            "Adapter:        Fake GPU (0x00000000_0x0000BEEF, high-performance)",
+            "Format:         safetensors",
+            "Capacity:       135 tokens",
+            "Program cache:  off (cold compile every run)",
         ]
         # set_model and the first create_session, each from its own span.
         assert (
@@ -547,6 +573,14 @@ class TestConsoleAndEntryPoint:
         assert f"GPU local/shared: {gpu_memory}" in text
         # Every marker the llama.cpp check below looks for is in a CGC report.
         assert [expected for expected in _CGC_ONLY_TEXT if expected not in text] == []
+
+    def test_header_values_share_one_column(self, tmp_path: Path) -> None:
+        result, _fake = _run(tmp_path)
+        columns = _header_value_columns(_console_text(result))
+
+        assert list(columns) == list(_HEADER_LABELS)
+        # The longest label, "Program cache:", sets the column for every row.
+        assert set(columns.values()) == {len("Program cache:  ")}
 
     def test_llama_cpp_report_shows_no_cgc_text(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -565,6 +599,11 @@ class TestConsoleAndEntryPoint:
         assert "llama.cpp, experimental" in text
         assert "Memory:" in text
         assert [expected for expected in _CGC_ONLY_TEXT if expected in text] == []
+        # The llama.cpp header keeps its layout.
+        lines = text.splitlines()
+        assert "Runtime:   winml-runtime (llama.cpp, experimental)" in lines
+        assert "API:       Windows ML Tasks (task-stream timing)" in lines
+        assert len(set(_header_value_columns(text).values())) == 1
 
     @pytest.mark.parametrize(
         "error", [CGCLoadError, CGCNotInstalledError, CGCSessionError, FileNotFoundError]

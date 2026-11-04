@@ -752,23 +752,33 @@ def display_task_report(result: TaskBenchmarkResult, console: Console) -> None:
     cfg = result.config
     device = result.effective_device or cfg.device
     device_str = device if cfg.requested_device == device else f"{cfg.requested_device} -> {device}"
-    console.print()
-    console.print(f"[dim]Runtime:[/dim]   {RUNTIME_TYPE} ({result.BACKEND}, experimental)")
-    console.print("[dim]API:[/dim]       Windows ML Tasks (task-stream timing)")
-    console.print(f"[dim]Device:[/dim]    {device_str}")
-    console.print(f"[dim]Model:[/dim]     {escape(str(cfg.model_path))}")
-    for label, value in result.display_rows():
-        console.print(f"[dim]{label}:[/dim] {escape(value)}")
+    rows = [
+        ("Runtime", f"{RUNTIME_TYPE} ({result.BACKEND}, experimental)"),
+        ("API", "Windows ML Tasks (task-stream timing)"),
+        ("Device", device_str),
+        ("Model", str(cfg.model_path)),
+        *result.display_rows(),
+    ]
     packages = ", ".join(
         f"{name} {version}" for name, version in result.packages.items() if version
     )
     if packages:
-        console.print(f"[dim]Packages:[/dim]  {escape(packages)}")
+        rows.append(("Packages", packages))
+    # Every value starts two spaces past the longest label. "Packages" is the
+    # longest shared label, so only a longer engine label moves the column.
+    value_column = max(len(label) for label in ("Packages", *(label for label, _ in rows))) + 3
+
+    def labeled(label: str) -> str:
+        return f"[dim]{label}:[/dim]" + " " * (value_column - len(label) - 1)
+
+    console.print()
+    for label, value in rows:
+        console.print(f"{labeled(label)}{escape(value)}")
     template_note = ""
     if cfg.apply_template and result.chat_template_applied is False:
         template_note = "  [dim](no chat template; raw prompt)[/dim]"
     console.print(
-        f"[dim]Prompt:[/dim]    {result.prompt_tokens} tokens   "
+        f"{labeled('Prompt')}{result.prompt_tokens} tokens   "
         f"[dim]Generated:[/dim] {result.generated_tokens} tokens "
         f"(max_new_tokens={cfg.max_new_tokens}, stop={result.stop_reason}){template_note}"
     )
