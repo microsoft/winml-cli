@@ -5,9 +5,9 @@
 """Schema 3 benchmark engine for Windows ML Task text generation (experimental).
 
 ``winml perf`` benchmarks text generation through a native ``windowsml.tasks``
-session, whichever engine runs the model. An engine binding (llama.cpp for
-``.gguf`` files, in :mod:`._perf_gguf`) supplies its session, memory tracker,
-result and load metrics through the hooks of :class:`TaskPerfBenchmark`. This
+session, whichever engine runs the model. An engine binding (llama.cpp in
+:mod:`._perf_gguf`, CGC in :mod:`._perf_cgc`) supplies its session, memory
+tracker, result and load metrics through the hooks of :class:`TaskPerfBenchmark`. This
 module owns the request loop, aggregation, the schema 3 report, its console
 view and JSON writer, the shared :func:`run_task_perf` entry point, and the GGUF
 shard and token-ID file helpers.
@@ -347,8 +347,9 @@ class TaskRequestSample:
 class TaskBenchmarkResult:
     """Canonical results from a Task generation benchmark.
 
-    A binding subclass names its engine in ``BACKEND`` and adds its own
-    ``benchmark_info`` fields through :meth:`_backend_fields`.
+    A binding subclass names its engine in ``BACKEND``, adds its own
+    ``benchmark_info`` fields through :meth:`_backend_fields` and its console
+    rows through :meth:`display_rows`.
     """
 
     BACKEND: ClassVar[str]
@@ -417,6 +418,10 @@ class TaskBenchmarkResult:
     def _backend_fields(self) -> dict[str, Any]:
         """Engine-specific ``benchmark_info`` fields, placed after ``packages``."""
         return {}
+
+    def display_rows(self) -> list[tuple[str, str]]:
+        """Engine-specific ``(label, value)`` console rows, printed after ``Model:``."""
+        return []
 
     def _round_aggregate(self) -> dict[str, Any]:
         """Round aggregate statistics while preserving counters and flags."""
@@ -741,6 +746,9 @@ def display_task_report(result: TaskBenchmarkResult, console: Console) -> None:
     def format_metric(value: float | None) -> str:
         return f"{value:.2f}" if value is not None else "n/a"
 
+    def format_mib(value: float | None) -> str:
+        return f"{value:.1f}" if value is not None else "unavailable"
+
     cfg = result.config
     device = result.effective_device or cfg.device
     device_str = device if cfg.requested_device == device else f"{cfg.requested_device} -> {device}"
@@ -749,6 +757,8 @@ def display_task_report(result: TaskBenchmarkResult, console: Console) -> None:
     console.print("[dim]API:[/dim]       Windows ML Tasks (task-stream timing)")
     console.print(f"[dim]Device:[/dim]    {device_str}")
     console.print(f"[dim]Model:[/dim]     {escape(str(cfg.model_path))}")
+    for label, value in result.display_rows():
+        console.print(f"[dim]{label}:[/dim] {escape(value)}")
     packages = ", ".join(
         f"{name} {version}" for name, version in result.packages.items() if version
     )
@@ -775,6 +785,13 @@ def display_task_report(result: TaskBenchmarkResult, console: Console) -> None:
         f"  Session load: {float(load.get('session_load_duration_ms') or 0.0):.2f} ms  |  "
         f"Native load: {float(load.get('native_load_duration_ms') or 0.0):.2f} ms"
     )
+    if "session_create_duration_ms" in load:
+        # Only CGC times the first create_session apart: its GPU program compiles there.
+        console.print(
+            f"  set_model: {float(load.get('set_model_duration_ms') or 0.0):.2f} ms  |  "
+            "First session (GPU compile): "
+            f"{float(load.get('session_create_duration_ms') or 0.0):.2f} ms"
+        )
     console.print(
         f"  Cold TTFT: {format_metric(aggregate.get('cold_start_ttft_duration_ms'))} ms  |  "
         f"Cold total: {format_metric(aggregate.get('cold_start_total_duration_ms'))} ms"
@@ -828,6 +845,15 @@ def display_task_report(result: TaskBenchmarkResult, console: Console) -> None:
             f"inference: {mem['rss_inference_delta_mb']:+.1f} MB  |  "
             f"total: {mem['rss_total_delta_mb']:+.1f} MB"
         )
+        # Present only when the binding tracked memory on a known GPU adapter.
+        if "vram_local_after_inference_mb" in mem:
+            console.print(
+                "  GPU local/shared: "
+                f"{format_mib(mem.get('vram_local_after_compile_mb'))}/"
+                f"{format_mib(mem.get('vram_shared_after_compile_mb'))} MiB after load  |  "
+                f"{format_mib(mem.get('vram_local_after_inference_mb'))}/"
+                f"{format_mib(mem.get('vram_shared_after_inference_mb'))} MiB after inference"
+            )
     console.print()
 
 
