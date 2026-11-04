@@ -2975,13 +2975,14 @@ _GGUF_IGNORED_FLAGS: dict[str, str] = {
 }
 
 # Exact-workload options only the Task generation routes implement, mapped to
-# the flag: GGUF on llama.cpp and --backend cgc (--evidence is llama.cpp only).
+# the flag: GGUF on llama.cpp and --backend cgc. --evidence, the llama.cpp
+# native log, is checked on its own.
 _GGUF_ONLY_FLAGS: dict[str, str] = {
     "prompt_ids_file": "--prompt-ids-file",
     "context_length": "--context-length",
     "ignore_eos": "--ignore-eos/--no-ignore-eos",
-    "evidence": "--evidence",
 }
+_EVIDENCE_SCOPE = "--evidence applies only to a .gguf file on llama.cpp"
 
 # Options CGC text generation cannot honor (an ONNX EP or ONNX-only input,
 # model-graph surgery, the llama.cpp native log, or the single-inference ETW
@@ -3004,14 +3005,20 @@ _CGC_ONLY_FLAGS: dict[str, str] = {"program_cache": "--program-cache"}
 
 def _reject_gguf_only_options(ctx: click.Context) -> None:
     """Reject GGUF-only options for other inputs rather than silently ignoring them."""
+    model = ctx.params["model"]
     provided = [
         flag for param, flag in _GGUF_ONLY_FLAGS.items() if cli_utils.is_cli_provided(ctx, param)
     ]
+    problems: list[str] = []
     if provided:
-        raise click.UsageError(
+        problems.append(
             "Options that only apply to GGUF models (.gguf) or to --backend cgc text generation "
-            f"cannot be used with '{ctx.params['model']}': {', '.join(provided)}"
+            f"cannot be used with '{model}': {', '.join(provided)}."
         )
+    if cli_utils.is_cli_provided(ctx, "evidence"):
+        problems.append(f"{_EVIDENCE_SCOPE}; it cannot be used with '{model}'.")
+    if problems:
+        raise click.UsageError(" ".join(problems))
 
 
 def _reject_cgc_only_options(ctx: click.Context) -> None:
@@ -3380,7 +3387,7 @@ def _resolve_cgc_generation_input(model: str) -> tuple[Path, Literal["gguf", "sa
     raise click.UsageError(model_input.error or f"Model path does not exist: {model}")
 
 
-def _reject_cgc_generation_options(ctx: click.Context) -> None:
+def _reject_cgc_generation_options(ctx: click.Context, model: str) -> None:
     """Reject options CGC text generation cannot honor instead of silently ignoring them."""
     p = ctx.params
     rejected = [
@@ -3396,7 +3403,13 @@ def _reject_cgc_generation_options(ctx: click.Context) -> None:
     if rejected:
         message = f"{', '.join(rejected)} cannot be used with --backend cgc text generation."
         if "--evidence" in rejected:
-            message += " --evidence records the llama.cpp native log; omit --backend cgc to use it."
+            # Only a .gguf file has a llama.cpp run that records the native log.
+            if Path(model).suffix.lower() == ".gguf":
+                message += (
+                    " --evidence records the llama.cpp native log; omit --backend cgc to use it."
+                )
+            else:
+                message += f" {_EVIDENCE_SCOPE}."
         raise click.UsageError(message)
 
 
@@ -3411,7 +3424,7 @@ def _run_cgc_generation_runtime(
     --help`` and the other runtimes never load them. A failed run exits
     non-zero and never falls back to llama.cpp or the ONNX export path.
     """
-    _reject_cgc_generation_options(ctx)
+    _reject_cgc_generation_options(ctx, model)
     model_path, model_format = _resolve_cgc_generation_input(model)
     p = ctx.params
     requested_device = str(p["device"]).lower()

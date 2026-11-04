@@ -393,6 +393,26 @@ def test_options_cgc_cannot_honor_are_rejected(
     assert "config" not in capture_cgc
 
 
+@pytest.mark.usefixtures("no_llama")
+def test_evidence_with_a_checkpoint_folder_points_to_no_other_route(
+    runner: CliRunner, inputs: dict[str, str], capture_cgc: dict[str, Any]
+) -> None:
+    # --evidence records the llama.cpp native log, which a checkpoint folder never
+    # runs on: neither rejection may send the user to the other one.
+    evidence = ["--evidence", inputs["{ev}"]]
+    with_cgc = runner.invoke(perf, ["-m", inputs["{folder}"], "--backend", "cgc", *evidence])
+    without_cgc = runner.invoke(perf, ["-m", inputs["{folder}"], *evidence])
+
+    assert with_cgc.exit_code == 2, with_cgc.output
+    assert "--evidence cannot be used with --backend cgc text generation" in _text(with_cgc)
+    assert "--evidence applies only to a .gguf file on llama.cpp" in _text(with_cgc)
+    assert "omit --backend cgc" not in _text(with_cgc)
+    assert without_cgc.exit_code == 2, without_cgc.output
+    assert "--evidence applies only to a .gguf file on llama.cpp" in _text(without_cgc)
+    assert "--backend cgc" not in _text(without_cgc)
+    assert "config" not in capture_cgc
+
+
 @pytest.mark.usefixtures("no_llama", "routed_past")
 def test_explicit_pdh_memory_backend_is_accepted(
     runner: CliRunner, inputs: dict[str, str], capture_cgc: dict[str, Any]
