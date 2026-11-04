@@ -2992,7 +2992,7 @@ def _reject_gguf_only_options(ctx: click.Context) -> None:
 
 def _resolve_gguf_prompt_ids(ctx: click.Context) -> tuple[int, ...] | None:
     """Read ``--prompt-ids-file`` after checking it against the text-prompt options."""
-    from ._perf_gguf import read_prompt_ids_file
+    from ._task_generation_perf import read_prompt_ids_file
 
     p = ctx.params
     path: Path | None = p.get("prompt_ids_file")
