@@ -28,7 +28,8 @@ EVIDENCE_MODULES = [
 # Blocked on top of the GUARD list for --backend cgc, which must load none of these
 # before Windows ML: ONNX and the modules that import ONNX or ORT (another
 # DirectML.dll breaks the windowsml.runtime import), comtypes (imported first, it
-# skips the COM apartment setup of windowsml) and the llama.cpp binding.
+# skips the COM apartment setup of windowsml) and the llama.cpp binding. It also
+# never creates a D3D12 device or a DXGI reader, the two memory modules last.
 CGC_BLOCKED = (
     "onnx",
     "comtypes",
@@ -39,6 +40,8 @@ CGC_BLOCKED = (
     "winml.modelkit.session.ep_registry",
     "winml.modelkit.session.llama_session",
     "winml.modelkit.commands._perf_gguf",
+    "winml.modelkit.session.monitor._gpu_baseline",
+    "winml.modelkit.session.monitor._dxgi_memory",
 )
 GUARD = """
 import importlib.abc
