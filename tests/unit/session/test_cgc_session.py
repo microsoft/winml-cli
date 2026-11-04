@@ -850,6 +850,84 @@ def test_import_failures_keep_their_reason(
     assert absent is None or absent not in message
 
 
+def _bad_image_error() -> OSError:
+    """What ``ctypes`` raises for a native library that exists but cannot load.
+
+    For example one built for another architecture: a bare ``OSError``, neither
+    ``FileNotFoundError`` nor ``ImportError``.
+    """
+    return OSError(0, "%1 is not a valid Win32 application", None, 193)
+
+
+def _assert_keeps_the_load_reason(raised: pytest.ExceptionInfo[Any], error: OSError) -> None:
+    assert type(raised.value) is CGCNotInstalledError
+    assert raised.value.__cause__ is error
+    message = str(raised.value)
+    assert "Windows ML could not load its Runtime API" in message
+    assert str(error) in message
+    # The package is present and complete; it cannot load.
+    assert "2.8.183.dev0" not in message
+    assert "missing a native library" not in message
+
+
+def test_native_library_that_cannot_load_fails_the_package_check_with_its_reason(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    error = _bad_image_error()
+
+    def find_spec(name: str) -> Any:
+        raise error
+
+    def import_module(name: str) -> Any:
+        pytest.fail(f"{name} was imported after the package check failed")
+
+    monkeypatch.setattr(
+        _CGC_SESSION,
+        "importlib",
+        SimpleNamespace(util=SimpleNamespace(find_spec=find_spec), import_module=import_module),
+    )
+    apis = _FakeApis()
+    _patch_adapter(monkeypatch, apis)
+
+    with pytest.raises(CGCNotInstalledError) as excinfo:
+        WinMLCGCSession(tmp_path / "model.gguf", model_format="gguf")
+
+    _assert_keeps_the_load_reason(excinfo, error)
+    assert "open_gpu_adapter" not in apis.received
+
+
+def test_native_library_that_cannot_load_fails_the_api_import_with_its_reason(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    error = _bad_image_error()
+    imported: list[str] = []
+
+    def find_spec(name: str) -> Any:
+        return SimpleNamespace(name=name)
+
+    def import_module(name: str) -> Any:
+        imported.append(name)
+        raise error
+
+    monkeypatch.setattr(
+        _CGC_SESSION,
+        "importlib",
+        SimpleNamespace(util=SimpleNamespace(find_spec=find_spec), import_module=import_module),
+    )
+    apis = _FakeApis()
+    _patch_adapter(monkeypatch, apis)
+    session = WinMLCGCSession(tmp_path / "model.gguf", model_format="gguf")
+
+    with pytest.raises(CGCNotInstalledError) as excinfo:
+        session.open_tokenizer()
+    session.close()
+
+    _assert_keeps_the_load_reason(excinfo, error)
+    assert imported == ["windowsml.runtime"]
+    assert apis.calls == []
+    assert apis.closed == ["adapter"]
+
+
 def test_non_gpu_target_is_rejected(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     apis = _FakeApis(target_kind="NPU")
     session = _session(monkeypatch, apis, tmp_path / "model.gguf")

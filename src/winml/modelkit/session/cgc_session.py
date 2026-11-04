@@ -131,7 +131,8 @@ def _not_installed_error(exc: BaseException) -> CGCNotInstalledError:
 
     Only a missing ``windowsml`` module means the preview is absent. Any other
     import failure (a different ``DirectML.dll`` already loaded, a missing
-    ``comtypes``, an incomplete CGC payload) keeps its own reason.
+    ``comtypes``, an incomplete CGC payload, a native library that exists but
+    cannot load) keeps its own reason.
     """
     if isinstance(exc, FileNotFoundError):
         return _missing_native_library(exc)
@@ -151,7 +152,7 @@ def _require_cgc_modules() -> None:
     """
     try:
         found = all(importlib.util.find_spec(name) is not None for name in _CGC_MODULES)
-    except (ImportError, FileNotFoundError) as exc:
+    except (ImportError, OSError) as exc:  # ctypes raises OSError for a DLL that cannot load
         raise _not_installed_error(exc) from exc
     if not found:
         raise CGCNotInstalledError(_needs_preview_message())
@@ -166,7 +167,7 @@ def _import_cgc_apis() -> tuple[Any, Any]:
     try:
         runtime_api = importlib.import_module("windowsml.runtime")
         tasks_api = importlib.import_module("windowsml.tasks")
-    except (ImportError, FileNotFoundError) as exc:
+    except (ImportError, OSError) as exc:  # ctypes raises OSError for a DLL that cannot load
         raise _not_installed_error(exc) from exc
     return runtime_api, tasks_api
 
