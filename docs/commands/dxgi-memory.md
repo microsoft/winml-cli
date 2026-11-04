@@ -12,13 +12,16 @@ Replace the LUID with the selected device from `winml sys --list-device`. ETW
 permissions and a compatible native Runtime/EP payload are required.
 
 The mode enforces >=10 warmup calls and >=2 elapsed warmup seconds, then
->=200 measured calls and >=10 elapsed inference seconds. GPU timestamps are
+>=200 measured calls and >=10 elapsed inference seconds. When `--duration`
+is supplied, measurement also runs for at least that many seconds after warmup.
+GPU timestamps are
 validated after capture: less than 2 accumulated GPU seconds rejects the
 result (increase `--iterations` and use a fresh output directory). It does
 not replace missing GPU evidence with host elapsed time.
 
 `--warmup-seconds` is also available for unmonitored single-model inference;
-it supplements the warmup count. Extra warmup calls remain excluded from
+it accepts only finite, non-negative durations and supplements the warmup count.
+Extra warmup calls remain excluded from
 GPU and CPU measurement samples. Unsupported raw CLI usage is rejected.
 
 ## Counters

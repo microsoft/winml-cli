@@ -1585,7 +1585,11 @@ class PerfBenchmark:
             if self.config.memory_backend == "dxgi":
                 steady_start = time.perf_counter()
                 measured = 0
-                while measured < self.config.iterations or time.perf_counter() - steady_start < 10:
+                minimum_seconds = max(10.0, self.config.duration or 0.0)
+                while (
+                    measured < self.config.iterations
+                    or time.perf_counter() - steady_start < minimum_seconds
+                ):
                     session.run(self._inputs)
                     measured += 1
                 self._steady_measurement = {
@@ -3355,6 +3359,7 @@ def _validate_duration(
 @click.option("--memory-backend", type=click.Choice(["pdh", "dxgi"]), default="pdh",
               help="GPU memory counter backend; dxgi queries in-process application usage.")
 @click.option("--warmup-seconds", type=click.FloatRange(min=0), default=0.0,
+              callback=_validate_duration,
               help="Minimum warmup duration in seconds, in addition to --warmup count.")
 @click.option(
     "--etw-tracing", type=click.Path(path_type=Path), default=None,
@@ -3508,16 +3513,6 @@ def perf(
         raise click.ClickException(f"Failed to resolve Hub-hosted ONNX path {model!r}: {e}") from e
     model = hf_model
     runtime = _resolve_runtime(runtime, model)
-    if memory_backend == "dxgi":
-        if not etw_tracing or not memory or device.lower() != "gpu":
-            raise click.UsageError(
-                "DXGI memory measurement requires GPU, memory and --etw-tracing."
-            )
-        warmup_seconds = max(2.0, warmup_seconds)
-        warmup = max(10, warmup)
-        iterations = max(200, iterations)
-    if warmup_seconds > 0 and (monitor or op_tracing or module_class or runtime == "ort-genai"):
-        raise click.UsageError("--warmup-seconds supports unmonitored single-model inference.")
     is_gguf = Path(model).suffix.lower() == ".gguf"
     # Apply build config defaults (CLI explicit options take precedence).
     # Read raw JSON so missing keys are distinguishable from dataclass defaults.
@@ -3545,6 +3540,17 @@ def perf(
                 ep = (configured_target.ep, configured_target.source)
             elif "execution_provider" in cc:
                 ep = (cc["execution_provider"], None)
+
+    if memory_backend == "dxgi":
+        if not etw_tracing or not memory or device.lower() != "gpu":
+            raise click.UsageError(
+                "DXGI memory measurement requires GPU, memory and --etw-tracing."
+            )
+        warmup_seconds = max(2.0, warmup_seconds)
+        warmup = max(10, warmup)
+        iterations = max(200, iterations)
+    if warmup_seconds > 0 and (monitor or op_tracing or module_class or runtime == "ort-genai"):
+        raise click.UsageError("--warmup-seconds supports unmonitored single-model inference.")
 
     cgep_trace = (
         etw_tracing is not None
