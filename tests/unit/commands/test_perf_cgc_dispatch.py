@@ -11,6 +11,7 @@ fails if the command reaches llama.cpp or resolves another runtime.
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
 import re
@@ -78,6 +79,23 @@ def _checkpoint(
     for tokenizer_file in ("tokenizer.json", "tokenizer_config.json"):
         (folder / tokenizer_file).write_text("{}", encoding="utf-8")
     return folder
+
+
+def _cache_snapshot(tmp_path: Path) -> Path:
+    """Write a Hugging Face cache snapshot: each file is a relative symlink into ``blobs/``.
+
+    Creating a symlink on Windows needs Developer Mode or an elevated shell.
+    """
+    repo = tmp_path / "hub" / "models--org--checkpoint"
+    snapshot = repo / "snapshots" / "rev"
+    (repo / "blobs").mkdir(parents=True)
+    snapshot.mkdir(parents=True)
+    for name in ("config.json", "model.safetensors", "tokenizer.json", "tokenizer_config.json"):
+        content = name.encode()
+        blob = hashlib.sha256(content).hexdigest()
+        (repo / "blobs" / blob).write_bytes(content)
+        (snapshot / name).symlink_to(Path("..", "..", "blobs", blob))
+    return snapshot
 
 
 def _ids_file(tmp_path: Path, ids: list[int]) -> Path:
@@ -585,16 +603,19 @@ def test_program_cache_needs_backend_cgc(
 
 
 @pytest.mark.usefixtures("no_llama", "routed_past")
+@pytest.mark.parametrize("layout", ["files", "cache_snapshot"])
 @pytest.mark.parametrize("target", ["report.json", "config.json"])
 @pytest.mark.parametrize("overwrite", [False, True])
 def test_output_inside_the_checkpoint_folder_is_refused(
     runner: CliRunner,
-    inputs: dict[str, str],
+    tmp_path: Path,
     capture_cgc: dict[str, Any],
     overwrite: bool,
     target: str,
+    layout: str,
 ) -> None:
-    folder = Path(inputs["{folder}"])
+    # In a cache snapshot, config.json is a symlink to a blob outside the folder.
+    folder = _checkpoint(tmp_path) if layout == "files" else _cache_snapshot(tmp_path)
     before = {path: path.read_bytes() for path in folder.iterdir()}
     args = ["-m", str(folder), "--backend", "cgc", "--output", str(folder / target)]
     result = runner.invoke(perf, [*args, "--overwrite"] if overwrite else args)
@@ -606,7 +627,73 @@ def test_output_inside_the_checkpoint_folder_is_refused(
 
 
 @pytest.mark.usefixtures("no_llama", "routed_past")
-@pytest.mark.parametrize("cache", ["programs", "."])
+def test_output_in_a_linked_subfolder_of_the_checkpoint_is_refused(
+    runner: CliRunner, tmp_path: Path, capture_cgc: dict[str, Any]
+) -> None:
+    folder = _checkpoint(tmp_path)
+    # The subfolder is a directory symlink that leads out of the checkpoint folder.
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (folder / "extra").symlink_to(elsewhere, target_is_directory=True)
+    output = folder / "extra" / "report.json"
+    result = runner.invoke(perf, ["-m", str(folder), "--backend", "cgc", "--output", str(output)])
+
+    assert result.exit_code == 2, result.output
+    assert "inside the --model checkpoint folder" in _text(result)
+    assert "config" not in capture_cgc
+
+
+@pytest.mark.usefixtures("no_llama", "routed_past")
+@pytest.mark.parametrize("link", ["symlink", "hard_link", "cache_blob"])
+def test_output_linked_to_a_checkpoint_file_is_refused(
+    runner: CliRunner, tmp_path: Path, capture_cgc: dict[str, Any], link: str
+) -> None:
+    # Each --output sits outside the folder but names its config.json, so a
+    # report written there would replace the model's config.json.
+    if link == "cache_blob":
+        folder = _cache_snapshot(tmp_path)
+        output = (folder / "config.json").resolve()
+    else:
+        folder = _checkpoint(tmp_path)
+        output = tmp_path / "report.json"
+        if link == "symlink":
+            output.symlink_to(folder / "config.json")
+        else:
+            output.hardlink_to(folder / "config.json")
+    before = {path: path.read_bytes() for path in folder.iterdir()}
+    result = runner.invoke(
+        perf, ["-m", str(folder), "--backend", "cgc", "--output", str(output), "--overwrite"]
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "--model checkpoint folder" in _text(result)
+    # A path that resolves into the folder is inside it; a hard link or the
+    # blob behind a symlink is the same file as the folder's config.json.
+    named = "is inside the" if link == "symlink" else f"same file as '{folder / 'config.json'}'"
+    assert named in result.output
+    assert "config" not in capture_cgc
+    assert {path: path.read_bytes() for path in folder.iterdir()} == before
+
+
+@pytest.mark.usefixtures("no_llama", "routed_past")
+def test_existing_report_outside_the_checkpoint_folder_can_be_overwritten(
+    runner: CliRunner, tmp_path: Path, capture_cgc: dict[str, Any]
+) -> None:
+    folder = _cache_snapshot(tmp_path)
+    # A blob removed from the cache leaves a dangling symlink, which names no file.
+    (folder / "generation_config.json").symlink_to(Path("..", "..", "blobs", "removed"))
+    output = tmp_path / "report.json"
+    output.write_text("{}", encoding="utf-8")
+    result = runner.invoke(
+        perf, ["-m", str(folder), "--backend", "cgc", "--output", str(output), "--overwrite"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert Path(capture_cgc["config"].output_path) == output
+
+
+@pytest.mark.usefixtures("no_llama", "routed_past")
+@pytest.mark.parametrize("cache", ["programs", ".", "link"])
 def test_program_cache_inside_the_checkpoint_folder_is_refused(
     runner: CliRunner,
     inputs: dict[str, str],
@@ -615,6 +702,11 @@ def test_program_cache_inside_the_checkpoint_folder_is_refused(
     cache: str,
 ) -> None:
     folder = Path(inputs["{folder}"])
+    program_cache = folder / cache
+    if cache == "link":
+        # A directory symlink outside the folder: the programs would land in the folder.
+        program_cache = tmp_path / "programs"
+        program_cache.symlink_to(folder, target_is_directory=True)
     result = runner.invoke(
         perf,
         [
@@ -623,7 +715,7 @@ def test_program_cache_inside_the_checkpoint_folder_is_refused(
             "--backend",
             "cgc",
             "--program-cache",
-            str(folder / cache),
+            str(program_cache),
             "-o",
             str(tmp_path / "report.json"),
         ],

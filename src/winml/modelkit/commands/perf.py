@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import sys
 import time
 from dataclasses import dataclass, field, replace
@@ -3071,15 +3072,47 @@ def _reject_input_overwrite(
 def _reject_output_inside_folder(path: Path, folder: Path, *, flag: str) -> None:
     """Refuse a path inside the ``--model`` checkpoint folder; ``--overwrite`` never allows this.
 
-    Every file in the folder is a model input, so nothing a run writes may land there.
+    Every file in the folder is a model input, so nothing a run writes may land
+    there. A write follows links, and a Hugging Face cache snapshot holds
+    symlinks into ``blobs/``, so the path is refused when it lies in the folder
+    as written, once its parent folders resolve (a symlinked model file still
+    counts), or once it resolves completely, and when it is an existing file
+    that is the same file as one in the folder (a hard link, or the blob behind
+    a symlink).
     """
+    # abspath is lexical: Path.resolve() would follow the links this check looks at.
+    absolute = Path(os.path.abspath(path))  # noqa: PTH100
     root = folder.resolve()
-    target = path.resolve()
-    if target == root or root in target.parents:
+    views = (
+        (absolute, Path(os.path.abspath(folder))),  # noqa: PTH100
+        (absolute.parent.resolve() / absolute.name, root),
+        (absolute.resolve(), root),
+    )
+    if any(place == base or base in place.parents for place, base in views):
         raise click.UsageError(
             f"{flag} '{path}' is inside the --model checkpoint folder '{folder}'. "
             "Choose a path outside the folder."
         )
+    model_file = _same_file_in_folder(absolute, folder) if absolute.is_file() else None
+    if model_file is not None:
+        raise click.UsageError(
+            f"{flag} '{path}' is the same file as '{model_file}' in the --model checkpoint "
+            "folder. Choose a different path."
+        )
+
+
+def _same_file_in_folder(path: Path, folder: Path) -> Path | None:
+    """The file at any depth of ``folder`` that the existing file ``path`` also names, if any."""
+    identity = path.stat()
+    for parent, _subfolders, names in os.walk(folder):
+        for name in names:
+            entry = Path(parent, name)
+            try:
+                if os.path.samestat(identity, entry.stat()):
+                    return entry
+            except OSError:  # a dangling symlink names no file
+                continue
+    return None
 
 
 def _gguf_model_inputs(model_path: Path) -> tuple[tuple[str, Path], ...]:
