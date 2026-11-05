@@ -113,11 +113,14 @@ These options apply to GGUF models:
 | `--memory/--no-memory` | Process RAM at the load and inference checkpoints. |
 | `--output`, `--overwrite`, `--format json` | Same as for the other runtimes, except that `--output` cannot name the model, any of its shards, or the `--prompt-ids-file` input, even with `--overwrite`. |
 
-`--prompt-ids-file`, `--context-length`, `--ignore-eos`, and `--evidence` apply only
-to GGUF models; `winml perf` rejects them for other inputs.
+`--prompt-ids-file`, `--context-length`, and `--ignore-eos` apply only to GGUF models
+and to safetensors checkpoint folders run with `--backend cgc`, while `--evidence`
+applies only to GGUF models on llama.cpp; `winml perf` rejects them for other inputs.
 
 Options that select another benchmark target are rejected: `--ep`, `--ep-options`,
 `--backend`, `--device-luid`, `--input-data`, `--module`, and `--submodel`.
+`--backend cgc` is the exception: it runs the same `.gguf` file with Windows ML CGC
+on a GPU instead of llama.cpp; see [CGC text generation](cgc-text-generation-perf.md).
 Build-only and ONNX-only options, such as `--precision`, `--task`, `--compile`,
 `--op-tracing`, `--duration`, `--batch-size`, and `--monitor`, are ignored with a
 warning.

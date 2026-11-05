@@ -336,6 +336,20 @@ class TestPerfOutputPath:
         result = generate_output_path("microsoft/resnet-50")
         assert self._cache_root in result.parents
 
+    def test_existing_folder_uses_its_name(self, tmp_path: Path) -> None:
+        folder = tmp_path / "Qwen2.5-0.5B-Instruct"
+        folder.mkdir()
+        expected = self._cache_root / "Qwen2.5-0.5B-Instruct"
+        assert generate_output_path(str(folder)).parent == expected
+
+    def test_current_folder_uses_its_resolved_name(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        folder = tmp_path / "ckpt"
+        folder.mkdir()
+        monkeypatch.chdir(folder)
+        assert generate_output_path(".").parent == self._cache_root / "ckpt"
+
 
 # =============================================================================
 # UNIFIED PIPELINE TESTS (ONNX and HF both through PerfBenchmark)

@@ -1341,12 +1341,13 @@ class TestCliDispatch:
         assert not output.exists()
 
     @pytest.mark.parametrize(
-        "flag",
+        ("flag", "message"),
         [
-            ["--prompt-ids-file", "<ids>"],
-            ["--context-length", "8"],
-            ["--ignore-eos"],
-            ["--evidence", "<ev>"],
+            (["--prompt-ids-file", "<ids>"], "only apply to GGUF models"),
+            (["--context-length", "8"], "only apply to GGUF models"),
+            (["--ignore-eos"], "only apply to GGUF models"),
+            # Only llama.cpp records the native log, so --backend cgc is no way out.
+            (["--evidence", "<ev>"], "--evidence applies only to a .gguf file on llama.cpp"),
         ],
     )
     @pytest.mark.parametrize("kind", ["onnx", "genai"])
@@ -1356,6 +1357,7 @@ class TestCliDispatch:
         tmp_path: Path,
         capture_run: dict,
         flag: list[str],
+        message: str,
         kind: str,
     ) -> None:
         if kind == "onnx":
@@ -1370,7 +1372,7 @@ class TestCliDispatch:
         result = runner.invoke(perf, ["-m", str(model), *flag])
 
         assert result.exit_code == 2, result.output
-        assert "only apply to GGUF models" in result.output
+        assert message in " ".join(result.output.split())
         assert "config" not in capture_run
 
 
