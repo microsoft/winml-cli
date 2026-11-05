@@ -21,6 +21,7 @@ import math
 import os
 import sys
 import time
+from contextlib import ExitStack
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -241,6 +242,21 @@ def _resolve_ep_monitor(
     device_norm = (device or "").lower()
 
     if op_tracing:
+        if ep_norm == "vitisai":
+            from ..session.monitor import VitisAIOpMonitor
+
+            if op_tracing != "basic":
+                raise RuntimeError("VitisAI op-tracing currently supports only level 'basic'.")
+            if device_norm not in ("npu", "auto", ""):
+                raise RuntimeError("VitisAI op-tracing requires --device npu.")
+            if not VitisAIOpMonitor.is_available():
+                raise RuntimeError(
+                    "Op-tracing --ep vitisai requested but VitisAI is not available "
+                    "on this system. Install it through Windows ML EP Catalog "
+                    "or a compatible BYO plugin."
+                )
+            return VitisAIOpMonitor(output_dir=output_dir)
+
         if ep_norm == "nvtensorrtrtx":
             from ..session.monitor import NvTensorRTRTXMonitor
 
@@ -282,7 +298,7 @@ def _resolve_ep_monitor(
         ):
             raise RuntimeError(
                 f"Op-tracing not available for EP {ep!r} on device {device!r}. "
-                "Supported EPs: qnn, openvino (basic on cpu/npu), "
+                "Supported EPs: qnn, vitisai (basic on npu), openvino (basic on cpu/npu), "
                 "nv_tensorrt_rtx (basic on gpu)."
             )
 
@@ -314,7 +330,7 @@ def _resolve_ep_monitor(
 
         raise RuntimeError(
             f"Op-tracing not available for EP {ep!r} on device {device!r}. "
-            "Supported EPs: qnn, openvino (basic on cpu/npu), "
+            "Supported EPs: qnn, vitisai (basic on npu), openvino (basic on cpu/npu), "
             "nv_tensorrt_rtx (basic on gpu)."
         )
 
@@ -1060,6 +1076,8 @@ class PerfBenchmark:
         # the build and inference.
         self._resolved_device: str | None = None
         self._resolved_ep: EPNameOrAlias | None = None
+        self._initial_ep_monitor: WinMLEPMonitor | None = None
+        self._traced_ep: str | None = None
 
     def _resolve_device_ep(self) -> None:
         """Resolve the concrete target device + EP, failing fast on a bad combo.
@@ -1175,7 +1193,29 @@ class PerfBenchmark:
     def run(self) -> BenchmarkResult | dict[str, BenchmarkResult]:
         """Run with the model-free baseline device retained through final measurements."""
         try:
-            return self._run_with_memory()
+            with ExitStack() as stack:
+                if self.config.op_tracing == "basic" and self.config.runtime == "winml-ort":
+                    from ..session import short_ep_name
+
+                    ep = short_ep_name(self.config.ep) if self.config.ep else "auto"
+                    if ep in ("vitisai", "auto") and self.config.device.lower() in ("auto", "npu"):
+                        from ..ep_path import EP_CATALOG
+                        from ..session.monitor import VitisAIOpMonitor
+
+                        # Hardware discovery does not load the EP or initialize XRT.
+                        # Non-AMD auto runs must not depend on XRT configuration.
+                        if ep == "vitisai" or EP_CATALOG.is_compatible(
+                            "VitisAIExecutionProvider", device_type="npu"
+                        ):
+                            output_dir = (
+                                self.config.output_path.parent
+                                if self.config.output_path
+                                else Path.cwd()
+                            )
+                            stack.enter_context(
+                                VitisAIOpMonitor.profiling_environment(output_dir)
+                            )
+                return self._run_with_memory()
         finally:
             if self._memory_tracker is not None:
                 self._memory_tracker.close()
@@ -1285,7 +1325,7 @@ class PerfBenchmark:
         """Run with the lifecycle baseline captured before model construction."""
         assert self._model is not None
 
-        # Compile session early so model.device is resolved for display
+        # Compile session early so model.device is resolved for display.
         with suppress_native_warnings(enabled=True):
             self._single._session.compile()
 
@@ -1369,6 +1409,20 @@ class PerfBenchmark:
             )
         assert self._ep_device is not None
 
+        if (
+            self.config.op_tracing == "basic"
+            and self.config.runtime == "winml-ort"
+            and self._ep_device.device.ep_name == "VitisAIExecutionProvider"
+        ):
+            self._initial_ep_monitor = _open_ep_monitor_or_exit(
+                op_tracing=self.config.op_tracing,
+                ep=self._ep_device.device.ep_name,
+                device=self._ep_device.device.device_type.lower(),
+                output_dir=(
+                    self.config.output_path.parent if self.config.output_path else Path.cwd()
+                ),
+            )
+
         model_id = self.config.model_id
         model_path = Path(model_id)
         is_onnx = model_path.suffix.lower() == ".onnx"
@@ -1450,6 +1504,26 @@ class PerfBenchmark:
                 max_optim_iterations=self.config.max_optim_iterations,
             ),
         }
+        if self._initial_ep_monitor is not None:
+            from ..compiler import EPConfig
+
+            # AMD workaround: XRT's first session must already be profiled.
+            # Keep the monitor out of model-loading APIs; pass ordinary options.
+            initial_monitor = self._initial_ep_monitor
+            common_kwargs["ep_config"] = EPConfig(enable_ep_context=False)
+            common_kwargs["provider_options"] = {
+                **(self.config.ep_options or {}),
+                **initial_monitor.get_provider_options(),
+            }
+
+            def profiling_session_options() -> Any:
+                import onnxruntime as ort
+
+                options = ort.SessionOptions()
+                initial_monitor.configure_session_options(options)
+                return options
+
+            common_kwargs["session_options"] = profiling_session_options
 
         if is_onnx:
             runtime_shapes: dict[str, tuple[int, ...]] = {}
@@ -1632,7 +1706,7 @@ class PerfBenchmark:
         # correct EP monitor (e.g. QNN op-tracing) instead of the raw string.
         resolved_ep = self._single.ep_name or self._resolved_ep or self.config.ep
         resolved_device = self._single.device or self._resolved_device or self.config.device
-        ep_monitor = _open_ep_monitor_or_exit(
+        ep_monitor = self._initial_ep_monitor or _open_ep_monitor_or_exit(
             op_tracing=self.config.op_tracing,
             ep=resolved_ep,
             device=resolved_device,
@@ -1659,6 +1733,8 @@ class PerfBenchmark:
         )
 
         session = self._single._session
+        # Remove this opt-in once AMD supports profiling after session rebuilds.
+        reuse_options = {"reuse_session": True} if self._initial_ep_monitor is not None else {}
         if hw_available:
             hw_monitor = HWMonitor(
                 poll_interval_ms=_HW_POLL_INTERVAL_MS,
@@ -1669,10 +1745,11 @@ class PerfBenchmark:
             )
             with (
                 _native_warning_filtered_perf(
-                    session, warmup=self.config.warmup, monitor=ep_monitor
+                    session, warmup=self.config.warmup, monitor=ep_monitor, **reuse_options
                 ) as ctx,
                 hw_monitor as hw,
             ):
+                self._traced_ep = self._single.ep_name
                 _run_monitored_loop(
                     session,
                     self._inputs,
@@ -1696,8 +1773,9 @@ class PerfBenchmark:
             # No --monitor (or HWMonitor unavailable): run with the EP monitor
             # only so op-tracing and proof-of-execution still work.
             with _native_warning_filtered_perf(
-                session, warmup=self.config.warmup, monitor=ep_monitor
+                session, warmup=self.config.warmup, monitor=ep_monitor, **reuse_options
             ) as ctx:
+                self._traced_ep = self._single.ep_name
                 _run_simple_loop(
                     session,
                     self._inputs,
@@ -1762,7 +1840,7 @@ class PerfBenchmark:
             # Actual values (resolved after build + compile)
             actual_device=self._single.device,
             actual_task=self._single.task or self.config.task or "auto-detected",
-            actual_ep=cast("EPName | None", self._single.ep_name),
+            actual_ep=cast("EPName | None", self._single.ep_name or self._traced_ep),
             running_model_path=str(self._single.running_model_path),
             # Hardware monitor metrics (only present when --monitor is used)
             hw_monitor=getattr(self, "_hw_metrics", None),

@@ -16,6 +16,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from winml.modelkit.compiler import EPConfig
 from winml.modelkit.models.auto import WinMLAutoModel
 
 
@@ -37,6 +38,7 @@ def test_composite_dispatch_does_not_nameerror() -> None:
         return MagicMock()
 
     fake_ep_device = MagicMock(name="WinMLEPDevice")
+    ep_config = EPConfig(enable_ep_context=False)
 
     with patch(
         "winml.modelkit.models.winml.composite_model.WinMLCompositeModel.from_onnx",
@@ -46,9 +48,11 @@ def test_composite_dispatch_does_not_nameerror() -> None:
             WinMLAutoModel.from_onnx(
                 {"encoder": _FIXTURE, "decoder": _FIXTURE},
                 ep_device=fake_ep_device,
+                ep_config=ep_config,
             )
         except NameError as exc:
             pytest.fail(f"NameError at composite dispatch: {exc}")
 
     # Confirm the dispatch actually ran (not that we short-circuited elsewhere).
     assert "args" in dispatched, "composite dispatch did not fire"
+    assert dispatched["kwargs"]["ep_config"] is ep_config

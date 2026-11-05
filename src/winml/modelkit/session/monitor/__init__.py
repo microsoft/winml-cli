@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from .openvino_monitor import OpenVinoMonitor
     from .report import display_op_trace_report, write_op_trace_json
     from .trtrtx_monitor import NvTensorRTRTXMonitor
+    from .vitisai_op_monitor import VitisAIOpMonitor
 
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
@@ -29,6 +30,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "OpTraceResult": (".op_metrics", "OpTraceResult"),
     "OpenVinoMonitor": (".openvino_monitor", "OpenVinoMonitor"),
     "NvTensorRTRTXMonitor": (".trtrtx_monitor", "NvTensorRTRTXMonitor"),
+    "VitisAIOpMonitor": (".vitisai_op_monitor", "VitisAIOpMonitor"),
     "display_op_trace_report": (".report", "display_op_trace_report"),
     "write_op_trace_json": (".report", "write_op_trace_json"),
 }
@@ -41,6 +43,7 @@ __all__ = [
     "OpenVinoMonitor",
     "OperatorMetrics",
     "ProcessMemoryTracker",
+    "VitisAIOpMonitor",
     "WinMLEPMonitor",
     "display_op_trace_report",
     "get_rss_mb",

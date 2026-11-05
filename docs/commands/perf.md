@@ -454,6 +454,81 @@ iterations** when `--iterations` is omitted, reducing timing variability.
 the default tracing run performs 20 inferences in total. Explicit `--iterations`
 and `--warmup` values are honored.
 
+### AMD NPU operator tracing
+
+```bash
+$ winml perf -m model.onnx --device npu --ep vitisai --op-tracing basic
+```
+
+AMD NPU operator profiling requires **VitisAI EP 2.1000.81 or newer**.
+The monitor enables ONNX Runtime profiling and `vitisai_profiling=1`, then reads the JSON after session
+teardown. The raw trace is retained at
+`hw_monitor.ep_proof.artifacts.profile`. A missing trace or a trace containing
+only fused EP nodes reports `no_data` with setup/version guidance rather than
+presenting fused-node time as operator time. `detail` tracing is not supported.
+
+No manual `xrt.ini` or `--ep-options` is needed. Before AMD initialization,
+`perf` sets `XRT_INI_PATH` to a temporary configuration enabling timeline
+collection (`Debug.ml_timeline=true`, with both buffer sizes set to `2304k`).
+It does not force debug verbosity: existing logging settings are preserved.
+Existing settings are copied from `XRT_INI_PATH`, or the first `xrt.ini` beside
+the Python executable or in the working directory; original files are not
+edited. The environment is restored and the temporary file removed afterward.
+For automatic EP selection, this setup runs only when AMD NPU hardware is
+detected. Other machines do not read or modify XRT configuration.
+Library callers should enter `VitisAIOpMonitor.profiling_environment(output_dir)`
+before registering the AMD EP.
+
+AMD tracing configures the first native inference session for profiling during
+model loading. The benchmark reuses that session for both latency and operator
+timings, then destroys it to flush the trace without creating a replacement.
+Model-load memory is measured before input allocation, just as in an ordinary
+benchmark. This is a temporary AMD workaround: model loading receives only
+ordinary `provider_options` and a `session_options` factory, not a monitor.
+`session.perf(monitor=..., reuse_session=True)` explicitly skips reconstruction
+and baseline restoration for an already-configured session. Its provider and
+session-config entries must match; the caller must configure native profiling
+settings before creation. Other perf calls keep the normal rebuild/restore
+behavior. AMD profiling explicitly supplies `EPConfig(enable_ep_context=False)`
+to avoid runtime EPContext compilation; defaults for other callers are unchanged.
+
+Library callers can pass `ep_config` to `WinMLAutoModel.from_onnx()` or
+`from_pretrained()` for the `winml-ort` runtime:
+
+```python
+from winml.modelkit.compiler import EPConfig
+from winml.modelkit.models import WinMLAutoModel
+
+model = WinMLAutoModel.from_onnx(
+    "model.onnx",
+    device="npu",
+    ep="vitisai",
+    skip_build=True,
+    ep_config=EPConfig(enable_ep_context=False),
+    provider_options={"vitisai_profiling": "1"},
+)
+```
+
+This configures the runtime session, not the build pipeline. Explicit
+`provider_options` override matching options in `ep_config` without mutating it.
+If `ep_config` is omitted, the previous behavior remains: supplying
+`provider_options` (even `{}`) creates an `EPConfig` whose
+`enable_ep_context` defaults to `True`.
+
+Kernel events are associated with their enclosing VitisAI node spans. ORT
+`model_run` spans identify inference boundaries, including repeated partition
+invocations. When those spans are absent, each partition must have one invocation
+per completed inference; ambiguous counts are rejected. Warmup runs are excluded,
+and repeated kernels resolving to the same operator are summed per measured run.
+
+The EP's `subgraph_(node)_fix` and `subgraph_(output_vaip_N)` wrappers are
+resolved using the source ONNX graph, including the two-number `_vaip_N_N`
+suffix. Operator types use the EP's `op_type` when present, then the exact ONNX
+type, or `Unknown`; `onnx_op_type` is included only for matched nodes.
+Percentages reflect traced kernel time, not wall-clock latency or CPU fallback.
+Without `--op-tracing`, AMD's existing xrt-smi proof-of-execution monitoring
+is unchanged; operator tracing itself does not require xrt-smi.
+
 ### TensorRT RTX operator tracing
 
 ```bash

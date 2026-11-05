@@ -1447,6 +1447,8 @@ class WinMLSession:
         self,
         warmup: int = 0,
         monitor: WinMLEPMonitor | None = None,
+        *,
+        reuse_session: bool = False,
     ) -> Iterator[PerfContext]:
         """Context manager for a scoped perf window.
 
@@ -1461,6 +1463,9 @@ class WinMLSession:
           (auto-reset with an INFO diagnostic) so the new options take effect.
         * After the ``with`` block exits, any rebuilt session is restored from
           the saved baseline provider/session-option snapshots.
+        * With ``reuse_session=True``, the caller has already applied native
+          profiling settings. The existing session is used without rebuilding
+          or restoring it, including on failure.
 
         Teardown ordering (C-2 invariant)
         ----------------------------------
@@ -1475,6 +1480,10 @@ class WinMLSession:
             warmup: Number of initial :meth:`run` calls to exclude from stats.
             monitor: Optional EP-specific monitor.  ``NullEPMonitor`` is used
                 when *monitor* is ``None`` so callers need no null checks.
+            reuse_session: Reuse an existing, preconfigured native session.
+                Provider/session-config entries must already match the monitor.
+                Native settings (such as enable_profiling) are the caller's
+                responsibility. Teardown monitors leave the session unloaded.
 
         Yields:
             :class:`PerfContext` with ``stats`` (a :class:`PerfStats`) and
@@ -1534,6 +1543,15 @@ class WinMLSession:
             ),
             self._provider_option_file_keys,
         )
+        if reuse_session and (
+            self._session is None
+            or new_prov != self._provider_options
+            or desired_sess_entries != self._active_session_option_entries
+        ):
+            raise ValueError(
+                "reuse_session requires an active session with the monitor's "
+                "provider and session-config options already applied."
+            )
 
         # Rebuild InferenceSession only when monitor-contributed provider/session
         # options differ from the current session's options (i.e. a new session
@@ -1542,7 +1560,7 @@ class WinMLSession:
         _session_rebuilt = (
             new_prov != self._provider_options
             or desired_sess_entries != self._active_session_option_entries
-            or effective_monitor.configures_session_options
+            or (effective_monitor.configures_session_options and not reuse_session)
             or self._session is None
         )
         if had_baseline_session and _session_rebuilt:
@@ -1561,6 +1579,11 @@ class WinMLSession:
             self._provider_options = saved_prov
             self._ep = saved_ep
             self._perf_stats = None
+
+            if reuse_session:
+                self._state = SessionState.INITIALIZED
+                self._running_model_path = saved_running_model_path
+                return None
 
             if not had_baseline_session:
                 self._state = saved_state
