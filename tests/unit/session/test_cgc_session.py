@@ -87,7 +87,8 @@ class _FakeApis:
     Args:
         fail: Exception the named call raises after it is recorded.
         capacity: ``configuration.logical_capacity`` read-back.
-        vocabulary: Tokenizer vocabulary size, or the exception reading it raises.
+        vocabulary: ``vocabulary_identity.token_count`` read-back, or the exception
+            reading it raises.
         chat_template: ``True`` renders the template. ``False`` raises
             ``NotSupportedError(E_NOINTERFACE)``, as the projection does for a
             tokenizer without the conversation formatter; an exception is
@@ -102,7 +103,7 @@ class _FakeApis:
         *,
         fail: dict[str, BaseException] | None = None,
         capacity: int | None = _CAPACITY,
-        vocabulary: int | BaseException = _VOCABULARY,
+        vocabulary: object = _VOCABULARY,
         chat_template: bool | BaseException = True,
         target_kind: str = "GPU",
         tokenizer: bool = True,
@@ -537,6 +538,63 @@ def test_missing_read_backs_are_null_with_a_warning(
     assert "vocabulary size" in caplog.text
     # Generation proceeds without the checks the read-backs would have enabled.
     assert session.generate_timed([1, 2], max_new_tokens=2).generated_tokens == 2
+
+
+def test_vocabulary_read_back_falls_back_without_a_not_supported_error_type(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    apis = _FakeApis(vocabulary=_WinMLError(_E_FAIL))
+    _patch_adapter(monkeypatch, apis)
+    runtime_api, tasks_api = apis.build()
+    # A windowsml build that does not expose NotSupportedError still raises its WinMLError.
+    del runtime_api.NotSupportedError
+    session = WinMLCGCSession(
+        tmp_path / "model.gguf",
+        model_format="gguf",
+        runtime_api=runtime_api,
+        tasks_api=tasks_api,
+    )
+
+    with caplog.at_level(logging.WARNING, logger=_LOGGER):
+        session.load(context_length=_CAPACITY)
+
+    assert (session.context_length, session.vocabulary_size) == (_CAPACITY, None)
+    assert [
+        (record.levelno, record.getMessage()) for record in caplog.records if record.name == _LOGGER
+    ] == [
+        (
+            logging.WARNING,
+            "Windows ML did not report the tokenizer vocabulary size; vocabulary_size is "
+            "reported as null and prompt token IDs are not range-checked.",
+        )
+    ]
+
+
+@pytest.mark.parametrize("token_count", [object(), "many"], ids=["TypeError", "ValueError"])
+def test_vocabulary_size_that_int_rejects_is_null_with_a_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    token_count: object,
+) -> None:
+    apis = _FakeApis(vocabulary=token_count)
+    session = _session(monkeypatch, apis, tmp_path / "model.gguf")
+
+    with caplog.at_level(logging.WARNING, logger=_LOGGER):
+        session.load(context_length=_CAPACITY)
+
+    assert (session.context_length, session.vocabulary_size) == (_CAPACITY, None)
+    assert [
+        (record.levelno, record.getMessage()) for record in caplog.records if record.name == _LOGGER
+    ] == [
+        (
+            logging.WARNING,
+            "Windows ML did not report the tokenizer vocabulary size; vocabulary_size is "
+            "reported as null and prompt token IDs are not range-checked.",
+        )
+    ]
+    # Generation proceeds without the prompt token range check.
+    assert session.generate_timed([1, _VOCABULARY], max_new_tokens=2).generated_tokens == 2
 
 
 @pytest.mark.parametrize(("capacity", "warned"), [(4096, False), (None, True)])

@@ -38,6 +38,7 @@ from .task_generation import (
     _encode_user_prompt,
     _hresult,
     _run_timed_generation,
+    _runtime_errors,
 )
 
 
@@ -602,10 +603,17 @@ class WinMLCGCSession:
         Runs outside the error translator: a missing read-back only turns off
         the prompt token range check.
         """
-        wr = self._wr
+        # AttributeError covers a tokenizer without vocabulary_identity; TypeError and
+        # ValueError cover a token count that int() rejects.
+        read_errors: tuple[type[BaseException], ...] = (
+            AttributeError,
+            TypeError,
+            ValueError,
+            *_runtime_errors(self._wr),
+        )
         try:
             vocabulary_size = _positive(self._tokenizer.vocabulary_identity.token_count)
-        except (AttributeError, wr.NotSupportedError, wr.WinMLError):
+        except read_errors:
             vocabulary_size = None
         if vocabulary_size is None:
             logger.warning(
