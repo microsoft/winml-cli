@@ -1196,18 +1196,24 @@ class PerfBenchmark:
                 if self.config.op_tracing == "basic" and self.config.runtime == "winml-ort":
                     from ..session import short_ep_name
 
-                    # Auto selection can load AMD while probing devices. XRT must
-                    # see its timeline configuration before that first DLL load.
                     ep = short_ep_name(self.config.ep) if self.config.ep else "auto"
                     if ep in ("vitisai", "auto") and self.config.device.lower() in ("auto", "npu"):
+                        from ..ep_path import EP_CATALOG
                         from ..session.monitor import VitisAIOpMonitor
 
-                        output_dir = (
-                            self.config.output_path.parent
-                            if self.config.output_path
-                            else Path.cwd()
-                        )
-                        stack.enter_context(VitisAIOpMonitor.profiling_environment(output_dir))
+                        # Hardware discovery does not load the EP or initialize XRT.
+                        # Non-AMD auto runs must not depend on XRT configuration.
+                        if ep == "vitisai" or EP_CATALOG.is_compatible(
+                            "VitisAIExecutionProvider", device_type="npu"
+                        ):
+                            output_dir = (
+                                self.config.output_path.parent
+                                if self.config.output_path
+                                else Path.cwd()
+                            )
+                            stack.enter_context(
+                                VitisAIOpMonitor.profiling_environment(output_dir)
+                            )
                 return self._run_with_memory()
         finally:
             if self._memory_tracker is not None:

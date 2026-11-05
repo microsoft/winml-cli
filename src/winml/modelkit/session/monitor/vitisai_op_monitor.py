@@ -118,11 +118,7 @@ class VitisAIOpMonitor(EPMonitor):
     @staticmethod
     @contextmanager
     def profiling_environment(output_dir: Path) -> Iterator[None]:
-        """Enable XRT timelines before EP discovery without editing the user's INI.
-
-        XRT caches configuration on first use, so callers must enter this scope
-        before loading an AMD EP or creating the baseline inference session.
-        """
+        """Enable XRT timelines before AMD initialization without changing logging."""
         previous = os.environ.get("XRT_INI_PATH")
         source = (
             Path(previous)
@@ -145,7 +141,6 @@ class VitisAIOpMonitor(EPMonitor):
                 raise RuntimeError(f"Cannot read XRT configuration {source}: {exc}") from exc
 
         settings = {
-            "Runtime": {"verbosity": "5"},
             "Debug": {"ml_timeline": "true", "ml_timeline_buffer_size": "2304k"},
             "ML_timeline_settings": {"buffer_size": "2304k"},
         }

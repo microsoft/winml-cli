@@ -433,17 +433,17 @@ teardown. The raw trace is retained at
 only fused EP nodes reports `no_data` with setup/version guidance rather than
 presenting fused-node time as operator time. `detail` tracing is not supported.
 
-Before EP discovery or baseline session creation, `perf` sets `XRT_INI_PATH`
-to a temporary configuration enabling `Debug.ml_timeline=true`, both timeline
-buffer sizes to `2304k`, and `Runtime.verbosity=5`. Existing settings are copied
-from `XRT_INI_PATH`, or the first `xrt.ini` beside the Python executable or in
-the working directory; the original file is never edited. The environment
-variable is restored and the temporary configuration removed on success or
-failure. This also applies to automatic NPU selection, which can load AMD
-during discovery. No manual `xrt.ini` or `--ep-options` is needed.
-XRT caches settings in-process: use a fresh CLI process if AMD was already
-initialized without timeline profiling. Library callers must enter
-`VitisAIOpMonitor.profiling_environment(output_dir)` before registering the EP.
+No manual `xrt.ini` or `--ep-options` is needed. Before AMD initialization,
+`perf` sets `XRT_INI_PATH` to a temporary configuration enabling timeline
+collection (`Debug.ml_timeline=true`, with both buffer sizes set to `2304k`).
+It does not force debug verbosity: existing logging settings are preserved.
+Existing settings are copied from `XRT_INI_PATH`, or the first `xrt.ini` beside
+the Python executable or in the working directory; original files are not
+edited. The environment is restored and the temporary file removed afterward.
+For automatic EP selection, this setup runs only when AMD NPU hardware is
+detected. Other machines do not read or modify XRT configuration.
+Library callers should enter `VitisAIOpMonitor.profiling_environment(output_dir)`
+before registering the AMD EP.
 
 AMD tracing configures the first native inference session for profiling during
 model loading. The benchmark reuses that session for both latency and operator
