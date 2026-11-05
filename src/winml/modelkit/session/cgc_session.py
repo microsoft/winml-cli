@@ -37,6 +37,7 @@ from .task_generation import (
     _distribution_version,
     _encode_user_prompt,
     _hresult,
+    _release_closed_interfaces,
     _run_timed_generation,
     _runtime_errors,
 )
@@ -511,6 +512,7 @@ class WinMLCGCSession:
         # The Runtime keeps no reference to the adapter: release it after the target.
         adapter, self._adapter = self._adapter, None
         _close_quietly(adapter)
+        _release_closed_interfaces()
 
     def __enter__(self) -> WinMLCGCSession:
         """Return the session for use as a context manager."""

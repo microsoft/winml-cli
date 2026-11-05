@@ -5,12 +5,14 @@
 """Test doubles for the shared Windows ML Task stream core.
 
 Greedy options in the 2.7 (eleven fields) and 2.8 (plus ``watermark``) shapes,
-and a native Task session that returns one stream of token updates followed by
-its terminal result. Nothing here imports ``windowsml`` or ``winml``.
+a native Task session that returns one stream of token updates followed by
+its terminal result, and a COM interface that only the cycle collector frees.
+Nothing here imports ``windowsml`` or ``winml``.
 """
 
 from __future__ import annotations
 
+import weakref
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
@@ -134,3 +136,35 @@ class FakeTaskSession:
         """Record the close in the shared ``closed`` list, when one was given."""
         if self._closed is not None:
             self._closed.append("session")
+
+
+class CyclicInterface:
+    """A COM interface pointer as ``ctypes.cast`` leaves it, in its own ``_objects``.
+
+    Only the cycle collector frees it; ``released`` then receives ``"interface"``.
+    """
+
+    def __init__(self, released: list[str]) -> None:
+        self._objects = {id(self): self}
+        weakref.finalize(self, released.append, "interface")
+
+
+def hold_cyclic_interface(wrapper: Any) -> list[str]:
+    """Give ``wrapper`` a :class:`CyclicInterface` that its ``close()`` drops.
+
+    As a ``windowsml`` wrapper's ``close()`` does, the close only drops the
+    reference, leaving the interface to the cycle collector.
+
+    Returns:
+        The list that receives ``"interface"`` once the interface is freed.
+    """
+    released: list[str] = []
+    wrapper.interface = CyclicInterface(released)
+    close = wrapper.close
+
+    def close_and_drop() -> None:
+        close()
+        wrapper.interface = None
+
+    wrapper.close = close_and_drop
+    return released

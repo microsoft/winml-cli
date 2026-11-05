@@ -47,6 +47,7 @@ from .task_generation import (
     _encode_user_prompt,
     _greedy_task_options,
     _hresult,
+    _release_closed_interfaces,
     _run_timed_generation,
     _validate_token_ids,
 )
@@ -540,6 +541,7 @@ class WinMLLlamaSession:
         ):
             _close_quietly(getattr(self, name))
             setattr(self, name, None)
+        _release_closed_interfaces()
 
     def __enter__(self) -> WinMLLlamaSession:
         """Return the session for use as a context manager."""
