@@ -327,6 +327,36 @@ def test_folder_holding_only_a_gguf_points_to_the_file(
 
 @pytest.mark.usefixtures("no_llama", "routed_past")
 @pytest.mark.parametrize(
+    "files",
+    [
+        ("genai_config.json", "model.onnx", "tokenizer.json"),
+        ("model.onnx", "winml_build_config.json"),
+    ],
+    ids=["genai_bundle", "build_output"],
+)
+def test_onnx_model_folder_gets_the_checkpoint_folder_error(
+    runner: CliRunner, tmp_path: Path, capture_cgc: dict[str, Any], files: tuple[str, ...]
+) -> None:
+    # With --runtime auto, --backend cgc sends every input except an .onnx or .mlir
+    # file to CGC text generation, so an ONNX model folder fails its folder check
+    # and never reaches the ort-genai or ONNX benchmark.
+    folder = tmp_path / "model"
+    folder.mkdir()
+    for name in files:
+        (folder / name).write_text("{}" if name.endswith(".json") else "", encoding="utf-8")
+    result = runner.invoke(perf, ["-m", str(folder), "--backend", "cgc"])
+
+    assert result.exit_code == 2, result.output
+    assert _text(result).endswith(
+        f"Error: '{folder}' is not a Hugging Face checkpoint folder: --backend cgc needs "
+        "config.json and *.safetensors weights (or model.safetensors.index.json), plus "
+        "tokenizer.json and tokenizer_config.json."
+    )
+    assert "config" not in capture_cgc
+
+
+@pytest.mark.usefixtures("no_llama", "routed_past")
+@pytest.mark.parametrize(
     ("name", "message"),
     [("missing.gguf", "GGUF file not found"), ("missing", "does not exist")],
 )
