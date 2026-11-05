@@ -12,6 +12,7 @@ but must not be used for a Python-managed generation loop.
 from __future__ import annotations
 
 import dataclasses
+import gc
 import sys
 from dataclasses import dataclass
 from enum import IntEnum
@@ -21,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from tests.unit.test_helpers import TaskOptions12
+from tests.unit.test_helpers import TaskOptions12, hold_cyclic_interface
 from winml.modelkit.session import (
     LlamaLoadError,
     LlamaNotInstalledError,
@@ -994,6 +995,21 @@ class TestClose:
         assert api.tasks[0].closed
         with pytest.raises(LlamaSessionError, match="load"):
             session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=4)
+
+    def test_close_frees_interfaces_that_closed_wrappers_left_in_cycles(
+        self, tmp_path: Path
+    ) -> None:
+        session, api = _session(tmp_path)
+        session.load(context_length=32)
+        released = hold_cyclic_interface(api.runtimes[0])
+
+        gc.disable()  # only close() may run the cycle collector
+        try:
+            session.close()
+        finally:
+            gc.enable()
+
+        assert released == ["interface"]
 
 
 # ---------------------------------------------------------------------------

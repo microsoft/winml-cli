@@ -22,6 +22,7 @@ included in total generation time.
 
 from __future__ import annotations
 
+import gc
 import importlib.metadata
 import inspect
 import logging
@@ -161,6 +162,19 @@ def _close_quietly(resource: Any) -> None:
         close()
     except Exception:  # teardown is best-effort
         logger.debug("Failed to close %s", type(resource).__name__, exc_info=True)
+
+
+def _release_closed_interfaces() -> None:
+    """Release the Windows ML interfaces that closed wrappers left in reference cycles.
+
+    ``windowsml`` wraps each COM interface with ``ctypes.cast``, which records the
+    pointer in its own ``_objects``, so closing a wrapper releases the interface
+    only when the cycle collector next runs. Left to interpreter exit, comtypes no
+    longer releases it, and Windows ML tears the native objects down while its
+    DLLs unload, which can crash the process in the GPU driver (0xC0000409) after
+    the run has finished.
+    """
+    gc.collect()
 
 
 # =============================================================================

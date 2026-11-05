@@ -16,6 +16,7 @@ from .task_fakes import (
     FakeTaskStream,
     TaskOptions11,
     TaskOptions12,
+    hold_cyclic_interface,
 )
 
 
@@ -27,6 +28,7 @@ __all__ = [
     "FakeTaskStream",
     "TaskOptions11",
     "TaskOptions12",
+    "hold_cyclic_interface",
     "make_timing",
     "stable_test_node_keys",
 ]

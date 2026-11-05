@@ -12,6 +12,7 @@ core tests use.
 
 from __future__ import annotations
 
+import gc
 import importlib
 import importlib.metadata
 import itertools
@@ -24,7 +25,12 @@ from typing import Any
 
 import pytest
 
-from tests.unit.test_helpers import FakeTaskSession, FakeTaskStream, TaskOptions12
+from tests.unit.test_helpers import (
+    FakeTaskSession,
+    FakeTaskStream,
+    TaskOptions12,
+    hold_cyclic_interface,
+)
 from winml.modelkit.session import (
     CGCLoadError,
     CGCNotInstalledError,
@@ -426,6 +432,24 @@ def test_close_releases_every_handle_once_with_the_adapter_last(
     with pytest.raises(CGCSessionError, match=r"^The WinMLCGCSession is closed\.$"):
         session.open_tokenizer()
     assert apis.calls == calls
+
+
+def test_close_frees_interfaces_that_closed_wrappers_left_in_cycles(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    apis = _FakeApis()
+    session = _session(monkeypatch, apis, tmp_path / "model.gguf")
+    session.open_tokenizer()
+    session.load(context_length=_CAPACITY)
+    released = hold_cyclic_interface(session._runtime)
+
+    gc.disable()  # only close() may run the cycle collector
+    try:
+        session.close()
+    finally:
+        gc.enable()
+
+    assert released == ["interface"]
 
 
 @pytest.mark.parametrize(
