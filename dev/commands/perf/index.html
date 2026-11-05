@@ -2163,6 +2163,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#cgc-text-generation-experimental" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CGC text generation (experimental)
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2510,6 +2521,34 @@
     
   
     GGUF — llama.cpp (Experimental)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../samples/cgc-text-generation-perf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CGC — Text Generation (Experimental)
   
 
     
@@ -3046,6 +3085,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#cgc-text-generation-experimental" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CGC text generation (experimental)
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -3185,21 +3235,21 @@
 <td><code>-m</code></td>
 <td><code>TEXT</code></td>
 <td>—</td>
-<td>HuggingFace model ID or path to a local <code>.onnx</code> file. With <code>--runtime winml-runtime</code>, also accepts a prebuilt CGC <code>.mlir</code> file. Also accepts a local <code>.gguf</code> language model with <code>--runtime auto</code> (experimental; see <a href="../../samples/gguf-llama-perf/">GGUF models</a>). Required. With <code>--runtime ort-genai</code>, also accepts a prebuilt genai <strong>bundle directory</strong>, or a HuggingFace model ID that is auto-built into a bundle on demand.</td>
+<td>HuggingFace model ID or path to a local <code>.onnx</code> file. With <code>--runtime winml-runtime</code>, also accepts a prebuilt CGC <code>.mlir</code> file. Also accepts a local <code>.gguf</code> language model with <code>--runtime auto</code> (experimental; see <a href="../../samples/gguf-llama-perf/">GGUF models</a>). With <code>--backend cgc</code>, a local <code>.gguf</code> file or a local Hugging Face checkpoint folder (safetensors weights) runs as CGC text generation on a GPU (experimental; see <a href="../../samples/cgc-text-generation-perf/">CGC text generation</a>). Required. With <code>--runtime ort-genai</code>, also accepts a prebuilt genai <strong>bundle directory</strong>, or a HuggingFace model ID that is auto-built into a bundle on demand.</td>
 </tr>
 <tr>
 <td><code>--runtime</code></td>
 <td></td>
 <td><code>auto\|winml-ort\|ort-genai\|winml-runtime</code></td>
 <td><code>auto</code></td>
-<td>Inference runtime. <code>auto</code> selects <code>ort-genai</code> for local folders containing <code>genai_config.json</code>, <code>winml-runtime</code> for <code>.mlir</code> files, Windows ML Tasks on llama.cpp for <code>.gguf</code> files (experimental; see <a href="../../samples/gguf-llama-perf/">GGUF models</a>), otherwise <code>winml-ort</code>; <code>winml-ort</code> benchmarks single-shot ONNX inference; <code>ort-genai</code> benchmarks an onnxruntime-genai bundle (LLM generation: time-to-first-token + decode tokens/sec); <code>winml-runtime</code> runs ONNX or prebuilt CGC MLIR through Windows ML Runtime. With <code>ort-genai</code>, a model ID that is not a bundle directory is auto-built into one before benchmarking. An explicit <code>--ep</code> or <code>--device</code> selects both the transformer build and runtime target; without an override, the auto-build defaults to QNN/NPU. Bundles are cached under <code>~/.cache/winml/</code>, separately for each explicit EP/device target. GenAI cache controls are tracked in issue #1275.</td>
+<td>Inference runtime. <code>auto</code> selects <code>ort-genai</code> for local folders containing <code>genai_config.json</code>, <code>winml-runtime</code> for <code>.mlir</code> files, Windows ML Tasks for <code>.gguf</code> files (llama.cpp unless <code>--backend cgc</code>; experimental; see <a href="../../samples/gguf-llama-perf/">GGUF models</a>), otherwise <code>winml-ort</code>. With <code>--backend cgc</code>, <code>auto</code> runs a <code>.gguf</code> file or a local checkpoint folder as CGC text generation on a GPU (experimental; see <a href="../../samples/cgc-text-generation-perf/">CGC text generation</a>). <code>winml-ort</code> benchmarks single-shot ONNX inference; <code>ort-genai</code> benchmarks an onnxruntime-genai bundle (LLM generation: time-to-first-token + decode tokens/sec); <code>winml-runtime</code> runs ONNX or prebuilt CGC MLIR through Windows ML Runtime, and exports a checkpoint folder to ONNX first, even with <code>--backend cgc</code>. With <code>ort-genai</code>, a model ID that is not a bundle directory is auto-built into one before benchmarking. An explicit <code>--ep</code> or <code>--device</code> selects both the transformer build and runtime target; without an override, the auto-build defaults to QNN/NPU. Bundles are cached under <code>~/.cache/winml/</code>, separately for each explicit EP/device target. GenAI cache controls are tracked in issue #1275.</td>
 </tr>
 <tr>
 <td><code>--backend</code></td>
 <td></td>
 <td><code>ort\|cgc</code></td>
-<td><code>cgc</code></td>
-<td><code>winml-runtime</code> backend for ONNX inputs. MLIR requires <code>cgc</code>.</td>
+<td><code>cgc</code> (with <code>winml-runtime</code>)</td>
+<td><code>winml-runtime</code> backend for ONNX inputs. MLIR requires <code>cgc</code>. With <code>--runtime auto</code> (the default), <code>cgc</code> runs a <code>.gguf</code> file or a local Hugging Face checkpoint folder as text generation on the Windows ML CGC backend on a GPU (experimental; see <a href="../../samples/cgc-text-generation-perf/">CGC text generation</a>); with <code>--runtime winml-runtime</code>, a <code>.gguf</code> file also runs this way, but a checkpoint folder is still exported to ONNX. Without <code>--backend</code>, a <code>.gguf</code> file runs on llama.cpp, and <code>--backend ort</code> is rejected for it.</td>
 </tr>
 <tr>
 <td><code>--task</code></td>
@@ -3227,14 +3277,14 @@
 <td><code>-d</code></td>
 <td><code>auto\|cpu\|gpu\|npu</code></td>
 <td><code>auto</code></td>
-<td>Device to run the benchmark on. <code>auto</code> selects the highest-priority available device.</td>
+<td>Device to run the benchmark on. <code>auto</code> selects the highest-priority available device. For a <code>.gguf</code> file on llama.cpp, <code>auto</code> means <code>cpu</code>; with <code>--backend cgc</code>, <code>auto</code> means <code>gpu</code>, and <code>cpu</code> and <code>npu</code> are rejected.</td>
 </tr>
 <tr>
 <td><code>--device-luid</code></td>
 <td></td>
 <td><code>TEXT</code></td>
 <td>—</td>
-<td>Pin a physical adapter within the resolved EP/device pair using its LUID from <code>winml sys</code> (<code>0xHHHHHHHH_0xLLLLLLLL</code>, case-insensitive). Requires the EP to expose that adapter's LUID. Not supported with <code>--runtime ort-genai</code>.</td>
+<td>Pin a physical adapter within the resolved EP/device pair using its LUID from <code>winml sys</code> (<code>0xHHHHHHHH_0xLLLLLLLL</code>, case-insensitive). Requires the EP to expose that adapter's LUID. Not supported with <code>--runtime ort-genai</code>. With <code>--backend cgc</code>, pins the GPU used for text generation; without it, winml-cli pins the high-performance GPU that DXCore ranks first (see <a href="../../samples/cgc-text-generation-perf/#choose-the-gpu">Choose the GPU</a>).</td>
 </tr>
 <tr>
 <td><code>--precision</code></td>
@@ -3367,49 +3417,56 @@
 <td></td>
 <td><code>TEXT</code></td>
 <td><code>Explain the theory of relativity in simple terms.</code></td>
-<td><em>(ort-genai, GGUF)</em> Prompt text to generate from. Wrapped in the model's chat template unless <code>--no-apply-template</code>.</td>
+<td><em>(ort-genai, GGUF, --backend cgc)</em> Prompt text to generate from. Wrapped in the model's chat template unless <code>--no-apply-template</code>.</td>
 </tr>
 <tr>
 <td><code>--apply-template/--no-apply-template</code></td>
 <td></td>
 <td>flag</td>
 <td><code>true</code></td>
-<td><em>(ort-genai, GGUF)</em> Wrap <code>--prompt</code> in the model's chat template before timing.</td>
+<td><em>(ort-genai, GGUF, --backend cgc)</em> Wrap <code>--prompt</code> in the model's chat template before timing.</td>
 </tr>
 <tr>
 <td><code>--max-new-tokens</code></td>
 <td></td>
 <td><code>INTEGER</code></td>
 <td><code>128</code></td>
-<td><em>(ort-genai, GGUF)</em> Number of new tokens to generate per iteration.</td>
+<td><em>(ort-genai, GGUF, --backend cgc)</em> Number of new tokens to generate per iteration.</td>
 </tr>
 <tr>
 <td><code>--prompt-ids-file</code></td>
 <td></td>
 <td><code>PATH</code></td>
 <td>—</td>
-<td><em>(GGUF)</em> JSON array of exact prompt token IDs submitted on every request, without a chat template. Cannot be combined with <code>--prompt</code>, <code>--prompt-file</code>, or <code>--apply-template</code>.</td>
+<td><em>(GGUF, --backend cgc)</em> JSON array of exact prompt token IDs submitted on every request, without a chat template. Cannot be combined with <code>--prompt</code>, <code>--prompt-file</code>, or <code>--apply-template</code>.</td>
 </tr>
 <tr>
 <td><code>--context-length</code></td>
 <td></td>
 <td><code>INTEGER</code></td>
 <td>prompt + <code>--max-new-tokens</code></td>
-<td><em>(GGUF)</em> Sequence capacity to load the model with; use a multiple of 256. The run fails unless the Runtime reports exactly this capacity.</td>
+<td><em>(GGUF, --backend cgc)</em> Sequence capacity to load the model with; on llama.cpp, use a multiple of 256. The run fails unless the Runtime reports exactly this capacity. With <code>--backend cgc</code>, a capacity above the model's trained context length fails when the Task session is created.</td>
 </tr>
 <tr>
 <td><code>--ignore-eos/--no-ignore-eos</code></td>
 <td></td>
 <td>flag</td>
 <td><code>false</code></td>
-<td><em>(GGUF)</em> Create the Task with an empty end-of-sequence set so every request generates <code>--max-new-tokens</code> tokens unless it reaches the sequence capacity.</td>
+<td><em>(GGUF, --backend cgc)</em> Create the Task with an empty end-of-sequence set so every request generates <code>--max-new-tokens</code> tokens unless it reaches the sequence capacity.</td>
 </tr>
 <tr>
 <td><code>--evidence</code></td>
 <td></td>
 <td><code>PATH</code></td>
 <td>—</td>
-<td><em>(GGUF)</em> Write raw <code>gguf-task-events-2</code> request evidence to this new JSON file. Needs <code>--warmup</code> of at least 1 and turns off <code>--memory</code>. Other inputs reject this option and the three above.</td>
+<td><em>(GGUF)</em> Write raw <code>gguf-task-events-2</code> request evidence to this new JSON file. Needs <code>--warmup</code> of at least 1 and turns off <code>--memory</code>. Applies only to a <code>.gguf</code> file on llama.cpp: <code>--backend cgc</code> and other inputs reject it. Inputs other than GGUF and <code>--backend cgc</code> also reject the three options above.</td>
+</tr>
+<tr>
+<td><code>--program-cache</code></td>
+<td></td>
+<td><code>DIR</code></td>
+<td>—</td>
+<td><em>(--backend cgc)</em> Directory for compiled GPU programs (Windows ML <code>compiled_program_directory</code>) that later runs reuse. Off by default, so every run measures the cold compile. The directory is reported in <code>benchmark_info.program_cache_dir</code>, and winml-cli never deletes it.</td>
 </tr>
 </tbody>
 </table>
@@ -3421,10 +3478,15 @@
 <code>benchmark_info.backend: llama.cpp</code>, <code>benchmark_info.api: windowsml.tasks</code>, and
 <code>benchmark_info.timing_source: task-stream</code>. Their <code>load</code>, <code>requests</code>, and
 <code>aggregate</code> sections describe Task stream timing; see
-<a href="../../samples/gguf-llama-perf/#report-fields">GGUF models</a>. Shared metadata such as
-<code>model_id</code>, <code>running_model_path</code>, <code>device</code>, <code>ep</code>, <code>iterations</code>, <code>warmup</code>, and
-<code>timestamp</code> uses the same field names where the concepts overlap; GenAI also keeps
-<code>bundle_dir</code> because the runnable artifact is a bundle directory.</p>
+<a href="../../samples/gguf-llama-perf/#report-fields">GGUF models</a>. CGC text generation
+reports (<code>--backend cgc</code>, experimental) use the same schema 3 layout with
+<code>benchmark_info.backend: cgc</code>, <code>benchmark_info.model_format: gguf</code> or <code>safetensors</code>,
+and the pinned GPU in <code>benchmark_info.adapter</code>; see
+<a href="../../samples/cgc-text-generation-perf/#report-fields">CGC text generation</a>.
+Shared metadata such as <code>model_id</code>, <code>running_model_path</code>, <code>device</code>, <code>ep</code>,
+<code>iterations</code>, <code>warmup</code>, and <code>timestamp</code> uses the same field names where the
+concepts overlap; GenAI also keeps <code>bundle_dir</code> because the runnable artifact is a
+bundle directory.</p>
 <p>When <code>--memory</code> is enabled, both <code>winml-ort</code> and <code>ort-genai</code> reports use the same <code>memory</code> field names for shared concepts: RSS baseline, after-compile/load, after-inference, peak, model-load delta, inference/generation delta, and total delta; VRAM local/shared baseline, after-compile/load, after-inference, peak, model-load delta, inference/generation delta, and total delta.</p>
 <h3 id="classic-memory-lifecycle">Classic memory lifecycle<a class="headerlink" href="#classic-memory-lifecycle" title="Permanent link">&para;</a></h3>
 <h4 id="model-loading-from-a-users-perspective">Model loading from a user's perspective<a class="headerlink" href="#model-loading-from-a-users-perspective" title="Permanent link">&para;</a></h4>
@@ -3563,8 +3625,10 @@ ML packages that winml-cli does not install, so install them first, as described
 </span></code></pre></div>
 <p><code>--device auto</code> runs GGUF models on the CPU; <code>--device gpu</code> needs a llama.cpp GPU
 backend. Options that select another benchmark target (<code>--ep</code>, <code>--ep-options</code>,
-<code>--backend</code>, <code>--device-luid</code>, <code>--input-data</code>, <code>--module</code>, <code>--submodel</code>) are
-rejected for GGUF input, and build-only options are ignored with a warning.</p>
+<code>--backend ort</code>, <code>--device-luid</code>, <code>--input-data</code>, <code>--module</code>, <code>--submodel</code>) are
+rejected for GGUF input, and build-only options are ignored with a warning.
+<code>--backend cgc</code> selects CGC text generation on a GPU instead of llama.cpp; see
+<a href="#cgc-text-generation-experimental">CGC text generation</a> below.</p>
 <p>GGUF schema version 3 measures Task stream TTFT, token-update intervals, and total
 generation time. <code>task_ttft_duration_ms</code> starts before stream creation and ends
 with the first token update; <code>request_ttft_duration_ms</code> also includes tokenization
@@ -3582,6 +3646,27 @@ submit exact token IDs, pin the sequence capacity, and run every request to
 the native llama.cpp log in the <code>gguf-task-events-2</code> format. The first failure ends
 the run, and the command exits with code 1 unless every request succeeded. See
 <a href="../../samples/gguf-llama-perf/#protocol-runs-with-exact-token-ids">Protocol runs with exact token IDs</a>.</p>
+<h3 id="cgc-text-generation-experimental">CGC text generation (experimental)<a class="headerlink" href="#cgc-text-generation-experimental" title="Permanent link">&para;</a></h3>
+<p><code>winml perf -m &lt;model&gt; --backend cgc</code> benchmarks text generation of a local <code>.gguf</code>
+file or a local Hugging Face checkpoint folder (<code>config.json</code>, safetensors weights,
+<code>tokenizer.json</code>, and <code>tokenizer_config.json</code>) on the Windows ML CGC backend.
+Windows ML loads the model through the model-backed Task API, binds it to one GPU,
+and compiles its GPU programs when the first Task session is created. This API needs
+a preview <code>windowsml</code> build (2.8.183.dev0), which winml-cli does not install, so
+install it first, as described in
+<a href="../../samples/cgc-text-generation-perf/">CGC text generation</a>:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>models/qwen2.5-0.5b-instruct-q4_k_m.gguf<span class="w"> </span>--backend<span class="w"> </span>cgc
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>models/Qwen2.5-0.5B-Instruct<span class="w"> </span>--backend<span class="w"> </span>cgc
+</span></code></pre></div>
+<p>CGC is opt-in: without <code>--backend cgc</code>, a <code>.gguf</code> file runs on llama.cpp and a
+checkpoint folder is exported to ONNX. <code>--device auto</code> means the GPU here. Without
+<code>--device-luid</code>, winml-cli pins the high-performance GPU through DXCore and reports
+its name, LUID, and how it was selected. Windows ML decides which models run: an
+unsupported model fails with a "cannot run this model" error, and winml-cli never
+falls back to llama.cpp or the ONNX path. Reports use schema version 3 with
+<code>benchmark_info.backend: cgc</code> and the same Task stream timings as GGUF models on
+llama.cpp. <code>--evidence</code>, <code>--memory-backend dxgi</code>, and <code>--etw-tracing</code> are rejected,
+and <code>--program-cache DIR</code> keeps the compiled GPU programs for later runs.</p>
 <h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h2>
 <h3 id="memory-measurement-contract">Memory measurement contract<a class="headerlink" href="#memory-measurement-contract" title="Permanent link">&para;</a></h3>
 <p>With <code>--memory</code>, classic and Runtime runs use the lifecycle boundaries described
@@ -3643,39 +3728,39 @@ the three phase checkpoints. Historical collectors and the external Raw CGC
 runner are not upgraded by this CLI change; those results require provenance
 labels or a rerun with a compatible collector.</p>
 <p>Basic benchmark on the best available device:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50
 </span></code></pre></div>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>Device:      npu
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>Precision:   auto
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>Task:        image-classification
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>Iterations:  100 (+ 10 warmup)
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>Batch Size:  1
-</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>
-</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>Latency (ms)
-</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>  Avg    P50    P90    P95    P99    Min    Max    Std
-</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a> 2.14   2.11   2.38   2.51   2.79   1.97   3.04   0.12
-</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>
-</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>Throughput: 467.29 samples/sec
-</span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>
-</span><span id="__span-3-13"><a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>Results saved to: ~/.cache/winml/perf/microsoft_resnet-50/2026-05-27T120000.json
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>Device:      npu
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>Precision:   auto
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>Task:        image-classification
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>Iterations:  100 (+ 10 warmup)
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>Batch Size:  1
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>Latency (ms)
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>  Avg    P50    P90    P95    P99    Min    Max    Std
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a> 2.14   2.11   2.38   2.51   2.79   1.97   3.04   0.12
+</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>
+</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>Throughput: 467.29 samples/sec
+</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>
+</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a>Results saved to: ~/.cache/winml/perf/microsoft_resnet-50/2026-05-27T120000.json
 </span></code></pre></div>
 <p>Benchmark a pre-exported ONNX file on CPU with more iterations:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--device<span class="w"> </span>cpu<span class="w"> </span>--iterations<span class="w"> </span><span class="m">500</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--device<span class="w"> </span>cpu<span class="w"> </span>--iterations<span class="w"> </span><span class="m">500</span>
 </span></code></pre></div>
 <p>Benchmark a prebuilt CGC MLIR model with Windows ML Runtime:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.mlir<span class="w"> </span>--runtime<span class="w"> </span>winml-runtime<span class="w"> </span>--device<span class="w"> </span>gpu
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.mlir<span class="w"> </span>--runtime<span class="w"> </span>winml-runtime<span class="w"> </span>--device<span class="w"> </span>gpu
 </span></code></pre></div>
 <p>For MLIR input, the resolved physical device is passed to Runtime as a DXCore
 adapter target; the resolved EP is used only to identify that device.</p>
 <p>Benchmark a text model with an explicit task, targeting the NPU:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>--task<span class="w"> </span>text-classification<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--precision<span class="w"> </span>w8a16
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>--task<span class="w"> </span>text-classification<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--precision<span class="w"> </span>w8a16
 </span></code></pre></div>
 <p>Benchmark with live hardware monitoring enabled:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--monitor
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--monitor
 </span></code></pre></div>
 <p>Select one of multiple GPUs supported by the same EP:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>$<span class="w"> </span>winml<span class="w"> </span>sys
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--ep<span class="w"> </span>dml<span class="w"> </span>--device<span class="w"> </span>gpu<span class="w"> </span>--device-luid<span class="w"> </span>0x00000000_0x00012C8B<span class="w"> </span>--monitor
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>$<span class="w"> </span>winml<span class="w"> </span>sys
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--ep<span class="w"> </span>dml<span class="w"> </span>--device<span class="w"> </span>gpu<span class="w"> </span>--device-luid<span class="w"> </span>0x00000000_0x00012C8B<span class="w"> </span>--monitor
 </span></code></pre></div>
 <p>Replace the example LUID with the adapter's value from <code>winml sys</code>. LUIDs are
 local to the current Windows boot, not portable hardware IDs. The flag narrows
@@ -3711,23 +3796,23 @@ options that redirect the binding away from the pinned adapter are rejected.
 The requested pin is saved in
 <code>benchmark_info.device_luid</code> in the single-model report.</p>
 <p>Pass runtime EP provider options to tune the session (repeatable):</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">    </span>--ep-options<span class="w"> </span><span class="nv">htp_performance_mode</span><span class="o">=</span>burst<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">    </span>--ep-options<span class="w"> </span><span class="nv">htp_graph_finalization_optimization_mode</span><span class="o">=</span><span class="m">3</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">    </span>--ep-options<span class="w"> </span><span class="nv">htp_performance_mode</span><span class="o">=</span>burst<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">    </span>--ep-options<span class="w"> </span><span class="nv">htp_graph_finalization_optimization_mode</span><span class="o">=</span><span class="m">3</span>
 </span></code></pre></div>
 <p>Per-module benchmarking to find latency hot-spots across all attention blocks:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>--module<span class="w"> </span>BertAttention<span class="w"> </span>--iterations<span class="w"> </span><span class="m">200</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>bert-base-uncased<span class="w"> </span>--module<span class="w"> </span>BertAttention<span class="w"> </span>--iterations<span class="w"> </span><span class="m">200</span>
 </span></code></pre></div>
 <p>Benchmark with real inputs from a <code>.npz</code> file instead of random data:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--input-data<span class="w"> </span>inputs.npz
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--input-data<span class="w"> </span>inputs.npz
 </span></code></pre></div>
 <p>Benchmark a Hugging Face model with dynamic export axes before measuring:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>--dynamic-axes<span class="w"> </span>dynamic_axes.json
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>microsoft/resnet-50<span class="w"> </span>--dynamic-axes<span class="w"> </span>dynamic_axes.json
 </span></code></pre></div>
 <p>The archive must contain one array per model input, keyed by the input name —
 for example:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="n">np</span><span class="o">.</span><span class="n">savez</span><span class="p">(</span><span class="s2">"inputs.npz"</span><span class="p">,</span> <span class="n">pixel_values</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="mi">4</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">224</span><span class="p">,</span> <span class="mi">224</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">))</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="n">np</span><span class="o">.</span><span class="n">savez</span><span class="p">(</span><span class="s2">"inputs.npz"</span><span class="p">,</span> <span class="n">pixel_values</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="mi">4</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">224</span><span class="p">,</span> <span class="mi">224</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float32</span><span class="p">))</span>
 </span></code></pre></div>
 <p>Array dtypes are cast to the model's expected dtype (with a warning) if they
 differ, so <code>.npz</code> files saved with default integer/float widths still work.</p>
@@ -3745,7 +3830,7 @@ iterations</strong> when <code>--iterations</code> is omitted, reducing timing v
 the default tracing run performs 20 inferences in total. Explicit <code>--iterations</code>
 and <code>--warmup</code> values are honored.</p>
 <h3 id="tensorrt-rtx-operator-tracing">TensorRT RTX operator tracing<a class="headerlink" href="#tensorrt-rtx-operator-tracing" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--device<span class="w"> </span>gpu<span class="w"> </span>--ep<span class="w"> </span>nv_tensorrt_rtx<span class="w"> </span>--op-tracing<span class="w"> </span>basic
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--device<span class="w"> </span>gpu<span class="w"> </span>--ep<span class="w"> </span>nv_tensorrt_rtx<span class="w"> </span>--op-tracing<span class="w"> </span>basic
 </span></code></pre></div>
 <p>TensorRT RTX supports <code>basic</code> tracing on GPU with EP
 <a href="https://dev.azure.com/WSSI/COMPUTE/_artifacts/feed/WCR/UPack/nvtensorrtrtx2-ep-msix/overview/2.30.49">2.30.49</a>

@@ -16,7 +16,7 @@
         <link rel="prev" href="../qwen3-genai-bundle/">
       
       
-        <link rel="next" href="../../tutorials/">
+        <link rel="next" href="../cgc-text-generation-perf/">
       
       
         
@@ -2436,6 +2436,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cgc-text-generation-perf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CGC — Text Generation (Experimental)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -3164,10 +3192,13 @@ unless you pass <code>--output</code>.</p>
 </tr>
 </tbody>
 </table>
-<p><code>--prompt-ids-file</code>, <code>--context-length</code>, <code>--ignore-eos</code>, and <code>--evidence</code> apply only
-to GGUF models; <code>winml perf</code> rejects them for other inputs.</p>
+<p><code>--prompt-ids-file</code>, <code>--context-length</code>, and <code>--ignore-eos</code> apply only to GGUF models
+and to safetensors checkpoint folders run with <code>--backend cgc</code>, while <code>--evidence</code>
+applies only to GGUF models on llama.cpp; <code>winml perf</code> rejects them for other inputs.</p>
 <p>Options that select another benchmark target are rejected: <code>--ep</code>, <code>--ep-options</code>,
 <code>--backend</code>, <code>--device-luid</code>, <code>--input-data</code>, <code>--module</code>, and <code>--submodel</code>.
+<code>--backend cgc</code> is the exception: it runs the same <code>.gguf</code> file with Windows ML CGC
+on a GPU instead of llama.cpp; see <a href="../cgc-text-generation-perf/">CGC text generation</a>.
 Build-only and ONNX-only options, such as <code>--precision</code>, <code>--task</code>, <code>--compile</code>,
 <code>--op-tracing</code>, <code>--duration</code>, <code>--batch-size</code>, and <code>--monitor</code>, are ignored with a
 warning.</p>
