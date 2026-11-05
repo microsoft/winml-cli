@@ -2203,6 +2203,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#amd-npu-operator-tracing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AMD NPU operator tracing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#tensorrt-rtx-operator-tracing" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3125,6 +3136,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#amd-npu-operator-tracing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AMD NPU operator tracing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#tensorrt-rtx-operator-tracing" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3829,8 +3851,71 @@ iterations</strong> when <code>--iterations</code> is omitted, reducing timing v
 <code>--warmup</code> remains 10 by default and is excluded from reported statistics, so
 the default tracing run performs 20 inferences in total. Explicit <code>--iterations</code>
 and <code>--warmup</code> values are honored.</p>
+<h3 id="amd-npu-operator-tracing">AMD NPU operator tracing<a class="headerlink" href="#amd-npu-operator-tracing" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--device<span class="w"> </span>npu<span class="w"> </span>--ep<span class="w"> </span>vitisai<span class="w"> </span>--op-tracing<span class="w"> </span>basic
+</span></code></pre></div>
+<p>AMD NPU operator profiling requires <strong>VitisAI EP 2.1000.81 or newer</strong>.
+The monitor enables ONNX Runtime profiling and <code>vitisai_profiling=1</code>, then reads the JSON after session
+teardown. The raw trace is retained at
+<code>hw_monitor.ep_proof.artifacts.profile</code>. A missing trace or a trace containing
+only fused EP nodes reports <code>no_data</code> with setup/version guidance rather than
+presenting fused-node time as operator time. <code>detail</code> tracing is not supported.</p>
+<p>No manual <code>xrt.ini</code> or <code>--ep-options</code> is needed. Before AMD initialization,
+<code>perf</code> sets <code>XRT_INI_PATH</code> to a temporary configuration enabling timeline
+collection (<code>Debug.ml_timeline=true</code>, with both buffer sizes set to <code>2304k</code>).
+It does not force debug verbosity: existing logging settings are preserved.
+Existing settings are copied from <code>XRT_INI_PATH</code>, or the first <code>xrt.ini</code> beside
+the Python executable or in the working directory; original files are not
+edited. The environment is restored and the temporary file removed afterward.
+For automatic EP selection, this setup runs only when AMD NPU hardware is
+detected. Other machines do not read or modify XRT configuration.
+Library callers should enter <code>VitisAIOpMonitor.profiling_environment(output_dir)</code>
+before registering the AMD EP.</p>
+<p>AMD tracing configures the first native inference session for profiling during
+model loading. The benchmark reuses that session for both latency and operator
+timings, then destroys it to flush the trace without creating a replacement.
+Model-load memory is measured before input allocation, just as in an ordinary
+benchmark. This is a temporary AMD workaround: model loading receives only
+ordinary <code>provider_options</code> and a <code>session_options</code> factory, not a monitor.
+<code>session.perf(monitor=..., reuse_session=True)</code> explicitly skips reconstruction
+and baseline restoration for an already-configured session. Its provider and
+session-config entries must match; the caller must configure native profiling
+settings before creation. Other perf calls keep the normal rebuild/restore
+behavior. AMD profiling explicitly supplies <code>EPConfig(enable_ep_context=False)</code>
+to avoid runtime EPContext compilation; defaults for other callers are unchanged.</p>
+<p>Library callers can pass <code>ep_config</code> to <code>WinMLAutoModel.from_onnx()</code> or
+<code>from_pretrained()</code> for the <code>winml-ort</code> runtime:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">winml.modelkit.compiler</span><span class="w"> </span><span class="kn">import</span> <span class="n">EPConfig</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">winml.modelkit.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">WinMLAutoModel</span>
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="n">model</span> <span class="o">=</span> <span class="n">WinMLAutoModel</span><span class="o">.</span><span class="n">from_onnx</span><span class="p">(</span>
+</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a>    <span class="s2">"model.onnx"</span><span class="p">,</span>
+</span><span id="__span-16-6"><a id="__codelineno-16-6" name="__codelineno-16-6" href="#__codelineno-16-6"></a>    <span class="n">device</span><span class="o">=</span><span class="s2">"npu"</span><span class="p">,</span>
+</span><span id="__span-16-7"><a id="__codelineno-16-7" name="__codelineno-16-7" href="#__codelineno-16-7"></a>    <span class="n">ep</span><span class="o">=</span><span class="s2">"vitisai"</span><span class="p">,</span>
+</span><span id="__span-16-8"><a id="__codelineno-16-8" name="__codelineno-16-8" href="#__codelineno-16-8"></a>    <span class="n">skip_build</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-16-9"><a id="__codelineno-16-9" name="__codelineno-16-9" href="#__codelineno-16-9"></a>    <span class="n">ep_config</span><span class="o">=</span><span class="n">EPConfig</span><span class="p">(</span><span class="n">enable_ep_context</span><span class="o">=</span><span class="kc">False</span><span class="p">),</span>
+</span><span id="__span-16-10"><a id="__codelineno-16-10" name="__codelineno-16-10" href="#__codelineno-16-10"></a>    <span class="n">provider_options</span><span class="o">=</span><span class="p">{</span><span class="s2">"vitisai_profiling"</span><span class="p">:</span> <span class="s2">"1"</span><span class="p">},</span>
+</span><span id="__span-16-11"><a id="__codelineno-16-11" name="__codelineno-16-11" href="#__codelineno-16-11"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>This configures the runtime session, not the build pipeline. Explicit
+<code>provider_options</code> override matching options in <code>ep_config</code> without mutating it.
+If <code>ep_config</code> is omitted, the previous behavior remains: supplying
+<code>provider_options</code> (even <code>{}</code>) creates an <code>EPConfig</code> whose
+<code>enable_ep_context</code> defaults to <code>True</code>.</p>
+<p>Kernel events are associated with their enclosing VitisAI node spans. ORT
+<code>model_run</code> spans identify inference boundaries, including repeated partition
+invocations. When those spans are absent, each partition must have one invocation
+per completed inference; ambiguous counts are rejected. Warmup runs are excluded,
+and repeated kernels resolving to the same operator are summed per measured run.</p>
+<p>The EP's <code>subgraph_(node)_fix</code> and <code>subgraph_(output_vaip_N)</code> wrappers are
+resolved using the source ONNX graph, including the two-number <code>_vaip_N_N</code>
+suffix. Operator types use the EP's <code>op_type</code> when present, then the exact ONNX
+type, or <code>Unknown</code>; <code>onnx_op_type</code> is included only for matched nodes.
+Percentages reflect traced kernel time, not wall-clock latency or CPU fallback.
+Without <code>--op-tracing</code>, AMD's existing xrt-smi proof-of-execution monitoring
+is unchanged; operator tracing itself does not require xrt-smi.</p>
 <h3 id="tensorrt-rtx-operator-tracing">TensorRT RTX operator tracing<a class="headerlink" href="#tensorrt-rtx-operator-tracing" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--device<span class="w"> </span>gpu<span class="w"> </span>--ep<span class="w"> </span>nv_tensorrt_rtx<span class="w"> </span>--op-tracing<span class="w"> </span>basic
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>$<span class="w"> </span>winml<span class="w"> </span>perf<span class="w"> </span>-m<span class="w"> </span>model.onnx<span class="w"> </span>--device<span class="w"> </span>gpu<span class="w"> </span>--ep<span class="w"> </span>nv_tensorrt_rtx<span class="w"> </span>--op-tracing<span class="w"> </span>basic
 </span></code></pre></div>
 <p>TensorRT RTX supports <code>basic</code> tracing on GPU with EP
 <a href="https://dev.azure.com/WSSI/COMPUTE/_artifacts/feed/WCR/UPack/nvtensorrtrtx2-ep-msix/overview/2.30.49">2.30.49</a>
