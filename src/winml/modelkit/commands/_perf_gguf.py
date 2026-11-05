@@ -42,7 +42,6 @@ from ._generation_metrics import _GenerationMemoryTracker
 # The ``name as name`` imports keep names that moved to the shared engine
 # importable from this module.
 from ._task_generation_perf import GGUF_SUFFIX as GGUF_SUFFIX
-from ._task_generation_perf import RUNTIME_TYPE as RUNTIME_TYPE
 from ._task_generation_perf import (
     TaskBenchmarkResult,
     TaskPerfBenchmark,
@@ -51,7 +50,6 @@ from ._task_generation_perf import (
     write_task_report,
 )
 from ._task_generation_perf import gguf_shard_paths as gguf_shard_paths
-from ._task_generation_perf import read_prompt_ids_file as read_prompt_ids_file
 
 
 if TYPE_CHECKING:

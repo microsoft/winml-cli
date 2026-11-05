@@ -951,14 +951,18 @@ def test_stable_windowsml_exits_with_the_preview_requirement(
 class TestHelp:
     BACKEND_HELP: ClassVar[list[str]] = [
         "Without --backend, a .gguf file runs on llama.cpp",
-        "With --runtime auto (the default), cgc runs a .gguf file or a local Hugging Face "
-        "checkpoint folder as text generation on the Windows ML CGC backend on a GPU",
+        (
+            "With --runtime auto (the default), cgc runs a .gguf file or a local Hugging Face "
+            "checkpoint folder as text generation on the Windows ML CGC backend on a GPU"
+        ),
         "with --runtime winml-runtime a checkpoint folder is still exported to ONNX",
     ]
     OTHER_HELP: ClassVar[list[str]] = [
         # --runtime
-        "With --backend cgc, 'auto' runs a .gguf file or a local checkpoint folder as CGC text "
-        "generation on a GPU",
+        (
+            "With --backend cgc, 'auto' runs a .gguf file or a local checkpoint folder as CGC text "
+            "generation on a GPU"
+        ),
         # --device
         "'auto' means cpu for a .gguf file on llama.cpp and gpu with --backend cgc",
         # --device-luid
