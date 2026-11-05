@@ -273,14 +273,12 @@ def _translate_native_errors(phase: str, *, device: str) -> Iterator[None]:
         if hr is None:
             raise
         hex_hr = f"0x{hr:08X}"
-        if hr == _HRESULT_NOT_SUPPORTED and device == "gpu" and phase != "run":
+        if hr == _HRESULT_NOT_SUPPORTED and device == "gpu":
             raise LlamaLoadError(
                 f"The Windows ML Runtime has no usable llama.cpp GPU backend ({hex_hr}). "
                 "Build a matching backend with Build-LlamaBackend.ps1 and provide its "
                 f"vendor runtime libraries, or use --device cpu. {_DOCS_HINT}"
             ) from exc
-        if phase == "run":
-            raise LlamaSessionError(f"GGUF inference failed ({hex_hr}): {exc}") from exc
         raise LlamaLoadError(f"GGUF {phase} failed ({hex_hr}): {exc}") from exc
 
 
