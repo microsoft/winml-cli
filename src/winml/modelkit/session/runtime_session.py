@@ -684,7 +684,6 @@ class WinMLRuntimeSession:
         backend: RuntimeBackend,
         device_luid: int | None = None,
         cgc_lowering_target: CGCLoweringTarget | None = None,
-        precompiled: bool = False,
     ) -> None:
         """Initialize a Runtime session.
 
@@ -698,8 +697,6 @@ class WinMLRuntimeSession:
                 expose a per-EP option hook.
             backend: Resolved backend used for model execution.
             cgc_lowering_target: Optional CGC compilation target; defaults to automatic.
-            precompiled: Load device-targeted CG Output IR directly without recompiling.
-                Requires backend cgc and MLIR input; lowering options are not reapplied.
         """
         from ..utils import CGC_LOWERING_TARGETS
 
@@ -714,9 +711,6 @@ class WinMLRuntimeSession:
         self._lock = threading.RLock()
         self._model_path = Path(model_path)
         self._is_mlir = self._model_path.suffix.lower() in {".mlir", ".mlirbc"}
-        if precompiled and (backend != "cgc" or not self._is_mlir):
-            raise ValueError("precompiled requires backend cgc and MLIR input.")
-        self._precompiled = precompiled
         self._backend = backend
         self._cgc_lowering_target = cgc_lowering_target
         if self._backend == "cgc" and ep_device is None and device_luid is None:
@@ -816,9 +810,12 @@ class WinMLRuntimeSession:
         resolved_target: _ResolvedRuntimeTarget,
     ) -> tuple[Any, Any, bool]:
         """Compile ONNX or MLIR to CG Output IR and reload it for execution."""
+        from ..export.cgc.ir import is_output_ir
+
+        output_ir = self._is_mlir and is_output_ir(self._model_path)
         with _translate_native_errors("load"):
             source_model = runtime.load_model(str(self._model_path))
-        if self._precompiled:
+        if output_ir:
             # Output IR already carries its device lowering and compiled resources.
             # Recompiling it can reject DML artifacts with ERROR_NOT_SUPPORTED.
             # Ownership transfers to the session, which closes it on reset/failure.

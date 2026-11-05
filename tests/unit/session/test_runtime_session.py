@@ -1374,7 +1374,14 @@ def test_perf_rejects_monitor_without_loading_runtime() -> None:
     with pytest.raises(click.ClickException, match="monitor"), session.perf(monitor=object()):
         pass
 
-def test_precompiled_cgc_load_bypasses_compiler_and_transfers_ownership():
+
+@pytest.fixture(autouse=True)
+def mock_input_ir_classification(monkeypatch):
+    monkeypatch.setattr('winml.modelkit.export.cgc.ir.is_output_ir', lambda path: False)
+
+
+def test_output_ir_load_bypasses_compiler_and_transfers_ownership(monkeypatch):
+    monkeypatch.setattr('winml.modelkit.export.cgc.ir.is_output_ir', lambda path: True)
     source = Mock()
     runtime = Mock(load_model=Mock(return_value=source))
     compiler = Mock()
@@ -1384,7 +1391,7 @@ def test_precompiled_cgc_load_bypasses_compiler_and_transfers_ownership():
     )
     session = WinMLRuntimeSession(
         'compiled.mlir', backend='cgc', ep_device=_mlir_ep_device(),
-        cgc_lowering_target='disable-d3d12', precompiled=True,
+        cgc_lowering_target='disable-d3d12',
     )
     try:
         model, ort_schema, named = session._load_on_cgc(runtime, target)
@@ -1397,9 +1404,3 @@ def test_precompiled_cgc_load_bypasses_compiler_and_transfers_ownership():
     finally:
         source.close()
         session.close()
-
-
-@pytest.mark.parametrize('path,backend', [('model.onnx', 'cgc'), ('model.mlir', 'ort')])
-def test_precompiled_requires_cgc_mlir(path, backend):
-    with pytest.raises(ValueError, match='precompiled requires'):
-        WinMLRuntimeSession(path, backend=backend, device_luid=456, precompiled=True)
