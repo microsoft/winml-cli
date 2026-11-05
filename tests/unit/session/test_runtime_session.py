@@ -1373,3 +1373,33 @@ def test_perf_rejects_monitor_without_loading_runtime() -> None:
     session = WinMLRuntimeSession("model.mlir", ep_device=_mlir_ep_device(), backend="cgc")
     with pytest.raises(click.ClickException, match="monitor"), session.perf(monitor=object()):
         pass
+
+def test_precompiled_cgc_load_bypasses_compiler_and_transfers_ownership():
+    source = Mock()
+    runtime = Mock(load_model=Mock(return_value=source))
+    compiler = Mock()
+    target = _ResolvedRuntimeTarget(
+        execution_target=SimpleNamespace(model_compiler=lambda: compiler),
+        device_class='gpu',
+    )
+    session = WinMLRuntimeSession(
+        'compiled.mlir', backend='cgc', ep_device=_mlir_ep_device(),
+        cgc_lowering_target='disable-d3d12', precompiled=True,
+    )
+    try:
+        model, ort_schema, named = session._load_on_cgc(runtime, target)
+        assert model is source
+        assert ort_schema is None
+        assert named is False
+        compiler.compile_to_file.assert_not_called()
+        source.close.assert_not_called()
+        assert session._compiled_artifacts is None
+    finally:
+        source.close()
+        session.close()
+
+
+@pytest.mark.parametrize('path,backend', [('model.onnx', 'cgc'), ('model.mlir', 'ort')])
+def test_precompiled_requires_cgc_mlir(path, backend):
+    with pytest.raises(ValueError, match='precompiled requires'):
+        WinMLRuntimeSession(path, backend=backend, device_luid=456, precompiled=True)
