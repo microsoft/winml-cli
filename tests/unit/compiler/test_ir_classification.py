@@ -1,3 +1,8 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+"""Persistence and publication tests for Runtime-backed CGIR compilation."""
 from pathlib import Path
 from unittest.mock import Mock
 
