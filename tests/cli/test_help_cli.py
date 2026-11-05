@@ -91,6 +91,12 @@ def test_cgc_options_visible_in_help(command: str) -> None:
     assert "--cgc-options KEY=VALUE" in result.output
 
 
+def test_program_cache_visible_in_perf_help() -> None:
+    result = _invoke("perf", "--help")
+    assert result.exit_code == 0, result.output
+    assert "--program-cache DIR" in result.output
+
+
 # ===========================================================================
 # winml  (no args)
 # ===========================================================================

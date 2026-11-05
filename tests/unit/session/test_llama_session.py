@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from tests.unit.test_helpers import TaskOptions12
 from winml.modelkit.session import (
     LlamaLoadError,
     LlamaNotInstalledError,
@@ -725,6 +726,13 @@ class TestLoadReadback:
             "frequency_penalty": 0.0,
             "seed": 0,
         }
+
+    def test_greedy_options_disable_watermark_on_the_2_8_task_api(self, tmp_path: Path) -> None:
+        tasks = _tasks_api()
+        tasks.TextGenerationOptions = TaskOptions12
+        session = WinMLLlamaSession(_gguf(tmp_path), runtime_api=_runtime_api(), tasks_api=tasks)
+        session.load(context_length=32)
+        assert session.greedy_options(128).watermark is False
 
 
 # ---------------------------------------------------------------------------

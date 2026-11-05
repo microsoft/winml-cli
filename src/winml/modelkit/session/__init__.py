@@ -12,6 +12,13 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from ..ep_path import VALID_SOURCE_TAGS, DirectorySource, EPEntry
     from ._runtime_import import import_runtime
+    from .cgc_session import (
+        CGCLoadError,
+        CGCNotInstalledError,
+        CGCSessionError,
+        WinMLCGCSession,
+        cgc_package_versions,
+    )
     from .ep_device import (
         DEVICE_TO_DEVICE_TYPE,
         DEVICE_TYPE_TO_DEVICE,
@@ -69,6 +76,7 @@ if TYPE_CHECKING:
     from .runtime_session import WinMLRuntimeSession
     from .session import InferenceError, PerfContext, SessionState, WinMLSession
     from .stats import PerfStats
+    from .task_generation import TaskGenerationTiming, TaskSessionError
 
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
@@ -76,6 +84,11 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "VALID_SOURCE_TAGS": ("..ep_path", "VALID_SOURCE_TAGS"),
     "DirectorySource": ("..ep_path", "DirectorySource"),
     "EPEntry": ("..ep_path", "EPEntry"),
+    "CGCLoadError": (".cgc_session", "CGCLoadError"),
+    "CGCNotInstalledError": (".cgc_session", "CGCNotInstalledError"),
+    "CGCSessionError": (".cgc_session", "CGCSessionError"),
+    "WinMLCGCSession": (".cgc_session", "WinMLCGCSession"),
+    "cgc_package_versions": (".cgc_session", "cgc_package_versions"),
     "DEVICE_TO_DEVICE_TYPE": (".ep_device", "DEVICE_TO_DEVICE_TYPE"),
     "DEVICE_TYPE_TO_DEVICE": (".ep_device", "DEVICE_TYPE_TO_DEVICE"),
     "EP_DEVICE_SPECS": (".ep_device", "EP_DEVICE_SPECS"),
@@ -137,6 +150,8 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "SessionState": (".session", "SessionState"),
     "WinMLSession": (".session", "WinMLSession"),
     "PerfStats": (".stats", "PerfStats"),
+    "TaskGenerationTiming": (".task_generation", "TaskGenerationTiming"),
+    "TaskSessionError": (".task_generation", "TaskSessionError"),
 }
 _PRIVATE_LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "_format_bytes": (".ep_device", "_format_bytes"),
@@ -149,6 +164,9 @@ __all__ = [
     "VALID_DEVICES",
     "VALID_EPS",
     "VALID_SOURCE_TAGS",
+    "CGCLoadError",
+    "CGCNotInstalledError",
+    "CGCSessionError",
     "DeviceNotFound",
     "DirectorySource",
     "EPDeviceSpec",
@@ -175,9 +193,12 @@ __all__ = [
     "PerfStats",
     "QNNMonitor",
     "SessionState",
+    "TaskGenerationTiming",
+    "TaskSessionError",
     "UnknownListingPick",
     "VitisAIMonitor",
     "VitisAIOpMonitor",
+    "WinMLCGCSession",
     "WinMLDevice",
     "WinMLEP",
     "WinMLEPDevice",
@@ -192,6 +213,7 @@ __all__ = [
     "WinMLSession",
     "auto_detect_device",
     "available_eps_for_device",
+    "cgc_package_versions",
     "default_device_for_ep",
     "default_ep_for_device",
     "device_from_provider_option_hints",
