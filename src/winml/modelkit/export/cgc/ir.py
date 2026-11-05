@@ -54,7 +54,7 @@ def _bind(dll: Any, name: str, argtypes: list[Any], restype: Any) -> Any:
     return function
 
 
-def read_mlir_text(path: Path) -> str:
+def _read_mlir(path: Path, attribute: bytes | None = None) -> str:
     """Parse text or bytecode CGC IR and return its UTF-8 textual form."""
     dll = _cgc_ir_library()
     context_create = _bind(
@@ -111,7 +111,24 @@ def read_mlir_text(path: Path) -> str:
             chunks.append(ctypes.string_at(value.data, value.length))
 
         callback = _StringCallback(append_chunk)
-        operation_print(module_operation(module), callback, None)
+        operation = module_operation(module)
+        if attribute is None:
+            operation_print(operation, callback, None)
+        else:
+            get_attribute = _bind(
+                dll, 'mlirOperationGetAttributeByName',
+                [_MlirHandle, _MlirStringRef], _MlirHandle,
+            )
+            value = get_attribute(operation, _MlirStringRef(
+                ctypes.cast(ctypes.c_char_p(attribute), ctypes.c_void_p), len(attribute),
+            ))
+            if not value.ptr:
+                return ''
+            attribute_print = _bind(
+                dll, 'mlirAttributePrint',
+                [_MlirHandle, _StringCallback, ctypes.c_void_p], None,
+            )
+            attribute_print(value, callback, None)
         try:
             return b"".join(chunks).decode("utf-8")
         except UnicodeDecodeError as e:
@@ -120,3 +137,15 @@ def read_mlir_text(path: Path) -> str:
         if module.ptr:
             module_destroy(module)
         context_destroy(context)
+
+
+def read_mlir_text(path: Path) -> str:
+    """Parse text or bytecode CGC IR and return its UTF-8 textual form."""
+    return _read_mlir(path)
+
+
+def is_output_ir(path: Path) -> bool:
+    """Identify compiled Output IR using the parsed module interface attribute."""
+    # Inspect the parsed module attribute, not filenames, comments or op names.
+    # The native parser handles both text and bytecode artifacts.
+    return _read_mlir(path, b'interface').strip() == '#cgc.interface<cgc_output>'

@@ -810,8 +810,16 @@ class WinMLRuntimeSession:
         resolved_target: _ResolvedRuntimeTarget,
     ) -> tuple[Any, Any, bool]:
         """Compile ONNX or MLIR to CG Output IR and reload it for execution."""
+        from ..export.cgc.ir import is_output_ir
+
+        output_ir = self._is_mlir and is_output_ir(self._model_path)
         with _translate_native_errors("load"):
             source_model = runtime.load_model(str(self._model_path))
+        if output_ir:
+            # Output IR already carries its device lowering and compiled resources.
+            # Recompiling it can reject DML artifacts with ERROR_NOT_SUPPORTED.
+            # Ownership transfers to the session, which closes it on reset/failure.
+            return source_model, None, False
         try:
             ort_schema = None if self._is_mlir else source_model.ort_schema()
 
