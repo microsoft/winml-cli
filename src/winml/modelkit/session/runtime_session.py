@@ -30,6 +30,7 @@ from __future__ import annotations
 import ctypes
 import json
 import logging
+import mmap
 import operator
 import threading
 from contextlib import contextmanager
@@ -596,6 +597,46 @@ def _serialize_mlir_as_text(path: Path) -> None:
     path.write_text(read_mlir_text(path), encoding="utf-8", newline="\n")
 
 
+def _cgc_external_weight_options(path: Path) -> dict[str, Any]:
+    """Supply Runtime load options only when Input IR declares external weights."""
+    from ..export.cgc.ir import is_output_ir
+
+    if path.suffix.lower() not in {".mlir", ".mlirbc"} or is_output_ir(path):
+        return {}
+
+    from ..export.cgc import create_foundry_compiler
+
+    with create_foundry_compiler() as compiler:
+        from _foundry import SerializationFormat
+
+        source = path.read_bytes()
+        serialization_format = (
+            SerializationFormat.BYTECODE
+            if source.startswith(b"ML\xefR")
+            else SerializationFormat.TEXT
+        )
+        with compiler.create_module_from_mlir(source, format=serialization_format) as module:
+            tensors = module.external_tensors()
+
+    mappings: dict[Path, mmap.mmap] = {}
+    resources: dict[str, memoryview] = {}
+    for tensor in tensors:
+        weight_path = (path.parent / tensor.file).resolve()
+        if weight_path not in mappings:
+            with weight_path.open("rb") as file:
+                mappings[weight_path] = mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ)
+        mapped = mappings[weight_path]
+        end = tensor.offset + tensor.size
+        if not 0 <= tensor.offset < end <= len(mapped):
+            raise click.ClickException(
+                f"Invalid range for CGIR resource {tensor.key!r} in '{weight_path}': "
+                f"offset={tensor.offset}, size={tensor.size}, file_size={len(mapped)}."
+            )
+        # Views retain their mmap; Runtime retains the buffers through dependent stages.
+        resources[tensor.key] = memoryview(mapped)[tensor.offset:end]
+    return {"resources": resources} if resources else {}
+
+
 def _resolve_onnx_target(
     runtime: Any,
     wr: Any,
@@ -814,7 +855,9 @@ class WinMLRuntimeSession:
 
         output_ir = self._is_mlir and is_output_ir(self._model_path)
         with _translate_native_errors("load"):
-            source_model = runtime.load_model(str(self._model_path))
+            source_model = runtime.load_model(
+                str(self._model_path), **_cgc_external_weight_options(self._model_path)
+            )
         if output_ir:
             # Output IR already carries its device lowering and compiled resources.
             # Recompiling it can reject DML artifacts with ERROR_NOT_SUPPORTED.
@@ -1054,7 +1097,9 @@ class WinMLRuntimeSession:
         source_model = compiled_model = builder = stage = pipeline = source_schema = None
         try:
             with _translate_native_errors("load"):
-                source_model = runtime.load_model(str(self._model_path))
+                source_model = runtime.load_model(
+                    str(self._model_path), **_cgc_external_weight_options(self._model_path)
+                )
                 source_schema = source_model.schema()
             _compile_runtime_model(
                 source_model,
