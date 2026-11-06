@@ -350,8 +350,8 @@ def _build_session_options(
     if capture is not None and capture.execution_path == "winmlcgep":
         if ep_device.device.ep_name != "WinMLCGExecutionProvider":
             raise ValueError("ETW EP timing requires WinMLCGExecutionProvider.")
-        so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
-        so.intra_op_num_threads = 1
+        # Capture must not change the graph or threading configuration used by
+        # ordinary perf. Preserve ORT defaults and factory/monitor overrides.
         so.add_session_config_entry(
             "session.disable_cpu_ep_fallback", "0" if capture.allow_cpu_fallback else "1"
         )

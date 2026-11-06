@@ -21,6 +21,12 @@ Trace-control commands have a 30-second deadline; each tracerpt export has a
 capture.log. A timed-out create attempts cleanup of its generated logger name;
 cleanup never targets other logger names.
 
+WinMLCG EP capture preserves the ORT graph-optimization and intra-op thread
+settings used by ordinary perf, including session-factory and monitor overrides.
+Enabling ETW does not disable graph optimization or force single-threaded execution.
+Keep the same model, inputs, lowering target and CPU-fallback policy when comparing
+traced GPU timing with an untraced host measurement; their timing domains differ.
+
 WinMLCG EP capture disables CPU fallback by default. Explicitly permit CPU fallback:
 
 ```cmd
