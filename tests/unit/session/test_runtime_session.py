@@ -7,13 +7,14 @@
 from __future__ import annotations
 
 import json
+import sys
 import threading
 import time
 import weakref
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import click
 import numpy as np
@@ -22,6 +23,7 @@ import pytest
 from winml.modelkit.session.runtime_session import (
     WinMLRuntimeSession,
     _apply_io_metadata,
+    _cgc_external_weight_options,
     _compile_runtime_model,
     _DXCoreAdapter,
     _numpy_dtype_for,
@@ -1378,6 +1380,44 @@ def test_perf_rejects_monitor_without_loading_runtime() -> None:
 @pytest.fixture(autouse=True)
 def mock_input_ir_classification(monkeypatch):
     monkeypatch.setattr('winml.modelkit.export.cgc.ir.is_output_ir', lambda path: False)
+    monkeypatch.setattr(
+        'winml.modelkit.session.runtime_session._cgc_external_weight_options', lambda path: {}
+    )
+
+
+def test_cgc_external_weights_use_tensor_ranges_and_share_file_mapping(tmp_path, monkeypatch):
+    arrays = np.random.default_rng(42).standard_normal((3, 16)).astype(np.float32)
+    payloads = [array.tobytes() for array in arrays]
+    shared = tmp_path / "shared.data"
+    shared.write_bytes(payloads[0] + payloads[1])
+    separate = tmp_path / "separate.data"
+    separate.write_bytes(payloads[2])
+    source = tmp_path / "model.mlir"
+    source.write_bytes(arrays.tobytes())
+    tensors = [
+        SimpleNamespace(key="first", file=shared.name, offset=0, size=len(payloads[0])),
+        SimpleNamespace(
+            key="second", file=shared.name, offset=len(payloads[0]), size=len(payloads[1])
+        ),
+        SimpleNamespace(key="third", file=str(separate), offset=0, size=len(payloads[2])),
+    ]
+    compiler = MagicMock()
+    compiler.__enter__.return_value = compiler
+    module = compiler.create_module_from_mlir.return_value.__enter__.return_value
+    module.external_tensors.return_value = tensors
+    monkeypatch.setattr("winml.modelkit.export.cgc.create_foundry_compiler", lambda: compiler)
+    monkeypatch.setitem(
+        sys.modules, "_foundry",
+        SimpleNamespace(SerializationFormat=SimpleNamespace(TEXT=0, BYTECODE=1)),
+    )
+
+    resources = _cgc_external_weight_options(source)["resources"]
+    assert list(resources) == [tensor.key for tensor in tensors]
+    for tensor, expected in zip(tensors, payloads, strict=True):
+        assert bytes(resources[tensor.key]) == expected
+        assert resources[tensor.key].readonly
+    assert resources["first"].obj is resources["second"].obj
+    assert resources["third"].obj is not resources["first"].obj
 
 
 def test_output_ir_load_bypasses_compiler_and_transfers_ownership(monkeypatch):
