@@ -1444,3 +1444,49 @@ def test_output_ir_load_bypasses_compiler_and_transfers_ownership(monkeypatch):
     finally:
         source.close()
         session.close()
+
+
+@pytest.mark.parametrize("lowering", ["auto", "disable-d3d12", "d3d12"])
+@pytest.mark.parametrize("with_other_options", [False, True])
+def test_runtime_without_lowering_api_preserves_explicit_target(
+    tmp_path, monkeypatch, lowering, with_other_options
+):
+    monkeypatch.setattr(
+        "winml.modelkit.session.runtime_session.import_runtime",
+        lambda: SimpleNamespace(),
+    )
+    options = SimpleNamespace(
+        close=Mock(), supports_symbolic_dimensions=True, symbolic_dimensions={}
+    )
+    compiler = Mock(create_options=Mock(return_value=options))
+    compiler.supports_form.return_value = True
+    target = _ResolvedRuntimeTarget(
+        SimpleNamespace(model_compiler=lambda: compiler), "gpu"
+    )
+    model = Mock()
+    output = tmp_path / "output.mlir"
+
+    def compile_model():
+        _compile_runtime_model(
+            model,
+            target,
+            output,
+            symbolic_dimensions={"batch": 1} if with_other_options else None,
+            compiled_form="device-targeted" if with_other_options else None,
+            cgc_lowering_target=lowering,
+        )
+
+    if lowering == "auto":
+        compile_model()
+        compiler.compile_to_file.assert_called_once_with(model, str(output), options=options)
+        assert not hasattr(options, "cgc_lowering_target")
+        if with_other_options:
+            assert options.symbolic_dimensions == {"batch": 1}
+            assert options.form == "device-targeted"
+    else:
+        with pytest.raises(click.ClickException, match="does not support explicit CGC lowering"):
+            compile_model()
+        compiler.compile_to_file.assert_not_called()
+        assert not output.exists()
+    options.close.assert_called_once_with()
+    compiler.close.assert_called_once_with()

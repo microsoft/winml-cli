@@ -567,11 +567,30 @@ def _compile_runtime_model(
                     options.form = compiled_form
                 if cgc_lowering_target is not None:
                     wr = import_runtime()
-                    options.cgc_lowering_target = {
-                        "auto": wr.CgcLoweringTarget.AUTOMATIC,
-                        "disable-d3d12": wr.CgcLoweringTarget.DML,
-                        "d3d12": wr.CgcLoweringTarget.D3D12,
-                    }[cgc_lowering_target]
+                    lowering_enum = getattr(wr, "CgcLoweringTarget", None)
+                    if lowering_enum is None:
+                        # Runtime 2.8.204 has no explicit lowering API. Automatic
+                        # compilation can use its default, but an explicit target
+                        # must never silently become automatic compilation.
+                        if cgc_lowering_target != "auto":
+                            raise click.ClickException(
+                                "The installed Windows ML Runtime Python API does not "
+                                "support explicit CGC lowering targets "
+                                f"({cgc_lowering_target!r} requested; CgcLoweringTarget "
+                                "is unavailable). Install a Runtime package exposing "
+                                "CgcLoweringTarget and ModelCompileOptions.cgc_lowering_target "
+                                "to preserve this target. Automatic lowering is not a "
+                                "substitute for fallback-only execution."
+                            )
+                    else:
+                        options.cgc_lowering_target = getattr(
+                            lowering_enum,
+                            {
+                                "auto": "AUTOMATIC",
+                                "disable-d3d12": "DML",
+                                "d3d12": "D3D12",
+                            }[cgc_lowering_target],
+                        )
                 compiler.compile_to_file(source_model, str(output_path), options=options)
             else:
                 compiler.compile_to_file(source_model, str(output_path))
