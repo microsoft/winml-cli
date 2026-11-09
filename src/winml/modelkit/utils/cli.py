@@ -18,7 +18,6 @@ from rich.console import Console
 
 from .constants import (
     ALL_EP_NAMES,
-    CGC_LOWERING_TARGETS,
     SUPPORTED_DEVICES,
 )
 
@@ -675,17 +674,6 @@ _DEVICE_LUID_PATTERN = re.compile(
     r"0x[0-9a-f]{8}_0x[0-9a-f]{8}",
     re.IGNORECASE,
 )
-
-
-def cgc_lowering_target_option() -> Callable[[F], F]:
-    """Add the experimental CGC device-compilation target option."""
-    return click.option(
-        "--cgc-lowering-target",
-        type=click.Choice(list(CGC_LOWERING_TARGETS)),
-        default=None,
-        hidden=True,
-        help="CGC lowering target (default: auto). Explicit targets never fall back.",
-    )
 
 
 def device_luid_option(

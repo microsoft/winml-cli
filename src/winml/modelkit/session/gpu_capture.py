@@ -174,7 +174,6 @@ class GpuCapture:
         """Runtime ETW __init__."""
         self.directory = directory
         self.execution_path = "runtime-api"
-        self.lowering_target = "auto"
         self.allow_cpu_fallback = False
         self.verbose_diagnostics = os.environ.get("WINML_FULL_DIAGNOSTICS") == "1"
         self.collection_profile = (

@@ -31,7 +31,6 @@ import click
 from rich.markup import escape
 from rich.table import Table
 
-from ..utils import CGCLoweringTarget
 from ..utils import cli as cli_utils
 from ..utils.console import SafeConsole
 from ..utils.constants import (
@@ -583,7 +582,6 @@ class BenchmarkConfig:
     model_id: str
     runtime: RuntimeName = "winml-ort"
     backend: RuntimeBackend | None = None
-    cgc_lowering_target: CGCLoweringTarget | None = None
     task: str | None = None
     submodel: str | None = None
     device: str = "auto"
@@ -703,7 +701,6 @@ class BenchmarkResult:
                 "backend": resolve_runtime_api_backend(
                     self.config.runtime, self.config.model_id, self.config.backend
                 ),
-                "cgc_lowering_target": self.config.cgc_lowering_target,
                 "model_id": self.config.model_id,
                 "running_model_path": self.running_model_path,
                 "task": self.actual_task,
@@ -1492,10 +1489,6 @@ class PerfBenchmark:
             "no_compile": self.config.no_compile,
             "runtime": self.config.runtime,
             "backend": self._runtime_backend,
-            # ORT CGEP lowering is applied to SessionOptions by the ETW collector.
-            "cgc_lowering_target": (
-                self.config.cgc_lowering_target if self.config.runtime == "winml-runtime" else None
-            ),
             # optimize/analyze/max-optim toggles, forwarded by WinMLAutoModel to
             # build_hf_model / build_onnx_model. Shared mapping with build/eval.
             **cli_utils.build_pipeline_extra_kwargs(
@@ -1564,7 +1557,6 @@ class PerfBenchmark:
                     task=resolved_task,
                     runtime=self.config.runtime,
                     backend="cgc",
-                    cgc_lowering_target=self.config.cgc_lowering_target,
                 )
         else:
             with suppress_native_warnings(enabled=True):
@@ -3074,7 +3066,6 @@ _CGC_GENERATION_REJECTED_FLAGS: dict[str, str] = {
     "evidence": "--evidence",
     "etw_tracing": "--etw-tracing",
     "allow_cpu_fallback": "--allow-cpu-fallback",
-    "cgc_lowering_target": "--cgc-lowering-target",
 }
 
 # Options only CGC text generation implements, mapped to the flag.
@@ -3710,7 +3701,6 @@ def _validate_duration(
     "online conversion for ONNX/PyTorch inputs (a checkpoint folder is exported to "
     "ONNX first) or loads CGC MLIR directly.",
 )
-@cli_utils.cgc_lowering_target_option()
 @click.option(
     "--backend",
     type=click.Choice(list(RUNTIME_BACKENDS)),
@@ -4004,7 +3994,6 @@ def perf(
     dxcgc_gpu_timing: bool,
     disable_d3d_mlir_programs: bool,
     backend: RuntimeBackend | None,
-    cgc_lowering_target: CGCLoweringTarget | None,
     prompt: str,
     prompt_file: Path | None,
     apply_template: bool,
@@ -4221,15 +4210,8 @@ def perf(
         effective_backend = resolve_runtime_api_backend(runtime, model, backend)
     except ValueError as error:
         raise click.UsageError(f"{error}{cgc_runtime_hint}") from error
-    if cgc_lowering_target is not None and (
-        not cgep_trace and (runtime != "winml-runtime" or effective_backend != "cgc")
-    ):
-        raise click.UsageError(
-            "--cgc-lowering-target requires winml-runtime with the CGC backend, "
-            "or winml-ort with --ep winmlcg and --etw-tracing."
-        )
-    if cgep_trace and (cgc_lowering_target == "d3d12" or Path(model).suffix.lower() != ".onnx"):
-        raise click.UsageError("WinMLCG EP tracing requires ONNX and auto/disable-d3d12 lowering.")
+    if cgep_trace and Path(model).suffix.lower() != ".onnx":
+        raise click.UsageError("WinMLCG EP tracing requires ONNX.")
 
     # AC 11 (mockup spec): --top-k requires --op-tracing. Outside the
     # op-tracing section the flag is meaningless, so reject it explicitly
@@ -4571,7 +4553,6 @@ def perf(
         warmup_seconds=warmup_seconds,
         runtime=runtime,
         backend=effective_backend,
-        cgc_lowering_target=cgc_lowering_target,
         task=task,
         submodel=submodel,
         device=device.lower(),
@@ -4672,7 +4653,6 @@ def perf(
                 try:
                     with GpuCapture(etw_tracing.resolve()) as capture:
                         capture.execution_path = "winmlcgep" if cgep_trace else "runtime-api"
-                        capture.lowering_target = cgc_lowering_target or "auto"
                         capture.allow_cpu_fallback = allow_cpu_fallback
                         try:
                             result = benchmark.run()

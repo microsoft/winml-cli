@@ -31,7 +31,6 @@ if TYPE_CHECKING:
     import contextlib
     from collections.abc import Callable
 
-    from ...utils import CGCLoweringTarget
     from ...utils.constants import RuntimeBackend, RuntimeName
 
 from ...session.runtime_session import WinMLRuntimeSession
@@ -81,7 +80,6 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         session_options: Callable[[], Any] | None = None,
         runtime: RuntimeName = "winml-ort",
         backend: RuntimeBackend | None = None,
-        cgc_lowering_target: CGCLoweringTarget | None = None,
         ep_config: EPConfig | None = None,
     ) -> None:
         """Initialize inference model.
@@ -101,12 +99,8 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         # Set by WinMLAutoModel.from_pretrained() after construction
         self._build_config: Any = None
 
-        if cgc_lowering_target is not None and runtime != "winml-runtime":
-            raise ValueError(
-                "cgc_lowering_target requires runtime='winml-runtime'."
-            )
         runtime_kwargs: dict[str, Any] = (
-            {"backend": backend, "cgc_lowering_target": cgc_lowering_target}
+            {"backend": backend}
             if runtime == "winml-runtime" else {}
         )
         if ep_config is not None:
