@@ -218,6 +218,7 @@ def test_cgc_compile_uses_public_symbolic_options_and_closes_them(monkeypatch, f
     }
     monkeypatch.setattr("winml.modelkit.onnx.get_io_config", lambda _path: io)
     options = SimpleNamespace(
+        cgc_lowering_target=None,
         supports_symbolic_dimensions=True, symbolic_dimensions={}, close=Mock()
     )
     source = Mock()
@@ -294,7 +295,7 @@ def test_persistent_compile_normalizes_dynamic_schema_dimensions(
     compiled_schema.outputs.return_value = [("float32", ((1 << 64) - 1, 4))]
     source_model = Mock(schema=Mock(return_value=source_schema))
     compiled_model = Mock()
-    options = SimpleNamespace(form=None, close=Mock())
+    options = SimpleNamespace(form=None, close=Mock(), cgc_lowering_target=None)
     compiler = Mock(
         supports_form=Mock(return_value=True),
         create_options=Mock(return_value=options),
@@ -376,7 +377,7 @@ def test_inference_loaders_forward_lowering_to_api(monkeypatch, tmp_path, loweri
     source, compiled = Mock(), Mock()
     runtime = Mock()
     runtime.load_model.side_effect = [source, compiled]
-    options = SimpleNamespace(close=Mock())
+    options = SimpleNamespace(close=Mock(), cgc_lowering_target=None)
     compiler = Mock(create_options=Mock(return_value=options))
     target = _ResolvedRuntimeTarget(
         SimpleNamespace(model_compiler=lambda: compiler), "gpu"
@@ -464,6 +465,7 @@ def test_lowering_preserves_other_options_and_propagates_failure(monkeypatch, lo
         lambda: SimpleNamespace(CgcLoweringTarget=enum),
     )
     options = SimpleNamespace(
+        cgc_lowering_target=None,
         supports_symbolic_dimensions=True, symbolic_dimensions={}, close=Mock()
     )
     compiler = Mock(create_options=Mock(return_value=options))

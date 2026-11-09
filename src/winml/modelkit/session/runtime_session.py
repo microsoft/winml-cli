@@ -43,6 +43,7 @@ import click
 
 from ..export.cgc.artifacts import cgc_metadata_path
 from ._runtime_import import import_runtime
+from ._runtime_lowering import set_cgc_lowering_target
 
 
 if TYPE_CHECKING:
@@ -567,11 +568,7 @@ def _compile_runtime_model(
                     options.form = compiled_form
                 if cgc_lowering_target is not None:
                     wr = import_runtime()
-                    options.cgc_lowering_target = {
-                        "auto": wr.CgcLoweringTarget.AUTOMATIC,
-                        "disable-d3d12": wr.CgcLoweringTarget.DML,
-                        "d3d12": wr.CgcLoweringTarget.D3D12,
-                    }[cgc_lowering_target]
+                    set_cgc_lowering_target(options, wr, cgc_lowering_target)
                 compiler.compile_to_file(source_model, str(output_path), options=options)
             else:
                 compiler.compile_to_file(source_model, str(output_path))
