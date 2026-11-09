@@ -400,7 +400,6 @@ def test_other_files_are_neither_input(
         (["--evidence", "{ev}"], "--evidence"),
         (["--etw-tracing", "{etw}"], "--etw-tracing"),
         (["--allow-cpu-fallback"], "--allow-cpu-fallback"),
-        (["--cgc-lowering-target", "auto"], "--cgc-lowering-target"),
         (["--memory-backend", "dxgi"], "--memory-backend dxgi"),
         (["--warmup-seconds", "1"], "--warmup-seconds"),
     ],
@@ -1012,8 +1011,6 @@ class TestHelp:
             phrase for phrase in [*self.BACKEND_HELP, *self.OTHER_HELP] if phrase not in help_text
         ]
         assert missing == []
-        # Both stay hidden.
-        assert "--cgc-lowering-target" not in help_text
         assert "--allow-cpu-fallback" not in help_text
 
     def test_program_cache_help_promises_to_keep_the_directory(

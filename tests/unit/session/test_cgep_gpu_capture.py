@@ -12,7 +12,6 @@ from winml.modelkit.session.gpu_capture import GpuCapture, active_capture
 from winml.modelkit.session.session import _build_session_options
 
 
-@pytest.mark.parametrize(("target", "flag"), [("disable-d3d12", "1"), ("auto", "0")])
 @pytest.mark.parametrize("allow_fallback", [False, True])
 @pytest.mark.parametrize(
     ("optimization", "threads"),
@@ -23,12 +22,11 @@ from winml.modelkit.session.session import _build_session_options
     ],
 )
 def test_cgep_capture_session_options(
-    tmp_path, target, flag, allow_fallback, optimization, threads
+    tmp_path, allow_fallback, optimization, threads
 ):
     capture = GpuCapture(tmp_path)
     capture.execution_path = "winmlcgep"
     capture.allow_cpu_fallback = allow_fallback
-    capture.lowering_target = target
     token = active_capture.set(capture)
     options = MagicMock()
     options.graph_optimization_level = optimization
@@ -46,9 +44,6 @@ def test_cgep_capture_session_options(
         assert options.intra_op_num_threads == threads
         options.add_session_config_entry.assert_any_call(
             "session.disable_cpu_ep_fallback", "0" if allow_fallback else "1"
-        )
-        options.add_session_config_entry.assert_any_call(
-            "ep.winmlcgexecutionprovider.compile_target_flags", flag
         )
         options.add_provider_for_devices.assert_called_once()
     finally:

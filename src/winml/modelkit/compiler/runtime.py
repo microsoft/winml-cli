@@ -25,7 +25,6 @@ from ..utils.cli import guard_output
 
 if TYPE_CHECKING:
     from ..sysinfo.dxcore_adapters import DXCoreAdapterInfo
-    from ..utils import CGCLoweringTarget
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +105,6 @@ def compile_cgc_ir(
     device_luid: str | None = None,
     validate: bool = True,
     overwrite: bool = False,
-    cgc_lowering_target: CGCLoweringTarget | None = None,
 ) -> Path:
     """Compile genuine CGC Input IR to a persistent device-targeted text bundle.
 
@@ -149,7 +147,6 @@ def compile_cgc_ir(
         artifact = staging / output_path.name
         session = WinMLRuntimeSession(
             model_path, backend="cgc", device_luid=luid,
-            cgc_lowering_target=cgc_lowering_target,
         )
         session.compile_to_file(artifact, validate=validate, output_format="text")
         if not artifact.is_file() or not artifact.stat().st_size:
@@ -175,7 +172,6 @@ def compile_cgc_ir(
             "target": "cg-output-ir",
             "runtime": "winml-runtime",
             "compiled_form": "DEVICE_TARGETED",
-            "cgc_lowering_target": cgc_lowering_target or "auto",
             "output_encoding": "mlir-text",
             "input": source_identity,
             "gpu": {"name": adapter_info.name, "luid": adapter_info.luid},

@@ -282,9 +282,8 @@ def test_stage_schema_falls_back_to_projection_interface() -> None:
     )
 
 
-@pytest.mark.parametrize("lowering", [None, "auto", "disable-d3d12", "d3d12"])
 def test_persistent_compile_normalizes_dynamic_schema_dimensions(
-    tmp_path, monkeypatch, lowering
+    tmp_path, monkeypatch
 ) -> None:
     source_schema = Mock()
     source_schema.inputs.return_value = [("float32", (0, 4))]
@@ -314,7 +313,6 @@ def test_persistent_compile_normalizes_dynamic_schema_dimensions(
     wr = SimpleNamespace(
         Runtime=Mock(return_value=runtime),
         CompiledModelForm=SimpleNamespace(DEVICE_TARGETED="device-targeted"),
-        CgcLoweringTarget=SimpleNamespace(AUTOMATIC=object(), DML=object(), D3D12=object()),
     )
     monkeypatch.setattr(
         "winml.modelkit.session.runtime_session.import_runtime", lambda: wr
@@ -330,7 +328,6 @@ def test_persistent_compile_normalizes_dynamic_schema_dimensions(
     )
     session = WinMLRuntimeSession(
         tmp_path / "input.mlir", backend="cgc", device_luid=1,
-        cgc_lowering_target=lowering,
     )
     monkeypatch.setattr(session, "_resolve_target", lambda _runtime, _wr: resolved)
 
@@ -338,9 +335,6 @@ def test_persistent_compile_normalizes_dynamic_schema_dimensions(
 
     assert output.read_text(encoding="utf-8") == "module { cgc.output }"
     assert options.form == "device-targeted"
-    if lowering is not None:
-        enum_name = {"auto": "AUTOMATIC", "disable-d3d12": "DML", "d3d12": "D3D12"}[lowering]
-        assert options.cgc_lowering_target is getattr(wr.CgcLoweringTarget, enum_name)
     compiler.compile_to_file.assert_called_once_with(
         source_model, str(output), options=options
     )
@@ -365,14 +359,8 @@ def test_serialize_mlir_as_text_replaces_bytecode(tmp_path, monkeypatch) -> None
     read_text.assert_called_once_with(path)
 
 
-@pytest.mark.parametrize("lowering", [None, "auto", "disable-d3d12", "d3d12"])
 @pytest.mark.parametrize("suffix", [".onnx", ".mlir", ".mlirbc"])
-def test_inference_loaders_forward_lowering_to_api(monkeypatch, tmp_path, lowering, suffix):
-    enum = SimpleNamespace(AUTOMATIC=object(), DML=object(), D3D12=object())
-    monkeypatch.setattr(
-        "winml.modelkit.session.runtime_session.import_runtime",
-        lambda: SimpleNamespace(CgcLoweringTarget=enum),
-    )
+def test_inference_loaders_compile_with_defaults(tmp_path, suffix):
     source, compiled = Mock(), Mock()
     runtime = Mock()
     runtime.load_model.side_effect = [source, compiled]
@@ -383,25 +371,16 @@ def test_inference_loaders_forward_lowering_to_api(monkeypatch, tmp_path, loweri
     )
     session = WinMLRuntimeSession(
         tmp_path / f"input{suffix}", backend="cgc", device_luid=1,
-        cgc_lowering_target=lowering,
     )
     try:
         model, ort_schema, has_named_bindings = session._load_on_cgc(runtime, target)
         assert model is compiled
         assert has_named_bindings is False
-        if lowering is None:
-            compiler.create_options.assert_not_called()
-            compiler.compile_to_file.assert_called_once_with(
-                source, runtime.load_model.call_args.args[0]
-            )
-            options.close.assert_not_called()
-        else:
-            enum_name = {"auto": "AUTOMATIC", "disable-d3d12": "DML", "d3d12": "D3D12"}[lowering]
-            assert options.cgc_lowering_target is getattr(enum, enum_name)
-            compiler.compile_to_file.assert_called_once_with(
-                source, runtime.load_model.call_args.args[0], options=options
-            )
-            options.close.assert_called_once()
+        compiler.create_options.assert_not_called()
+        compiler.compile_to_file.assert_called_once_with(
+            source, runtime.load_model.call_args.args[0]
+        )
+        options.close.assert_not_called()
         compiler.close.assert_called_once()
         source.close.assert_called_once()
         if suffix == ".onnx":
@@ -440,29 +419,7 @@ def test_cgc_loader_closes_source_on_failure(tmp_path, suffix, failure_point):
         session.close()
 
 
-@pytest.mark.parametrize("lowering", ["auto", "disable-d3d12", "d3d12"])
-def test_lowering_rejects_ort_backend(tmp_path, lowering):
-    with pytest.raises(ValueError, match="requires backend='cgc'"):
-        WinMLRuntimeSession(
-            tmp_path / "model.onnx", backend="ort", cgc_lowering_target=lowering
-        )
-
-
-def test_lowering_rejects_invalid_config_value(tmp_path):
-    with pytest.raises(ValueError, match="Invalid CGC lowering target"):
-        WinMLRuntimeSession(
-            tmp_path / "model.onnx", backend="cgc", device_luid=1,
-            cgc_lowering_target="invalid",
-        )
-
-
-@pytest.mark.parametrize("lowering", ["auto", "disable-d3d12", "d3d12"])
-def test_lowering_preserves_other_options_and_propagates_failure(monkeypatch, lowering):
-    enum = SimpleNamespace(AUTOMATIC=object(), DML=object(), D3D12=object())
-    monkeypatch.setattr(
-        "winml.modelkit.session.runtime_session.import_runtime",
-        lambda: SimpleNamespace(CgcLoweringTarget=enum),
-    )
+def test_compile_preserves_options_and_propagates_failure():
     options = SimpleNamespace(
         supports_symbolic_dimensions=True, symbolic_dimensions={}, close=Mock()
     )
@@ -473,10 +430,7 @@ def test_lowering_preserves_other_options_and_propagates_failure(monkeypatch, lo
         _compile_runtime_model(
             Mock(), target, Path("output.mlir"),
             symbolic_dimensions={"batch": 2}, compiled_form="device-targeted",
-            cgc_lowering_target=lowering,
         )
-    enum_name = {"auto": "AUTOMATIC", "disable-d3d12": "DML", "d3d12": "D3D12"}[lowering]
-    assert options.cgc_lowering_target is getattr(enum, enum_name)
     assert options.symbolic_dimensions == {"batch": 2}
     assert options.form == "device-targeted"
     compiler.compile_to_file.assert_called_once()
@@ -1431,7 +1385,6 @@ def test_output_ir_load_bypasses_compiler_and_transfers_ownership(monkeypatch):
     )
     session = WinMLRuntimeSession(
         'compiled.mlir', backend='cgc', ep_device=_mlir_ep_device(),
-        cgc_lowering_target='disable-d3d12',
     )
     try:
         model, ort_schema, named = session._load_on_cgc(runtime, target)

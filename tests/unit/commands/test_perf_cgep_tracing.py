@@ -69,17 +69,6 @@ def invoke(model, tmp_path):
         yield run
 
 
-@pytest.mark.parametrize("target", ["auto", "disable-d3d12", "d3d12"])
-def test_untraced_cgep_rejects_lowering(invoke, target):
-    result, capture_type, _, instances = invoke(
-        "--ep", "winmlcg", "--device", "gpu", "--cgc-lowering-target", target
-    )
-    assert result.exit_code == 2, result.output
-    assert "--etw-tracing" in result.output
-    assert not instances
-    capture_type.assert_not_called()
-
-
 def test_cpu_fallback_is_explicitly_enabled_for_cgep_capture(invoke, tmp_path):
     result, _, capture, instances = invoke(
         "--ep",
@@ -106,8 +95,7 @@ def test_cpu_fallback_cannot_silently_change_untraced_execution(invoke):
 
 
 @pytest.mark.parametrize("structured", [False, True])
-@pytest.mark.parametrize("target", ["auto", "disable-d3d12"])
-def test_config_target_enables_cgep_trace(invoke, tmp_path, structured, target):
+def test_config_target_enables_cgep_trace(invoke, tmp_path, structured):
     compile_config = (
         {"ep_device": {"ep": "winmlcg", "device": "gpu"}}
         if structured
@@ -120,13 +108,10 @@ def test_config_target_enables_cgep_trace(invoke, tmp_path, structured, target):
         str(config),
         "--etw-tracing",
         str(tmp_path / "trace"),
-        "--cgc-lowering-target",
-        target,
     )
     assert result.exit_code == 0, result.output
     capture_type.assert_called_once()
     assert capture.execution_path == "winmlcgep"
-    assert capture.lowering_target == target
     assert instances[0].config.device == "gpu"
     assert instances[0].config.ep == "winmlcg"
     instances[0].close.assert_called()
@@ -152,11 +137,9 @@ def test_cli_override_wins_over_config_before_trace_validation(invoke, tmp_path,
     capture_type.assert_not_called()
 
 
-@pytest.mark.parametrize("suffix,target", [(".onnx", "d3d12"), (".mlir", "auto")])
-def test_invalid_cgep_trace_fails_before_start(invoke, model, tmp_path, suffix, target):
-    path = model.with_suffix(suffix)
-    if path != model:
-        path.touch()
+def test_invalid_cgep_trace_fails_before_start(invoke, model, tmp_path):
+    path = model.with_suffix(".mlir")
+    path.touch()
     result, capture_type, _, instances = invoke(
         "-m",
         str(path),
@@ -166,10 +149,8 @@ def test_invalid_cgep_trace_fails_before_start(invoke, model, tmp_path, suffix, 
         "gpu",
         "--etw-tracing",
         str(tmp_path / "trace"),
-        "--cgc-lowering-target",
-        target,
     )
     assert result.exit_code == 2, result.output
-    assert "ONNX and auto/disable-d3d12" in result.output
+    assert "WinMLCG EP tracing requires ONNX" in result.output
     assert not instances
     capture_type.assert_not_called()

@@ -355,10 +355,6 @@ def _build_session_options(
         so.add_session_config_entry(
             "session.disable_cpu_ep_fallback", "0" if capture.allow_cpu_fallback else "1"
         )
-        so.add_session_config_entry(
-            "ep.winmlcgexecutionprovider.compile_target_flags",
-            "1" if capture.lowering_target == "disable-d3d12" else "0",
-        )
 
     handle = ep_device.device._ort
     options = (

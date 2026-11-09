@@ -52,7 +52,6 @@ def test_explicit_ir_compilation_routes_without_ep_resolution(ir_cli):
         device_luid="0x00000000_0x00000001",
         validate=True,
         overwrite=True,
-        cgc_lowering_target=None,
     )
     assert "MLIR text" in result.output and "no inference" in result.output
 
@@ -67,34 +66,8 @@ def test_ir_defaults_and_skipped_validation(ir_cli):
         device_luid=None,
         validate=False,
         overwrite=False,
-        cgc_lowering_target=None,
     )
     assert "skipped" in result.output
-
-
-@pytest.mark.parametrize("lowering", ["auto", "disable-d3d12", "d3d12"])
-@pytest.mark.parametrize("suffix", [".mlir", ".mlirbc"])
-def test_ir_lowering_target_is_forwarded(ir_cli, lowering, suffix):
-    source, operation, _ = ir_cli
-    source = source.rename(source.with_suffix(suffix))
-    args = ["-m", str(source)]
-    result = CliRunner().invoke(compile, [*args, "--cgc-lowering-target", lowering])
-    assert result.exit_code == 0, result.output
-    assert operation.call_args.kwargs["cgc_lowering_target"] == lowering
-
-
-@pytest.mark.parametrize("lowering", ["auto", "disable-d3d12", "d3d12"])
-@pytest.mark.parametrize("compiler", [None, "ort", "ort_session", "qairt"])
-def test_non_cgc_compiler_rejects_lowering_target(ir_cli, lowering, compiler):
-    source, operation, _ = ir_cli
-    source = source.rename(source.with_suffix(".onnx"))
-    args = ["-m", str(source), "--cgc-lowering-target", lowering]
-    if compiler is not None:
-        args.extend(["--compiler", compiler])
-    result = CliRunner().invoke(compile, args)
-    assert result.exit_code == 2, result.output
-    assert "--cgc-lowering-target is only supported for CGC compilation" in result.output
-    operation.assert_not_called()
 
 
 def test_ir_output_file_precedes_output_directory(ir_cli):
@@ -197,4 +170,3 @@ def test_ir_flags_visible_in_help():
         ".mlir",
     ):
         assert value in result.output
-    assert "--cgc-lowering-target" not in result.output

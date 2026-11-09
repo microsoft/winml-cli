@@ -439,7 +439,6 @@ def load_model(
                 task=config.task,
                 runtime="winml-runtime",
                 backend="cgc",
-                cgc_lowering_target=config.cgc_lowering_target,
             )
             mlir_model.config = hf_config
             return mlir_model
@@ -468,7 +467,6 @@ def load_model(
                 task=config.task,
                 runtime=config.runtime,
                 backend=runtime_backend,
-                cgc_lowering_target=config.cgc_lowering_target,
                 skip_build=config.skip_build,
                 config=quant_override,
                 hf_config=hf_config,
@@ -502,7 +500,6 @@ def load_model(
             ep=config.ep,
             runtime=config.runtime,
             backend=runtime_backend,
-            cgc_lowering_target=config.cgc_lowering_target,
             precision=config.precision,
             allow_unsupported_nodes=config.allow_unsupported_nodes,
             config=build_override,
