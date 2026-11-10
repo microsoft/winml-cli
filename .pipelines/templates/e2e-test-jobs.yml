@@ -47,6 +47,10 @@ parameters:
     type: number
     default: 1000
 
+  - name: windowsmlReleaseBuild
+    type: string
+    default: default
+
 jobs:
   - job: E2ETest_${{ parameters.agentSuffix }}
     displayName: 'E2E Test (${{ parameters.agentSuffix }})'
@@ -167,6 +171,18 @@ jobs:
           uv pip install -e . --group dev
         workingDirectory: $(Build.SourcesDirectory)
         displayName: 'Install dependencies'
+
+      - ${{ if ne(parameters.windowsmlReleaseBuild, 'default') }}:
+          - powershell: |
+              $wheelDir = "$(Agent.BuildDirectory)\artifacts\wheels\windows-ml-release\$env:WINDOWSML_RELEASE_BUILD"
+              $wheels = @(Get-ChildItem -LiteralPath $wheelDir -Filter '*.whl' -File -ErrorAction Stop)
+              if ($wheels.Count -eq 0) { throw "No wheels found in $wheelDir" }
+              uv pip install --no-deps --reinstall @($wheels.FullName)
+              exit $LASTEXITCODE
+            env:
+              WINDOWSML_RELEASE_BUILD: ${{ parameters.windowsmlReleaseBuild }}
+            workingDirectory: $(Build.SourcesDirectory)
+            displayName: 'Install wheel overrides from ModelKitArtifacts'
 
       # ----------------------------------------------------------------------
       # Phase 1: winml perf (gated by runEval).
