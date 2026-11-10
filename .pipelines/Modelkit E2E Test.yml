@@ -71,6 +71,11 @@ resources:
       ref: main
 
 parameters:
+  - name: windowsmlReleaseBuild
+    displayName: 'windows-ml-release build name, or default'
+    type: string
+    default: default
+
   # --------------------------------------------------------------------
   # winml perf section
   # --------------------------------------------------------------------
@@ -220,6 +225,7 @@ stages:
           runEval: ${{ parameters.runEval }}
           pytestTargets: ${{ parameters.pytestTargets }}
           pytestTimeout: ${{ parameters.pytestTimeout }}
+          windowsmlReleaseBuild: ${{ parameters.windowsmlReleaseBuild }}
 
   - stage: NPU_OV
     displayName: 'E2E Test — OV'
@@ -236,6 +242,7 @@ stages:
           runEval: ${{ parameters.runEval }}
           pytestTargets: ${{ parameters.pytestTargets }}
           pytestTimeout: ${{ parameters.pytestTimeout }}
+          windowsmlReleaseBuild: ${{ parameters.windowsmlReleaseBuild }}
 
   - stage: NPU_AMD
     displayName: 'E2E Test — AMD'
@@ -251,3 +258,4 @@ stages:
           runEval: ${{ parameters.runEval }}
           pytestTargets: ${{ parameters.pytestTargets }}
           pytestTimeout: ${{ parameters.pytestTimeout }}
+          windowsmlReleaseBuild: ${{ parameters.windowsmlReleaseBuild }}
