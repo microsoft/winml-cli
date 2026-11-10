@@ -3664,8 +3664,9 @@ These timings differ from earlier GGUF schema version 2 Runtime measurements and
 the <code>ort-genai</code> metric definitions above; <code>ort-genai</code> remains unchanged.</p>
 <p>For a fixed workload, <code>--prompt-ids-file</code>, <code>--context-length</code>, and <code>--ignore-eos</code>
 submit exact token IDs, pin the sequence capacity, and run every request to
-<code>--max-new-tokens</code>. <code>--evidence PATH</code> also writes raw per-request time points and
-the native llama.cpp log in the <code>gguf-task-events-2</code> format. The first failure ends
+<code>--max-new-tokens</code>. <code>--evidence PATH</code> also writes raw per-request time points, the
+native llama.cpp log, and the decoder stage's execution diagnostics in the
+<code>gguf-task-events-2</code> format. The first failure ends
 the run, and the command exits with code 1 unless every request succeeded. See
 <a href="../../samples/gguf-llama-perf/#protocol-runs-with-exact-token-ids">Protocol runs with exact token IDs</a>.</p>
 <h3 id="cgc-text-generation-experimental">CGC text generation (experimental)<a class="headerlink" href="#cgc-text-generation-experimental" title="Permanent link">&para;</a></h3>

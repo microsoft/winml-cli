@@ -3265,6 +3265,10 @@ follows when the run ends:</p>
 <td><code>native_log</code></td>
 <td>The native log capture (below).</td>
 </tr>
+<tr>
+<td><code>execution_diagnostics</code></td>
+<td>The decoder stage's execution diagnostics (below), or <code>null</code> when the run ended before its pipeline was built.</td>
+</tr>
 </tbody>
 </table>
 <p>The first failure ends the run: no later request runs, the rows of the requests that
@@ -3343,6 +3347,50 @@ five keys:</p>
 </table>
 <p>Backend registration and device lines go to the process's stderr before the Runtime
 installs its logger, so they are not captured.</p>
+<p><code>execution_diagnostics</code> holds what the decoder stage reports about its placement,
+copied right after the pipeline is built. An evidence run asks the stage for it
+before Build when the installed <code>windowsml</code> provides it; a stage that accepts can
+then create llama.cpp's context during Build instead of on the first request.
+Unlike <code>native_log</code>, the stage reports it whether or not <code>WinMLllama.dll</code> is loaded
+when the tokenizer opens; only what <code>description</code> holds depends on that (below).
+It is one flat object with six keys:</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enabled</code></td>
+<td>Whether the stage accepted the request; <code>false</code> when the installed <code>windowsml</code> has no stage execution diagnostics.</td>
+</tr>
+<tr>
+<td><code>reason</code></td>
+<td>Why the diagnostics are missing, or <code>null</code> when they were read.</td>
+</tr>
+<tr>
+<td><code>coverage</code></td>
+<td>How the stage's work is placed relative to its target's device: a <code>PlacementCoverage</code> name such as <code>FULL</code> or <code>PARTIAL</code>.</td>
+</tr>
+<tr>
+<td><code>work_unit</code></td>
+<td>What the shares count: a <code>StageWorkUnit</code> name, <code>MODEL_LAYER</code> on llama.cpp.</td>
+</tr>
+<tr>
+<td><code>work_shares[]</code></td>
+<td>One entry per share, by descending unit count: its <code>device_kind</code> (<code>CPU</code>, <code>GPU</code>, or <code>NPU</code>), its <code>adapter_luid</code> as <code>0xHHHHHHHH_0xLLLLLLLL</code> (<code>null</code> for host code or when the Runtime cannot identify the adapter), its <code>implementation</code> (a <code>StageWorkImplementation</code> name such as <code>VENDOR_LIBRARY</code>), and its <code>unit_count</code>.</td>
+</tr>
+<tr>
+<td><code>description</code></td>
+<td>The Runtime's text for logging, or <code>null</code> when it gives none; its content is not part of the Runtime's contract. On llama.cpp it holds the device and the offloaded layers and, when the Runtime records them, the context, batch, attention, and KV-cache settings that llama.cpp logged when it created the context. When the <code>native_log</code> capture was installed during the load, those llama.cpp lines are in <code>native_log</code> instead.</td>
+</tr>
+</tbody>
+</table>
+<p>A value the installed <code>windowsml</code> has no name for is kept as its number. Every key
+but <code>enabled</code> and <code>reason</code> is <code>null</code> (<code>work_shares</code> empty) when the diagnostics are
+missing.</p>
 <p>Row stamps are <code>time.perf_counter()</code> readings converted to integer nanoseconds, and
 fragment stamps are <code>time.perf_counter_ns()</code> readings. Both are in the machine-wide
 QPC domain, so another process on the same machine can align its own samples with
