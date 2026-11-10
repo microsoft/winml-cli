@@ -147,8 +147,10 @@ def test_gguf_command_runs_without_heavy_dependency_imports(
         sessions = []
 
         class FakeSession:
-            def __init__(self, model_path, *, device):
+            def __init__(self, model_path, *, device, execution_diagnostics):
                 assert model_path == model
+                # Only an evidence run asks for the stage's execution diagnostics.
+                assert execution_diagnostics == (evidence == "True")
                 self.device = device
                 self.context_length = None
                 self.effective_device = None

@@ -9,8 +9,9 @@ file that then replaces it. The start write names this process before the
 Runtime is imported, so an external observer can bind to it before the model
 loads. The end write, made also when the run fails, adds the outcome, the
 requested workload, the installed package versions, the raw clock readings of
-every finished request and the native log capture. A benchmark harness
-recomputes every metric from these readings; nothing here aggregates.
+every finished request, the native log capture and the decoder stage's
+execution diagnostics. A benchmark harness recomputes every metric from these
+readings; nothing here aggregates.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
     from pathlib import Path
 
-    from ..session import LlamaGenerationTiming
+    from ..session import LlamaExecutionDiagnostics, LlamaGenerationTiming
     from ._gguf_native_log import NativeLogCapture
 
 
@@ -151,11 +152,18 @@ class EvidenceRecorder:
         """Add the row of one finished request."""
         self._rows.append(request_row(kind, index, timing))
 
-    def finish(self, error: BaseException | None) -> None:
+    def finish(
+        self,
+        error: BaseException | None,
+        *,
+        diagnostics: LlamaExecutionDiagnostics | None = None,
+    ) -> None:
         """Restore the Runtime log callback, then make the end write.
 
         Args:
             error: What ended the run, or ``None`` when every request finished.
+            diagnostics: The decoder stage's execution diagnostics, or ``None``
+                when the run ended before its pipeline was built.
         """
         self.capture.restore()
         config = self._config
@@ -176,5 +184,6 @@ class EvidenceRecorder:
             "packages": {**llama_package_versions(), "winml-cli": __version__},
             "requests": self._rows,
             "native_log": self.capture.to_dict(),
+            "execution_diagnostics": None if diagnostics is None else diagnostics.to_dict(),
         }
         _write_atomic(self.path, document)

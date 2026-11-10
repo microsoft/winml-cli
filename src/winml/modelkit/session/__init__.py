@@ -58,6 +58,7 @@ if TYPE_CHECKING:
         GenerationTiming,
     )
     from .llama_session import (
+        LlamaExecutionDiagnostics,
         LlamaGenerationTiming,
         LlamaLoadError,
         LlamaNotInstalledError,
@@ -127,6 +128,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "GenaiSessionError": (".genai_session", "GenaiSessionError"),
     "GenerationConfig": (".genai_session", "GenerationConfig"),
     "GenerationTiming": (".genai_session", "GenerationTiming"),
+    "LlamaExecutionDiagnostics": (".llama_session", "LlamaExecutionDiagnostics"),
     "LlamaGenerationTiming": (".llama_session", "LlamaGenerationTiming"),
     "LlamaLoadError": (".llama_session", "LlamaLoadError"),
     "LlamaNotInstalledError": (".llama_session", "LlamaNotInstalledError"),
@@ -181,6 +183,7 @@ __all__ = [
     "GenerationTiming",
     "HWMonitor",
     "InferenceError",
+    "LlamaExecutionDiagnostics",
     "LlamaGenerationTiming",
     "LlamaLoadError",
     "LlamaNotInstalledError",

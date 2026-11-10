@@ -204,8 +204,9 @@ the `ort-genai` metric definitions above; `ort-genai` remains unchanged.
 
 For a fixed workload, `--prompt-ids-file`, `--context-length`, and `--ignore-eos`
 submit exact token IDs, pin the sequence capacity, and run every request to
-`--max-new-tokens`. `--evidence PATH` also writes raw per-request time points and
-the native llama.cpp log in the `gguf-task-events-2` format. The first failure ends
+`--max-new-tokens`. `--evidence PATH` also writes raw per-request time points, the
+native llama.cpp log, and the decoder stage's execution diagnostics in the
+`gguf-task-events-2` format. The first failure ends
 the run, and the command exits with code 1 unless every request succeeded. See
 [Protocol runs with exact token IDs](../samples/gguf-llama-perf.md#protocol-runs-with-exact-token-ids).
 
