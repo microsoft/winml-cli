@@ -13,7 +13,10 @@
       {"name": "input_ids", "dtype": "int32", "shape": [1, 512], "value_range": [0, 62518]},
       {"name": "attention_mask", "dtype": "int32", "shape": [1, 512], "value_range": [0, 2]}
     ],
-    "output_tensors": [{"name": "encoder_hidden_states"}]
+    "output_tensors": [{"name": "encoder_hidden_states"}],
+    "compatibility": {
+      "transformers_attention": "eager"
+    }
   },
   "optim": {
     "clamp_constant_values": true,
