@@ -24,6 +24,7 @@ import pytest
 
 from tests.unit.test_helpers import TaskOptions12, hold_cyclic_interface
 from winml.modelkit.session import (
+    LlamaExecutionDiagnostics,
     LlamaLoadError,
     LlamaNotInstalledError,
     LlamaSessionError,
@@ -105,18 +106,65 @@ class _Schema(_Closable):
         return _DataTypes.FLOAT32, (1, _DYNAMIC, _VOCABULARY)
 
 
+# Modeled on a built llama.cpp stage (17 layers on one GPU). The host share is made up, to
+# cover a share without an adapter LUID and an implementation the projection has no name for.
+_DIAGNOSTICS = SimpleNamespace(
+    coverage=SimpleNamespace(name="FULL"),
+    work_unit=SimpleNamespace(name="MODEL_LAYER"),
+    work_shares=[
+        SimpleNamespace(
+            device_kind=SimpleNamespace(name="GPU"),
+            adapter_luid=0x1_0001A2B3,
+            implementation=SimpleNamespace(name="VENDOR_LIBRARY"),
+            unit_count=17,
+        ),
+        SimpleNamespace(
+            device_kind=SimpleNamespace(name="CPU"),
+            adapter_luid=None,
+            implementation=9,
+            unit_count=1,
+        ),
+    ],
+    description="device=GPU0; offloaded layers=17/17\nllama_context: n_ctx = 40\n",
+)
+
+
 class _Stage(_Closable):
     """Runtime metadata consumed by the Task configuration."""
 
-    def __init__(self, target: _Target, *, token_type: Any, token_rank: int) -> None:
+    def __init__(
+        self, target: _Target, *, token_type: Any, token_rank: int, api: SimpleNamespace
+    ) -> None:
         super().__init__()
         self._target_kind = target.kind.name
         self._token_type = token_type
         self._token_rank = token_rank
+        self._api = api
         self.requested_outputs: set[int] = set()
         self.capacity_hint: int | None = None
         self.default_capacity = 64
         self.sequence_position = 0
+        self.diagnostics_enabled = False
+        self.built = False
+
+    @property
+    def execution_diagnostics_enabled(self) -> bool:
+        return self.diagnostics_enabled
+
+    @execution_diagnostics_enabled.setter
+    def execution_diagnostics_enabled(self, value: bool) -> None:
+        if self._api.diagnostics_refusal is not None:
+            raise self._api.diagnostics_refusal
+        assert not self.built, "execution diagnostics are requested before Build"
+        self.diagnostics_enabled = value
+
+    @property
+    def execution_diagnostics(self) -> SimpleNamespace:
+        if self._api.diagnostics_read_error is not None:
+            raise self._api.diagnostics_read_error
+        if not (self.built and self.diagnostics_enabled):
+            raise _WinMLError("Execution diagnostics were not captured at Build")
+        return _DIAGNOSTICS
 
     @property
     def sequence_capacity(self) -> int:
@@ -134,6 +182,12 @@ class _Stage(_Closable):
 
     def schema(self) -> _Schema:
         return _Schema(self._token_type, self._token_rank)
+
+
+class _LegacyStage(_Stage):
+    """A stage from a projection without stage execution diagnostics."""
+
+    execution_diagnostics_enabled = None  # type: ignore[assignment]
 
 
 class _Pipeline(_Closable):
@@ -156,15 +210,18 @@ class _Builder(_Closable):
 
     def add_model_stage(self, model: Any, target: _Target, name: str) -> _Stage:
         assert name == "decoder"
-        self._runtime.stage = _Stage(
+        api = self._runtime._api
+        self._runtime.stage = api.stage_class(
             target,
             token_type=self._runtime.token_type,
             token_rank=self._runtime.token_rank,
+            api=api,
         )
         return self._runtime.stage
 
     def build(self) -> _Pipeline:
         assert self._runtime.stage is not None
+        self._runtime.stage.built = True
         self._runtime.pipeline = _Pipeline(self._runtime.stage)
         return self._runtime.pipeline
 
@@ -530,6 +587,9 @@ def _runtime_api(
         reset_keeps_tokens=False,
         # The state reads that report the tokens a reset kept; the others report none.
         kept_token_sources=("evaluated", "retained", "ids"),
+        stage_class=_Stage,
+        diagnostics_refusal=None,
+        diagnostics_read_error=None,
     )
     api.Runtime = lambda: _Runtime(api)
 
@@ -549,11 +609,13 @@ def _gguf(tmp_path: Path) -> Path:
 
 
 def _session(
-    tmp_path: Path, *, device: str = "cpu", **api_kwargs: Any
+    tmp_path: Path, *, device: str = "cpu", diagnostics: bool | None = None, **api_kwargs: Any
 ) -> tuple[WinMLLlamaSession, SimpleNamespace]:
+    """A session over a fake Runtime; ``diagnostics`` ``None`` keeps the constructor default."""
     api = _runtime_api(**api_kwargs)
+    options = {} if diagnostics is None else {"execution_diagnostics": diagnostics}
     return WinMLLlamaSession(
-        _gguf(tmp_path), device=device, runtime_api=api, tasks_api=_tasks_api()
+        _gguf(tmp_path), device=device, runtime_api=api, tasks_api=_tasks_api(), **options
     ), api
 
 
@@ -691,6 +753,90 @@ class TestLoad:
         assert "Reinstall the matching preview" in str(excinfo.value)
         assert api.runtimes[0].pipeline.closed
         assert api.runtimes[0].stage.closed
+
+
+class TestExecutionDiagnostics:
+    def test_are_not_requested_by_default(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path)
+        session.load(context_length=40)
+        assert not api.runtimes[0].stage.diagnostics_enabled
+        assert session.execution_diagnostics is None
+
+    def test_are_requested_before_build_and_copied_after_it(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path, device="gpu", diagnostics=True)
+        session.load(context_length=40)
+
+        assert api.runtimes[0].stage.diagnostics_enabled  # the fake refuses it after Build
+        assert session.execution_diagnostics == LlamaExecutionDiagnostics(
+            enabled=True,
+            reason=None,
+            coverage="FULL",
+            work_unit="MODEL_LAYER",
+            work_shares=(
+                {
+                    "device_kind": "GPU",
+                    "adapter_luid": "0x00000001_0x0001A2B3",
+                    "implementation": "VENDOR_LIBRARY",
+                    "unit_count": 17,
+                },
+                # A value without a name in the installed projection keeps its number.
+                {"device_kind": "CPU", "adapter_luid": None, "implementation": 9, "unit_count": 1},
+            ),
+            description=_DIAGNOSTICS.description,
+        )
+
+    def test_an_older_windowsml_without_them_still_loads(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path, diagnostics=True)
+        api.stage_class = _LegacyStage
+        session.load(context_length=40)
+
+        assert session.context_length == 40
+        assert session.execution_diagnostics == LlamaExecutionDiagnostics(
+            enabled=False,
+            reason="The installed 'windowsml' package has no stage execution diagnostics.",
+        )
+
+    @pytest.mark.parametrize(
+        ("setting", "enabled", "reason"),
+        [
+            (
+                "diagnostics_refusal",
+                False,
+                "The decoder stage refused execution diagnostics: _NotSupportedError: E_NOTIMPL",
+            ),
+            (
+                "diagnostics_read_error",
+                True,
+                "Could not read the execution diagnostics: _NotSupportedError: E_NOTIMPL",
+            ),
+        ],
+    )
+    def test_a_refusal_or_failed_read_is_recorded_and_the_load_goes_on(
+        self, tmp_path: Path, setting: str, enabled: bool, reason: str
+    ) -> None:
+        session, api = _session(tmp_path, diagnostics=True)
+        setattr(api, setting, _NotSupportedError("E_NOTIMPL", hresult=0x80004001))
+        session.load(context_length=40)
+
+        assert session.context_length == 40
+        assert session.execution_diagnostics == LlamaExecutionDiagnostics(
+            enabled=enabled, reason=reason
+        )
+
+    def test_are_absent_when_the_load_fails_before_build(self, tmp_path: Path) -> None:
+        session, _api = _session(tmp_path, diagnostics=True, load_hresult=0x80004005)
+        with pytest.raises(LlamaLoadError, match="0x80004005"):
+            session.load(context_length=40)
+        assert session.execution_diagnostics is None
+
+    def test_survive_a_task_creation_failure_after_build(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path, diagnostics=True)
+        api.task_create_hresult = 0x80004005
+        with pytest.raises(LlamaLoadError, match="0x80004005"):
+            session.load(context_length=40)
+        assert session.execution_diagnostics is not None
+        assert session.execution_diagnostics.work_unit == "MODEL_LAYER"
+        assert session.execution_diagnostics.to_dict()["work_shares"][0]["unit_count"] == 17
 
 
 class TestLoadReadback:

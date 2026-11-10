@@ -45,6 +45,7 @@ from winml.modelkit.commands._perf_gguf import (
 )
 from winml.modelkit.commands.perf import _resolve_runtime, perf
 from winml.modelkit.session import (
+    LlamaExecutionDiagnostics,
     LlamaGenerationTiming,
     LlamaLoadError,
     LlamaNotInstalledError,
@@ -201,13 +202,31 @@ def _ids_file(tmp_path: Path, content: bytes) -> Path:
 _NOT_AN_ID_ARRAY = "expected a non-empty JSON array of non-negative integer token IDs"
 
 
+# The execution diagnostics a loaded _LoggingSession holds, as WinMLLlamaSession copies them.
+_DIAGNOSTICS = LlamaExecutionDiagnostics(
+    enabled=True,
+    reason=None,
+    coverage="FULL",
+    work_unit="MODEL_LAYER",
+    work_shares=(
+        {
+            "device_kind": "GPU",
+            "adapter_luid": "0x00000001_0x0001A2B3",
+            "implementation": "VENDOR_LIBRARY",
+            "unit_count": 17,
+        },
+    ),
+    description="device=GPU0; offloaded layers=17/17\n",
+)
+
+
 class _LoggingSession(_FakeLlamaSession):
     """Session double whose native calls log through ``api``, as llama.cpp does.
 
     A fragment reaches the capture only while the capturing callback is installed.
     ``fail_at`` makes that request raise as a failed Task request does, and
     ``ctrl_c_in`` (``"load"`` or ``"request 0"``) makes a Ctrl+C arrive while
-    that native call logs.
+    that native call logs. A loaded session holds ``_DIAGNOSTICS``.
     """
 
     def __init__(
@@ -228,6 +247,7 @@ class _LoggingSession(_FakeLlamaSession):
         self.callback_at_request: list[int | None] = []
         self.callback_at_close: int | None = None
         self.results: list[LlamaGenerationTiming] = []
+        self.execution_diagnostics: LlamaExecutionDiagnostics | None = None
 
     def _log(self, call: str, text: str) -> None:
         if self._api.callback != RUNTIME_CALLBACK:
@@ -241,6 +261,7 @@ class _LoggingSession(_FakeLlamaSession):
 
     def load(self, **kwargs: Any) -> None:
         super().load(**kwargs)
+        self.execution_diagnostics = _DIAGNOSTICS
         self._log("load", "load_tensors: loaded\n")
 
     def generate_timed(
@@ -420,6 +441,23 @@ class TestEvidenceRun:
         ]
         assert (native_log["intact"], native_log["restored"]) == (True, True)
 
+    def test_end_write_holds_the_sessions_execution_diagnostics(self, tmp_path: Path) -> None:
+        benchmark, _, _ = _evidence_benchmark(tmp_path)
+        benchmark.run()
+        assert _read(tmp_path / "ev.json")["execution_diagnostics"] == _DIAGNOSTICS.to_dict()
+
+    @pytest.mark.parametrize("evidence", [False, True])
+    def test_only_an_evidence_run_asks_the_session_for_execution_diagnostics(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, evidence: bool
+    ) -> None:
+        created: list[dict[str, Any]] = []
+        monkeypatch.setattr(
+            perf_gguf, "WinMLLlamaSession", lambda _path, **kwargs: created.append(kwargs)
+        )
+        config = _config(tmp_path, evidence_path=tmp_path / "ev.json" if evidence else None)
+        GGUFPerfBenchmark(config)._new_session()
+        assert created == [{"device": config.device, "execution_diagnostics": evidence}]
+
     @pytest.mark.parametrize("fail_at", [0, 1])
     def test_first_failure_ends_the_run_and_restores_the_callback_before_close(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail_at: int
@@ -437,6 +475,8 @@ class TestEvidenceRun:
         )
         # The finished requests keep their rows, and no request runs after the failure.
         assert len(doc["requests"]) == fail_at
+        # The pipeline was built before the failure, so its diagnostics are kept.
+        assert doc["execution_diagnostics"] == _DIAGNOSTICS.to_dict()
         assert session.calls.count("generate_timed") == fail_at + 1
         assert session.closed
         assert session.callback_at_close == RUNTIME_CALLBACK
@@ -1336,6 +1376,8 @@ class TestCliDispatch:
         document = _read(evidence)
         assert document["status"] == "failed"
         assert document["error"]["type"] == "FileNotFoundError"
+        # The run ended before its pipeline was built.
+        assert document["execution_diagnostics"] is None
         assert "model-00002-of-00002.gguf" in result.output
         assert model.read_bytes() == before
         assert not output.exists()

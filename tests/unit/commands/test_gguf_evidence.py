@@ -20,7 +20,7 @@ from winml.modelkit import __version__
 from winml.modelkit.commands._gguf_evidence import EvidenceRecorder, _write_atomic, request_row
 from winml.modelkit.commands._gguf_native_log import NativeLogCapture
 from winml.modelkit.commands._perf_gguf import GGUFPerfConfig
-from winml.modelkit.session import llama_package_versions
+from winml.modelkit.session import LlamaExecutionDiagnostics, llama_package_versions
 
 
 if TYPE_CHECKING:
@@ -172,8 +172,11 @@ class TestEvidenceRecorder:
             "packages",
             "requests",
             "native_log",
+            "execution_diagnostics",
         ]
         assert (doc["schema_version"], doc["pid"]) == ("gguf-task-events-2", os.getpid())
+        # No diagnostics were handed over, as when the run ends before its pipeline is built.
+        assert doc["execution_diagnostics"] is None
         if error is None:
             assert (doc["status"], doc["error"]) == ("complete", None)
         else:
@@ -207,6 +210,35 @@ class TestEvidenceRecorder:
                 {"level": 2, "text": "llama_model_loader: loaded meta data\n", "qpc_ns": 500},
                 {"level": 2, "text": "llama_context: n_ctx = 16\n", "qpc_ns": 600},
             ],
+        }
+
+    def test_end_write_keeps_the_execution_diagnostics(self, tmp_path: Path) -> None:
+        config = _config(tmp_path)
+        assert config.evidence_path is not None
+        share = {
+            "device_kind": "GPU",
+            "adapter_luid": "0x00000001_0x0001A2B3",
+            "implementation": "VENDOR_LIBRARY",
+            "unit_count": 17,
+        }
+        diagnostics = LlamaExecutionDiagnostics(
+            enabled=True,
+            reason=None,
+            coverage="FULL",
+            work_unit="MODEL_LAYER",
+            work_shares=(share,),
+            description="device=GPU0; offloaded layers=17/17\n",
+        )
+        recorder = EvidenceRecorder(config, capture=NativeLogCapture(load_api=lambda: None))
+        recorder.finish(None, diagnostics=diagnostics)
+
+        assert _read(config.evidence_path)["execution_diagnostics"] == {
+            "enabled": True,
+            "reason": None,
+            "coverage": "FULL",
+            "work_unit": "MODEL_LAYER",
+            "work_shares": [share],
+            "description": "device=GPU0; offloaded layers=17/17\n",
         }
 
     def test_text_prompt_workload_has_no_token_ids(self, tmp_path: Path) -> None:

@@ -190,9 +190,12 @@ class GGUFPerfBenchmark(TaskPerfBenchmark[GGUFPerfConfig, GGUFBenchmarkResult]):
         self._evidence: EvidenceRecorder | None = None
 
     def _new_session(self) -> TaskGenerationSession:
+        # Only an evidence run asks for the stage's execution diagnostics: they can
+        # move the llama.cpp context creation from the first request into Build.
         return WinMLLlamaSession(
             self._config.model_path,
             device=self._config.device,
+            execution_diagnostics=self._config.evidence_path is not None,
         )
 
     def _new_memory_tracker(
@@ -217,7 +220,8 @@ class GGUFPerfBenchmark(TaskPerfBenchmark[GGUFPerfConfig, GGUFBenchmarkResult]):
         missing model shard fails the run right after it. The benchmark body
         captures llama.cpp's log from model load through request 0 and records
         every finished request. The end write follows on every exit, after the
-        Runtime log callback is restored and before the caller closes the session.
+        Runtime log callback is restored and before the caller closes the session,
+        with the execution diagnostics the session copied after Build.
         """
         from ._gguf_evidence import EvidenceRecorder
         from ._gguf_native_log import NativeLogCapture
@@ -228,9 +232,9 @@ class GGUFPerfBenchmark(TaskPerfBenchmark[GGUFPerfConfig, GGUFBenchmarkResult]):
             gguf_shard_paths(self._config.model_path)
             result = self._run_benchmark_body(session)
         except BaseException as exc:
-            evidence.finish(exc)
+            evidence.finish(exc, diagnostics=getattr(session, "execution_diagnostics", None))
             raise
-        evidence.finish(None)
+        evidence.finish(None, diagnostics=getattr(session, "execution_diagnostics", None))
         return result
 
     def _after_tokenizer_open(self) -> None:

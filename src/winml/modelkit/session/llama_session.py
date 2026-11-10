@@ -39,6 +39,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ..sysinfo import format_pdh_luid
 from .task_generation import (
     TaskGenerationTiming,
     TaskSessionError,
@@ -125,6 +126,49 @@ class LlamaPayload:
     lib_dir: Path | None
     adapter_present: bool
     backends: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class LlamaExecutionDiagnostics:
+    """The decoder stage's execution diagnostics, copied right after Build.
+
+    Attributes:
+        enabled: Whether the stage accepted the request, made before Build, to
+            capture them.
+        reason: Why they are missing, or ``None`` when they were read.
+        coverage: How the stage's work is placed relative to its target's
+            device: a ``PlacementCoverage`` name such as ``FULL``, or its number.
+        work_unit: What the shares count: a ``StageWorkUnit`` name such as
+            ``MODEL_LAYER``, or its number.
+        work_shares: One entry per share, by descending unit count: its
+            ``device_kind``, ``adapter_luid`` (``0xHHHHHHHH_0xLLLLLLLL``, or
+            ``None`` for host code or an adapter the Runtime cannot identify),
+            ``implementation`` and ``unit_count``.
+        description: The Runtime's text for logging, or ``None`` when it gives
+            none; its content is not part of its contract. On llama.cpp it holds
+            the device and the offloaded layers and, when the Runtime records
+            them, the context, batch, attention and KV-cache settings that
+            llama.cpp logged while it created the context, unless a capturing
+            log callback had replaced the Runtime's by then.
+    """
+
+    enabled: bool
+    reason: str | None
+    coverage: str | int | None = None
+    work_unit: str | int | None = None
+    work_shares: tuple[dict[str, Any], ...] = ()
+    description: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the fields as a JSON-ready object."""
+        return {
+            "enabled": self.enabled,
+            "reason": self.reason,
+            "coverage": self.coverage,
+            "work_unit": self.work_unit,
+            "work_shares": [dict(share) for share in self.work_shares],
+            "description": self.description,
+        }
 
 
 # =============================================================================
@@ -290,6 +334,61 @@ def _fixed_size(dimension: int) -> int | None:
     return int(dimension)
 
 
+def _enum_name(value: Any) -> str | int:
+    """The name of a Runtime enum value, or the number a newer Runtime returned."""
+    name = getattr(value, "name", None)
+    return int(value) if name is None else str(name)
+
+
+def _enable_execution_diagnostics(stage: Any) -> str | None:
+    """Ask the stage to capture execution diagnostics at Build.
+
+    Returns why it could not, or ``None``. Never raises: the diagnostics are
+    evidence, not part of the load.
+    """
+    # An older projection has no such property, and assigning it would only add an attribute.
+    if not isinstance(getattr(type(stage), "execution_diagnostics_enabled", None), property):
+        return "The installed 'windowsml' package has no stage execution diagnostics."
+    try:
+        stage.execution_diagnostics_enabled = True
+    except Exception as exc:  # an optional Runtime interface must not fail the load
+        return f"The decoder stage refused execution diagnostics: {type(exc).__name__}: {exc}"
+    return None
+
+
+def _read_execution_diagnostics(stage: Any, refusal: str | None) -> LlamaExecutionDiagnostics:
+    """Copy the built stage's execution diagnostics; a refusal or failed read is the reason."""
+    if refusal is not None:
+        return LlamaExecutionDiagnostics(enabled=False, reason=refusal)
+    try:
+        diagnostics = stage.execution_diagnostics
+        return LlamaExecutionDiagnostics(
+            enabled=True,
+            reason=None,
+            coverage=_enum_name(diagnostics.coverage),
+            work_unit=_enum_name(diagnostics.work_unit),
+            work_shares=tuple(
+                {
+                    "device_kind": _enum_name(share.device_kind),
+                    "adapter_luid": (
+                        None
+                        if share.adapter_luid is None
+                        else format_pdh_luid(str(share.adapter_luid))
+                    ),
+                    "implementation": _enum_name(share.implementation),
+                    "unit_count": int(share.unit_count),
+                }
+                for share in diagnostics.work_shares
+            ),
+            description=diagnostics.description,
+        )
+    except Exception as exc:  # a failed read is evidence, not a load failure
+        return LlamaExecutionDiagnostics(
+            enabled=True,
+            reason=f"Could not read the execution diagnostics: {type(exc).__name__}: {exc}",
+        )
+
+
 # =============================================================================
 # Session
 # =============================================================================
@@ -311,6 +410,11 @@ class WinMLLlamaSession:
         runtime_api: Pre-imported ``windowsml.runtime`` module. When given, the
             payload check is skipped (used by tests to inject a fake Runtime).
         tasks_api: Pre-imported ``windowsml.tasks`` module (optional injection).
+        execution_diagnostics: Ask the decoder stage, when the installed
+            ``windowsml`` supports it, to capture its execution diagnostics at
+            Build, and keep them, or why they are missing, in
+            :attr:`execution_diagnostics`. A stage that accepts can create its
+            llama.cpp context during Build instead of on the first request.
     """
 
     def __init__(
@@ -320,6 +424,7 @@ class WinMLLlamaSession:
         device: str = "cpu",
         runtime_api: Any = None,
         tasks_api: Any = None,
+        execution_diagnostics: bool = False,
     ) -> None:
         path = Path(model_path)
         if path.suffix.lower() != ".gguf":
@@ -331,9 +436,12 @@ class WinMLLlamaSession:
         self._wr: Any = runtime_api
         self._wt: Any = tasks_api
         self._check_payload = runtime_api is None
+        self._capture_diagnostics = execution_diagnostics
         self.payload: LlamaPayload | None = None
         self.load_timings_ms: dict[str, float] = {}
         self.chat_template_applied: bool | None = None
+        # Set by load() once the pipeline is built, when execution_diagnostics was requested.
+        self.execution_diagnostics: LlamaExecutionDiagnostics | None = None
 
         self._runtime: Any = None
         self._tokenizer: Any = None
@@ -458,8 +566,13 @@ class WinMLLlamaSession:
                 stage.request_output(0)
                 if context_length:
                     stage.set_sequence_capacity_hint(int(context_length))
+                refusal = (
+                    _enable_execution_diagnostics(stage) if self._capture_diagnostics else None
+                )
                 pipeline = builder.build()
             build_end = time.perf_counter()
+            if self._capture_diagnostics:
+                self.execution_diagnostics = _read_execution_diagnostics(stage, refusal)
             _close_quietly(builder)
             builder = None
 
@@ -695,6 +808,7 @@ class WinMLLlamaSession:
 
 
 __all__ = [
+    "LlamaExecutionDiagnostics",
     "LlamaGenerationTiming",
     "LlamaLoadError",
     "LlamaNotInstalledError",
