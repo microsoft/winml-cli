@@ -250,6 +250,7 @@ class TaskSource(str, Enum):
     USER_TASK = "user-task"  # user passed --task
     USER_CLASS = "user-class"  # user passed --model-class; task inferred
     MODEL_ID_DEFAULT = "model-id-default"  # MODEL_TASK_MAPPING model-id default
+    ARCHITECTURE_DEFAULT = "architecture-default"
     SENTINEL_DEFAULT = "sentinel-default"  # (model_type, None) sentinel
     TASKS_MANAGER = "tasks-manager"  # Optimum inference (incl. fill-mask upgrade)
     WRAPPED_LIBRARY = "wrapped-library"  # no architectures -> first supported task
@@ -474,6 +475,40 @@ def _composite_display_class(model_type_norm: str, components: CompositeComponen
     return cast("type", TasksManager.get_model_class_for_task(generation_first[0], framework="pt"))
 
 
+def _architecture_loader_defaults(
+    config: PretrainedConfig,
+    task: str | None,
+    model_class: str | None,
+    model_type: str | None,
+) -> tuple[str, str] | None:
+    """Match declared architecture metadata without inspecting repository names."""
+    if model_class is not None or model_type is not None:
+        return None
+    from ..models.hf import ARCHITECTURE_LOADER_DEFAULTS
+
+    native_type = getattr(config, "model_type", None)
+    architectures = getattr(config, "architectures", None)
+    if not isinstance(native_type, str) or not isinstance(architectures, (list, tuple)):
+        return None
+    matches = [
+        ARCHITECTURE_LOADER_DEFAULTS[(native_type, name)]
+        for name in architectures
+        if isinstance(name, str) and (native_type, name) in ARCHITECTURE_LOADER_DEFAULTS
+    ]
+    if not matches:
+        return None
+    if task is not None and all(normalize_task(task) != match[0] for match in matches):
+        return None
+    if len(architectures) != 1 or len(matches) != 1:
+        raise ValueError("Ambiguous registered architectures; specify loader overrides explicitly")
+    default_task, variant, requirements = matches[0]
+    if task is not None and normalize_task(task) != default_task:
+        return None
+    if any(getattr(config, key, None) != value for key, value in requirements.items()):
+        raise ValueError("Declared custom architecture has incompatible configuration")
+    return default_task, variant
+
+
 def resolve_task(
     config: PretrainedConfig,
     *,
@@ -499,6 +534,19 @@ def resolve_task(
         )
 
     from optimum.exporters.tasks import TasksManager
+
+    defaults = _architecture_loader_defaults(config, task, model_class, model_type_override)
+    if defaults is not None:
+        default_task, variant = defaults
+        custom = _get_custom_model_class(variant.replace("_", "-"), default_task)
+        if custom is None:
+            raise ValueError(f"Checkpoint loader variant {variant!r} is not registered")
+        return TaskResolution(
+            default_task,
+            to_optimum_task(default_task),
+            custom,
+            TaskSource.USER_TASK if task is not None else TaskSource.ARCHITECTURE_DEFAULT,
+        )
 
     model_type = model_type_override or getattr(config, "model_type", None)
     model_type_norm = model_type.lower().replace("_", "-") if model_type else ""
