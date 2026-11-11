@@ -522,6 +522,7 @@ class TestEvalModelInputForms:
         task = "image-classification"
 
         # Warm cache via HF id (use streaming to avoid mini-imagenet cache).
+        warmup = tmp_path / "warmup.json"
         _invoke(
             runner,
             [
@@ -532,20 +533,19 @@ class TestEvalModelInputForms:
                 "--streaming",
                 "--samples",
                 SAMPLES,
+                "-o",
+                str(warmup),
             ],
         )
 
-        cache_dir = find_cache_dir(hf_id, task=task)
-        assert cache_dir is not None, "expected cache after warm run"
-        onnx_files = list(cache_dir.glob("*_model.onnx"))
-        assert onnx_files, f"no *_model.onnx in {cache_dir}"
+        onnx_path = json.loads(warmup.read_text())["onnx_path"]
 
         out = tmp_path / "result.json"
         _invoke(
             runner,
             [
                 "-m",
-                str(onnx_files[0]),
+                onnx_path,
                 "--model-id",
                 hf_id,
                 "--task",
@@ -568,24 +568,14 @@ class TestEvalModelInputForms:
         hf_id = "openai/clip-vit-base-patch32"
         task = "zero-shot-image-classification"
 
-        # Warm cache. zero-shot-image-classification is a composite task: the
-        # builder decomposes CLIP into two sub-models (image encoder +
-        # text encoder), each cached under its own sub-task in the same
-        # directory. No top-level manifest carries the composite task name,
-        # so cache discovery below must use the sub-task names.
-        _invoke(runner, ["-m", hf_id, "--task", task, "--samples", SAMPLES])
-
-        # Locate each sub-encoder's ONNX directly via its cache-key prefix:
-        cache_dir = find_cache_dir(hf_id, task="image-feature-extraction")
-        assert cache_dir is not None, "expected image-encoder cache after warm run"
-
-        def _pick_onnx(prefix: str) -> Path:
-            files = sorted(cache_dir.glob(f"{prefix}_*_model.onnx"))
-            assert files, f"no {prefix}_*_model.onnx in {cache_dir}"
-            return files[0]
-
-        image_onnx = _pick_onnx("imgfeat")
-        text_onnx = _pick_onnx("feat")
+        warmup = tmp_path / "warmup.json"
+        _invoke(
+            runner,
+            ["-m", hf_id, "--task", task, "--samples", SAMPLES, "-o", str(warmup)],
+        )
+        onnx_paths = json.loads(warmup.read_text())["onnx_path"]
+        image_onnx = onnx_paths["image-encoder"]
+        text_onnx = onnx_paths["text-encoder"]
 
         out = tmp_path / "result.json"
         _invoke(
@@ -916,12 +906,12 @@ class TestEvalAdditionalOptions:
         hf_id = "google/vit-base-patch16-224"
         task = "image-classification"
 
-        _invoke(runner, ["-m", hf_id, "--task", task, "--streaming", "--samples", SAMPLES])
-
-        cache_dir = find_cache_dir(hf_id, task=task)
-        assert cache_dir is not None
-        onnx_files = list(cache_dir.glob("*_model.onnx"))
-        assert onnx_files
+        warmup = tmp_path / "warmup.json"
+        _invoke(
+            runner,
+            ["-m", hf_id, "--task", task, "--streaming", "--samples", SAMPLES, "-o", str(warmup)],
+        )
+        onnx_path = json.loads(warmup.read_text())["onnx_path"]
 
         out = tmp_path / "result.json"
         with caplog.at_level(_logging.WARNING, logger="winml.modelkit.commands.eval"):
@@ -929,7 +919,7 @@ class TestEvalAdditionalOptions:
                 runner,
                 [
                     "-m",
-                    str(onnx_files[0]),
+                    onnx_path,
                     "--model-id",
                     hf_id,
                     "--task",

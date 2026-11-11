@@ -12,6 +12,7 @@ import logging
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from enum import Enum, auto
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from rich.console import Console
@@ -21,8 +22,6 @@ from .config import WinMLEvaluationConfig
 
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from torch import nn
 
     from ..models.winml import HFCausalLM
@@ -305,18 +304,34 @@ class EvalResult:
     # ``config.dataset.samples`` (e.g. ``--mode compare --input-data`` derives
     # it from the archive). ``None`` means "use ``config.dataset.samples``".
     num_samples: int | None = None
+    onnx_path: str | dict[str, str] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = {
             **self.config.to_dict(),
             "metrics": self.metrics,
+            "onnx_path": self.onnx_path,
         }
         # Reflect the real sample count without mutating the config: override the
         # serialized dataset's ``samples`` so the JSON matches the console report.
         if self.num_samples is not None and isinstance(result.get("dataset"), dict):
             result["dataset"] = {**result["dataset"], "samples": self.num_samples}
         return result
+
+
+def _get_onnx_path(model: Any) -> str | dict[str, str] | None:
+    sub_models = getattr(model, "sub_models", None)
+    if isinstance(sub_models, dict):
+        return {
+            role: path
+            for role, sub_model in sub_models.items()
+            if isinstance(path := _get_onnx_path(sub_model), str)
+        } or None
+    path = getattr(model, "onnx_path", None)
+    if isinstance(path, (str, Path)) and Path(path).suffix.lower() == ".onnx":
+        return str(Path(path).absolute())
+    return None
 
 
 def load_model(
@@ -802,7 +817,12 @@ def evaluate(
         if data is not None:
             num_samples = len(data)
 
-    return EvalResult(config=config, metrics=metrics, num_samples=num_samples)
+    return EvalResult(
+        config=config,
+        metrics=metrics,
+        num_samples=num_samples,
+        onnx_path=_get_onnx_path(model),
+    )
 
 
 def print_config(config: WinMLEvaluationConfig) -> None:
