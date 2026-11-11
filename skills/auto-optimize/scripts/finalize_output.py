@@ -37,6 +37,7 @@ RESERVED_NAMES = {
     "repro.ps1",
     "repro-run.ps1",
     "repro.lock.json",
+    "config_validation.json",
 }
 REQUIRED_ROLES = {
     "champion.onnx": "champion_onnx",
@@ -139,6 +140,17 @@ def _load_renderer() -> ModuleType:
     spec = importlib.util.spec_from_file_location("auto_optimize_bundle_renderer", path)
     if spec is None or spec.loader is None:
         raise OutputBundleError(f"cannot load report renderer: {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_config_validator() -> ModuleType:
+    path = Path(__file__).with_name("validate_config.py")
+    spec = importlib.util.spec_from_file_location("auto_optimize_config_validator", path)
+    if spec is None or spec.loader is None:
+        raise OutputBundleError(f"cannot load config validator: {path}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
@@ -595,6 +607,7 @@ def finalize_output(
     repro_script: Path | None = None,
     repro_lock: Path | None = None,
     repro_assets: Sequence[Path] = (),
+    config_validation: Path | None = None,
 ) -> Path:
     """Publish a validated champion artifact set and deterministic reports."""
     report, config, champion, config_source, companion_sources = _prepare_inputs(
@@ -610,6 +623,21 @@ def finalize_output(
         repro_assets,
         companion_sources,
     )
+    validation_source: Path | None = None
+    if config_validation is not None:
+        if rebuild_config is None:
+            raise OutputBundleError("config validation requires the final rebuild config")
+        validation_source = _require_file(Path(config_validation), "config validation receipt")
+        try:
+            _load_config_validator().verify_receipt(
+                validation_source,
+                Path(rebuild_config),
+                champion,
+                tuple(Path(path) for path in repro_assets),
+                Path(repro_lock) if repro_lock is not None else None,
+            )
+        except ValueError as error:
+            raise OutputBundleError(str(error)) from error
     output = Path(output_dir).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     if output.exists() and not overwrite:
@@ -630,6 +658,8 @@ def finalize_output(
                 (stage / output_name).write_bytes(content)
             for output_name, source_path in reproduction_sources.items():
                 shutil.copy2(source_path, stage / output_name)
+        if validation_source is not None:
+            shutil.copy2(validation_source, stage / "config_validation.json")
 
         facts = json.loads(json.dumps(report))
         facts["leader"]["model_path"] = "champion.onnx"
@@ -642,6 +672,8 @@ def finalize_output(
         if reproduction is not None:
             facts["artifacts"]["reproduction"] = reproduction
             facts["conclusion"]["reproduce"] = ["pwsh -File ./repro.ps1"]
+        if validation_source is not None:
+            facts["artifacts"]["config_validation"] = "config_validation.json"
         renderer = _load_renderer()
         renderer.validate_report(facts, final=True)
         (stage / "report.json").write_bytes(_json_bytes(facts))
@@ -656,11 +688,15 @@ def finalize_output(
         sources.update({path.name: str(path) for path in companion_sources})
         sources.update(dict.fromkeys(generated_sources, "generated:reproduction_wrapper"))
         sources.update({name: str(path) for name, path in reproduction_sources.items()})
+        if validation_source is not None:
+            sources["config_validation.json"] = str(validation_source)
         roles = dict(REQUIRED_ROLES)
         roles.update({path.name: "companion" for path in companion_sources})
         roles.update(REPRODUCTION_ROLES)
         if reproduction is not None:
             roles.update(dict.fromkeys(reproduction["assets"], "reproduction_asset"))
+        if validation_source is not None:
+            roles["config_validation.json"] = "config_validation"
         paths = sorted(
             (path for path in stage.iterdir() if path.name != "manifest.json"),
             key=lambda path: path.name.casefold(),
@@ -676,6 +712,8 @@ def finalize_output(
         }
         if reproduction is not None:
             manifest["reproduction"] = reproduction
+        if validation_source is not None:
+            manifest["config_validation"] = "config_validation.json"
         (stage / "manifest.json").write_bytes(_json_bytes(manifest))
         validate_output_bundle(stage)
         _publish_directory(stage, output, overwrite=overwrite)
@@ -788,6 +826,28 @@ def validate_output_bundle(output_dir: Path) -> dict[str, Any]:
         )
         _validate_repro_script(output / "repro-run.ps1")
 
+    validation_pointer = manifest.get("config_validation")
+    if validation_pointer is not None:
+        if validation_pointer != "config_validation.json":
+            raise OutputBundleError(
+                "bundle manifest config_validation must point to config_validation.json"
+            )
+        entry = entries.get("config_validation.json")
+        if entry is None or entry.get("role") != "config_validation":
+            raise OutputBundleError("missing required role config_validation")
+        if reproduction is None:
+            raise OutputBundleError("config validation requires bundled reproduction inputs")
+        try:
+            _load_config_validator().verify_receipt(
+                output / "config_validation.json",
+                output / "rebuild_config.json",
+                output / "champion.onnx",
+                tuple(output / asset for asset in reproduction["assets"]),
+                output / "repro.lock.json",
+            )
+        except ValueError as error:
+            raise OutputBundleError(str(error)) from error
+
     config = _load_json(output / "winml_config.json", "WinML config")
     if not isinstance(config, dict) or not config:
         raise OutputBundleError("WinML config must be a non-empty JSON object")
@@ -814,20 +874,27 @@ def validate_output_bundle(output_dir: Path) -> dict[str, Any]:
         "pwsh -File ./repro.ps1"
     ]:
         raise OutputBundleError("report reproduction command does not match the bundle")
+    report_validation = artifacts.get("config_validation")
+    if validation_pointer is None:
+        if report_validation is not None:
+            raise OutputBundleError("report config validation does not match manifest")
+    elif report_validation != validation_pointer:
+        raise OutputBundleError("report config validation does not match manifest")
     return manifest
 
 
 def main(argv: list[str]) -> int:
     """CLI entry point."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--report", required=True, type=Path)
-    parser.add_argument("--champion", required=True, type=Path)
-    parser.add_argument("--winml-config", required=True, type=Path)
+    parser.add_argument("--report", type=Path)
+    parser.add_argument("--champion", type=Path)
+    parser.add_argument("--winml-config", type=Path)
     parser.add_argument("--companion", action="append", default=[], type=Path)
     parser.add_argument("--rebuild-config", type=Path)
     parser.add_argument("--repro-script", type=Path)
     parser.add_argument("--repro-lock", type=Path)
     parser.add_argument("--repro-asset", action="append", default=[], type=Path)
+    parser.add_argument("--config-validation", type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--validate-only", action="store_true")
@@ -836,6 +903,17 @@ def main(argv: list[str]) -> int:
         validate_output_bundle(args.output)
         print(args.output.resolve())
         return 0
+    missing = [
+        flag
+        for flag, value in (
+            ("--report", args.report),
+            ("--champion", args.champion),
+            ("--winml-config", args.winml_config),
+        )
+        if value is None
+    ]
+    if missing:
+        parser.error(f"the following arguments are required: {', '.join(missing)}")
     output = finalize_output(
         args.report,
         args.champion,
@@ -847,6 +925,7 @@ def main(argv: list[str]) -> int:
         repro_script=args.repro_script,
         repro_lock=args.repro_lock,
         repro_assets=args.repro_asset,
+        config_validation=args.config_validation,
     )
     print(output)
     return 0

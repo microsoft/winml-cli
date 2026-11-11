@@ -86,6 +86,54 @@ def _report() -> dict[str, Any]:
             "latency_target_ms": 25.0,
             "provider_options": {"htp_performance_mode": "burst"},
         },
+        "benchmark": {
+            "protocol": "Matched inputs; alternating paired runs; 20 warmups / 200 iterations",
+            "rows": [
+                {
+                    "name": "FP32 reference",
+                    "role": "reference",
+                    "device": "CPU",
+                    "ep": "CPUExecutionProvider",
+                    "precision": "FP32",
+                    "p50_ms": 80.0,
+                    "p90_ms": 84.0,
+                    "p99_ms": 89.0,
+                    "throughput_ips": 12.5,
+                    "memory_mb": 436.0,
+                    "accuracy": "reference",
+                    "size_mb": 416.0,
+                },
+                {
+                    "name": "NPU baseline",
+                    "role": "baseline",
+                    "device": "NPU",
+                    "ep": "QNNExecutionProvider",
+                    "precision": "W8A16",
+                    "p50_ms": 27.2,
+                    "p90_ms": 28.1,
+                    "p99_ms": 29.4,
+                    "throughput_ips": 36.8,
+                    "memory_mb": 246.0,
+                    "accuracy": "cosine 0.991",
+                    "size_mb": 133.0,
+                },
+                {
+                    "name": "Champion",
+                    "role": "champion",
+                    "device": "NPU",
+                    "ep": "QNNExecutionProvider",
+                    "precision": "W8A16",
+                    "p50_ms": 8.0,
+                    "p90_ms": 8.4,
+                    "p99_ms": 8.9,
+                    "throughput_ips": 125.0,
+                    "memory_mb": 156.0,
+                    "accuracy": "cosine 0.9992",
+                    "size_mb": 134.0,
+                },
+            ],
+            "notes": ["Compare relative values only within this matched protocol."],
+        },
         "baseline": {
             "p50_ms": 27.2,
             "p90_ms": 28.1,
@@ -155,6 +203,15 @@ def _report() -> dict[str, Any]:
             "correctness": "pass",
             "quality": "local-smoke pass; FFHQ pending",
         },
+        "optimizations": [
+            {
+                "name": "Route and affine rewrite",
+                "purpose": "Remove the routed output-tail bottleneck.",
+                "change": "Replace Slice routing and fold affine leaves.",
+                "evidence": "Analyzer, graph delta, and paired trace comparison.",
+                "impact": "Confirmed 20% paired latency gain with correctness pass.",
+            }
+        ],
         "hypotheses": [
             {
                 "mechanism": "Split unlocks affine",
@@ -237,6 +294,42 @@ def _report() -> dict[str, Any]:
             "remaining_opportunities": ["final FFHQ gate"],
             "reproduce": ["winml optimize ...", "winml perf ..."],
         },
+        "outcome": {
+            "summary": "A correctness-valid NPU champion and reproducible final config.",
+            "validation": {
+                "status": "pass",
+                "clean_build": True,
+                "runtime_load": "pass",
+                "correctness": "pass",
+                "receipt": "config_validation.json",
+            },
+            "files": [
+                {
+                    "role": "onnx",
+                    "label": "Champion ONNX",
+                    "path": "champion.onnx",
+                    "description": "Runnable confirmed leader.",
+                },
+                {
+                    "role": "config",
+                    "label": "Resolved WinML config",
+                    "path": "winml_config.json",
+                    "description": "Config used by the delivered artifact.",
+                },
+                {
+                    "role": "rebuild_config",
+                    "label": "Rebuild config",
+                    "path": "rebuild_config.json",
+                    "description": "Exact composed public-CLI rebuild config.",
+                },
+                {
+                    "role": "config_validation",
+                    "label": "Config validation",
+                    "path": "config_validation.json",
+                    "description": "Clean rebuild, runtime load, and correctness receipt.",
+                },
+            ],
+        },
         "artifacts": {
             "champion_onnx": "champion.onnx",
             "companions": [{"path": "champion_qnn_ctx.bin", "role": "QNN EP context"}],
@@ -286,7 +379,10 @@ def test_template_is_valid_and_report_renders_all_sections(
 
     text = output.read_text(encoding="utf-8")
     for heading in (
-        "Overview",
+        "Benchmark",
+        "Optimizations Applied",
+        "Outcome",
+        "Technical Overview",
         "Baseline Diagnosis",
         "Execution Evidence",
         "Model Structure",
@@ -318,6 +414,63 @@ def test_template_is_valid_and_report_renders_all_sections(
     assert "overflow-x:hidden" in text
     assert ".table-wrap{overflow:auto" in text
     assert "nav{position:sticky" in text
+    assert "flex-wrap:wrap" in text
+    assert "Baseline reduction" in text
+    assert "Paired gain" not in text
+    assert "95% CI low" in text
+    assert text.index('<section id="benchmark"') < text.index(
+        '<section id="optimizations"'
+    ) < text.index('<section id="outcome"') < text.index('<section id="overview"')
+
+
+@pytest.mark.parametrize("section", ["benchmark", "optimizations", "outcome"])
+def test_final_report_requires_user_facing_summary_sections(
+    report_module: ModuleType,
+    section: str,
+) -> None:
+    report = _report()
+    del report[section]
+
+    with pytest.raises(report_module.ReportError, match=section):
+        report_module.validate_report(report, final=True)
+
+
+def test_final_report_rejects_benchmark_that_disagrees_with_evidence(
+    report_module: ModuleType,
+) -> None:
+    report = _report()
+    champion = next(row for row in report["benchmark"]["rows"] if row["role"] == "champion")
+    champion["p50_ms"] = 7.5
+
+    with pytest.raises(report_module.ReportError, match="champion p50"):
+        report_module.validate_report(report, final=True)
+
+
+def test_final_report_requires_passing_composed_config_validation(
+    report_module: ModuleType,
+) -> None:
+    report = _report()
+    report["outcome"]["validation"]["status"] = "failed"
+
+    with pytest.raises(report_module.ReportError, match="outcome.validation.status"):
+        report_module.validate_report(report, final=True)
+
+
+def test_report_omits_empty_confidence_cards(
+    report_module: ModuleType,
+    tmp_path: Path,
+) -> None:
+    report = _report()
+    report["leader"]["ci_low_pct"] = None
+    report["leader"]["ci_high_pct"] = None
+    output = tmp_path / "report.html"
+
+    report_module.render_report(report, output)
+
+    text = output.read_text(encoding="utf-8")
+    assert "95% CI low" not in text
+    assert "95% CI high" not in text
+    assert "Baseline reduction" in text
 
 
 def test_closure_sources_are_html_escaped(

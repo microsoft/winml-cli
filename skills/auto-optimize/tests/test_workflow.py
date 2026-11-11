@@ -5,7 +5,9 @@
 
 """Regression tests for evidence-bound delivery and resume."""
 
+import hashlib
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -41,7 +43,12 @@ def test_cannot_skip_gate(tmp_path):
 
 def test_prepare_uses_raw_samples_and_maps_analyzer():
     m = module()
-    report = {"baseline": {"missing_reasons": {"p90_ms": "missing"}}, "leader": {}, "evidence": {}}
+    report = {
+        "benchmark": {"protocol": "pending", "rows": [], "notes": []},
+        "baseline": {"missing_reasons": {"p90_ms": "missing"}},
+        "leader": {},
+        "evidence": {},
+    }
     session = {
         "raw_samples_ms": [1, 2, 3],
         "benchmark_info": {
@@ -69,6 +76,13 @@ def test_prepare_uses_raw_samples_and_maps_analyzer():
         {"classification": "supported", "count": 1}
     ]
     assert result["evidence"]["analyzer"]["optimizations"][0]["instances"] == 2
+    assert [row["role"] for row in result["benchmark"]["rows"]] == [
+        "baseline",
+        "champion",
+    ]
+    assert result["benchmark"]["rows"][0]["p50_ms"] == 2
+    assert result["benchmark"]["rows"][1]["throughput_ips"] == pytest.approx(500)
+    assert result["benchmark"]["protocol"].startswith("Linear pooled percentiles")
     assert report["baseline"]["missing_reasons"]["p90_ms"] == "missing"
 
 
@@ -89,6 +103,25 @@ def test_delivery_real_helpers_emit_receipt_and_preserve_existing(tmp_path):
     rebuild, script, lock, assets = fixtures._repro_inputs(tmp_path)
     context = tmp_path / "context.json"
     context.write_text("{}")
+    validation = tmp_path / "config-validation.json"
+    validation.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "status": "pass",
+                "clean_directory": True,
+                "identity": {
+                    "config_sha256": hashlib.sha256(rebuild.read_bytes()).hexdigest(),
+                    "source": {"kind": "file", "sha256": "a" * 64},
+                    "champion_sha256": hashlib.sha256(champion.read_bytes()).hexdigest(),
+                    "input_data_sha256": hashlib.sha256(assets[1].read_bytes()).hexdigest(),
+                },
+                "build": {"status": "pass"},
+                "runtime_load": {"status": "pass"},
+                "correctness": {"status": "pass", "observed": 1.0, "threshold": 0.999},
+            }
+        )
+    )
     cfg = {
         "report": str(report),
         "champion": str(champion),
@@ -98,9 +131,21 @@ def test_delivery_real_helpers_emit_receipt_and_preserve_existing(tmp_path):
         "repro_script": str(script),
         "repro_lock": str(lock),
         "repro_assets": [str(x) for x in assets],
+        "config_validation": str(validation),
         "promotion_context": str(context),
     }
-    evidence = [report, champion, config, companion, rebuild, script, lock, *assets, context]
+    evidence = [
+        report,
+        champion,
+        config,
+        companion,
+        rebuild,
+        script,
+        lock,
+        *assets,
+        validation,
+        context,
+    ]
     state = tmp_path / "state.json"
     for gate in m.GATES:
         m.record(state, gate, evidence)
