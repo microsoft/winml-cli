@@ -37,38 +37,6 @@ without changing the model's I/O or correctness. Use ./optimization-run for
 artifacts and the checkout at <path-to-winml-cli> as WINML_CLI_REPO.
 ```
 
-## Sample prompt template
-
-The following prompt keeps the request concise while making the result
-reproducible and useful to another developer. Replace the angle-bracketed
-values; omit only fields that genuinely do not apply.
-
-Report structure, delivery artifacts, and final composed-config validation are
-standard behavior owned by the skill. Users do not need to repeat those
-requirements in each prompt; state only the optimization task and its inputs.
-
-```text
-Use the auto-optimize skill to optimize <MODEL_OR_ONNX> for <EP> on <DEVICE>.
-
-Goal: minimize median batch-1 latency while preserving <QUALITY_METRIC> >=
-<QUALITY_THRESHOLD> against <REFERENCE_MODEL> on <REFERENCE_DEVICE_AND_EP>.
-Use the fixed real inputs in <INPUT_DATA>; use <SHAPE_OR_SEQUENCE_LENGTH> and
-the same inputs, provider options, and timing protocol for every comparison.
-Write all run evidence to <RUN_DIRECTORY>. Use <WINML_CLI_CHECKOUT> as
-WINML_CLI_REPO. Do not modify generic source or create a PR unless a confirmed
-leader requires a reusable CLI capability.
-```
-
-For example, a BGE embedding-model request can be:
-
-```text
-Use the auto-optimize skill to optimize ./models/fp32/model.onnx for QNN on the
-NPU. Minimize median batch-1 latency while keeping mean output cosine similarity
->= 0.99 against the same FP32 model on CPU. Use sequence length 128 and fixed,
-meaningful text inputs saved under ./optimization-run/inputs. Write all evidence
-to ./optimization-run and use <path-to-winml-cli> as WINML_CLI_REPO.
-```
-
 For a candidate you already have:
 
 ```text
@@ -99,8 +67,7 @@ in the target repository; the skill does not create that label automatically.
 - When necessary, implements generic CLI behavior in an isolated current-main
   worktree, adds tests, and rebuilds through the public CLI.
 - Replays the final result in a fresh directory, validates the published
-  bundle, then independently rebuilds and executes the final composed config
-  before recording a separate promotion handoff.
+  bundle, and records a separate promotion handoff.
 
 On resume, the skill starts at the first unverified gate. Changes to the model,
 inputs, options, or toolchain invalidate affected evidence. A validation-only
@@ -114,12 +81,8 @@ A successfully replayed and validated result includes:
 - `winml_config.json` for the built champion and a separate
   `rebuild_config.json` for reproducing the build.
 - `report.json` and `report.html` with the experiment evidence.
-- A concise report opening with matched benchmark results, accepted
-  optimizations, and the delivered outcome before the detailed evidence.
 - A hash-bound `manifest.json`.
 - `repro.ps1` (including `-ValidateOnly`), `repro-run.ps1`, and `repro.lock.json`.
-- `config_validation.json`, proving the exact final rebuild config completed a
-  clean build, target runtime load, and fixed-input correctness comparison.
 - `perf_input.npz`, `eval_inputs.npz`, and `inputs_manifest.json`.
 - A standalone `promotion_handoff.json` created after bundle validation.
 

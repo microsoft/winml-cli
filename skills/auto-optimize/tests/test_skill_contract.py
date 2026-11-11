@@ -723,37 +723,6 @@ def test_deterministic_support_scripts_are_present() -> None:
     assert (SCRIPT_ROOT / "validate_config.py").is_file()
 
 
-def test_docs_include_reproducible_prompt_and_final_config_validation() -> None:
-    docs = (
-        SKILL_ROOT.parents[1] / "docs" / "getting-started" / "agent-skill" / "auto-optimize.md"
-    ).read_text(encoding="utf-8")
-    lowered = docs.lower()
-    normalized = " ".join(lowered.split())
-
-    for required in (
-        "## sample prompt template",
-        "report structure, delivery artifacts, and final composed-config validation are standard behavior owned by the skill",
-        "users do not need to repeat those requirements in each prompt",
-        "bge embedding-model request",
-    ):
-        assert required in normalized, required
-
-    template_section = lowered.split("## sample prompt template", 1)[1]
-    generic_prompt = template_section.split("```text", 1)[1].split("```", 1)[0]
-    bge_prompt = template_section.split("for example, a bge", 1)[1]
-    bge_prompt = bge_prompt.split("```text", 1)[1].split("```", 1)[0]
-    for prompt in (generic_prompt, bge_prompt):
-        for forbidden in (
-            "report in this order",
-            "benchmark:",
-            "optimizations applied:",
-            "outcome:",
-            "before delivery",
-            "do not publish",
-        ):
-            assert forbidden not in prompt, forbidden
-
-
 def test_report_contract_is_skill_owned_not_prompt_dependent() -> None:
     skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8").lower()
     delivery = (REFERENCE_ROOT / "report-delivery.md").read_text(encoding="utf-8").lower()
