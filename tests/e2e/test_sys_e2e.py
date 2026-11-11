@@ -224,7 +224,7 @@ class TestSysJsonShape:
                     "status",
                     "dll_path",
                 }
-                if entry["status"] != "failed":
+                if entry["status"] in ("primary", "shadowed"):
                     assert isinstance(entry["devices"], list)
 
 
