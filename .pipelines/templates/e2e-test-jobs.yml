@@ -177,7 +177,7 @@ jobs:
               $wheelDir = "$(Agent.BuildDirectory)\artifacts\wheels\windows-ml-release\$env:WINDOWSML_RELEASE_BUILD"
               $wheels = @(Get-ChildItem -LiteralPath $wheelDir -Filter '*.whl' -File -ErrorAction Stop)
               if ($wheels.Count -eq 0) { throw "No wheels found in $wheelDir" }
-              uv pip install --no-deps --reinstall @($wheels.FullName)
+              uv pip install --reinstall @($wheels.FullName)
               exit $LASTEXITCODE
             env:
               WINDOWSML_RELEASE_BUILD: ${{ parameters.windowsmlReleaseBuild }}
