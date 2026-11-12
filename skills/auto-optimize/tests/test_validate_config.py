@@ -15,9 +15,8 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import onnx
 import pytest
-from onnx import TensorProto, helper
+from onnx import TensorProto, helper, save
 
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "validate_config.py"
@@ -40,7 +39,7 @@ def _model(path: Path) -> None:
         [helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 4])],
         [helper.make_tensor_value_info("y", TensorProto.FLOAT, [1, 4])],
     )
-    onnx.save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 18)]), path)
+    save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 18)]), path)
 
 
 def _inputs(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
