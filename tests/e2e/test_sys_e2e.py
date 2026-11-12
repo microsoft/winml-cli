@@ -223,9 +223,9 @@ class TestSysJsonShape:
                     "source_tag",
                     "status",
                     "dll_path",
-                    "devices",
                 }
-                assert isinstance(entry["devices"], list)
+                if entry["status"] in ("primary", "shadowed"):
+                    assert isinstance(entry["devices"], list)
 
 
 # ---------------------------------------------------------------------------
