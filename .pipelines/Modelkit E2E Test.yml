@@ -8,7 +8,8 @@
 #      EP/device pair available on each agent. Gated by `runEval`.
 #
 #   2. A configurable list of pytest e2e suites under `tests/e2e/`,
-#      controlled by the `pytestTargets` parameter (default: all 11).
+#      controlled by the `pytestTargets` parameter. CGC requires a
+#      non-default `windowsmlReleaseBuild` until compatible wheels are public.
 #      Edit the list at queue time for a minimal run (e.g. keep only
 #      `analyze`). Each entry maps 1:1 to `tests/e2e/test_<name>_e2e.py`.
 #      Tests use `require_ep()` to self-skip when the target EP is not
@@ -142,7 +143,7 @@ parameters:
   # Each entry `<name>` runs `tests/e2e/test_<name>_e2e.py`.
   # Edit the list at queue time (delete unwanted entries) to do a
   # minimal run. Setting it to an empty list skips the pytest phase
-  # entirely.
+  # entirely. `cgc` runs only with a non-default windowsmlReleaseBuild.
   # --------------------------------------------------------------------
   - name: pytestTargets
     displayName: 'pytest e2e targets (one entry per tests/e2e/test_<name>_e2e.py)'
@@ -151,6 +152,7 @@ parameters:
       - analyze
       - inspect
       - build
+      - cgc
       - compile
       - openvino_allocators
       - config

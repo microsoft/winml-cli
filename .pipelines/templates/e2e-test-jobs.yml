@@ -278,18 +278,20 @@ jobs:
       # safe to run all of them on every agent.
       # ----------------------------------------------------------------------
       - ${{ each target in parameters.pytestTargets }}:
-          - powershell: |
-              $env:WINML_E2E_PIN_SINGLE_DML_GPU = '0'
-              $pinDml = '${{ containsValue(parameters.dmlPinnedAgents, parameters.agentName) }}'
-              if ('${{ target }}' -eq 'perf' -and $pinDml -eq 'True') {
-                  $env:WINML_E2E_PIN_SINGLE_DML_GPU = '1'
-                  Write-Host "DML perf tests will exercise the physical GPU on this shared RDP agent."
-              }
-              uv run --no-sync python -m pytest tests/e2e/test_${{ target }}_e2e.py -m e2e --timeout=${{ parameters.pytestTimeout }} --junitxml="$(Agent.TempDirectory)/junit-${{ parameters.agentSuffix }}-${{ target }}.xml" -v
-              exit $LASTEXITCODE
-            workingDirectory: $(Build.SourcesDirectory)
-            condition: always()
-            displayName: 'pytest: test_${{ target }}_e2e.py'
+          # Remove this gate once project dependencies provide compatible public CGC wheels.
+          - ${{ if or(ne(target, 'cgc'), ne(parameters.windowsmlReleaseBuild, 'default')) }}:
+              - powershell: |
+                  $env:WINML_E2E_PIN_SINGLE_DML_GPU = '0'
+                  $pinDml = '${{ containsValue(parameters.dmlPinnedAgents, parameters.agentName) }}'
+                  if ('${{ target }}' -eq 'perf' -and $pinDml -eq 'True') {
+                      $env:WINML_E2E_PIN_SINGLE_DML_GPU = '1'
+                      Write-Host "DML perf tests will exercise the physical GPU on this shared RDP agent."
+                  }
+                  uv run --no-sync python -m pytest tests/e2e/test_${{ target }}_e2e.py -m e2e --timeout=${{ parameters.pytestTimeout }} --junitxml="$(Agent.TempDirectory)/junit-${{ parameters.agentSuffix }}-${{ target }}.xml" -v
+                  exit $LASTEXITCODE
+                workingDirectory: $(Build.SourcesDirectory)
+                condition: always()
+                displayName: 'pytest: test_${{ target }}_e2e.py'
 
       # ----------------------------------------------------------------------
       # Publish all pytest junit XMLs as ADO test results. Runs always so
