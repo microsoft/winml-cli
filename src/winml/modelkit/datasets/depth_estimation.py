@@ -15,7 +15,6 @@ import logging
 from typing import Any
 
 from datasets.features import Image
-from transformers import AutoImageProcessor
 
 from .image import ImageDataset
 
@@ -90,6 +89,8 @@ class DepthEstimationDataset(ImageDataset):
 
     def _initialize(self) -> None:
         """Load the dataset and prepare fixed-shape image tensors."""
+        from transformers import AutoImageProcessor
+
         # Use the built-in defaults when the caller does not provide a dataset.
         if self._dataset_name is None:
             self._get_default_dataset()

@@ -461,9 +461,10 @@ def load_model(
         if loader is _ModelLoaderKind.ONNX:
             # Pre-built ONNX: precision is already baked into the model and is
             # ignored here (mirrors winml perf's ONNX path).
-            from transformers import AutoConfig
+            if model_id is not None:
+                from transformers import AutoConfig
 
-            from ..loader import load_hf_config
+                from ..loader import load_hf_config
 
             hf_config = (
                 load_hf_config(

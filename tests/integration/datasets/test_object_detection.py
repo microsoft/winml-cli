@@ -237,8 +237,8 @@ class TestObjectDetectionDatasetIntegration:
 class TestObjectDetectionDatasetWithMockedDeps:
     """Tests with mocked dependencies for faster execution."""
 
-    @patch("winml.modelkit.datasets.object_detection.load_dataset")
-    @patch("winml.modelkit.datasets.object_detection.AutoImageProcessor")
+    @patch("winml.modelkit.datasets.image.load_dataset")
+    @patch("transformers.AutoImageProcessor")
     def test_applies_do_pad_false_override(
         self,
         mock_processor_cls: MagicMock,
@@ -258,6 +258,7 @@ class TestObjectDetectionDatasetWithMockedDeps:
         mock_ds = MagicMock()
         mock_ds.features = {"image": Image(), "objects": MagicMock()}
         mock_ds.__len__ = MagicMock(return_value=2)
+        mock_ds.select.return_value = mock_ds
 
         # Mock the map and with_format chain
         mock_mapped = MagicMock()
@@ -282,8 +283,8 @@ class TestObjectDetectionDatasetWithMockedDeps:
         call_kwargs = mock_processor_cls.from_pretrained.call_args[1]
         assert call_kwargs.get("do_pad") is False
 
-    @patch("winml.modelkit.datasets.object_detection.load_dataset")
-    @patch("winml.modelkit.datasets.object_detection.AutoImageProcessor")
+    @patch("winml.modelkit.datasets.image.load_dataset")
+    @patch("transformers.AutoImageProcessor")
     def test_uses_default_size_when_no_io_config(
         self,
         mock_processor_cls: MagicMock,
@@ -302,6 +303,7 @@ class TestObjectDetectionDatasetWithMockedDeps:
         mock_ds = MagicMock()
         mock_ds.features = {"image": Image(), "objects": MagicMock()}
         mock_ds.__len__ = MagicMock(return_value=2)
+        mock_ds.select.return_value = mock_ds
 
         mock_mapped = MagicMock()
         mock_mapped.__len__ = MagicMock(return_value=2)
