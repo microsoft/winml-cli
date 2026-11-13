@@ -214,8 +214,7 @@ def test_compile_onnx_winmlcg_and_reload(
 # Check shared compilation results, resource integrity and overwrite/invalid-input rejection.
 @pytest.mark.parametrize("encoding", _INPUT_ENCODINGS)
 def test_compile_input_ir_to_output_ir(
-    request: pytest.FixtureRequest, encoding: str, cgc_cli,
-    cgc_input_ir, cgc_source_onnx: Path, tmp_path: Path,
+    request: pytest.FixtureRequest, encoding: str, cgc_cli, tmp_path: Path,
 ) -> None:
     if encoding == "caller":
         source = Path(os.environ["WINML_TEST_CGC_INPUT_IR"]).resolve(strict=True)
@@ -227,7 +226,8 @@ def test_compile_input_ir_to_output_ir(
         )
     else:
         source = (
-            cgc_input_ir[0] if encoding == "text" else request.getfixturevalue("cgc_bytecode_ir")
+            request.getfixturevalue("cgc_input_ir")[0]
+            if encoding == "text" else request.getfixturevalue("cgc_bytecode_ir")
         )
         original_hash = _sha256(source)
         output, result = request.getfixturevalue(
@@ -259,6 +259,7 @@ def test_compile_input_ir_to_output_ir(
     retry = cgc_cli(*args, expect_success=False)
     assert retry.returncode != 0 and "--overwrite" in retry.stdout + retry.stderr
     if encoding == "text":
+        cgc_source_onnx = request.getfixturevalue("cgc_source_onnx")
         invalid = tmp_path / "not-input-ir.mlir"
         invalid.write_bytes(cgc_source_onnx.read_bytes())
         invalid_output = tmp_path / "invalid-output.mlir"
