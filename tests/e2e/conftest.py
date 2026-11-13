@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -237,6 +239,122 @@ def onnx_fixture_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 def onnx_model_path(onnx_fixture_dir: Path) -> Path:
     """Path to a valid minimal ONNX model for testing."""
     return onnx_fixture_dir / "test_model.onnx"
+
+
+# ---------------------------------------------------------------------------
+# CGC command artifacts (lazy and shared, never dependent on test ordering)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def cgc_cli():
+    """Run the actual CLI in a fresh process, before pytest's ORT DLLs can interfere."""
+    def invoke(*args: str, expect_success: bool = True) -> subprocess.CompletedProcess[str]:
+        result = subprocess.run(  # noqa: S603 -- fixed Python entry point, no shell
+            [sys.executable, "-m", "winml.modelkit.cli", *args],
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=600,
+            check=False,
+        )
+        if expect_success:
+            assert result.returncode == 0, (
+                f"winml {' '.join(args)} exited with {result.returncode}\n"
+                f"{result.stdout}\n{result.stderr}"
+            )
+        return result
+
+    return invoke
+
+
+@pytest.fixture(scope="module")
+def cgc_artifact_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Use a fresh directory with explicit filenames, never search cached model artifacts."""
+    return tmp_path_factory.mktemp("cgc_commands")
+
+
+@pytest.fixture(scope="module")
+def cgc_model_id() -> str:
+    """Both HF export routes use the same downloaded checkpoint in the HF cache."""
+    return "microsoft/resnet-50"
+
+
+@pytest.fixture(scope="module")
+def cgc_source_onnx(cgc_cli, cgc_model_id: str, cgc_artifact_dir: Path) -> Path:
+    output = cgc_artifact_dir / "source.onnx"
+    cgc_cli("export", "-m", cgc_model_id, "-o", str(output))
+    assert output.is_file()
+    onnx.checker.check_model(str(output))
+    return output
+
+
+@pytest.fixture(scope="module")
+def cgc_input_ir(cgc_cli, cgc_source_onnx: Path, cgc_artifact_dir: Path):
+    """Export local ONNX once, retaining the command result for the export test."""
+    output = cgc_artifact_dir / "input.mlir"
+    result = cgc_cli("export", "-m", str(cgc_source_onnx), "--target", "cgir", "-o", str(output))
+    return output, result
+
+
+@pytest.fixture(scope="module")
+def cgc_hf_input_ir(cgc_cli, cgc_model_id: str, cgc_artifact_dir: Path):
+    """Exercise direct HF -> CGIR, not a second invocation of the local ONNX route."""
+    output = cgc_artifact_dir / "hf-input.mlir"
+    result = cgc_cli("export", "-m", cgc_model_id, "--target", "cgir", "-o", str(output))
+    return output, result
+
+
+@pytest.fixture(scope="module")
+def cgc_bytecode_ir(cgc_input_ir, cgc_artifact_dir: Path) -> Path:
+    """Serialize the shared Input IR without re-exporting or loading native DLLs in pytest."""
+    source, _ = cgc_input_ir
+    output = cgc_artifact_dir / "input.mlirbc"
+    result = subprocess.run(  # noqa: S603 -- fixed serializer, paths supplied separately
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; from pathlib import Path; "
+                "from winml.modelkit.export.cgc import create_foundry_compiler; "
+                "from _foundry.compiler import SerializationFormat\n"
+                "source, output = map(Path, sys.argv[1:])\n"
+                "with create_foundry_compiler() as compiler:\n"
+                "    with compiler.create_module_from_mlir(source.read_bytes()) as module:\n"
+                "        output.write_bytes(module.serialize(SerializationFormat.BYTECODE))\n"
+            ),
+            str(source),
+            str(output),
+        ],
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output.read_bytes().startswith(b"ML\xefR")
+    return output
+
+
+@pytest.fixture(scope="module")
+def cgc_output_ir(cgc_cli, cgc_input_ir, cgc_artifact_dir: Path):
+    """Compile the shared text Input IR once for compile, perf and compare tests."""
+    source, _ = cgc_input_ir
+    output = cgc_artifact_dir / "text-compiled" / "output.mlir"
+    result = cgc_cli(
+        "compile", "-m", str(source), "--device", "gpu", "-o", str(output),
+    )
+    return output, result
+
+
+@pytest.fixture(scope="module")
+def cgc_bytecode_output_ir(cgc_cli, cgc_bytecode_ir: Path, cgc_artifact_dir: Path):
+    output = cgc_artifact_dir / "bytecode-compiled" / "output.mlir"
+    result = cgc_cli(
+        "compile", "-m", str(cgc_bytecode_ir), "--device", "gpu", "-o", str(output),
+    )
+    return output, result
 
 
 @pytest.fixture
