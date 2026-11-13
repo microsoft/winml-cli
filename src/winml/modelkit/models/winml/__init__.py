@@ -17,11 +17,14 @@ Components:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from importlib import import_module
+from typing import TYPE_CHECKING, Any
 
 
 if TYPE_CHECKING:
     from .base import WinMLPreTrainedModel
+
+    WINML_MODEL_CLASS_MAPPING: dict[tuple[str, str], str]
 
 logger = logging.getLogger(__name__)
 
@@ -52,14 +55,8 @@ TASK_TO_WINML_CLASS: dict[str, str] = {
     "image-feature-extraction": "WinMLModelForFeatureExtraction",
 }
 
-# Level 2: (model_type, task) -> Specialized class (exceptions only)
-WINML_MODEL_CLASS_MAPPING: dict[tuple[str, str], str] = {
-    # Only add entries for models that need:
-    # - Custom export logic (broken ONNX export)
-    # - Specific OPSET requirements
-    # - Input remapping (non-standard tensor names)
-    # - Custom pre/post-processing
-}
+# Keep storage private so public access triggers lazy registration.
+_WINML_MODEL_CLASS_MAPPING: dict[tuple[str, str], str] = {}
 
 
 def _import_winml_class(class_name: str) -> type[WinMLPreTrainedModel]:
@@ -74,29 +71,17 @@ def _import_winml_class(class_name: str) -> type[WinMLPreTrainedModel]:
     Raises:
         ImportError: If class is not implemented yet
     """
-    from .base import WinMLModelForGenericTask
-    from .depth_estimation import WinMLModelForDepthEstimation
-    from .feature_extraction import WinMLModelForFeatureExtraction
-    from .image_classification import WinMLModelForImageClassification
-    from .image_segmentation import (
-        WinMLModelForImageSegmentation,
-        WinMLModelForSemanticSegmentation,
-    )
-    from .object_detection import WinMLModelForObjectDetection
-    from .question_answering import WinMLModelForQuestionAnswering
-    from .sequence_classification import WinMLModelForSequenceClassification
-
     # Map class names to modules
-    class_map: dict[str, type] = {
-        "WinMLModelForDepthEstimation": WinMLModelForDepthEstimation,
-        "WinMLModelForFeatureExtraction": WinMLModelForFeatureExtraction,
-        "WinMLModelForImageClassification": WinMLModelForImageClassification,
-        "WinMLModelForImageSegmentation": WinMLModelForImageSegmentation,
-        "WinMLModelForObjectDetection": WinMLModelForObjectDetection,
-        "WinMLModelForQuestionAnswering": WinMLModelForQuestionAnswering,
-        "WinMLModelForSemanticSegmentation": WinMLModelForSemanticSegmentation,
-        "WinMLModelForSequenceClassification": WinMLModelForSequenceClassification,
-        "WinMLModelForGenericTask": WinMLModelForGenericTask,
+    class_map = {
+        "WinMLModelForDepthEstimation": ".depth_estimation",
+        "WinMLModelForFeatureExtraction": ".feature_extraction",
+        "WinMLModelForImageClassification": ".image_classification",
+        "WinMLModelForImageSegmentation": ".image_segmentation",
+        "WinMLModelForObjectDetection": ".object_detection",
+        "WinMLModelForQuestionAnswering": ".question_answering",
+        "WinMLModelForSemanticSegmentation": ".image_segmentation",
+        "WinMLModelForSequenceClassification": ".sequence_classification",
+        "WinMLModelForGenericTask": ".base",
     }
 
     if class_name not in class_map:
@@ -105,7 +90,10 @@ def _import_winml_class(class_name: str) -> type[WinMLPreTrainedModel]:
             f"Class may not be implemented yet."
         )
 
-    return class_map[class_name]
+    model_class: type[WinMLPreTrainedModel] = getattr(
+        import_module(class_map[class_name], __name__), class_name
+    )
+    return model_class
 
 
 def get_winml_class(model_type: str | None, task: str | None) -> type[WinMLPreTrainedModel]:
@@ -127,6 +115,8 @@ def get_winml_class(model_type: str | None, task: str | None) -> type[WinMLPreTr
 
     # Level 1: Check for (model_type, task) class mapping
     if model_type_normalized is not None and task is not None:
+        from . import WINML_MODEL_CLASS_MAPPING
+
         specialized_name = WINML_MODEL_CLASS_MAPPING.get((model_type_normalized, task))
     else:
         specialized_name = None
@@ -169,6 +159,8 @@ def register_specialization(model_type: str, task: str, class_name: str) -> None
         task: Task name (e.g., "image-classification")
         class_name: Name of the specialized WinML class
     """
+    from . import WINML_MODEL_CLASS_MAPPING
+
     key = (model_type.lower().replace("_", "-"), task)
     WINML_MODEL_CLASS_MAPPING[key] = class_name
     logger.info("Registered class mapping: %s -> %s", key, class_name)
@@ -178,41 +170,101 @@ def register_specialization(model_type: str, task: str, class_name: str) -> None
 # Re-exports
 # =============================================================================
 
-from .base import WinMLModelForGenericTask, WinMLPreTrainedModel
-from .composite_model import (
-    COMPOSITE_MODEL_REGISTRY,
-    WinMLCompositeModel,
-    register_composite_model,
-)
-from .decoder_only import WinMLDecoderOnlyModel
-from .depth_estimation import WinMLModelForDepthEstimation
-from .encoder_decoder import WinMLEncoderDecoderModel
-from .feature_extraction import WinMLModelForFeatureExtraction
-from .genai_bundle import (
-    GENAI_BUNDLE_REGISTRY,
-    GenaiBundleRecipe,
-    GenaiCompanionSpec,
-    GenaiTarget,
-    GenaiTransformerSpec,
-    build_genai_bundle,
-    register_genai_bundle,
-    resolve_genai_bundle,
-)
-from .genai_causal_lm import HFCausalLM, WinMLGenaiCausalLM
-from .image_classification import WinMLModelForImageClassification
-from .image_segmentation import (
-    ImageSegmentationOutput,
-    WinMLModelForImageSegmentation,
-    WinMLModelForSemanticSegmentation,
-)
-from .kv_cache import (
-    WinMLCache,
-    WinMLSlidingWindowCache,
-    WinMLStaticCache,
-)
-from .object_detection import WinMLModelForObjectDetection
-from .sequence_classification import WinMLModelForSequenceClassification
-from .zero_shot_image_classification import WinMLModelForZeroShotImageClassification
+if TYPE_CHECKING:
+    from .base import WinMLModelForGenericTask, WinMLPreTrainedModel
+    from .composite_model import (
+        COMPOSITE_MODEL_REGISTRY,
+        WinMLCompositeModel,
+        register_composite_model,
+    )
+    from .decoder_only import WinMLDecoderOnlyModel
+    from .depth_estimation import WinMLModelForDepthEstimation
+    from .encoder_decoder import WinMLEncoderDecoderModel
+    from .feature_extraction import WinMLModelForFeatureExtraction
+    from .genai_bundle import (
+        GENAI_BUNDLE_REGISTRY,
+        GenaiBundleRecipe,
+        GenaiCompanionSpec,
+        GenaiTarget,
+        GenaiTransformerSpec,
+        build_genai_bundle,
+        register_genai_bundle,
+        resolve_genai_bundle,
+    )
+    from .genai_causal_lm import HFCausalLM, WinMLGenaiCausalLM
+    from .image_classification import WinMLModelForImageClassification
+    from .image_segmentation import (
+        ImageSegmentationOutput,
+        WinMLModelForImageSegmentation,
+        WinMLModelForSemanticSegmentation,
+    )
+    from .kv_cache import WinMLCache, WinMLSlidingWindowCache, WinMLStaticCache
+    from .object_detection import WinMLModelForObjectDetection
+    from .sequence_classification import WinMLModelForSequenceClassification
+    from .zero_shot_image_classification import WinMLModelForZeroShotImageClassification
+
+
+_LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+    name: (module, name)
+    for module, names in (
+        (".base", ("WinMLModelForGenericTask", "WinMLPreTrainedModel")),
+        (
+            ".composite_model",
+            ("COMPOSITE_MODEL_REGISTRY", "WinMLCompositeModel", "register_composite_model"),
+        ),
+        (".decoder_only", ("WinMLDecoderOnlyModel",)),
+        (".depth_estimation", ("WinMLModelForDepthEstimation",)),
+        (".encoder_decoder", ("WinMLEncoderDecoderModel",)),
+        (".feature_extraction", ("WinMLModelForFeatureExtraction",)),
+        (
+            ".genai_bundle",
+            (
+                "GENAI_BUNDLE_REGISTRY",
+                "GenaiBundleRecipe",
+                "GenaiCompanionSpec",
+                "GenaiTarget",
+                "GenaiTransformerSpec",
+                "build_genai_bundle",
+                "register_genai_bundle",
+                "resolve_genai_bundle",
+            ),
+        ),
+        (".genai_causal_lm", ("HFCausalLM", "WinMLGenaiCausalLM")),
+        (".image_classification", ("WinMLModelForImageClassification",)),
+        (
+            ".image_segmentation",
+            (
+                "ImageSegmentationOutput",
+                "WinMLModelForImageSegmentation",
+                "WinMLModelForSemanticSegmentation",
+            ),
+        ),
+        (".kv_cache", ("WinMLCache", "WinMLSlidingWindowCache", "WinMLStaticCache")),
+        (".object_detection", ("WinMLModelForObjectDetection",)),
+        (".sequence_classification", ("WinMLModelForSequenceClassification",)),
+        (".zero_shot_image_classification", ("WinMLModelForZeroShotImageClassification",)),
+    )
+    for name in names
+}
+
+
+def __getattr__(name: str) -> Any:
+    if name == "WINML_MODEL_CLASS_MAPPING":
+        import_module("..hf", __name__)
+        globals()[name] = _WINML_MODEL_CLASS_MAPPING
+        return _WINML_MODEL_CLASS_MAPPING
+    if name not in _LAZY_IMPORTS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    if name == "COMPOSITE_MODEL_REGISTRY":
+        import_module("..hf", __name__)
+    module, attr = _LAZY_IMPORTS[name]
+    value = getattr(import_module(module, __name__), attr)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(__all__))
 
 
 __all__ = [

@@ -53,11 +53,187 @@ _HF_MODEL = "microsoft/resnet-50"
 def _run_in_subprocess(code: str) -> subprocess.CompletedProcess[str]:
     """Run Python code in a fresh subprocess via a temp script approach."""
     return subprocess.run(  # noqa: S603
-        [sys.executable, "-c", textwrap.dedent(code)],
+        [sys.executable, "-X", "utf8", "-c", textwrap.dedent(code)],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=120,
     )
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        "decoder_only",
+        "encoder_decoder",
+        "composite_model",
+        "genai_bundle",
+        "kv_cache",
+        "zero_shot_image_classification",
+    ],
+)
+def test_model_modules_import_directly_in_fresh_process(module: str) -> None:
+    result = _run_in_subprocess(f"""
+        import importlib
+        importlib.import_module("winml.modelkit.models.winml.{module}")
+    """)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    "symbol",
+    ["COMPOSITE_MODEL_REGISTRY", "GENAI_BUNDLE_REGISTRY", "WINML_MODEL_CLASS_MAPPING"],
+)
+def test_model_registry_is_populated_on_first_access(symbol: str) -> None:
+    code = f"""
+        import json
+        import winml.modelkit.models as models
+        import winml.modelkit.models.winml as wrappers
+        from winml.modelkit.models.winml import {symbol} as registry
+        assert registry
+        assert getattr(wrappers, {symbol!r}) is registry
+        if {symbol!r} in models.__all__:
+            assert getattr(models, {symbol!r}) is registry
+        print(json.dumps(sorted(map(repr, registry))))
+    """
+    lazy = _run_in_subprocess(code)
+    eager = _run_in_subprocess("import winml.modelkit.models.hf\n" + textwrap.dedent(code))
+    assert lazy.returncode == eager.returncode == 0, lazy.stderr + eager.stderr
+    assert lazy.stdout == eager.stdout
+
+
+def test_composite_lookup_initializes_registrations() -> None:
+    result = _run_in_subprocess("""
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from winml.modelkit.models.winml import WinMLCompositeModel
+        from winml.modelkit.models.winml import composite_model
+        try:
+            WinMLCompositeModel.from_onnx({})
+        except ValueError:
+            pass
+        populated = dict(composite_model.COMPOSITE_MODEL_REGISTRY)
+        import winml.modelkit.models.hf
+        assert populated
+        assert populated == composite_model.COMPOSITE_MODEL_REGISTRY
+        for (model_type, task), cls in populated.items():
+            with patch.object(cls, "__init__", return_value=None):
+                model = WinMLCompositeModel.from_onnx(
+                    {}, task=task, hf_config=SimpleNamespace(model_type=model_type)
+                )
+                assert type(model) is cls
+    """)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_specialization_override_survives_registration_imports() -> None:
+    reference = _run_in_subprocess("""
+        import json
+        from winml.modelkit.models.winml import WINML_MODEL_CLASS_MAPPING
+        print(json.dumps(next(iter(WINML_MODEL_CLASS_MAPPING))))
+    """)
+    assert reference.returncode == 0, reference.stderr
+    result = _run_in_subprocess(f"""
+        import json
+        from winml.modelkit.models.winml import register_specialization, get_winml_class
+        model_type, task = json.loads({reference.stdout!r})
+        register_specialization(model_type, task, "WinMLModelForGenericTask")
+        import winml.modelkit.models.hf
+        from winml.modelkit.models.winml import WinMLModelForGenericTask
+        assert get_winml_class(model_type, task) is WinMLModelForGenericTask
+    """)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_successful_onnx_perf_does_not_import_hf(tmp_path) -> None:
+    result = _run_in_subprocess(f"""
+        import json
+        import sys
+        from pathlib import Path
+        import onnx
+        from winml.modelkit.cli import main
+
+        model_path = Path({str(tmp_path)!r}) / "generated.onnx"
+        report_path = model_path.with_suffix(".json")
+        graph = onnx.helper.make_graph(
+            [onnx.helper.make_node("Identity", ["input"], ["output"])],
+            "generated",
+            [onnx.helper.make_tensor_value_info("input", onnx.TensorProto.FLOAT, [1, 4])],
+            [onnx.helper.make_tensor_value_info("output", onnx.TensorProto.FLOAT, [1, 4])],
+        )
+        model = onnx.helper.make_model(
+            graph, opset_imports=[onnx.helper.make_opsetid("", 17)], ir_version=8
+        )
+        onnx.checker.check_model(model)
+        onnx.save(model, model_path)
+        main([
+            "perf", "-m", str(model_path), "--device", "cpu", "--ep", "cpu",
+            "--skip-build", "--no-memory", "--warmup", "1", "--iterations", "2",
+            "-o", str(report_path),
+        ], standalone_mode=False)
+        report = json.loads(report_path.read_text())
+        assert len(report["raw_samples_ms"]) == 2
+        assert not set({(*HEAVY_PREFIXES, "datasets", "PIL")!r}).intersection(sys.modules)
+    """)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_random_dataset_does_not_import_transformers() -> None:
+    result = _run_in_subprocess("""
+        import sys
+        import numpy as np
+        import torch
+        from winml.modelkit.datasets import RandomDataset
+
+        dataset = RandomDataset(
+            model_path=None,
+            io_config={
+                "input_names": ["input"],
+                "input_shapes": [[1, 4]],
+                "input_types": [np.dtype("float32")],
+            },
+            max_samples=2,
+        )
+        assert len(dataset) == 2
+        assert isinstance(dataset[0]["input"], torch.Tensor)
+        torch.testing.assert_close(dataset[0]["input"], dataset[0]["input"])
+        assert not {"transformers", "torchvision", "optimum"}.intersection(sys.modules)
+    """)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_successful_onnx_eval_compare_does_not_import_transformers(tmp_path) -> None:
+    result = _run_in_subprocess(f"""
+        import json
+        import sys
+        from pathlib import Path
+        import onnx
+        from winml.modelkit.cli import main
+
+        model_path = Path({str(tmp_path)!r}) / "generated.onnx"
+        report_path = model_path.with_suffix(".json")
+        graph = onnx.helper.make_graph(
+            [onnx.helper.make_node("Identity", ["input"], ["output"])],
+            "generated",
+            [onnx.helper.make_tensor_value_info("input", onnx.TensorProto.FLOAT, [1, 4])],
+            [onnx.helper.make_tensor_value_info("output", onnx.TensorProto.FLOAT, [1, 4])],
+        )
+        model = onnx.helper.make_model(
+            graph, opset_imports=[onnx.helper.make_opsetid("", 17)], ir_version=8
+        )
+        onnx.checker.check_model(model)
+        onnx.save(model, model_path)
+        main([
+            "eval", "--mode", "compare", "-m", str(model_path),
+            "--reference", str(model_path), "--device", "cpu", "--ep", "cpu",
+            "--reference-device", "cpu", "--reference-ep", "cpu", "--skip-build",
+            "--samples", "2", "-o", str(report_path),
+        ], standalone_mode=False)
+        report = json.loads(report_path.read_text())
+        assert report["metrics"]
+        assert not {{"transformers", "torchvision", "optimum"}}.intersection(sys.modules)
+    """)
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def assert_no_heavy_imports(
@@ -87,12 +263,7 @@ def assert_no_heavy_imports(
             print(f"  allowed: {{allowed}}", file=sys.stderr)
             sys.exit(1)
     """)
-    result = subprocess.run(  # noqa: S603
-        [sys.executable, "-c", script],
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
+    result = _run_in_subprocess(script)
     assert result.returncode == 0, f"Import budget violated.\nstderr: {result.stderr.strip()}"
 
 
@@ -125,12 +296,7 @@ def assert_cli_no_heavy_imports(
             print(f"  allowed: {{allowed}}", file=sys.stderr)
             sys.exit(1)
     """)
-    result = subprocess.run(  # noqa: S603
-        [sys.executable, "-c", script],
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
+    result = _run_in_subprocess(script)
     assert result.returncode == 0, (
         f"Import budget violated for args {cli_args}.\nstderr: {result.stderr.strip()}"
     )
@@ -163,6 +329,8 @@ class TestModuleIsolation:
             "winml.modelkit.pattern",
             "winml.modelkit.sysinfo",
             "winml.modelkit.utils",
+            "winml.modelkit.models",
+            "winml.modelkit.models.winml",
         ],
     )
     def test_module_no_heavy_deps(self, module: str) -> None:
@@ -183,25 +351,18 @@ class TestModuleIsolation:
                 ("torch", "torchgen", "torchvision", "transformers", "sklearn"),
             ),
             ("winml.modelkit.inspect", (*HEAVY_PREFIXES, "torchgen", "torchvision")),
-            ("winml.modelkit.models", (*HEAVY_PREFIXES, "torchgen", "torchvision")),
         ],
     )
     def test_module_with_expected_deps(self, module: str, allowed: tuple[str, ...]) -> None:
         """Modules that legitimately need heavy deps — verify nothing extra."""
         assert_no_heavy_imports(f"import {module}", allowed=allowed)
 
-    def test_lazy_access_triggers_import(self) -> None:
-        """Accessing WinMLAutoModel must trigger the full import chain."""
-        script = textwrap.dedent("""\
-            import sys
-            from winml.modelkit import WinMLAutoModel
-            assert 'torch' in sys.modules, (
-                'torch should be loaded after accessing WinMLAutoModel'
-            )
-        """)
-        result = _run_in_subprocess(script)
-        assert result.returncode == 0, (
-            f"Lazy access did not trigger torch.\nstderr: {result.stderr}"
+    def test_auto_model_and_generic_wrapper_stay_lightweight(self) -> None:
+        """Factory and artifact wrappers must not initialize HF export support."""
+        assert_no_heavy_imports(
+            "from winml.modelkit import WinMLAutoModel; "
+            "from winml.modelkit.models import WinMLModelForGenericTask",
+            forbidden=(*HEAVY_PREFIXES, "PIL", "datasets"),
         )
 
     # -- Gap 2: lazy-trigger tests for subpackage __getattr__ implementations --
@@ -313,6 +474,7 @@ _LAZY_MODULES = [
     "winml.modelkit.sysinfo",
     "winml.modelkit.quant",
     "winml.modelkit.models",
+    "winml.modelkit.models.winml",
     "winml.modelkit.onnx",
 ]
 
@@ -371,6 +533,8 @@ class TestLazyImportsDict:
                         errors.append(
                             f'{{lazy_name}}: {{submodule_path}}.{{real_attr}} not found'
                         )
+                    elif {module!r}.startswith("winml.modelkit.models"):
+                        assert getattr(mod, lazy_name) is getattr(sub, real_attr)
                 except ImportError as exc:
                     errors.append(f'{{lazy_name}}: cannot import {{submodule_path}} ({{exc}})')
             if errors:

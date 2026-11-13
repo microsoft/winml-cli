@@ -510,6 +510,7 @@ class WinMLAutoModel:
         # unconditional network/disk round-trip for every non-composite call.
         # =====================================================================
         if task is not None:
+            from . import hf as _hf  # noqa: F401 -- populate the registry before lookup
             from .winml.composite_model import COMPOSITE_MODEL_REGISTRY
 
             _known_composite_tasks = {t for (_, t) in COMPOSITE_MODEL_REGISTRY}

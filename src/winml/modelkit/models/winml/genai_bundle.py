@@ -402,3 +402,6 @@ __all__ = [
     "register_genai_bundle",
     "resolve_genai_bundle",
 ]
+
+# Recipe modules import the definitions above while registering themselves.
+from .. import hf as _hf  # noqa: E402, F401

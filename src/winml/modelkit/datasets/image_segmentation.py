@@ -17,7 +17,6 @@ from typing import Any, cast
 
 from datasets import load_dataset
 from datasets.features import Image
-from transformers import AutoImageProcessor
 
 from .base import BaseTaskDataset
 
@@ -88,6 +87,8 @@ class ImageSegmentationDataset(BaseTaskDataset):
         3. Detect image and mask columns
         4. Apply efficient preprocessing pipeline
         """
+        from transformers import AutoImageProcessor
+
         # 1. Set defaults if no dataset specified
         if self._dataset_name is None:
             self._dataset_name = self.DEFAULT_DATASET

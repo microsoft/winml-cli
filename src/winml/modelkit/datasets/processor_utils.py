@@ -13,10 +13,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from transformers.image_processing_utils import (  # type: ignore[attr-defined]
-    ImageProcessingMixin,
-)
-
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +43,10 @@ def get_image_processor_config(
         >>> config["do_pad"]
         False
     """
+    from transformers.image_processing_utils import (  # type: ignore[attr-defined]
+        ImageProcessingMixin,
+    )
+
     try:
         # get_image_processor_dict returns (config_dict, unused_kwargs)
         config_dict, _ = ImageProcessingMixin.get_image_processor_dict(

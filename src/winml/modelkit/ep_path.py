@@ -1144,7 +1144,11 @@ class WinMLCatalogSource(EPSource):
     eps: tuple[str, ...]
     auto_download: bool = False
 
-    def resolve(self) -> Iterator[EPEntry]:
+    def resolve(
+        self,
+        *,
+        _find_all_providers: Callable[[], list[Any]] | None = None,
+    ) -> Iterator[EPEntry]:
         """Yield one :class:`EPEntry` per ready provider.
 
         Yields nothing (silently) when the ``windowsml`` package is not
@@ -1163,7 +1167,7 @@ class WinMLCatalogSource(EPSource):
             return
 
         try:
-            providers = catalog.find_all_providers()
+            providers = (_find_all_providers or catalog.find_all_providers)()
         except Exception as e:
             _winml_warn_once(
                 f"find_all_providers:{self.catalog_name}",
@@ -1759,6 +1763,9 @@ def discover_all_eps(
     same ``ep_name`` carry ``status="shadowed"`` (precedence determined
     by EPSource ordering — see below).
 
+    Read-only catalog sources share one successful enumeration per walk.
+    Sources that may install providers invalidate that snapshot.
+
     Precedence (highest first):
 
     1. ``extra_sources`` (programmatic override; useful for tests)
@@ -1782,9 +1789,18 @@ def discover_all_eps(
     # legitimately surface the same Microsoft-published EP DLL, and we
     # want the higher-precedence source's attribution to win.
     seen_paths: set[tuple[str, str]] = set()
+
+    @functools.cache
+    def find_catalog_providers() -> list[Any]:
+        catalog = _get_catalog()
+        return catalog.find_all_providers() if catalog is not None else []
+
     for source in sources:
         try:
-            it = source.resolve()
+            if isinstance(source, WinMLCatalogSource) and not source.auto_download:
+                it = source.resolve(_find_all_providers=find_catalog_providers)
+            else:
+                it = source.resolve()
         except Exception as e:
             logger.error("Source %r failed to resolve: %s", source, e)
             continue
@@ -1841,6 +1857,9 @@ def discover_all_eps(
         except Exception as e:
             logger.error("Source %r failed mid-iteration: %s", source, e)
             continue
+        finally:
+            if isinstance(source, WinMLCatalogSource) and source.auto_download:
+                find_catalog_providers.cache_clear()
 
     return result
 
