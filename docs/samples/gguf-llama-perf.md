@@ -1,5 +1,10 @@
 # GGUF — llama.cpp on Windows ML Runtime (Experimental)
 
+For native Windows Arm64 with the 2.9.31a0 experimental wheel drop, use the
+[Arm64 Runtime installation](arm64-runtime.md). It excludes the ONNX/export
+dependencies and uses the matching CPU GGUF payload. The older x64 setup below
+does not apply to that profile.
+
 `winml perf` can benchmark a GGUF language model through the Windows ML Task API
 (`windowsml.tasks`). The Task uses one decoder stage on the Runtime's llama.cpp
 backend and manages greedy generation, token streaming, and sequence state. The

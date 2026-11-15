@@ -13,28 +13,30 @@ are available via ``modelkit.onnx.inspection`` for diagnostic use.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from .domains import ONNXDomain
-from .dtypes import SupportedONNXType, remove_optional_from_type_annotation
-from .external_data import copy_onnx_model, get_external_data_files, get_onnx_model_hash
-from .io import (
-    InputTensorSpec,
-    OutputTensorSpec,
-    ShapeDim,
-    generate_inputs_from_onnx,
-    get_io_config,
-)
-from .metadata import capture_metadata, restore_metadata
-from .persistence import ONNXSaveError, cleanup_onnx, load_onnx, save_onnx
-from .shape import infer_onnx_shapes, infer_shapes
-from .utils import (
-    EXTERNAL_DATA_THRESHOLD,
-    check_onnx_model,
-    get_captured_tensor_names,
-    get_model_size,
-    strip_node_attrs,
-)
+
+if TYPE_CHECKING:
+    from .domains import ONNXDomain
+    from .dtypes import SupportedONNXType, remove_optional_from_type_annotation
+    from .external_data import copy_onnx_model, get_external_data_files, get_onnx_model_hash
+    from .io import (
+        InputTensorSpec,
+        OutputTensorSpec,
+        ShapeDim,
+        generate_inputs_from_onnx,
+        get_io_config,
+    )
+    from .metadata import capture_metadata, restore_metadata
+    from .persistence import ONNXSaveError, cleanup_onnx, load_onnx, save_onnx
+    from .shape import infer_onnx_shapes, infer_shapes
+    from .utils import (
+        EXTERNAL_DATA_THRESHOLD,
+        check_onnx_model,
+        get_captured_tensor_names,
+        get_model_size,
+        strip_node_attrs,
+    )
 
 
 __all__ = [
@@ -68,13 +70,37 @@ __all__ = [
 
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+    "EXTERNAL_DATA_THRESHOLD": (".utils", "EXTERNAL_DATA_THRESHOLD"),
+    "check_onnx_model": (".utils", "check_onnx_model"),
+    "get_captured_tensor_names": (".utils", "get_captured_tensor_names"),
+    "get_model_size": (".utils", "get_model_size"),
+    "strip_node_attrs": (".utils", "strip_node_attrs"),
+    "infer_onnx_shapes": (".shape", "infer_onnx_shapes"),
+    "infer_shapes": (".shape", "infer_shapes"),
+    "ONNXSaveError": (".persistence", "ONNXSaveError"),
+    "cleanup_onnx": (".persistence", "cleanup_onnx"),
+    "load_onnx": (".persistence", "load_onnx"),
+    "save_onnx": (".persistence", "save_onnx"),
+    "capture_metadata": (".metadata", "capture_metadata"),
+    "restore_metadata": (".metadata", "restore_metadata"),
+    "InputTensorSpec": (".io", "InputTensorSpec"),
+    "OutputTensorSpec": (".io", "OutputTensorSpec"),
+    "ShapeDim": (".io", "ShapeDim"),
+    "generate_inputs_from_onnx": (".io", "generate_inputs_from_onnx"),
+    "get_io_config": (".io", "get_io_config"),
+    "copy_onnx_model": (".external_data", "copy_onnx_model"),
+    "get_external_data_files": (".external_data", "get_external_data_files"),
+    "get_onnx_model_hash": (".external_data", "get_onnx_model_hash"),
+    "SupportedONNXType": (".dtypes", "SupportedONNXType"),
+    "remove_optional_from_type_annotation": (".dtypes", "remove_optional_from_type_annotation"),
+    "ONNXDomain": (".domains", "ONNXDomain"),
     "is_compiled_onnx": (".detection", "is_compiled_onnx"),
     "is_quantized_onnx": (".detection", "is_quantized_onnx"),
 }
 
 
 def __getattr__(name: str) -> Any:
-    """Lazy-load detection module to avoid circular import with compiler."""
+    """Load only requested utilities; schema inspection must not import export backends."""
     if name in _LAZY_IMPORTS:
         module_path, attr_name = _LAZY_IMPORTS[name]
         import importlib

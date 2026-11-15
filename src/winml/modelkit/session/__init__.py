@@ -148,7 +148,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "WinMLQairtSession": (".qairt.qairt_session", "WinMLQairtSession"),
     "WinMLRuntimeSession": (".runtime_session", "WinMLRuntimeSession"),
     "InferenceError": (".session", "InferenceError"),
-    "PerfContext": (".session", "PerfContext"),
+    "PerfContext": (".stats", "PerfContext"),
     "SessionState": (".session", "SessionState"),
     "WinMLSession": (".session", "WinMLSession"),
     "PerfStats": (".stats", "PerfStats"),
