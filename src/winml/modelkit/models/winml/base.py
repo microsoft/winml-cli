@@ -24,12 +24,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
-import torch
 
 
 if TYPE_CHECKING:
     import contextlib
     from collections.abc import Callable
+
+    import torch
 
     from ...utils.constants import RuntimeBackend, RuntimeName
 
@@ -161,6 +162,8 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         Raises:
             TypeError: If data format is not supported
         """
+        import torch
+
         input_names = self.io_config["input_names"]
 
         # Normalize to dict - handle all input formats
@@ -204,6 +207,8 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         Returns:
             Dict of output_name -> torch.Tensor
         """
+        import torch
+
         # Delegate to WinMLSession (handles compile, re-batching, run)
         outputs = self._session.run(inputs)
         return {name: torch.from_numpy(out) for name, out in outputs.items()}
@@ -277,6 +282,8 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
     @property
     def dtype(self) -> torch.dtype:
         """Model dtype (for HF compatibility)."""
+        import torch
+
         return torch.float32
 
 

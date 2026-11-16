@@ -1154,12 +1154,8 @@ class PerfBenchmark:
 
         Uses a concrete ``isinstance(..., WinMLCompositeModel)`` check rather
         than duck-typing on ``sub_models`` so a future single-session model
-        carrying an unrelated ``sub_models`` attribute can't be misrouted. The
-        import is function-local because ``composite_model`` pulls in torch: a
-        module-level runtime import would blow the ``winml perf --help`` import
-        budget (see tests/cli/test_import_time.py). A function-local import
-        runs only when this property is read — i.e. after a model is loaded, by
-        which point torch is already imported — and never at module load.
+        carrying an unrelated ``sub_models`` attribute can't be misrouted.
+        Keep the import local so command discovery does not load model wrappers.
         """
         from ..models.winml.composite_model import WinMLCompositeModel
 
