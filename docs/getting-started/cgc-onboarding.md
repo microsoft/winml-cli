@@ -82,6 +82,55 @@ invoke the compiler API before pipeline execution.
 
 ### LLM model with Runtime Task API
 
+The Windows ML Task API handles prompt tokenization and text generation,
+streaming generated tokens back to the application. Use this path to benchmark
+LLM generation on the GPU with CGC. No ONNX or MLIR export is required.
+
+**Safetensors checkpoint:** Download [Qwen3-0.6B](https://huggingface.co/Qwen/Qwen3-0.6B)
+into `.\Qwen3-0.6B`, keeping the weights, configuration, and tokenizer files together.
+Pass the folder, not an individual `.safetensors` file:
+
+```powershell
+winml perf -m .\Qwen3-0.6B --backend cgc -o .\checkpoint-perf.json
+```
+
+**GGUF:** Download [Qwen3-0.6B-Q4_0.gguf](https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/blob/main/Qwen3-0.6B-Q4_0.gguf)
+into the current directory, then pass the file:
+
+```powershell
+winml perf -m .\Qwen3-0.6B-Q4_0.gguf --backend cgc -o .\gguf-perf.json
+```
+
+Both commands select the CGC backend, report time to first token and generation
+throughput, and save the results as JSON.
+
+Illustrative JSON excerpt (values vary by model and device):
+
+```json
+{
+  "benchmark_info": {
+    "runtime": "winml-runtime",
+    "backend": "cgc",
+    "model_format": "gguf"
+  },
+  "aggregate": {
+    "warmup_excluded": true,
+    "task_ttft_duration_ms": {
+      "mean": 20
+    },
+    "steady_state_decode_tokens_per_second": {
+      "mean": 500
+    },
+    "request_duration_ms": {
+      "mean": 300
+    }
+  }
+}
+```
+
+These fields show the average Task time to first token, subsequent generation
+speed, and total request time, excluding warmup requests.
+
 ## Build the model
 
 Build a reusable `.mlir` model directly. No configuration file is required.
