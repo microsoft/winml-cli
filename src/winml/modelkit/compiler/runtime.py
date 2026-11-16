@@ -19,7 +19,7 @@ from filelock import FileLock
 
 from ..export.cgc.artifacts import cgc_metadata_path
 from ..session.runtime_session import WinMLRuntimeSession
-from ..sysinfo.dxcore_adapters import enumerate_compute_adapters
+from ..sysinfo.dxcore_adapters import DXCoreAdapterError, open_gpu_adapter
 from ..utils.cli import guard_output
 
 
@@ -36,17 +36,11 @@ def _file_identity(path: Path) -> dict[str, str | int]:
 
 
 def _select_gpu(device_luid: str | None) -> DXCoreAdapterInfo:
-    adapters = [adapter for adapter in enumerate_compute_adapters() if adapter.device_type == "GPU"]
-    if device_luid is not None:
-        adapters = [
-            adapter for adapter in adapters if adapter.luid.casefold() == device_luid.casefold()
-        ]
-    if len(adapters) != 1:
-        raise click.ClickException(
-            "CGC compilation requires one unambiguous GPU. Use --device-luid with "
-            f"a current GPU LUID from 'winml sys'; found {len(adapters)} matching adapters."
-        )
-    return adapters[0]
+    try:
+        with open_gpu_adapter(device_luid) as adapter:
+            return adapter.info
+    except DXCoreAdapterError as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 def _same_file(first: Path, second: Path) -> bool:
