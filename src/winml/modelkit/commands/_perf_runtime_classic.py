@@ -84,6 +84,7 @@ def run_runtime_classic(ctx: click.Context, model: str) -> None:
         "model",
         "runtime",
         "backend",
+        "ep",
         "device",
         "device_luid",
         "iterations",
@@ -116,6 +117,8 @@ def run_runtime_classic(ctx: click.Context, model: str) -> None:
             + ", ".join(name.replace("_", "-") for name in unsupported)
         )
     params = ctx.params
+    if params.get("ep") is not None and params.get("runtime") != "winml-ort":
+        raise click.UsageError("Explicit EP selection requires --runtime winml-ort.")
     if (
         params.get("monitor")
         or not params.get("skip_build", True)
@@ -192,7 +195,9 @@ def _execute(params: dict, path: Path, output: Path, model: str) -> None:
         from ..session.gpu_capture import GpuCapture
 
         with GpuCapture(trace.resolve()) as capture:
-            capture.execution_path = "runtime-api"
+            capture.execution_path = (
+                "winmlcgep" if params.get("runtime") == "winml-ort" else "runtime-api"
+            )
             capture.allow_cpu_fallback = params.get("allow_cpu_fallback", False)
             result = _execute_session(params, path, model)
         result["runtime_execution_diagnostics"] = result["gpu_execution"]
@@ -250,7 +255,6 @@ def _execute_session(params: dict, path: Path, model: str) -> dict:
     import psutil
 
     from ..onnx import get_io_config
-    from ..session.runtime_session import WinMLRuntimeSession
     from ..sysinfo import open_gpu_adapter
     from .perf import BenchmarkConfig, BenchmarkResult
 
@@ -263,19 +267,45 @@ def _execute_session(params: dict, path: Path, model: str) -> dict:
     feeds = _inputs(get_io_config(path), params["input_data"], shapes) if is_onnx else None
     process = psutil.Process()
     rss = {"before_load": process.memory_info().rss} if params["memory"] else {}
-    luid = params["device_luid"]
-    requested = None if luid is None else f"0x{luid >> 32:08X}_0x{luid & 0xFFFFFFFF:08X}"
-    adapter = open_gpu_adapter(requested)
+    # device_luid_option validates and returns the canonical string, not an int.
+    adapter = open_gpu_adapter(params["device_luid"])
     try:
         info = adapter.info
         selected_luid = int(info.luid.replace("0x", "").replace("_", ""), 16)
     finally:
         adapter.close()
-    session = WinMLRuntimeSession(
-        path, backend="cgc", device_luid=selected_luid, capture_diagnostics=True
-    )
+    is_ort = params.get("runtime") == "winml-ort"
+    ep_name, ep_source = params.get("ep") or (None, None)
+    if is_ort:
+        from ..session import EPDeviceTarget, WinMLEPRegistry, WinMLSession, resolve_device
+        from ..session.runtime_session import _symbolic_dimensions_for_inputs
+        from .perf import _ort_options_for_dimensions
+
+        target = resolve_device(EPDeviceTarget(ep=ep_name, device="gpu", source=ep_source))
+        binding = WinMLEPRegistry.instance().auto_device(target, device_luid=info.luid)
+        if (
+            binding.device.adapter_luid != selected_luid
+            or binding.device.ep_name != "WinMLCGExecutionProvider"
+        ):
+            raise click.ClickException(
+                "CGEP registry binding differs from the requested GPU/provider."
+            )
+        dimensions = _symbolic_dimensions_for_inputs(
+            get_io_config(path), {name: list(value.shape) for name, value in feeds.items()}
+        )
+        session = WinMLSession(
+            path,
+            ep_device=binding,
+            session_options=lambda: _ort_options_for_dimensions(dimensions),
+        )
+    else:
+        from ..session.runtime_session import WinMLRuntimeSession
+
+        session = WinMLRuntimeSession(
+            path, backend="cgc", device_luid=selected_luid, capture_diagnostics=True
+        )
     try:
-        if feeds is not None:
+        if feeds is not None and not is_ort:
             session.set_input_shapes({name: list(value.shape) for name, value in feeds.items()})
         session.compile()
         io = session.io_config
@@ -295,8 +325,10 @@ def _execute_session(params: dict, path: Path, model: str) -> dict:
         )
         config = BenchmarkConfig(
             model_id=model,
-            runtime="winml-runtime",
-            backend="cgc",
+            runtime="winml-ort" if is_ort else "winml-runtime",
+            backend=None if is_ort else "cgc",
+            ep=ep_name,
+            ep_source=ep_source,
             device="gpu",
             device_luid=selected_luid,
             iterations=params["iterations"],
@@ -324,7 +356,7 @@ def _execute_session(params: dict, path: Path, model: str) -> dict:
             ),
             raw_samples_ms=stats.samples_ms,
             actual_device="gpu",
-            actual_ep=None,
+            actual_ep=session.ep_name if is_ort else None,
             running_model_path=str(path),
             effective_batch_size=batch,
             batches_per_sec=1000 / stats.mean_ms,
@@ -339,7 +371,7 @@ def _execute_session(params: dict, path: Path, model: str) -> dict:
         )
         result["output_validation"] = {"all_finite": True, "accuracy_checked": False}
         result["warmup_measurement"] = warmup_evidence
-        result["gpu_execution"] = session.execution_diagnostics
+        result["gpu_execution"] = None if is_ort else session.execution_diagnostics
         if rss:
             rss["after_inference"] = process.memory_info().rss
             result["process_memory"] = {"rss_checkpoints_bytes": rss}

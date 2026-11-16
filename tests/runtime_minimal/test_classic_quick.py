@@ -160,3 +160,141 @@ def test_trace_cannot_contain_source(tmp_path, monkeypatch):
     )
     assert result.exit_code == 2
     assert model.read_text() == "fixture"
+
+
+@pytest.mark.parametrize("traced", [False, True])
+@pytest.mark.parametrize("backend", ["runtime", "cgep"])
+def test_explicit_cli_luid_reaches_session_in_native_execution(
+    tmp_path, monkeypatch, traced, backend
+):
+    import json
+
+    from winml.modelkit import onnx, sysinfo
+    from winml.modelkit import session as public_session
+    from winml.modelkit.cli import main
+    from winml.modelkit.commands import perf
+    from winml.modelkit.session import gpu_capture, runtime_session
+
+    luid = "0x00000001_0xFEDCBA98"
+    requested = []
+    events = []
+    io = {
+        "input_names": ["x"],
+        "input_types": [np.dtype("float32")],
+        "input_shapes": [[1]],
+        "input_symbolic_shapes": [[None]],
+        "value_ranges": {},
+        "output_names": ["y"],
+        "output_types": [np.dtype("float32")],
+        "output_shapes": [[1]],
+    }
+    monkeypatch.setattr(perf.platform, "machine", lambda: "ARM64")
+    monkeypatch.setattr(perf.sys, "platform", "win32")
+    monkeypatch.setattr(onnx, "get_external_data_files", lambda path: [])
+    monkeypatch.setattr(onnx, "get_io_config", lambda path: io)
+
+    def adapter(value):
+        requested.append(value)
+        return SimpleNamespace(
+            info=SimpleNamespace(luid=luid, name="fixture GPU"), close=lambda: None
+        )
+
+    class Session:
+        io_config = io
+
+        def __init__(self, path, **kwargs):
+            self.execution_diagnostics = {"coverage": "FULL"}
+            self.ep_name = "WinMLCGExecutionProvider"
+            if backend == "runtime":
+                assert kwargs["device_luid"] == 0x1FEDCBA98
+            else:
+                assert kwargs["ep_device"].device.adapter_luid == 0x1FEDCBA98
+                options = kwargs["session_options"]()
+                assert options.intra_op_num_threads == 0
+                assert str(options.graph_optimization_level).endswith("ORT_ENABLE_ALL")
+
+        def set_input_shapes(self, shapes):
+            assert shapes == {"x": [1]}
+
+        def compile(self):
+            pass
+
+        @contextmanager
+        def perf(self, warmup):
+            self.stats = PerfStats(warmup=warmup)
+            yield SimpleNamespace(stats=self.stats)
+
+        def run(self, inputs):
+            self.stats._samples.append(1.0)
+            return {"y": np.ones(1)}
+
+        def close(self):
+            events.append("session-close")
+
+    class Capture:
+        def __init__(self, path):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            assert events[-1] == "session-close"
+            events.append("capture-stop")
+
+        def finish(self):
+            assert events[-1] == "capture-stop"
+            return {"samples_ms": [0.5, 0.5], "valid_runs": 2}
+
+    monkeypatch.setattr(sysinfo, "open_gpu_adapter", adapter)
+    monkeypatch.setattr(runtime_session, "WinMLRuntimeSession", Session)
+    monkeypatch.setattr(gpu_capture, "GpuCapture", Capture)
+    binding = SimpleNamespace(
+        device=SimpleNamespace(adapter_luid=0x1FEDCBA98, ep_name="WinMLCGExecutionProvider")
+    )
+
+    def auto_device(target, *, device_luid):
+        assert device_luid == luid
+        return binding
+
+    monkeypatch.setattr(public_session, "WinMLSession", Session)
+    monkeypatch.setattr(public_session, "resolve_device", lambda target: target)
+    monkeypatch.setattr(
+        public_session,
+        "WinMLEPRegistry",
+        SimpleNamespace(instance=lambda: SimpleNamespace(auto_device=auto_device)),
+    )
+    model = tmp_path / "model.onnx"
+    model.write_text("fixture")
+    output = tmp_path / "report.json"
+    args = [
+        "perf",
+        "-m",
+        str(model),
+        "--runtime",
+        "winml-runtime",
+        "--backend",
+        "cgc",
+        "--device",
+        "gpu",
+        "--device-luid",
+        luid,
+        "--warmup",
+        "1",
+        "--iterations",
+        "2",
+        "--no-memory",
+        "-o",
+        str(output),
+    ]
+    if traced:
+        args += ["--etw-tracing", str(tmp_path / "trace")]
+    if backend == "cgep":
+        args[args.index("--runtime") + 1] = "winml-ort"
+        position = args.index("--backend")
+        del args[position : position + 2]
+        args += ["--ep", "winmlcg"]
+    result = CliRunner().invoke(main, args)
+    assert result.exit_code == 0, (result.output, result.exception)
+    assert requested == [luid]
+    assert json.loads(output.read_text())["benchmark_info"]["device_luid"] == 0x1FEDCBA98

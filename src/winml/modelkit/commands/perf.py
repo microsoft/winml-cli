@@ -4215,8 +4215,14 @@ def perf(
         raise click.UsageError("WinMLCG EP tracing requires ONNX.")
 
     # Native Arm64 has no dependency on the ORT/export model wrappers.
-    if (runtime == "winml-runtime" and effective_backend == "cgc"
-            and Path(model).suffix.lower() in {".onnx", ".mlir", ".mlirbc"}
+    native_classic = (
+        runtime == "winml-runtime" and effective_backend == "cgc"
+        and Path(model).suffix.lower() in {".onnx", ".mlir", ".mlirbc"}
+    ) or (
+        runtime == "winml-ort" and Path(model).suffix.lower() == ".onnx"
+        and ep is not None and ep[0].lower() in {"winmlcg", "winmlcgexecutionprovider"}
+    )
+    if (native_classic
             and sys.platform == "win32"
             and platform.machine().lower() in {"arm64", "aarch64"}):
         from ._perf_runtime_classic import run_runtime_classic
