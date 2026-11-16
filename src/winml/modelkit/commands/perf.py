@@ -4196,7 +4196,7 @@ def perf(
     if etw_tracing is not None and (
         (not cgep_trace and (runtime != "winml-runtime" or backend not in (None, "cgc")))
         or device.lower() != "gpu"
-        or Path(model).suffix.lower() not in (".onnx", ".mlir")
+        or Path(model).suffix.lower() not in (".onnx", ".mlir", ".mlirbc")
         or monitor
         or op_tracing
         or module_class
@@ -4216,7 +4216,7 @@ def perf(
 
     # Native Arm64 has no dependency on the ORT/export model wrappers.
     if (runtime == "winml-runtime" and effective_backend == "cgc"
-            and Path(model).suffix.lower() == ".onnx"
+            and Path(model).suffix.lower() in {".onnx", ".mlir", ".mlirbc"}
             and sys.platform == "win32"
             and platform.machine().lower() in {"arm64", "aarch64"}):
         from ._perf_runtime_classic import run_runtime_classic

@@ -7,8 +7,10 @@
 from __future__ import annotations
 
 import json
+import math
 import platform
 import statistics
+import time
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any
@@ -86,6 +88,13 @@ def run_runtime_classic(ctx: click.Context, model: str) -> None:
         "device_luid",
         "iterations",
         "warmup",
+        "warmup_seconds",
+        "etw_tracing",
+        "cgc_lowering_target",
+        "allow_cpu_fallback",
+        "monitor",
+        "skip_build",
+        "no_compile",
         "memory",
         "input_data",
         "shape_config_path",
@@ -107,6 +116,20 @@ def run_runtime_classic(ctx: click.Context, model: str) -> None:
             + ", ".join(name.replace("_", "-") for name in unsupported)
         )
     params = ctx.params
+    if (
+        params.get("monitor")
+        or not params.get("skip_build", True)
+        or not params.get("no_compile", True)
+    ):
+        raise click.UsageError(
+            "Native Arm64 Runtime classic does not support monitoring or EP build/compile options."
+        )
+    if params.get("cgc_lowering_target") not in (None, "auto"):
+        raise click.UsageError(
+            "Native Arm64 Runtime classic currently supports only automatic CGC lowering."
+        )
+    if not 0 <= params.get("warmup_seconds", 0) < float("inf"):
+        raise click.UsageError("--warmup-seconds must be finite and nonnegative.")
     if params["iterations"] <= 0 or params["warmup"] < 0:
         raise click.UsageError("--iterations must be positive and --warmup must be nonnegative.")
     if params["output_format"] not in {"text", "json"}:
@@ -130,12 +153,26 @@ def run_runtime_classic(ctx: click.Context, model: str) -> None:
             "Install classic Runtime dependencies: pip install -e .[runtime-classic]. " + str(exc)
         ) from exc
 
-    protected = {path, *((path.parent / item).resolve() for item in get_external_data_files(path))}
+    companions = (
+        get_external_data_files(path)
+        if path.suffix.lower() == ".onnx"
+        else [p.name for p in path.parent.glob("*.safetensors")] + [path.stem + "_metadata.json"]
+    )
+    protected = {path, *((path.parent / item).resolve() for item in companions)}
     for key in ("input_data", "shape_config_path"):
         if params[key] is not None:
             protected.add(Path(params[key]).resolve())
     if output.resolve() in protected:
         raise click.UsageError("--output must not overwrite a model, its weights or input data.")
+    trace = params.get("etw_tracing")
+    if trace is not None:
+        trace = trace.resolve()
+        if trace.exists() and any(trace.iterdir()):
+            raise click.UsageError("--etw-tracing requires a fresh empty directory.")
+        if output.resolve().is_relative_to(trace) or any(
+            p == trace or p.is_relative_to(trace) for p in protected
+        ):
+            raise click.UsageError("--etw-tracing must not contain model or input files.")
     try:
         _execute(params, path, output, model)
     except (ImportError, ModuleNotFoundError) as exc:
@@ -148,7 +185,68 @@ def run_runtime_classic(ctx: click.Context, model: str) -> None:
 
 
 def _execute(params: dict, path: Path, output: Path, model: str) -> None:
+    trace = params.get("etw_tracing")
+    if trace is None:
+        result = _execute_session(params, path, model)
+    else:
+        from ..session.gpu_capture import GpuCapture
+
+        with GpuCapture(trace.resolve()) as capture:
+            capture.execution_path = "runtime-api"
+            capture.allow_cpu_fallback = params.get("allow_cpu_fallback", False)
+            result = _execute_session(params, path, model)
+        result["runtime_execution_diagnostics"] = result["gpu_execution"]
+        # Missing/lost GPU events fail here; never substitute Host samples.
+        result["gpu_execution"] = capture.finish()
+        gpu = result["gpu_execution"]
+        samples = gpu.get("samples_ms", [])
+        if (
+            len(samples) != params["iterations"]
+            or gpu.get("valid_runs") != params["iterations"]
+            or gpu.get("events_lost", 0)
+            or gpu.get("missing_runs", 0)
+            or not all(math.isfinite(x) and x > 0 for x in samples)
+        ):
+            raise click.ClickException(
+                "GPU capture did not produce every requested inference sample."
+            )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(result, indent=2), encoding="utf-8")
+    if params["output_format"] == "json":
+        click.echo(json.dumps(result, indent=2))
+    else:
+        click.echo(f"Runtime CGC: {result['latency_ms']['mean']:.3f} ms")
+    click.echo(f"Results saved to: {output}", err=True)
+
+
+def _run_iterations(session, feeds, *, warmup, iterations, warmup_seconds):
     import numpy as np
+
+    def run():
+        outputs = session.run(feeds)
+        if not all(np.isfinite(value).all() for value in outputs.values()):
+            raise click.ClickException("Runtime produced non-finite output values.")
+
+    with session.perf(warmup=warmup) as window:
+        started = time.perf_counter()
+        count = 0
+        while count < warmup or time.perf_counter() - started < warmup_seconds:
+            # Runtime GPU markers consult this boundary before every run.
+            window.stats.warmup = count + 1
+            run()
+            count += 1
+        evidence = {
+            "count": count,
+            "duration_ms": (time.perf_counter() - started) * 1000,
+            "minimum_count": warmup,
+            "minimum_seconds": warmup_seconds,
+        }
+        for _ in range(iterations):
+            run()
+    return window.stats, evidence
+
+
+def _execute_session(params: dict, path: Path, model: str) -> dict:
     import psutil
 
     from ..onnx import get_io_config
@@ -161,8 +259,8 @@ def _execute(params: dict, path: Path, output: Path, model: str) -> None:
         shapes = json.loads(params["shape_config_path"].read_text(encoding="utf-8"))
         if not isinstance(shapes, dict):
             raise click.UsageError("--shape-config must contain a JSON object.")
-    source_io = get_io_config(path)
-    feeds = _inputs(source_io, params["input_data"], shapes)
+    is_onnx = path.suffix.lower() == ".onnx"
+    feeds = _inputs(get_io_config(path), params["input_data"], shapes) if is_onnx else None
     process = psutil.Process()
     rss = {"before_load": process.memory_info().rss} if params["memory"] else {}
     luid = params["device_luid"]
@@ -177,17 +275,24 @@ def _execute(params: dict, path: Path, output: Path, model: str) -> None:
         path, backend="cgc", device_luid=selected_luid, capture_diagnostics=True
     )
     try:
-        session.set_input_shapes({name: list(value.shape) for name, value in feeds.items()})
+        if feeds is not None:
+            session.set_input_shapes({name: list(value.shape) for name, value in feeds.items()})
         session.compile()
         io = session.io_config
+        if feeds is None:
+            io = dict(io)
+            io.setdefault("input_symbolic_shapes", [[None] * len(s) for s in io["input_shapes"]])
+            io.setdefault("value_ranges", {})
+            feeds = _inputs(io, params["input_data"], shapes)
         if rss:
             rss["after_compile"] = process.memory_info().rss
-        with session.perf(warmup=params["warmup"]) as window:
-            for _ in range(params["warmup"] + params["iterations"]):
-                outputs = session.run(feeds)
-                if not all(np.isfinite(value).all() for value in outputs.values()):
-                    raise click.ClickException("Runtime produced non-finite output values.")
-        stats = window.stats
+        stats, warmup_evidence = _run_iterations(
+            session,
+            feeds,
+            warmup=params["warmup"],
+            iterations=params["iterations"],
+            warmup_seconds=params.get("warmup_seconds", 0),
+        )
         config = BenchmarkConfig(
             model_id=model,
             runtime="winml-runtime",
@@ -196,6 +301,7 @@ def _execute(params: dict, path: Path, output: Path, model: str) -> None:
             device_luid=selected_luid,
             iterations=params["iterations"],
             warmup=params["warmup"],
+            warmup_seconds=params.get("warmup_seconds", 0),
         )
         batch = next(iter(feeds.values())).shape[0] if next(iter(feeds.values())).ndim else 1
         result = BenchmarkResult(
@@ -214,9 +320,7 @@ def _execute(params: dict, path: Path, output: Path, model: str) -> None:
             p99_ms=stats.p99_ms,
             std_ms=statistics.pstdev(stats.samples_ms),
             warmup_mean_ms=(
-                statistics.mean(stats.all_samples_ms[: params["warmup"]])
-                if params["warmup"]
-                else 0.0
+                statistics.mean(stats.all_samples_ms[: stats.warmup]) if stats.warmup else 0.0
             ),
             raw_samples_ms=stats.samples_ms,
             actual_device="gpu",
@@ -227,12 +331,14 @@ def _execute(params: dict, path: Path, output: Path, model: str) -> None:
             samples_per_sec=batch * 1000 / stats.mean_ms,
         ).to_dict()
         result["benchmark_info"].update(
+            cgc_lowering_target=params.get("cgc_lowering_target"),
             python_architecture=platform.machine(),
             python_version=platform.python_version(),
             windowsml_version=version("windowsml"),
             adapter_name=info.name,
         )
         result["output_validation"] = {"all_finite": True, "accuracy_checked": False}
+        result["warmup_measurement"] = warmup_evidence
         result["gpu_execution"] = session.execution_diagnostics
         if rss:
             rss["after_inference"] = process.memory_info().rss
@@ -241,15 +347,6 @@ def _execute(params: dict, path: Path, output: Path, model: str) -> None:
                 "available": False,
                 "reason": "Device memory collection is not enabled by this profile.",
             }
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(json.dumps(result, indent=2), encoding="utf-8")
-        if params["output_format"] == "json":
-            click.echo(json.dumps(result, indent=2))
-        else:
-            click.echo(
-                f"Runtime CGC on {info.name}: {stats.mean_ms:.3f} ms "
-                f"({stats.count} measured iterations)"
-            )
-        click.echo(f"Results saved to: {output}", err=True)
+        return result
     finally:
         session.close()
