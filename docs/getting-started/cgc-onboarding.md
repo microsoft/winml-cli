@@ -15,14 +15,6 @@ uv venv --python 3.11
 uv pip install winml-cli
 ```
 
-Install the experimental wheels:
-
-```powershell
-uv pip install "windowsml==<windowsml-version>" "onnxruntime-windowsml==<onnxruntime-windowsml-version>"
-```
-If you want to restore to stable wheel, you can run `uv sync`
-
-
 Activate the virtual environment:
 
 ```powershell
@@ -57,9 +49,6 @@ Use this path when you already have an offline-converted `.mlir` model:
 winml perf -m .\model.mlir --runtime winml-runtime -o .\model-mlir-perf.json
 ```
 
-> **Note:** Currently, the graph and weights must be embedded in a single
-> `.mlir` file. External weights will be supported in a future release.
-
 The Runtime API loads the model directly and runs it through DXCGC. A
 `.mlir` model can only use the Windows ML Runtime API; it cannot be loaded by
 ONNX Runtime and does not use an EP.
@@ -91,16 +80,7 @@ then loads that artifact and runs it through DXCGC. No EP is selected and no
 reusable CGIR artifact is retained. Applications using this path must likewise
 invoke the compiler API before pipeline execution.
 
-!!! warning
-  With `windowsml==2.7.25.dev0`, the tested CLI's online conversion path
-  fails with `Runtime.load_model() got an unexpected keyword argument 'io_counts'`.
-  The offline build and MLIR Runtime path below works with this combination.
-
-| Model input | Runtime path | EP | Conversion |
-| --- | --- | --- | --- |
-| `.onnx` | Windows ML ONNX Runtime | WinMLCG | When the session is created |
-| `.onnx` | Windows ML Runtime API + DXCGC | None | When the session is created |
-| `.mlir` | Windows ML Runtime API + DXCGC | None | Already converted offline |
+### LLM model with Runtime Task API
 
 ## Build the model
 
@@ -141,8 +121,6 @@ optimization and quantization stages:
 winml export -m .\model.onnx --target cgir -o .\model.mlir
 ```
 
-The model must already be compatible with the CGC converter.
-
 ### Fix dynamic input dimensions
 
 CGIR export automatically freezes a symbolic input dimension named `batch_size`
@@ -180,36 +158,12 @@ Config generation stores these values in `convert.options`, for example:
 }
 ```
 
-This is a config fragment. CLI options override config values per option key:
-supplying `freeze-dims` replaces the entire configured dimension list, not
-individual dimensions. Include all required explicit overrides in that list.
-Other option keys are preserved. Options are only accepted for CGIR conversion.
+When overriding `freeze-dims` on the command line, include all required dimensions:
+the value replaces the entire list in the configuration.
 
-Config generation checks the `KEY=VALUE` format and stores the options without
-inspecting dynamic inputs. Option names, types, and dimension assignments are
-validated by the existing CGIR exporter when conversion runs.
-Build checks input dimensions at its existing CGIR conversion stage, after
-optimization and quantization. The source ONNX file is not modified by freezing.
-Unnamed dynamic axes or unknown input rank cannot be resolved by `freeze-dims`;
-their handling and diagnostics are left to the compiler.
-Fixing input dimensions does not guarantee support for data-dependent shapes
-or all operators.
+Fixing input dimensions does not guarantee successful conversion; data-dependent
+shapes or unsupported operators may still prevent it.
 
-### CGIR to device-targeted CG Output IR
-
-To retain a compiled artifact from existing CGIR, use the explicit
-[CGIR compile mode](../commands/compile.md#cgir-to-cg-output-ir):
-
-```powershell
-winml compile -m .\model.mlir --compiler cgc --device gpu -o .\model-output.mlir
-```
-
-For `.mlir` and `.mlirbc` input, `--compiler cgc` is optional.
-
-The artifact is UTF-8 text MLIR, matching the representation written by
-`winml export --target cgir`. This is a separate compilation stage, without an
-EP, optimization or quantization. Default validation reloads/builds the final
-text artifact and checks I/O; it does not run inference or performance tests.
 
 ## Tutorials and samples
 

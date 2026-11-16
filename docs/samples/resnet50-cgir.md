@@ -11,8 +11,8 @@ CGIR workflow can be reviewed, repeated, and checked into source control.
 ## Prerequisites
 
 - A Windows device with a GPU.
-- An activated Python 3.11 environment with winml-cli and the experimental
-    wheels from [CGC environment setup](../getting-started/cgc-onboarding.md#environment-setup).
+- An activated Python 3.11 environment with winml-cli, as described in
+    [CGC environment setup](../getting-started/cgc-onboarding.md#environment-setup).
 - A network connection to download the model and evaluation dataset.
 
 ## Step 1: Check the CGC environment
@@ -82,10 +82,6 @@ preparation, disables EP compilation, and adds `convert.target: "cgir"`.
 
 FP16 conversion can affect model accuracy. If accuracy drops, rebuild with
 `--no-quant` and compare the results.
-
-!!! important
-    The `.mlir` artifact cannot be used directly by ONNX Runtime. Load it
-    through the Windows ML Runtime API for CGC inference.
 
 ## Step 4: Measure CGIR performance
 
