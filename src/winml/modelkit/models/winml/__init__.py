@@ -59,6 +59,16 @@ TASK_TO_WINML_CLASS: dict[str, str] = {
 _WINML_MODEL_CLASS_MAPPING: dict[tuple[str, str], str] = {}
 
 
+def _get_model_class_mapping() -> dict[tuple[str, str], str]:
+    # Built-in registration re-enters this import; do not publish the public
+    # mapping here. Other threads must still wait for the HF import to finish.
+    import_module("..hf", __name__)
+    mapping: dict[tuple[str, str], str] = globals().get(
+        "WINML_MODEL_CLASS_MAPPING", _WINML_MODEL_CLASS_MAPPING
+    )
+    return mapping
+
+
 def _import_winml_class(class_name: str) -> type[WinMLPreTrainedModel]:
     """Lazy import WinML model class by name.
 
@@ -115,9 +125,7 @@ def get_winml_class(model_type: str | None, task: str | None) -> type[WinMLPreTr
 
     # Level 1: Check for (model_type, task) class mapping
     if model_type_normalized is not None and task is not None:
-        from . import WINML_MODEL_CLASS_MAPPING
-
-        specialized_name = WINML_MODEL_CLASS_MAPPING.get((model_type_normalized, task))
+        specialized_name = _get_model_class_mapping().get((model_type_normalized, task))
     else:
         specialized_name = None
     if specialized_name:
@@ -159,10 +167,8 @@ def register_specialization(model_type: str, task: str, class_name: str) -> None
         task: Task name (e.g., "image-classification")
         class_name: Name of the specialized WinML class
     """
-    from . import WINML_MODEL_CLASS_MAPPING
-
     key = (model_type.lower().replace("_", "-"), task)
-    WINML_MODEL_CLASS_MAPPING[key] = class_name
+    _get_model_class_mapping()[key] = class_name
     logger.info("Registered class mapping: %s -> %s", key, class_name)
 
 
@@ -250,9 +256,9 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
 
 def __getattr__(name: str) -> Any:
     if name == "WINML_MODEL_CLASS_MAPPING":
-        import_module("..hf", __name__)
-        globals()[name] = _WINML_MODEL_CLASS_MAPPING
-        return _WINML_MODEL_CLASS_MAPPING
+        value = _get_model_class_mapping()
+        globals()[name] = value
+        return value
     if name not in _LAZY_IMPORTS:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     if name == "COMPOSITE_MODEL_REGISTRY":

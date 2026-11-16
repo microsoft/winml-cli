@@ -23,6 +23,7 @@ from __future__ import annotations
 import collections
 from collections.abc import Callable
 from dataclasses import dataclass
+from importlib import import_module
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -404,4 +405,4 @@ __all__ = [
 ]
 
 # Recipe modules import the definitions above while registering themselves.
-from .. import hf as _hf  # noqa: E402, F401
+import_module("..hf", __package__)

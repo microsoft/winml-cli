@@ -145,6 +145,93 @@ def test_specialization_override_survives_registration_imports() -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+@pytest.mark.parametrize("access", ["lookup", "wrappers", "models"])
+def test_concurrent_specialization_access_waits_for_registration(access: str) -> None:
+    reference = _run_in_subprocess("""
+        import json
+        from winml.modelkit.models.winml import WINML_MODEL_CLASS_MAPPING, get_winml_class
+        specializations = [
+            (key, get_winml_class(*key).__name__)
+            for key in WINML_MODEL_CLASS_MAPPING
+            if get_winml_class(*key) is not get_winml_class(None, key[1])
+        ]
+        print(json.dumps(specializations[-1]))
+    """)
+    assert reference.returncode == 0, reference.stderr
+    result = _run_in_subprocess(f"""
+        import importlib
+        import importlib._bootstrap as bootstrap
+        import json
+        import threading
+        import winml.modelkit.models as models
+        import winml.modelkit.models.winml as wrappers
+
+        key, expected = json.loads({reference.stdout!r})
+        paused = threading.Event()
+        release = threading.Event()
+        observed = threading.Event()
+        finished = threading.Event()
+        errors = []
+        values = []
+        register = wrappers.register_specialization
+        acquire = bootstrap._ModuleLock.acquire
+
+        def pause_registration(*args):
+            register(*args)
+            if not paused.is_set():
+                paused.set()
+                assert release.wait(60), "registration was not released"
+
+        def observe_import_lock(lock, *args, **kwargs):
+            if (threading.current_thread() is reader
+                    and lock.name == "winml.modelkit.models.hf"):
+                observed.set()
+            return acquire(lock, *args, **kwargs)
+
+        def initialize():
+            try:
+                importlib.import_module("winml.modelkit.models.hf")
+            except BaseException as exc:
+                errors.append(exc)
+
+        def lookup():
+            try:
+                if {access!r} == "lookup":
+                    values.append(wrappers.get_winml_class(*key).__name__)
+                else:
+                    package = wrappers if {access!r} == "wrappers" else models
+                    values.append(package.WINML_MODEL_CLASS_MAPPING[tuple(key)])
+            except BaseException as exc:
+                errors.append(exc)
+            finally:
+                finished.set()
+                observed.set()
+
+        wrappers.register_specialization = pause_registration
+        bootstrap._ModuleLock.acquire = observe_import_lock
+        loader = threading.Thread(target=initialize, daemon=True)
+        reader = threading.Thread(target=lookup, daemon=True)
+        loader.start()
+        try:
+            assert paused.wait(60), errors
+            reader.start()
+            assert observed.wait(30), "lookup neither waited on HF import nor completed"
+            assert not finished.is_set(), "lookup observed partially initialized registrations"
+            assert "WINML_MODEL_CLASS_MAPPING" not in vars(wrappers)
+        finally:
+            release.set()
+            loader.join(60)
+            if reader.ident is not None:
+                reader.join(60)
+            bootstrap._ModuleLock.acquire = acquire
+        assert not loader.is_alive() and not reader.is_alive()
+        assert not errors, errors
+        assert values == [expected], (values, expected)
+        assert models.WINML_MODEL_CLASS_MAPPING is wrappers.WINML_MODEL_CLASS_MAPPING
+    """)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_successful_onnx_perf_does_not_import_hf(tmp_path) -> None:
     result = _run_in_subprocess(f"""
         import json
