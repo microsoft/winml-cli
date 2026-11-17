@@ -1,16 +1,16 @@
 # Use the CGC backend with Windows ML CLI
 
 > [!IMPORTANT]
-> The CG backend is experimental, **not supported** for use in production environments, and new in Windows ML 2.9 experimental.
+> The CGC backend is experimental, **not supported** for use in production environments, and new in Windows ML 2.9 experimental.
 
-CG is the Windows-native backend that compiles a model into programs for a Direct3D 12 device and runs them on the GPU target your app picked. It runs on the GPU only, with no CPU fallback. Finding a GPU doesn't establish that CG supports its driver or a given model: a model that CG can't run fails to load with an error.
+CGC is the Windows-native backend that compiles a model into programs for a Direct3D 12 device and runs them on the GPU target your app picked. It runs on the GPU only, with no CPU fallback. Finding a GPU doesn't establish that CGC supports its driver or a given model: a model that CGC can't run fails to load with an error.
 
 
 This article explains how to convert a model to a format supported by CGC and run it using the Windows ML CLI.
 
 ## Environment setup
 
-First, follow the guidance in [The CG backend in Windows ML](https://review.learn.microsoft.com/en-us/windows/ai/new-windows-ml/runtime/cg-backend?branch=winml%2F2.9-exp) to choose recommended hardware and prepare your environment. Then, follow the instructions below to set up a Python environment for winml-cli.
+First, follow the guidance in [The CGC backend in Windows ML](https://review.learn.microsoft.com/en-us/windows/ai/new-windows-ml/runtime/cg-backend?branch=winml%2F2.9-exp) to choose recommended hardware and prepare your environment. Then, follow the instructions below to set up a Python environment for winml-cli.
 
 Create a virtual environment and install WinML CLI version 0.5.0 or above:
 
@@ -51,7 +51,7 @@ winml export -m .\model.onnx --target cgir -o .\model.mlir
 
 Use `winml perf` to explore model compatibility and performance before changing your application. It exercises the same paths available to the application and lets you compare them without first writing integration code. Use [`winml eval`](../commands/eval.md) similarly to evaluate accuracy.
 
-The `winml perf` and `winml eval` commands support models in `.onnx`, `.mlir`, `.gguf`, and `.safetensors` formats. For recommended models, see [The CG backend in Windows ML](https://review.learn.microsoft.com/en-us/windows/ai/new-windows-ml/runtime/cg-backend?branch=winml%2F2.9-exp#recommended-models).
+The `winml perf` and `winml eval` commands support models in `.onnx`, `.mlir`, `.gguf`, and `.safetensors` formats. For recommended models, see [The CGC backend in Windows ML](https://review.learn.microsoft.com/en-us/windows/ai/new-windows-ml/runtime/cg-backend?branch=winml%2F2.9-exp#recommended-models).
 
 ### Benchmark .mlir model
 
