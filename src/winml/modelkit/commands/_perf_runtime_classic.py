@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import platform
 import statistics
@@ -304,6 +305,7 @@ def _execute_session(params: dict, path: Path, model: str) -> dict:
         session = WinMLRuntimeSession(
             path, backend="cgc", device_luid=selected_luid, capture_diagnostics=True
         )
+    primary_error = None
     try:
         if feeds is not None and not is_ort:
             session.set_input_shapes({name: list(value.shape) for name, value in feeds.items()})
@@ -380,5 +382,17 @@ def _execute_session(params: dict, path: Path, model: str) -> dict:
                 "reason": "Device memory collection is not enabled by this profile.",
             }
         return result
+    except BaseException as error:
+        primary_error = error
+        raise
     finally:
-        session.close()
+        try:
+            if is_ort:
+                session.reset()
+            else:
+                session.close()
+        except Exception as cleanup_error:
+            if primary_error is None:
+                raise
+            primary_error.add_note(f"Session cleanup also failed: {cleanup_error}")
+            logging.getLogger(__name__).warning("Session cleanup also failed: %s", cleanup_error)

@@ -164,8 +164,9 @@ def test_trace_cannot_contain_source(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("traced", [False, True])
 @pytest.mark.parametrize("backend", ["runtime", "cgep"])
+@pytest.mark.parametrize("failure", [None, "inference", "cleanup", "both"])
 def test_explicit_cli_luid_reaches_session_in_native_execution(
-    tmp_path, monkeypatch, traced, backend
+    tmp_path, monkeypatch, traced, backend, failure
 ):
     import json
 
@@ -225,11 +226,24 @@ def test_explicit_cli_luid_reaches_session_in_native_execution(
             yield SimpleNamespace(stats=self.stats)
 
         def run(self, inputs):
+            if failure in {"inference", "both"}:
+                raise ValueError("original inference failure")
             self.stats._samples.append(1.0)
             return {"y": np.ones(1)}
 
+        def release(self):
+            events.append("session-release")
+            if failure in {"cleanup", "both"}:
+                raise RuntimeError("cleanup failure")
+
+    class RuntimeSession(Session):
         def close(self):
-            events.append("session-close")
+            self.release()
+
+    class OrtSession(Session):
+        # Match the real WinMLSession API: reset exists, close does not.
+        def reset(self):
+            self.release()
 
     class Capture:
         def __init__(self, path):
@@ -239,7 +253,7 @@ def test_explicit_cli_luid_reaches_session_in_native_execution(
             return self
 
         def __exit__(self, *args):
-            assert events[-1] == "session-close"
+            assert events[-1] == "session-release"
             events.append("capture-stop")
 
         def finish(self):
@@ -247,7 +261,7 @@ def test_explicit_cli_luid_reaches_session_in_native_execution(
             return {"samples_ms": [0.5, 0.5], "valid_runs": 2}
 
     monkeypatch.setattr(sysinfo, "open_gpu_adapter", adapter)
-    monkeypatch.setattr(runtime_session, "WinMLRuntimeSession", Session)
+    monkeypatch.setattr(runtime_session, "WinMLRuntimeSession", RuntimeSession)
     monkeypatch.setattr(gpu_capture, "GpuCapture", Capture)
     binding = SimpleNamespace(
         device=SimpleNamespace(adapter_luid=0x1FEDCBA98, ep_name="WinMLCGExecutionProvider")
@@ -257,7 +271,7 @@ def test_explicit_cli_luid_reaches_session_in_native_execution(
         assert device_luid == luid
         return binding
 
-    monkeypatch.setattr(public_session, "WinMLSession", Session)
+    monkeypatch.setattr(public_session, "WinMLSession", OrtSession)
     monkeypatch.setattr(public_session, "resolve_device", lambda target: target)
     monkeypatch.setattr(
         public_session,
@@ -295,6 +309,15 @@ def test_explicit_cli_luid_reaches_session_in_native_execution(
         del args[position : position + 2]
         args += ["--ep", "winmlcg"]
     result = CliRunner().invoke(main, args)
-    assert result.exit_code == 0, (result.output, result.exception)
     assert requested == [luid]
-    assert json.loads(output.read_text())["benchmark_info"]["device_luid"] == 0x1FEDCBA98
+    assert events.count("session-release") == 1
+    if failure:
+        assert result.exit_code != 0
+        assert not output.exists()
+        expected = (
+            "original inference failure" if failure in {"inference", "both"} else "cleanup failure"
+        )
+        assert expected in str(result.exception) + result.output
+    else:
+        assert result.exit_code == 0, (result.output, result.exception)
+        assert json.loads(output.read_text())["benchmark_info"]["device_luid"] == 0x1FEDCBA98
