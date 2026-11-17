@@ -1,27 +1,23 @@
-# Preparing your model for the Windows ML Runtime APIs and DX CGC
+# Use the CGC backend with Windows ML CLI
 
-CGC onboarding has two journeys:
+> [!IMPORTANT]
+> The CGC backend is experimental, **not supported** for use in production environments, and new in Windows ML 2.9 experimental.
 
-1. **Benchmark the model:** Explore model compatibility and performance through the runtime
-   path that your application will use.
-2. **Build the model:** Build a reusable `.mlir` model from PyTorch or ONNX.
+CGC is the Windows-native backend that compiles a model into programs for a Direct3D 12 device and runs them on the GPU target your app picked. It runs on the GPU only, with no CPU fallback. Finding a GPU doesn't establish that CGC supports its driver or a given model: a model that CGC can't run fails to load with an error.
+
+
+This article explains how to convert a model to a format supported by CGC and run it using the Windows ML CLI.
 
 ## Environment setup
 
-Create a virtual environment and install WinML CLI:
+First, follow the guidance in [The CGC backend in Windows ML](https://review.learn.microsoft.com/en-us/windows/ai/new-windows-ml/runtime/cg-backend?branch=winml%2F2.9-exp) to choose recommended hardware and prepare your environment. Then, follow the instructions below to set up a Python environment for winml-cli.
+
+Create a virtual environment and install WinML CLI version 0.5.0 or above:
 
 ```powershell
 uv venv --python 3.11
 uv pip install winml-cli
 ```
-
-Install the experimental wheels:
-
-```powershell
-uv pip install "windowsml==<windowsml-version>" "onnxruntime-windowsml==<onnxruntime-windowsml-version>"
-```
-If you want to restore to stable wheel, you can run `uv sync`
-
 
 Activate the virtual environment:
 
@@ -29,27 +25,36 @@ Activate the virtual environment:
 .venv\Scripts\Activate.ps1
 ```
 
-## Before you start
 
-Inspect the available devices and execution providers:
+## Build the model
+
+The `.mlir` format is the model intermediate representation (IR) that can be executed by the CGC backend. For recommended models, see [The CGC backend in Windows ML](https://review.learn.microsoft.com/en-us/windows/ai/new-windows-ml/runtime/cg-backend?branch=winml%2F2.9-exp#recommended-models).
+
+### Export PyTorch model to MLIR
+
+Export a Hugging Face PyTorch model to MLIR:
 
 ```powershell
-winml sys --list-device --list-ep
+winml export -m microsoft/resnet-50 --target cgir -o .\model.mlir
 ```
 
-Verify that the WinMLCG EP is installed and that the target GPU and its
-CGC-capable driver are listed. If they are missing, install or update the
-Windows ML components and graphics driver before continuing.
+### Export ONNX model to MLIR
+
+Export an existing ONNX model to MLIR:
+
+```powershell
+winml export -m .\model.onnx --target cgir -o .\model.mlir
+```
+
+You can also use `winml build` to build the model with additional configuration options. For details, see the [`winml build` command reference](../commands/build.md).
 
 ## Benchmark the model
 
-Use `winml perf` to explore model compatibility and performance before changing
-your application. It exercises the same paths available to the application and
-lets you compare them without first writing integration code. Use
-[`winml eval`](../commands/eval.md) similarly to evaluate accuracy; the runtime
-and EP options select the same CGC paths shown below.
+Use `winml perf` to explore model compatibility and performance before changing your application. It exercises the same paths available to the application and lets you compare them without first writing integration code. Use [`winml eval`](../commands/eval.md) similarly to evaluate accuracy.
 
-### MLIR with Runtime API
+The `winml perf` and `winml eval` commands support models in `.onnx`, `.mlir`, `.gguf`, and `.safetensors` formats. For recommended models, see [The CGC backend in Windows ML](https://review.learn.microsoft.com/en-us/windows/ai/new-windows-ml/runtime/cg-backend?branch=winml%2F2.9-exp#recommended-models).
+
+### Benchmark .mlir model
 
 Use this path when you already have an offline-converted `.mlir` model:
 
@@ -57,178 +62,90 @@ Use this path when you already have an offline-converted `.mlir` model:
 winml perf -m .\model.mlir --runtime winml-runtime -o .\model-mlir-perf.json
 ```
 
-> **Note:** Currently, the graph and weights must be embedded in a single
-> `.mlir` file. External weights will be supported in a future release.
+A `.mlir` model can only run on the CGC backend through the [Windows ML Runtime API](https://review.learn.microsoft.com/en-us/windows/ai/new-windows-ml/runtime/overview?branch=winml%2F2.9-exp), selected using the `--runtime winml-runtime` CLI option. It cannot be loaded by ONNX Runtime.
 
-The Runtime API loads the model directly and runs it through DXCGC. A
-`.mlir` model can only use the Windows ML Runtime API; it cannot be loaded by
-ONNX Runtime and does not use an EP.
+### Benchmark .onnx model
 
-### ONNX with WinMLCG EP
+The `winml perf` command supports running ONNX models through either the Windows ML Runtime API or ONNX Runtime.
 
-Use this path when the application uses ONNX Runtime and should keep ONNX as
-its model contract:
+#### Via ONNX Runtime with WinMLCG EP
+
+The WinMLCG Execution Provider (EP) makes CGC functionality available through ONNX Runtime.
+
+Use this path when the application uses ONNX Runtime and should keep ONNX as its model contract:
 
 ```powershell
 winml perf -m .\model.onnx --runtime winml-ort --ep winmlcg -o .\model-winmlcg-perf.json
 ```
 
-The WinMLCG Execution Provider converts the model for CGC when the ONNX Runtime
-session is created. No reusable CGIR artifact is produced. After this test
-succeeds, keep the ONNX model and configure the WinMLCG EP in the application.
+The WinMLCG Execution Provider converts the model for CGC when the ONNX Runtime session is created. No reusable CGIR artifact is produced. After this test succeeds, keep the ONNX model and configure the WinMLCG EP in the application.
 
-### ONNX with Runtime API
+#### Via Windows ML Runtime API
 
-Use this path when the application uses the Windows ML Runtime API but should
-keep ONNX as its model contract:
+Use this path when the application uses the Windows ML Runtime API but should keep ONNX as its model contract:
 
 ```powershell
 winml perf -m .\model.onnx --runtime winml-runtime -o .\model-runtime-perf.json
 ```
 
-The CLI calls the Runtime compiler API to compile ONNX to temporary CG output IR,
-then loads that artifact and runs it through DXCGC. No EP is selected and no
-reusable CGIR artifact is retained. Applications using this path must likewise
-invoke the compiler API before pipeline execution.
+The CLI calls the [Runtime compiler API](https://review.learn.microsoft.com/en-us/windows/ai/new-windows-ml/runtime/cg-backend?branch=winml%2F2.9-exp#compile-a-model-for-cg) to compile ONNX to temporary, device-targeted CGC output IR, then loads that artifact and runs it through CGC. No EP is selected and no reusable CGIR artifact is retained. Applications using this path must likewise invoke the compiler API before pipeline execution.
 
-!!! warning
-  With `windowsml==2.7.25.dev0`, the tested CLI's online conversion path
-  fails with `Runtime.load_model() got an unexpected keyword argument 'io_counts'`.
-  The offline build and MLIR Runtime path below works with this combination.
+### Benchmark LLM model (gguf and safetensor)
 
-| Model input | Runtime path | EP | Conversion |
-| --- | --- | --- | --- |
-| `.onnx` | Windows ML ONNX Runtime | WinMLCG | When the session is created |
-| `.onnx` | Windows ML Runtime API + DXCGC | None | When the session is created |
-| `.mlir` | Windows ML Runtime API + DXCGC | None | Already converted offline |
+The [Windows ML Task API](https://review.learn.microsoft.com/en-us/windows/ai/new-windows-ml/tasks/overview?branch=winml%2F2.9-exp) handles prompt tokenization and text generation, streaming generated tokens back to the application. Use this path to benchmark LLM generation on the GPU with CGC. No ONNX or MLIR export is required.
 
-## Build the model
-
-Build a reusable `.mlir` model directly. No configuration file is required.
-For PyTorch models, build first exports to ONNX. It then quantizes the model,
-and converts it to MLIR.
-
-> **Note:** By default, the CGC build converts FP32 to FP16. This may improve
-> performance, but can reduce accuracy for some models. Add `--no-quant` to
-> skip quantization if your model is already quantized or accuracy is a concern.
-
-### PyTorch → ONNX → CGIR
-
-Build from a Hugging Face model:
+**Safetensors checkpoint:** Download [Qwen3-0.6B](https://huggingface.co/Qwen/Qwen3-0.6B) into `.\Qwen3-0.6B`, keeping the weights, configuration, and tokenizer files together. Pass the folder, not an individual `.safetensors` file:
 
 ```powershell
-winml build -m microsoft/resnet-50 --backend cgc -o .\model-cgir
+winml perf -m .\Qwen3-0.6B --backend cgc -o .\checkpoint-perf.json
 ```
 
-### ONNX → CGIR
-
-Build from an existing ONNX model:
+**GGUF:** Download [Qwen3-0.6B-Q4_0.gguf](https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/blob/main/Qwen3-0.6B-Q4_0.gguf) into the current directory, then pass the file:
 
 ```powershell
-winml build -m .\model.onnx --backend cgc -o .\model-cgir
+winml perf -m .\Qwen3-0.6B-Q4_0.gguf --backend cgc -o .\gguf-perf.json
 ```
 
-Both paths write `model-cgir\model.onnx` and `model-cgir\model.mlir`.
-Benchmark the `.mlir` model using the
-[Windows ML Runtime API](#mlir-with-runtime-api).
+Both commands select the CGC backend, report time to first token and generation throughput, and save the results as JSON.
 
-### Convert without optimization or quantization
-
-Use `winml export` to convert an ONNX model directly to MLIR, skipping the
-optimization and quantization stages:
-
-```powershell
-winml export -m .\model.onnx --target cgir -o .\model.mlir
-```
-
-The model must already be compatible with the CGC converter.
-
-### Fix dynamic input dimensions
-
-CGIR export automatically freezes a symbolic input dimension named `batch_size`
-to 1 unless explicitly overridden, and prints a warning. If other named input
-dimensions remain dynamic, conversion stops with the input names, axis indices,
-missing dimensions, and a `freeze-dims` option template. Substitute your
-deployment dimensions; freezing specializes the artifact, not the input images.
-
-Use the same repeatable `--cgc-options KEY=VALUE` syntax for export, config, and build.
-For example, for a model whose input symbols are `dynamic_height` and
-`dynamic_width`:
-
-```powershell
-winml export -m .\model.onnx --target cgir -o .\model.mlir `
-  --cgc-options "freeze-dims=dynamic_height=720,dynamic_width=1280"
-
-winml config -m .\model.onnx --backend cgc -o .\build.json `
-  --cgc-options "freeze-dims=dynamic_height=720,dynamic_width=1280"
-winml build -m .\model.onnx -c .\build.json -o .\model-cgir
-
-winml build -m .\model.onnx --backend cgc -o .\model-cgir-direct `
-  --cgc-options "freeze-dims=dynamic_height=720,dynamic_width=1280"
-```
-
-Config generation stores these values in `convert.options`, for example:
+Illustrative JSON excerpt (values vary by model and device):
 
 ```json
 {
-  "convert": {
-    "target": "cgir",
-    "options": {
-      "freeze-dims": "dynamic_height=720,dynamic_width=1280"
+  "benchmark_info": {
+    "runtime": "winml-runtime",
+    "backend": "cgc",
+    "model_format": "gguf"
+  },
+  "aggregate": {
+    "warmup_excluded": true,
+    "task_ttft_duration_ms": {
+      "mean": 20
+    },
+    "steady_state_decode_tokens_per_second": {
+      "mean": 500
+    },
+    "request_duration_ms": {
+      "mean": 300
     }
   }
 }
 ```
 
-This is a config fragment. CLI options override config values per option key:
-supplying `freeze-dims` replaces the entire configured dimension list, not
-individual dimensions. Include all required explicit overrides in that list.
-Other option keys are preserved. Options are only accepted for CGIR conversion.
+These fields show the average Task time to first token, subsequent generation speed, and total request time, excluding warmup requests.
 
-Config generation checks the `KEY=VALUE` format and stores the options without
-inspecting dynamic inputs. Option names, types, and dimension assignments are
-validated by the existing CGIR exporter when conversion runs.
-Build checks input dimensions at its existing CGIR conversion stage, after
-optimization and quantization. The source ONNX file is not modified by freezing.
-Unnamed dynamic axes or unknown input rank cannot be resolved by `freeze-dims`;
-their handling and diagnostics are left to the compiler.
-Fixing input dimensions does not guarantee support for data-dependent shapes
-or all operators.
 
-### CGIR to device-targeted CG Output IR
 
-To retain a compiled artifact from existing CGIR, use the explicit
-[CGIR compile mode](../commands/compile.md#cgir-to-cg-output-ir):
-
-```powershell
-winml compile -m .\model.mlir --compiler cgc --device gpu -o .\model-output.mlir
-```
-
-For `.mlir` and `.mlirbc` input, `--compiler cgc` is optional.
-
-The artifact is UTF-8 text MLIR, matching the representation written by
-`winml export --target cgir`. This is a separate compilation stage, without an
-EP, optimization or quantization. Default validation reloads/builds the final
-text artifact and checks I/O; it does not run inference or performance tests.
 
 ## Tutorials and samples
 
-- [ResNet-50 - PyTorch to CGIR (experimental)](../samples/resnet50-cgir.md) walks through
-  the complete Hugging Face PyTorch → ONNX → CGIR build, performance, and
-  evaluation workflow.
-- [YOLO11 - ONNX to CGIR (experimental)](../samples/yolo11-cgir.md) provides an end-to-end
-  conversion journey: export a checkpoint to ONNX, build CGIR, collect GPU
-  performance results, compare raw output tensors, and try the WinMLCG EP alternative.
+- [ResNet-50 - PyTorch to CGIR (experimental)](../samples/resnet50-cgir.md) walks through the complete Hugging Face PyTorch → ONNX → CGIR build, performance, and evaluation workflow.
+- [YOLO11 - ONNX to CGIR (experimental)](../samples/yolo11-cgir.md) provides an end-to-end conversion journey: export a checkpoint to ONNX, build CGIR, collect GPU performance results, compare raw output tensors, and try the WinMLCG EP alternative.
 
 ## Command references
 
-- [`winml export`](../commands/export.md) documents `--target cgir` and CGIR
-  export options.
+- [`winml export`](../commands/export.md) documents `--target cgir` and CGIR export options.
 - [`winml optimize`](../commands/optimize.md) documents ONNX optimization.
-- [`winml perf`](../commands/perf.md) documents `.mlir`, `winml-runtime`, and
-  WinMLCG performance measurement.
-- [`winml eval`](../commands/eval.md) documents evaluation of supported CGIR
-  models with compatible preprocessing metadata.
-- [`winml config`](../commands/config.md) and
-  [`winml build`](../commands/build.md) document configuration-driven CGIR
-  conversion.
+- [`winml perf`](../commands/perf.md) documents `.mlir`, `winml-runtime`, and WinMLCG performance measurement.
+- [`winml eval`](../commands/eval.md) documents evaluation of supported CGIR models with compatible preprocessing metadata.
+- [`winml config`](../commands/config.md) and [`winml build`](../commands/build.md) document configuration-driven CGIR conversion.
