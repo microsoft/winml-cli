@@ -40,8 +40,7 @@ from .ep_device import (
     expand_ep_name,
     lookup_device_spec,
 )
-from .monitor.ep_monitor import WinMLEPMonitor
-from .stats import PerfStats
+from .stats import PerfContext, PerfStats
 
 
 if TYPE_CHECKING:
@@ -52,6 +51,7 @@ if TYPE_CHECKING:
 
     from ..compiler.configs import EPConfig
     from .ep_registry import WinMLEPDevice
+    from .monitor.ep_monitor import WinMLEPMonitor
 
 
 logger = logging.getLogger(__name__)
@@ -213,22 +213,6 @@ class SessionState(Enum):
     INFERRING = "INFERRING"
     ERROR = "ERROR"
 
-
-@dataclass(frozen=True)
-class PerfContext:
-    """Per-perf-window stats container yielded by ``WinMLSession.perf()``.
-
-    Aggregates perf statistics and the optional attached EP monitor.
-    Frozen: mutation is not a supported pattern — update the underlying
-    objects instead.
-    """
-
-    stats: PerfStats
-    monitor: WinMLEPMonitor  # NullEPMonitor when no monitor was passed
-
-    def __getattr__(self, name: str) -> Any:
-        """Delegate legacy direct statistics access to :attr:`stats`."""
-        return getattr(self.stats, name)
 
 
 def _ep_defaults(ep_device: WinMLEPDevice) -> dict[str, str]:

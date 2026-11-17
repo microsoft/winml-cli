@@ -41,7 +41,6 @@ from typing import TYPE_CHECKING, Any, cast
 
 import click
 
-from ..export.cgc.artifacts import cgc_metadata_path
 from ._runtime_import import import_runtime
 
 
@@ -174,6 +173,8 @@ def _apply_io_metadata(io_config: dict[str, Any], model_path: Path) -> None:
             if name in io_config["input_names"]
         }
         return
+
+    from ..export.cgc.artifacts import cgc_metadata_path
 
     metadata_path = cgc_metadata_path(model_path)
     if not metadata_path.is_file():
@@ -586,6 +587,8 @@ def _serialize_mlir_as_text(path: Path) -> None:
 
 def _cgc_external_weight_options(path: Path) -> dict[str, Any]:
     """Supply Runtime load options only when Input IR declares external weights."""
+    if path.suffix.lower() not in {".mlir", ".mlirbc"}:
+        return {}
     from ..export.cgc.ir import is_output_ir
 
     if path.suffix.lower() not in {".mlir", ".mlirbc"} or is_output_ir(path):
@@ -711,6 +714,7 @@ class WinMLRuntimeSession:
         session_options: Callable[[], Any] | None = None,
         backend: RuntimeBackend,
         device_luid: int | None = None,
+        capture_diagnostics: bool = False,
     ) -> None:
         """Initialize a Runtime session.
 
@@ -728,6 +732,7 @@ class WinMLRuntimeSession:
         self._model_path = Path(model_path)
         self._is_mlir = self._model_path.suffix.lower() in {".mlir", ".mlirbc"}
         self._backend = backend
+        self._capture_diagnostics = capture_diagnostics
         if self._backend == "cgc" and ep_device is None and device_luid is None:
             raise ValueError("ep_device or device_luid is required for CGC Runtime sessions.")
         self._ep_device = ep_device
@@ -825,9 +830,11 @@ class WinMLRuntimeSession:
         resolved_target: _ResolvedRuntimeTarget,
     ) -> tuple[Any, Any, bool]:
         """Compile ONNX or MLIR to CG Output IR and reload it for execution."""
-        from ..export.cgc.ir import is_output_ir
+        output_ir = False
+        if self._is_mlir:
+            from ..export.cgc.ir import is_output_ir
 
-        output_ir = self._is_mlir and is_output_ir(self._model_path)
+            output_ir = is_output_ir(self._model_path)
         with _translate_native_errors("load"):
             source_model = runtime.load_model(
                 str(self._model_path), **_cgc_external_weight_options(self._model_path)
@@ -876,6 +883,8 @@ class WinMLRuntimeSession:
                 device_class=resolved_target.device_class,
             ):
                 stage = builder.add_model_stage(model, resolved_target.execution_target)
+                if self._capture_diagnostics:
+                    stage.execution_diagnostics_enabled = True
                 pipeline = builder.build()
                 stage_schema = _stage_schema(wr, stage)
                 io_config = synth_io_config(stage_schema, ort_schema)
@@ -901,6 +910,27 @@ class WinMLRuntimeSession:
         self._built = True
 
     # -- metadata -----------------------------------------------------------
+    @property
+    def execution_diagnostics(self) -> dict[str, Any]:
+        """Return placement evidence requested before pipeline construction."""
+        self._ensure_built()
+        if not self._capture_diagnostics:
+            return {"available": False, "reason": "Capture was not requested."}
+        diagnostics = self._stage.execution_diagnostics
+        return {
+            "available": True,
+            "coverage": diagnostics.coverage.name,
+            "work_shares": [
+                {
+                    "device_kind": share.device_kind.name,
+                    "implementation": share.implementation.name,
+                    "adapter_luid": str(share.adapter_luid),
+                    "unit_count": share.unit_count,
+                }
+                for share in diagnostics.work_shares
+            ],
+        }
+
     @property
     def io_config(self) -> dict:
         """I/O metadata derived from the Runtime model schema.
@@ -1127,8 +1157,7 @@ class WinMLRuntimeSession:
         silently ignored.
         """
         from .monitor.ep_monitor import NullEPMonitor
-        from .session import PerfContext
-        from .stats import PerfStats
+        from .stats import PerfContext, PerfStats
 
         if monitor is not None:
             raise click.ClickException(

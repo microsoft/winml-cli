@@ -19,6 +19,7 @@ import json
 import logging
 import math
 import os
+import platform
 import sys
 import time
 from contextlib import ExitStack
@@ -4128,7 +4129,7 @@ def perf(
     if etw_tracing is not None and (
         (not cgep_trace and (runtime != "winml-runtime" or backend not in (None, "cgc")))
         or device.lower() != "gpu"
-        or Path(model).suffix.lower() not in (".onnx", ".mlir")
+        or Path(model).suffix.lower() not in (".onnx", ".mlir", ".mlirbc")
         or monitor
         or op_tracing
         or module_class
@@ -4145,6 +4146,22 @@ def perf(
         raise click.UsageError(f"{error}{cgc_runtime_hint}") from error
     if cgep_trace and Path(model).suffix.lower() != ".onnx":
         raise click.UsageError("WinMLCG EP tracing requires ONNX.")
+
+    # Native Arm64 has no dependency on the ORT/export model wrappers.
+    native_classic = (
+        runtime == "winml-runtime" and effective_backend == "cgc"
+        and Path(model).suffix.lower() in {".onnx", ".mlir", ".mlirbc"}
+    ) or (
+        runtime == "winml-ort" and Path(model).suffix.lower() == ".onnx"
+        and ep is not None and ep[0].lower() in {"winmlcg", "winmlcgexecutionprovider"}
+    )
+    if (native_classic
+            and sys.platform == "win32"
+            and platform.machine().lower() in {"arm64", "aarch64"}):
+        from ._perf_runtime_classic import run_runtime_classic
+
+        run_runtime_classic(ctx, model)
+        return
 
     # AC 11 (mockup spec): --top-k requires --op-tracing. Outside the
     # op-tracing section the flag is meaningless, so reject it explicitly

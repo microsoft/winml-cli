@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from .monitor.ep_monitor import WinMLEPMonitor  # noqa: TC004 - annotation only
 
 T = TypeVar("T")
 
@@ -134,3 +136,20 @@ class PerfStats:
     def p99_ms(self) -> float:
         """99th percentile."""
         return self.percentile(99)
+
+
+@dataclass(frozen=True)
+class PerfContext:
+    """Per-perf-window stats container yielded by ``WinMLSession.perf()``.
+
+    Aggregates perf statistics and the optional attached EP monitor.
+    Frozen: mutation is not a supported pattern — update the underlying
+    objects instead.
+    """
+
+    stats: PerfStats
+    monitor: WinMLEPMonitor  # NullEPMonitor when no monitor was passed
+
+    def __getattr__(self, name: str) -> Any:
+        """Delegate legacy direct statistics access to :attr:`stats`."""
+        return getattr(self.stats, name)

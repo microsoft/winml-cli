@@ -24,7 +24,7 @@ classifiers = [
 dependencies = [
   "click>=8.4",
   "colorama>=0.4.6",
-  "datasets>=4.1.1",
+  "datasets>=4.1.1 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
   # PINNED EXACTLY ON PURPOSE — do NOT relax to a range.
   # pyarrow's writer emits parquet bytes that differ across versions, so any bump
   # produces a huge, semantically-meaningless diff across EVERY generated rule
@@ -33,61 +33,68 @@ dependencies = [
   # (Also avoids the Windows 24.0.0 crash 0xC0000005 when pyarrow's C extension
   # loads after the WinML/ORT EP DLLs — see _preload_bundled_onnxruntime_dll in
   # winml.modelkit.__init__.)
-  "pyarrow==23.0.1",
-  "diffusers>=0.36",
-  "evaluate>=0.4.6",
-  "fastapi>=0.135.3",
+  "pyarrow==23.0.1 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
+  "diffusers>=0.36 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
+  "evaluate>=0.4.6 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
+  "fastapi>=0.135.3 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
   "filelock>=3.20",
-  "hf_xet>=1.1.10",
-  "httpx>=0.24.0",
+  "hf_xet>=1.1.10 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
+  "httpx>=0.24.0 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
   "jsonschema>=4.23",
-  "mcp>=0.1.0",
-  "ml-dtypes>=0.5.3",
-  "numpy>=2.2,<2.3",
-  "onnx==1.18",
-  "onnx-ir>=0.1",
-  "onnxruntime-genai-winml==0.14.1 ; sys_platform == 'win32'",
+  "mcp>=0.1.0 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
+  "ml-dtypes>=0.5.3 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
+  "numpy>=2.2,<2.3 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
+  "onnx==1.18 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
+  "onnx-ir>=0.1 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
+  "onnxruntime-genai-winml==0.14.1 ; sys_platform == 'win32' and (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
   # Range, not an exact pin: the exact build `1.24.5.202604171637` is the PyPI
   # form of what WinML's wasdk metadata pins as `1.24.5.post202604171637` (PEP 440
   # normalized) — an exact `==` can't reconcile the two. Allow newer releases
   # through 1.27 for OpenVINO operator profiling.
-  "onnxruntime-windowsml>=1.24.5,<1.28 ; sys_platform == 'win32'",
-  "onnxscript>=0.2",
+  "onnxruntime-windowsml>=1.24.5,<1.28 ; sys_platform == 'win32' and (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
+  "onnxscript>=0.2 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
   "opentelemetry-sdk>=1.39.1",
-  "optimum>=2",
-  "optimum-onnx>=0.1",
+  "optimum>=2 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
+  "optimum-onnx>=0.1 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
   # plotext 6.0 was recently released with breaking API changes that conflict
   # with the current live chart code. Upgrade the code and dependency to >=6 together.
-  "plotext>=5.3.2,<6",
+  "plotext>=5.3.2,<6 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
   # PINNED EXACTLY ON PURPOSE — do NOT relax to a range.
   # pandas version drift changes parquet string typing/metadata, producing
   # non-functional but huge diffs across every generated rule artifact. If you
   # truly must bump this, regenerate ALL parquet artifacts in the same change.
-  "pandas==2.3.3",
+  "pandas==2.3.3 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
   "psutil>=7",
   "pydantic>=2",
-  "python-multipart>=0.0.22",
-  "rapidfuzz>=3.9",
+  "python-multipart>=0.0.22 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
+  "rapidfuzz>=3.9 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
   "requests>=2.32.5",
   "rich>=14",
-  "scikit-learn>=1.7",
-  "scipy>=1.15,<1.16",
-  "sentencepiece>=0.2.1",
-  "seqeval>=1.2.2",
-  "snakemd>=2",
-  "timm>=1.0.22",
-  "tokenizers>=0.22",
-  "torch>=2.9",
-  "torchinfo>=1.8",
-  "torchmetrics[detection]>=1.0",
-  "torchvision>=0.24",
+  "scikit-learn>=1.7 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
+  "scipy>=1.15,<1.16 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
+  "sentencepiece>=0.2.1 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
+  "seqeval>=1.2.2 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
+  "snakemd>=2 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
+  "timm>=1.0.22 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
+  "tokenizers>=0.22 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
+  "torch>=2.9 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
+  "torchinfo>=1.8 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
+  "torchmetrics[detection]>=1.0 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
+  "torchvision>=0.24 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
   "tqdm>=4.67",
-  "transformers>=4.57",
-  "uvicorn[standard]>=0.42.0",
-  "windowsml==2.0.300 ; sys_platform == 'win32'",
+  "transformers>=4.57 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
+  "uvicorn[standard]>=0.42.0 ; (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
+  "windowsml==2.0.300 ; sys_platform == 'win32' and (sys_platform != 'win32' or (platform_machine != 'ARM64' and platform_machine != 'aarch64'))",
+  # Native Arm64 Runtime/Tasks and matching CPU GGUF payload.
+  "windowsml==2.9.31a0 ; sys_platform == 'win32' and (platform_machine == 'ARM64' or platform_machine == 'aarch64')",
+  "windowsml-llama-core==2.9.31a0 ; sys_platform == 'win32' and (platform_machine == 'ARM64' or platform_machine == 'aarch64')",
 ]
 
 optional-dependencies.audio = [ "soundfile>=0.13" ]
+optional-dependencies.runtime-classic = [
+  "numpy>=2.4,<3 ; sys_platform == 'win32' and (platform_machine == 'ARM64' or platform_machine == 'aarch64')",
+  "onnx>=1.23,<2 ; sys_platform == 'win32' and (platform_machine == 'ARM64' or platform_machine == 'aarch64')",
+]
 optional-dependencies.openvino = [ "openvino>=2023" ]
 # QNN is acquired on demand through the architecture-aware Windows ML EP
 # Catalog. Keep the extra as a backwards-compatible installation target.
@@ -107,19 +114,13 @@ urls.Repository = "https://github.com/microsoft/winml-cli.git"
 scripts.winml = "winml.modelkit.cli:main"
 
 # =============================================================================
-# UV - Supported resolution environments (x64 only)
-# =============================================================================
-# winml-cli is a Windows-only tool and its dependencies (PyTorch, the Windows ML
-# runtime packages, etc.) publish only x64/AMD64 wheels -- there are no
-# win_arm64 wheels. Restricting resolution to these environments keeps the
-# lockfile x64-only and makes `uv sync` fail fast with a clear
-# "unsupported environment" error on native Arm64 Python instead of an opaque
-# missing-wheel error. The linux/x86_64 entry is required for the docs CI job
-# that runs on ubuntu-latest.
+# UV - Supported resolution environments
+# Native Arm64 uses Runtime/Tasks GGUF; ONNX/export dependencies remain x64-only.
 [tool.uv]
 environments = [
   "sys_platform == 'linux' and platform_machine == 'x86_64'",
   "sys_platform == 'win32' and platform_machine == 'AMD64'",
+  "sys_platform == 'win32' and (platform_machine == 'ARM64' or platform_machine == 'aarch64')",
 ]
 
 [[tool.uv.index]]

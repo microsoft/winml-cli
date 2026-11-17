@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
+import platform
 import re
 import time
 from abc import ABC, abstractmethod
@@ -379,6 +380,8 @@ class TaskBenchmarkResult:
                 "runtime": RUNTIME_TYPE,
                 "backend": self.BACKEND,
                 "api": "windowsml.tasks",
+                "python_architecture": platform.machine(),
+                "python_version": platform.python_version(),
                 "timing_source": "task-stream",
                 "model_format": self.model_format,
                 "experimental": True,
