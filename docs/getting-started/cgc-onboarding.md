@@ -30,7 +30,7 @@ Activate the virtual environment:
 
 The `.mlir` format is the model intermediate representation (IR) that can be executed by the CGC backend.
 
-### Export PyTorch model
+### Export PyTorch model to MLIR
 
 Export a Hugging Face PyTorch model to MLIR:
 
