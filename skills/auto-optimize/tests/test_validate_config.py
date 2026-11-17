@@ -16,7 +16,7 @@ from typing import Any
 
 import numpy as np
 import pytest
-from onnx import TensorProto, helper, save
+from onnx import TensorProto, helper, numpy_helper, save, save_model
 
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "validate_config.py"
@@ -40,6 +40,25 @@ def _model(path: Path) -> None:
         [helper.make_tensor_value_info("y", TensorProto.FLOAT, [1, 4])],
     )
     save(helper.make_model(graph, opset_imports=[helper.make_opsetid("", 18)]), path)
+
+
+def _external_data_model(path: Path) -> None:
+    weights = numpy_helper.from_array(np.ones((1, 4), dtype=np.float32), name="weights")
+    graph = helper.make_graph(
+        [helper.make_node("Add", ["x", "weights"], ["y"])],
+        "external-data",
+        [helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 4])],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, [1, 4])],
+        [weights],
+    )
+    save_model(
+        helper.make_model(graph, opset_imports=[helper.make_opsetid("", 18)]),
+        path,
+        save_as_external_data=True,
+        all_tensors_to_one_file=True,
+        location="weights.data",
+        size_threshold=0,
+    )
 
 
 def _inputs(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
@@ -69,6 +88,23 @@ def _runner(champion: Path, cosine: float):
         return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
 
     return run
+
+
+def test_public_io_resolves_external_data_from_model_directory(validator, tmp_path, monkeypatch):
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    model_path = model_dir / "model.onnx"
+    _external_data_model(model_path)
+    assert (model_dir / "weights.data").is_file()
+
+    unrelated_cwd = tmp_path / "cwd"
+    unrelated_cwd.mkdir()
+    monkeypatch.chdir(unrelated_cwd)
+
+    public_io = validator._public_io(model_path)
+
+    assert [item["name"] for item in public_io["inputs"]] == ["x"]
+    assert [item["name"] for item in public_io["outputs"]] == ["y"]
 
 
 def test_clean_rebuild_and_runtime_comparison_emit_bound_receipt(validator, tmp_path):

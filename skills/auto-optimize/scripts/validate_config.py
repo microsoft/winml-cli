@@ -14,9 +14,10 @@ import math
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 
 Runner = Callable[..., subprocess.CompletedProcess[str]]
@@ -111,13 +112,15 @@ def _public_io(path: Path) -> dict[str, list[dict[str, Any]]]:
     try:
         import onnx
 
+        onnx.checker.check_model(str(path))
         model = onnx.load(path, load_external_data=False)
-        onnx.checker.check_model(model)
     except Exception as error:
-        raise ConfigValidationError(f"rebuilt ONNX validation failed: {path}") from error
+        raise ConfigValidationError(f"ONNX validation failed: {path}") from error
     initializers = {item.name for item in model.graph.initializer}
     return {
-        "inputs": [_value_info(item) for item in model.graph.input if item.name not in initializers],
+        "inputs": [
+            _value_info(item) for item in model.graph.input if item.name not in initializers
+        ],
         "outputs": [_value_info(item) for item in model.graph.output],
     }
 
@@ -317,6 +320,7 @@ def verify_receipt(
 
 
 def main(argv: list[str]) -> int:
+    """Validate a composed config and print its machine-readable result."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--source", required=True)
