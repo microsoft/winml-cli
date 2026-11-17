@@ -28,7 +28,7 @@ Activate the virtual environment:
 
 ## Build the model
 
-The `.mlir` format is the model intermediate representation (IR) that can be executed by the CGC backend.
+The `.mlir` format is the model intermediate representation (IR) that can be executed by the CGC backend. For recommended models, see [The CGC backend in Windows ML](https://review.learn.microsoft.com/en-us/windows/ai/new-windows-ml/runtime/cg-backend?branch=winml%2F2.9-exp#recommended-models).
 
 ### Export PyTorch model to MLIR
 
@@ -46,6 +46,7 @@ Export an existing ONNX model to MLIR:
 winml export -m .\model.onnx --target cgir -o .\model.mlir
 ```
 
+You can also use `winml build` to build the model with additional configuration options. For details, see the [`winml build` command reference](../commands/build.md).
 
 ## Benchmark the model
 
