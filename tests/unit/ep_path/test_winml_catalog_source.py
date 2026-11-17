@@ -78,7 +78,7 @@ class _FakeProvider:
     def __init__(
         self,
         name: str,
-        ready_state: str,
+        ready_state: str | None,
         library_path: str,
         *,
         ensure_ready_raises: Exception | None = None,
@@ -87,7 +87,7 @@ class _FakeProvider:
         package_family_name: str = "",
     ) -> None:
         self.name = name
-        self.ready_state = _FakeReadyState(ready_state)
+        self.ready_state = _FakeReadyState(ready_state) if ready_state is not None else None
         self.library_path = library_path
         self.ensure_ready_calls = 0
         self._ensure_ready_raises = ensure_ready_raises
@@ -126,10 +126,12 @@ class _FakeCatalog:
     ) -> None:
         self._providers = providers
         self._find_raises = find_raises
+        self.find_calls = 0
         self.closed = False
         self._handle: object | None = object()
 
     def find_all_providers(self) -> list[_FakeProvider]:
+        self.find_calls += 1
         if self._find_raises is not None:
             raise self._find_raises
         return list(self._providers)
@@ -175,6 +177,106 @@ def reset_catalog_singleton(
 # ---------------------------------------------------------------------------
 # Default EP source list shape.
 # ---------------------------------------------------------------------------
+
+
+def test_discovery_shares_catalog_snapshot_and_refreshes_next_walk(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    reset_catalog_singleton: None,
+) -> None:
+    sources = _ep._winml_catalog_sources()
+    providers = []
+    for index, source in enumerate(sources):
+        dll = tmp_path / f"{index}.dll"
+        dll.touch()
+        providers.append(_FakeProvider(source.catalog_name, "Ready", str(dll)))
+    catalog = _FakeCatalog(providers)
+    _install_windowsml_module(monkeypatch, catalog)
+
+    expected = [entry for source in sources for entry in source.resolve()]
+    assert catalog.find_calls == len(sources)
+    catalog.find_calls = 0
+    discovered = _ep.discover_all_eps(extra_sources=sources)
+    assert catalog.find_calls == 1
+    assert [entry for entry in discovered if entry.dll_path.parent == tmp_path] == expected
+
+    added_dll = tmp_path / "added.dll"
+    added_dll.touch()
+    catalog._providers.append(_FakeProvider(sources[0].catalog_name, "Ready", str(added_dll)))
+    refreshed = _ep.discover_all_eps(extra_sources=sources)
+    assert catalog.find_calls == 2
+    assert any(entry.dll_path == added_dll for entry in refreshed)
+    assert not any(entry.dll_path == added_dll for entry in discovered)
+
+
+def test_discovery_reuses_empty_catalog_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+    reset_catalog_singleton: None,
+) -> None:
+    catalog = _FakeCatalog([])
+    _install_windowsml_module(monkeypatch, catalog)
+    _ep.discover_all_eps(extra_sources=_ep._winml_catalog_sources())
+    assert catalog.find_calls == 1
+
+
+def test_discovery_retries_failed_catalog_enumeration(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    reset_catalog_singleton: None,
+) -> None:
+    class RetryCatalog(_FakeCatalog):
+        def find_all_providers(self) -> list[_FakeProvider]:
+            try:
+                return super().find_all_providers()
+            finally:
+                self._find_raises = None
+
+    sources = _ep._winml_catalog_sources()
+    dll = tmp_path / "provider.dll"
+    dll.touch()
+    catalog = RetryCatalog(
+        [_FakeProvider(sources[1].catalog_name, "Ready", str(dll))],
+        find_raises=RuntimeError("transient enumeration failure"),
+    )
+    _install_windowsml_module(monkeypatch, catalog)
+    discovered = _ep.discover_all_eps(extra_sources=sources)
+    assert catalog.find_calls == 2
+    assert any(entry.dll_path == dll for entry in discovered)
+
+
+def test_discovery_refreshes_snapshot_after_provider_installation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    reset_catalog_singleton: None,
+) -> None:
+    sources = _ep._winml_catalog_sources()
+    dlls = [tmp_path / f"{index}.dll" for index in range(3)]
+    for dll in dlls:
+        dll.touch()
+    added = _FakeProvider(sources[2].catalog_name, "Ready", str(dlls[2]))
+
+    class InstallingProvider(_FakeProvider):
+        def ensure_ready_async(self, **kwargs: Any) -> _FakeReadyOp:
+            operation = super().ensure_ready_async(**kwargs)
+            catalog._providers.append(added)
+            return operation
+
+    installing = InstallingProvider(sources[1].catalog_name, "NotReady", str(dlls[1]))
+    catalog = _FakeCatalog([
+        _FakeProvider(sources[0].catalog_name, "Ready", str(dlls[0])),
+        installing,
+    ])
+    _install_windowsml_module(monkeypatch, catalog)
+    discovered = _ep.discover_all_eps(extra_sources=[
+        sources[0],
+        WinMLCatalogSource(
+            catalog_name=sources[1].catalog_name, eps=sources[1].eps, auto_download=True,
+        ),
+        sources[2],
+    ])
+    assert installing.ensure_ready_calls == 1
+    assert catalog.find_calls == 3
+    assert any(entry.dll_path == dlls[2] for entry in discovered)
 
 
 @pytest.mark.skipif(os.name != "nt", reason="WinMLCatalogSource entries are Windows-only")
@@ -409,7 +511,9 @@ class TestWithFakeCatalog:
         catalog = _FakeCatalog([_StuckProvider()])  # type: ignore[list-item]
         _install_windowsml_module(monkeypatch, catalog)
 
-        source = WinMLCatalogSource(catalog_name="VitisAI", eps=("VitisAIExecutionProvider",))
+        source = WinMLCatalogSource(
+            catalog_name="VitisAI", eps=("VitisAIExecutionProvider",), auto_download=True
+        )
         with caplog.at_level(logging.WARNING, logger="winml.modelkit.ep_path"):
             assert list(source.resolve()) == []
         warn_messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
@@ -443,7 +547,9 @@ class TestWithFakeCatalog:
         )
         _install_windowsml_module(monkeypatch, catalog)
 
-        source = WinMLCatalogSource(catalog_name="OpenVINO", eps=("OpenVINOExecutionProvider",))
+        source = WinMLCatalogSource(
+            catalog_name="OpenVINO", eps=("OpenVINOExecutionProvider",), auto_download=True
+        )
         with caplog.at_level(logging.WARNING, logger="winml.modelkit.ep_path"):
             results = list(source.resolve())
         # The good provider should still yield.
@@ -504,6 +610,7 @@ def test_not_ready_provider_is_prepared_and_yielded(
         WinMLCatalogSource(
             catalog_name="QNNExecutionProvider",
             eps=("QNNExecutionProvider",),
+            auto_download=True,
         ).resolve()
     )
 
@@ -532,14 +639,16 @@ def test_ready_provider_is_not_prepared_again(
     assert len(entries) == 1
 
 
-def test_not_present_provider_is_not_downloaded_by_default(
+@pytest.mark.parametrize("ready_state", ["NotPresent", "NotReady", "Unknown", None])
+def test_non_ready_provider_is_not_downloaded_by_default(
     reset_catalog_singleton: None,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    ready_state: str | None,
 ) -> None:
     dll = tmp_path / "qnn.dll"
     dll.write_bytes(b"")
-    provider = _FakeProvider("QNNExecutionProvider", "NotPresent", str(dll))
+    provider = _FakeProvider("QNNExecutionProvider", ready_state, str(dll))
     catalog = _FakeCatalog([provider])
     _install_windowsml_module(monkeypatch, catalog)
 

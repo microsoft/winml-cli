@@ -114,7 +114,6 @@ class TestPerfCacheOptions:
         assert result.exit_code == 0, result.output
         assert "--use-cache / --no-use-cache" in result.output
         assert "--rebuild / --no-rebuild" in result.output
-        assert "--cgc-lowering-target" not in result.output
 
     @pytest.mark.parametrize(
         ("extra_args", "use_cache", "rebuild"),
@@ -158,36 +157,6 @@ class TestPerfCacheOptions:
         assert result.exit_code == 0, result.output
         assert config is not None
         assert config.backend == expected
-
-    @pytest.mark.parametrize("lowering", ["auto", "dml", "d3d12"])
-    def test_cgc_lowering_reaches_benchmark_config(self, runner, tmp_path, lowering):
-        result, config = self._capture_config(
-            runner, tmp_path,
-            ["--runtime", "winml-runtime", "--cgc-lowering-target", lowering],
-        )
-        assert result.exit_code == 0, result.output
-        assert config.cgc_lowering_target == lowering
-
-    @pytest.mark.parametrize("lowering", ["auto", "dml", "d3d12"])
-    @pytest.mark.parametrize(
-        "runtime_args",
-        [
-            [],
-            ["--runtime", "winml-ort"],
-            ["--runtime", "winml-runtime", "--backend", "ort"],
-            ["--runtime", "ort-genai"],
-        ],
-    )
-    def test_cgc_lowering_rejects_incompatible_runtime(
-        self, runner, tmp_path, lowering, runtime_args
-    ):
-        result, config = self._capture_config(
-            runner, tmp_path, [*runtime_args, "--cgc-lowering-target", lowering]
-        )
-        assert result.exit_code == 2, result.output
-        assert "--cgc-lowering-target" in result.output
-        assert config is None
-        assert not (tmp_path / "result.json").exists()
 
 
 @pytest.fixture(autouse=True)
@@ -334,6 +303,20 @@ class TestPerfOutputPath:
         """Sanity: regardless of input, the file lands under ~/.cache/winml/perf."""
         result = generate_output_path("microsoft/resnet-50")
         assert self._cache_root in result.parents
+
+    def test_existing_folder_uses_its_name(self, tmp_path: Path) -> None:
+        folder = tmp_path / "Qwen2.5-0.5B-Instruct"
+        folder.mkdir()
+        expected = self._cache_root / "Qwen2.5-0.5B-Instruct"
+        assert generate_output_path(str(folder)).parent == expected
+
+    def test_current_folder_uses_its_resolved_name(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        folder = tmp_path / "ckpt"
+        folder.mkdir()
+        monkeypatch.chdir(folder)
+        assert generate_output_path(".").parent == self._cache_root / "ckpt"
 
 
 # =============================================================================

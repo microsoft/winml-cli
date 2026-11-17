@@ -7,13 +7,14 @@
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import click
 import pytest
 
 from winml.modelkit.compiler import compile_cgc_ir
 from winml.modelkit.compiler.runtime import _publish, _select_gpu
+from winml.modelkit.sysinfo import DXCoreAdapterError
 
 
 @pytest.fixture
@@ -34,11 +35,10 @@ def native(tmp_path, monkeypatch):
     sessions = []
 
     class FakeSession:
-        def __init__(self, model_path, *, backend, device_luid, cgc_lowering_target=None):
+        def __init__(self, model_path, *, backend, device_luid):
             self.model_path = Path(model_path)
             self.backend = backend
             self.device_luid = device_luid
-            self.cgc_lowering_target = cgc_lowering_target
             self.validate = None
             sessions.append(self)
 
@@ -49,7 +49,11 @@ def native(tmp_path, monkeypatch):
 
     monkeypatch.setattr("winml.modelkit.compiler.runtime.WinMLRuntimeSession", FakeSession)
     gpu = SimpleNamespace(device_type="GPU", name="Test GPU", luid="0x00000000_0x00000001")
-    monkeypatch.setattr("winml.modelkit.compiler.runtime.enumerate_compute_adapters", lambda: [gpu])
+    adapter = MagicMock()
+    adapter.__enter__.return_value.info = gpu
+    monkeypatch.setattr(
+        "winml.modelkit.compiler.runtime.open_gpu_adapter", Mock(return_value=adapter)
+    )
     return SimpleNamespace(
         source=source,
         output=output,
@@ -58,9 +62,8 @@ def native(tmp_path, monkeypatch):
     )
 
 
-@pytest.mark.parametrize("lowering", [None, "auto", "dml", "d3d12"])
-def test_compile_routes_through_runtime_session_and_publishes_bundle(native, lowering):
-    result = compile_cgc_ir(native.source, native.output, cgc_lowering_target=lowering)
+def test_compile_routes_through_runtime_session_and_publishes_bundle(native):
+    result = compile_cgc_ir(native.source, native.output)
 
     assert result == native.output
     assert native.output.read_text(encoding="utf-8") == "module { cgc.output }"
@@ -70,7 +73,6 @@ def test_compile_routes_through_runtime_session_and_publishes_bundle(native, low
     receipt = json.loads(native.output.with_name("output_compile.json").read_text())
     assert receipt["validation"]["status"] == "passed"
     assert receipt["output_encoding"] == "mlir-text"
-    assert receipt["cgc_lowering_target"] == (lowering or "auto")
     assert {entry["filename"] for entry in receipt["artifacts"]} == {
         "output.mlir",
         "output.data",
@@ -80,7 +82,6 @@ def test_compile_routes_through_runtime_session_and_publishes_bundle(native, low
     assert session.model_path == native.source
     assert session.backend == "cgc"
     assert session.device_luid == 1
-    assert session.cgc_lowering_target == lowering
     assert session.validate is True
     assert session.output_format == "text"
 
@@ -202,19 +203,27 @@ def test_cgc_compile_without_io_metadata(native):
     assert not native.output.with_name("output_metadata.json").exists()
 
 
-@pytest.mark.parametrize("count", [0, 2])
-def test_gpu_selection_rejects_missing_or_ambiguous_adapters(monkeypatch, count):
-    adapters = [
-        SimpleNamespace(device_type="GPU", name=f"GPU {i}", luid=f"0x00000000_0x0000000{i}")
-        for i in range(count)
-    ]
+@pytest.mark.parametrize("device_luid", [None, "0X00000000_0X00000001"])
+def test_gpu_selection_uses_shared_selector_and_releases_handle(monkeypatch, device_luid):
+    adapter = MagicMock()
+    gpu = adapter.__enter__.return_value.info
+    select_gpu = Mock(return_value=adapter)
+    monkeypatch.setattr("winml.modelkit.compiler.runtime.open_gpu_adapter", select_gpu)
+
+    assert _select_gpu(device_luid) is gpu
+
+    select_gpu.assert_called_once_with(device_luid)
+    adapter.__exit__.assert_called_once_with(None, None, None)
+
+
+def test_gpu_selection_reports_selector_error(monkeypatch):
+    error = DXCoreAdapterError("Windows cannot rank the GPUs")
     monkeypatch.setattr(
-        "winml.modelkit.compiler.runtime.enumerate_compute_adapters", lambda: adapters
+        "winml.modelkit.compiler.runtime.open_gpu_adapter", Mock(side_effect=error)
     )
-    with pytest.raises(click.ClickException, match="unambiguous"):
+    with pytest.raises(click.ClickException, match=str(error)) as caught:
         _select_gpu(None)
-    if count == 2:
-        assert _select_gpu("0X00000000_0X00000001") == adapters[1]
+    assert caught.value.__cause__ is error
 
 
 def test_atomic_publication_rolls_back_new_and_invalidated_files(tmp_path, monkeypatch):

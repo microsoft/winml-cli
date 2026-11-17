@@ -16,7 +16,6 @@ from typing import Any, cast
 
 from datasets import load_dataset
 from datasets.features import ClassLabel, Image
-from transformers import AutoImageProcessor
 
 from .base import BaseTaskDataset
 from .label_utils import get_imagenet_label_map, should_align_labels
@@ -120,6 +119,8 @@ class ImageDataset(BaseTaskDataset):
         3. Detect columns
         4. Apply efficient processing pipeline
         """
+        from transformers import AutoImageProcessor
+
         # 1. Set defaults if no dataset specified
         if self._dataset_name is None:
             self._get_default_dataset()

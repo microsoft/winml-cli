@@ -45,6 +45,7 @@ from onnx import TensorProto, helper
 from tests.e2e.cli import cli_command
 from tests.e2e.require_ep import require_ep, require_not_ep
 from winml.modelkit.commands.compile import compile as compile_cmd
+from winml.modelkit.ep_path import EP_CATALOG
 from winml.modelkit.onnx import is_compiled_onnx
 from winml.modelkit.utils import normalize_ep_name
 from winml.modelkit.utils.constants import EP_SUPPORTED_DEVICES, ORT_SESSION_COMPILER
@@ -915,11 +916,13 @@ _EP_NOT_REGISTERED_PARAMS = [(ep, EP_DEVICE_SUPPORT[ep][0]) for ep in _EPCONTEXT
 @pytest.mark.e2e
 @pytest.mark.parametrize("ep,device", _EP_NOT_REGISTERED_PARAMS)
 def test_bad_input_ep_not_registered(ep: str, device: str, simple_matmul_onnx: Path) -> None:
-    """``--ep X`` on a host where X is unusable is rejected.
+    """An unavailable EP on incompatible hardware is rejected.
 
     The registry raises either ``WinMLEPNotDiscovered`` when no source exists
     or ``WinMLEPRegistrationFailed`` when discovered sources cannot load.
     """
+    if EP_CATALOG.is_compatible(normalize_ep_name(ep), device):
+        pytest.skip(f"Requires hardware incompatible with {ep}/{device}")
     require_not_ep(ep)
     src_hash = _sha256(simple_matmul_onnx)
     result = _invoke("-m", str(simple_matmul_onnx), "--device", device, "--ep", ep)
@@ -941,6 +944,8 @@ def test_bad_input_no_ep_covers_device(simple_matmul_onnx: Path) -> None:
     rejection then comes from the capability check in
     ``commands/compile.py``: CPU cannot produce EPContext models.
     """
+    if EP_CATALOG.is_compatible(normalize_ep_name("openvino"), "cpu"):
+        pytest.skip("Requires hardware incompatible with openvino/cpu")
     require_not_ep("openvino")
     src_hash = _sha256(simple_matmul_onnx)
     result = _invoke("-m", str(simple_matmul_onnx), "--device", "cpu")

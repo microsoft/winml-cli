@@ -126,6 +126,22 @@ def test_register_ep_is_idempotent_per_dll_path(fresh_registry_with_qnn: WinMLEP
     assert mock_ort.register_execution_provider_library.call_count == 1
 
 
+def test_cached_dll_cannot_be_relabelled_as_another_ep(
+    fresh_registry_with_qnn: WinMLEPRegistry,
+) -> None:
+    entry = _ep_entry("QNNExecutionProvider")
+    other = _ep_entry("OpenVINOExecutionProvider", dll=str(entry.dll_path))
+    with patch("winml.modelkit.session.ep_registry.ort") as mock_ort:
+        mock_ort.get_ep_devices.return_value = [
+            _fake_ort_device(entry.ep_name, "NPU", dll_path=str(entry.dll_path))
+        ]
+        registered = fresh_registry_with_qnn.register_ep(entry)
+        with pytest.raises(WinMLEPRegistrationFailed, match="already registered"):
+            fresh_registry_with_qnn.register_ep(other)
+        assert fresh_registry_with_qnn.register_ep(entry) is registered
+    mock_ort.register_execution_provider_library.assert_called_once()
+
+
 def test_register_ep_suffix_for_repeat_ep_name(fresh_registry_with_qnn: WinMLEPRegistry) -> None:
     """Second registration for same ep_name (different DLL) gets ``_<n>`` arg0 suffix.
 

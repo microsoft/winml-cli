@@ -23,6 +23,7 @@ from __future__ import annotations
 import collections
 from collections.abc import Callable
 from dataclasses import dataclass
+from importlib import import_module
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -402,3 +403,6 @@ __all__ = [
     "register_genai_bundle",
     "resolve_genai_bundle",
 ]
+
+# Recipe modules import the definitions above while registering themselves.
+import_module("..hf", __package__)

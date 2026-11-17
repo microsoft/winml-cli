@@ -134,8 +134,24 @@ def test_sampling_without_two_observations_has_no_cadence():
         ("winml-runtime", "generated.mlir"),
     ],
 )
-def test_baseline_precedes_eager_loading_and_device_properties(monkeypatch, runtime, artifact):
-    benchmark = PerfBenchmark(BenchmarkConfig(model_id=artifact, runtime=runtime, memory=True))
+@pytest.mark.parametrize("initial_profile", [False, True])
+def test_baseline_precedes_eager_loading_and_device_properties(
+    monkeypatch, tmp_path, runtime, artifact, initial_profile
+):
+    from winml.modelkit.session.monitor import NullEPMonitor
+
+    monkeypatch.chdir(tmp_path)
+    benchmark = PerfBenchmark(
+        BenchmarkConfig(
+            model_id=artifact,
+            runtime=runtime,
+            memory=True,
+            ep="vitisai" if initial_profile else None,
+            op_tracing="basic" if initial_profile else None,
+        )
+    )
+    if initial_profile:
+        benchmark._initial_ep_monitor = NullEPMonitor()
     state = {"rss": 100.0, "gpu": None}
     events = []
     monkeypatch.setattr(memory, "get_rss_mb", lambda: state["rss"])
@@ -193,6 +209,7 @@ def test_baseline_precedes_eager_loading_and_device_properties(monkeypatch, runt
     assert result.load_memory["rss"]["ready_extra_mb"] == 200
     assert result.load_memory["rss"]["ready_mb"] == 300
     assert result.load_memory["status"] == "measured"
+    assert result.load_memory["scope"].endswith("ready_before_inputs")
     assert result.memory_profile["rss_total_delta_mb"] == 230
     assert result.memory_profile["vram_local_baseline_mb"] is None
     assert result.memory_profile["vram_local_total_delta_mb"] is None

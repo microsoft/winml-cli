@@ -24,14 +24,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
-import torch
 
 
 if TYPE_CHECKING:
     import contextlib
     from collections.abc import Callable
 
-    from ...utils import CGCLoweringTarget
+    import torch
+
     from ...utils.constants import RuntimeBackend, RuntimeName
 
 from ...session.runtime_session import WinMLRuntimeSession
@@ -41,6 +41,7 @@ from ...session.session import WinMLSession
 if TYPE_CHECKING:
     from transformers import PretrainedConfig
 
+    from ...compiler import EPConfig
     from ...session import WinMLEPDevice
 
 logger = logging.getLogger(__name__)
@@ -80,7 +81,7 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         session_options: Callable[[], Any] | None = None,
         runtime: RuntimeName = "winml-ort",
         backend: RuntimeBackend | None = None,
-        cgc_lowering_target: CGCLoweringTarget | None = None,
+        ep_config: EPConfig | None = None,
     ) -> None:
         """Initialize inference model.
 
@@ -89,6 +90,8 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
             ep_device: Resolved (EP, device) target — required. Use
                 ``resolve_device(EPDeviceTarget(...))`` from ``session.ep_device``.
             config: HuggingFace PretrainedConfig (num_labels, id2label, etc.)
+            ep_config: Runtime winml-ort session configuration. Explicit
+                provider_options override matching entries.
         """
         self._onnx_path = Path(onnx_path)
         self._ep_device = ep_device
@@ -97,14 +100,14 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         # Set by WinMLAutoModel.from_pretrained() after construction
         self._build_config: Any = None
 
-        if cgc_lowering_target is not None and runtime != "winml-runtime":
-            raise ValueError(
-                "cgc_lowering_target requires runtime='winml-runtime'."
-            )
         runtime_kwargs: dict[str, Any] = (
-            {"backend": backend, "cgc_lowering_target": cgc_lowering_target}
+            {"backend": backend}
             if runtime == "winml-runtime" else {}
         )
+        if ep_config is not None:
+            if runtime != "winml-ort":
+                raise ValueError("ep_config requires runtime='winml-ort'.")
+            runtime_kwargs["ep_config"] = ep_config
         self._session = SESSION_CLASSES[runtime](
             self._onnx_path,
             ep_device=ep_device,
@@ -159,6 +162,8 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         Raises:
             TypeError: If data format is not supported
         """
+        import torch
+
         input_names = self.io_config["input_names"]
 
         # Normalize to dict - handle all input formats
@@ -202,6 +207,8 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
         Returns:
             Dict of output_name -> torch.Tensor
         """
+        import torch
+
         # Delegate to WinMLSession (handles compile, re-batching, run)
         outputs = self._session.run(inputs)
         return {name: torch.from_numpy(out) for name, out in outputs.items()}
@@ -275,6 +282,8 @@ class WinMLPreTrainedModel(PreTrainedModel, ABC):
     @property
     def dtype(self) -> torch.dtype:
         """Model dtype (for HF compatibility)."""
+        import torch
+
         return torch.float32
 
 

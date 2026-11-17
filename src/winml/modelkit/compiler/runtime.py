@@ -19,13 +19,12 @@ from filelock import FileLock
 
 from ..export.cgc.artifacts import cgc_metadata_path
 from ..session.runtime_session import WinMLRuntimeSession
-from ..sysinfo.dxcore_adapters import enumerate_compute_adapters
+from ..sysinfo.dxcore_adapters import DXCoreAdapterError, open_gpu_adapter
 from ..utils.cli import guard_output
 
 
 if TYPE_CHECKING:
     from ..sysinfo.dxcore_adapters import DXCoreAdapterInfo
-    from ..utils import CGCLoweringTarget
 
 logger = logging.getLogger(__name__)
 
@@ -37,17 +36,11 @@ def _file_identity(path: Path) -> dict[str, str | int]:
 
 
 def _select_gpu(device_luid: str | None) -> DXCoreAdapterInfo:
-    adapters = [adapter for adapter in enumerate_compute_adapters() if adapter.device_type == "GPU"]
-    if device_luid is not None:
-        adapters = [
-            adapter for adapter in adapters if adapter.luid.casefold() == device_luid.casefold()
-        ]
-    if len(adapters) != 1:
-        raise click.ClickException(
-            "CGC compilation requires one unambiguous GPU. Use --device-luid with "
-            f"a current GPU LUID from 'winml sys'; found {len(adapters)} matching adapters."
-        )
-    return adapters[0]
+    try:
+        with open_gpu_adapter(device_luid) as adapter:
+            return adapter.info
+    except DXCoreAdapterError as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 def _same_file(first: Path, second: Path) -> bool:
@@ -106,7 +99,6 @@ def compile_cgc_ir(
     device_luid: str | None = None,
     validate: bool = True,
     overwrite: bool = False,
-    cgc_lowering_target: CGCLoweringTarget | None = None,
 ) -> Path:
     """Compile genuine CGC Input IR to a persistent device-targeted text bundle.
 
@@ -149,7 +141,6 @@ def compile_cgc_ir(
         artifact = staging / output_path.name
         session = WinMLRuntimeSession(
             model_path, backend="cgc", device_luid=luid,
-            cgc_lowering_target=cgc_lowering_target,
         )
         session.compile_to_file(artifact, validate=validate, output_format="text")
         if not artifact.is_file() or not artifact.stat().st_size:
@@ -175,7 +166,6 @@ def compile_cgc_ir(
             "target": "cg-output-ir",
             "runtime": "winml-runtime",
             "compiled_form": "DEVICE_TARGETED",
-            "cgc_lowering_target": cgc_lowering_target or "auto",
             "output_encoding": "mlir-text",
             "input": source_identity,
             "gpu": {"name": adapter_info.name, "luid": adapter_info.luid},

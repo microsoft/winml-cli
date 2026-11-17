@@ -23,12 +23,9 @@ class WinMLOptimizationConfig(dict):
 
     @classmethod
     def for_cgc(cls) -> WinMLOptimizationConfig:
-        """Enable the registered CGIR compatibility rules without ORT graph optimization."""
-        from .pipes import CGIRRewritePipe
-
+        """Disable ORT graph optimization."""
         return cls(
             ort_graph_optimization=False,
-            **CGIRRewritePipe.get_compatibility_options(),
         )
 
     def to_dict(self) -> dict:

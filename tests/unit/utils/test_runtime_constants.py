@@ -10,7 +10,6 @@ from typing import get_args
 
 import pytest
 
-from winml.modelkit.utils import CGC_LOWERING_TARGETS, CGCLoweringTarget
 from winml.modelkit.utils.constants import (
     RUNTIME_BACKENDS,
     RUNTIME_NAMES,
@@ -52,7 +51,3 @@ def test_resolve_runtime_api_backend_rejects_ort_for_mlir() -> None:
 def test_resolve_runtime_api_backend_rejects_other_runtimes() -> None:
     with pytest.raises(ValueError, match="only supported"):
         resolve_runtime_api_backend("winml-ort", "model.onnx", "cgc")
-
-
-def test_cgc_lowering_values_match_type():
-    assert get_args(CGCLoweringTarget) == CGC_LOWERING_TARGETS

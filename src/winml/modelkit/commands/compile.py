@@ -35,7 +35,6 @@ from ..session import (
     available_eps_for_device,
     resolve_device,
 )
-from ..utils import CGCLoweringTarget
 from ..utils import cli as cli_utils
 from ..utils.constants import COMPILER_NAMES, ORT_SESSION_COMPILER, normalize_ep_name
 
@@ -73,7 +72,7 @@ def _is_epcontext_compiler(value: str) -> TypeGuard[CompilerName]:
 @cli_utils.model_path_option(
     required=False,
     multiple=True,
-    help_text="Input ONNX model file. "
+    help_text="Input model file. "
     "Repeat -m to compile multiple ONNX models with a shared "
     "EP context (weight sharing). Required unless --list.",
 )
@@ -93,8 +92,7 @@ def _is_epcontext_compiler(value: str) -> TypeGuard[CompilerName]:
     help="Target device (default: deduced from --ep, or 'npu' if neither given)",
 )
 @cli_utils.device_luid_option(
-    optional_message="Only supported for CGIR to CG Output IR compilation.",
-    hidden=True,
+    optional_message="Only supported for CGIR to CG Output IR compilation."
 )
 @click.option(
     "--ep",
@@ -110,16 +108,15 @@ def _is_epcontext_compiler(value: str) -> TypeGuard[CompilerName]:
 @click.option(
     "--validate/--no-validate",
     default=True,
-    help="Validate compiled model with inference.",
+    help="Validate compiled model.",
 )
-@cli_utils.cgc_lowering_target_option()
 @click.option(
     "--compiler",
     type=click.Choice([*COMPILER_NAMES, "cgc"]),
-    metavar=f"[{'|'.join(COMPILER_NAMES)}]",
     default="ort",
     help="Compiler backend (default: ort). 'ort_session' compiles via "
-    "ort.InferenceSession (ep.context_enable) — required for shared-context multi-model.",
+    "ort.InferenceSession (ep.context_enable) — required for shared-context multi-model. "
+    "'cgc' compiles CGIR to CG Output IR.",
 )
 @click.option(
     "--qnn-sdk-root",
@@ -158,13 +155,12 @@ def compile(
     verbose: int,
     quiet: bool,
     compiler: CompilerName | Literal["cgc"],
-    cgc_lowering_target: CGCLoweringTarget | None,
     qnn_sdk_root: Path | None,
     embed: bool,
     list_compilers_flag: bool,
     config_file: Path | None,
 ) -> None:
-    r"""Compile ONNX to EPContext.
+    r"""Compile ONNX to EPContext, or CGIR to CG Output IR.
 
     This command compiles an ONNX model to an EP-specific format (e.g., QNN
     EPContext).
@@ -182,6 +178,9 @@ def compile(
 
         # Compile using QAIRT SDK
         winml compile -m model.onnx --compiler qairt --qnn-sdk-root /path/to/sdk
+
+        # Compile CGIR to device-targeted CG Output IR
+        winml compile -m input.mlir --compiler cgc --device gpu -o output.mlir
     """
     # Merge top-level -v/-q with subcommand-level flags so either position works.
     verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
@@ -193,10 +192,6 @@ def compile(
         and model[0].suffix.casefold() in {".mlir", ".mlirbc"}
     )
     ir_mode = compiler == "cgc" or inferred_cgc
-    if cgc_lowering_target is not None and not ir_mode:
-        raise click.UsageError(
-            "--cgc-lowering-target is only supported for CGC compilation."
-        )
     if ir_mode:
         incompatible = {
             "--ep": ep is not None,
@@ -227,7 +222,6 @@ def compile(
                 device_luid=device_luid,
                 validate=validate,
                 overwrite=overwrite,
-                cgc_lowering_target=cgc_lowering_target,
             )
         except OSError as e:
             raise click.ClickException(f"CGC compilation failed: {e}") from e

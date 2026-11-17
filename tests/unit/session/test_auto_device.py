@@ -28,6 +28,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from winml.modelkit.ep_path import (
+    EP_CATALOG,
     EPEntry,
     MSIXPackageSource,
     PyPISource,
@@ -130,6 +131,96 @@ def _winml_ep_with_device(entry: EPEntry, device_type: str) -> WinMLEP:
 
 class TestAutoDevice:
     """One test per scenario from the Batch E plan."""
+
+    @pytest.mark.parametrize("first_result", ["valid", "load-failure", "wrong-ep", "wrong-device"])
+    def test_arbitrary_dll_candidates_use_first_valid_entry(
+        self,
+        fresh_registry: WinMLEPRegistry,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        first_result: str,
+    ) -> None:
+        import os
+
+        ep, other_ep = EP_CATALOG.all_eps()[:2]
+        other_filename = EP_CATALOG.dll_name_for(other_ep)
+        assert other_filename is not None
+        unrelated = tmp_path / other_filename
+        first = tmp_path / "first.dll"
+        second = tmp_path / "second.dll"
+        for dll in (unrelated, first, second):
+            dll.touch()
+        monkeypatch.setenv(
+            "WINMLCLI_EP_PATH", os.pathsep.join(map(str, (unrelated, first, second, first)))
+        )
+        first_device = _fake_ort_device(
+            other_ep if first_result == "wrong-ep" else ep,
+            "CPU" if first_result == "wrong-device" else "NPU",
+        )
+        first_device.ep_metadata = {"library_path": str(first.resolve())}
+        second_device = _fake_ort_device(ep, "NPU")
+        second_device.ep_metadata = {"library_path": str(second.resolve())}
+        with patch("winml.modelkit.session.ep_registry.ort") as mock_ort:
+            mock_ort.get_ep_devices.return_value = [first_device, second_device]
+            if first_result == "load-failure":
+                mock_ort.register_execution_provider_library.side_effect = [
+                    RuntimeError("invalid plugin"),
+                    None,
+                ]
+            result = fresh_registry.auto_device(
+                EPDeviceTarget(ep=ep, device="npu", source="directory")
+            )
+
+        expected = first if first_result == "valid" else second
+        assert result.ep.source.dll_path == expected.resolve()
+        assert result.device.ort_handle.ep_name == ep
+        attempted = [
+            Path(call.args[1])
+            for call in mock_ort.register_execution_provider_library.call_args_list
+        ]
+        assert attempted == ([first] if first_result == "valid" else [first, second])
+        assert fresh_registry.all_discovered() == ()
+        if first_result == "wrong-ep":
+            mock_ort.unregister_execution_provider_library.assert_called_once_with(ep)
+
+    @pytest.mark.parametrize("unknown_first", [False, True])
+    def test_requested_ep_merges_known_and_unknown_paths_in_order(
+        self,
+        fresh_registry: WinMLEPRegistry,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        unknown_first: bool,
+    ) -> None:
+        import os
+
+        ep = EP_CATALOG.all_eps()[0]
+        filename = EP_CATALOG.dll_name_for(ep)
+        assert filename is not None
+        directory = tmp_path / "known"
+        directory.mkdir()
+        known = directory / filename
+        unknown = tmp_path / "custom.dll"
+        known.touch()
+        unknown.touch()
+        paths = [unknown, directory, known] if unknown_first else [directory, unknown, known]
+        monkeypatch.setenv("WINMLCLI_EP_PATH", os.pathsep.join(map(str, paths)))
+        default = _pypi_entry(ep)
+        fresh_registry._discovered = [default]
+
+        candidates = fresh_registry.ensure_discovered_ep(ep, source="directory")
+
+        expected = [unknown, known] if unknown_first else [known, unknown]
+        assert [entry.dll_path for entry in candidates] == [*expected, default.dll_path]
+        assert [entry.status for entry in candidates] == ["primary", "shadowed", "shadowed"]
+        assert fresh_registry.all_discovered() == (default,)
+
+    def test_other_source_pin_ignores_arbitrary_dll(
+        self, fresh_registry: WinMLEPRegistry, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        dll = tmp_path / "custom.dll"
+        dll.touch()
+        monkeypatch.setenv("WINMLCLI_EP_PATH", str(dll))
+        assert fresh_registry.ensure_discovered_ep(EP_CATALOG.all_eps()[0], source="pypi") == ()
 
     @pytest.mark.parametrize("reverse_ort", [False, True])
     @pytest.mark.parametrize("reverse_dxcore", [False, True])

@@ -14,7 +14,6 @@ import logging
 from typing import Any
 
 from datasets.features import Image
-from transformers import AutoImageProcessor
 
 from .image import ImageDataset
 
@@ -91,6 +90,8 @@ class ObjectDetectionDataset(ImageDataset):
         2. Use object detection default size (640)
         3. Skip label alignment (object detection has different label structure)
         """
+        from transformers import AutoImageProcessor
+
         # Set defaults if no dataset specified
         if self._dataset_name is None:
             self._get_default_dataset()

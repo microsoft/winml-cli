@@ -11,15 +11,20 @@ but must not be used for a Python-managed generation loop.
 
 from __future__ import annotations
 
+import dataclasses
+import gc
 import sys
 from dataclasses import dataclass
 from enum import IntEnum
+from itertools import pairwise
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from tests.unit.test_helpers import TaskOptions12, hold_cyclic_interface
 from winml.modelkit.session import (
+    LlamaExecutionDiagnostics,
     LlamaLoadError,
     LlamaNotInstalledError,
     LlamaSessionError,
@@ -101,18 +106,65 @@ class _Schema(_Closable):
         return _DataTypes.FLOAT32, (1, _DYNAMIC, _VOCABULARY)
 
 
+# Modeled on a built llama.cpp stage (17 layers on one GPU). The host share is made up, to
+# cover a share without an adapter LUID and an implementation the projection has no name for.
+_DIAGNOSTICS = SimpleNamespace(
+    coverage=SimpleNamespace(name="FULL"),
+    work_unit=SimpleNamespace(name="MODEL_LAYER"),
+    work_shares=[
+        SimpleNamespace(
+            device_kind=SimpleNamespace(name="GPU"),
+            adapter_luid=0x1_0001A2B3,
+            implementation=SimpleNamespace(name="VENDOR_LIBRARY"),
+            unit_count=17,
+        ),
+        SimpleNamespace(
+            device_kind=SimpleNamespace(name="CPU"),
+            adapter_luid=None,
+            implementation=9,
+            unit_count=1,
+        ),
+    ],
+    description="device=GPU0; offloaded layers=17/17\nllama_context: n_ctx = 40\n",
+)
+
+
 class _Stage(_Closable):
     """Runtime metadata consumed by the Task configuration."""
 
-    def __init__(self, target: _Target, *, token_type: Any, token_rank: int) -> None:
+    def __init__(
+        self, target: _Target, *, token_type: Any, token_rank: int, api: SimpleNamespace
+    ) -> None:
         super().__init__()
         self._target_kind = target.kind.name
         self._token_type = token_type
         self._token_rank = token_rank
+        self._api = api
         self.requested_outputs: set[int] = set()
         self.capacity_hint: int | None = None
         self.default_capacity = 64
         self.sequence_position = 0
+        self.diagnostics_enabled = False
+        self.built = False
+
+    @property
+    def execution_diagnostics_enabled(self) -> bool:
+        return self.diagnostics_enabled
+
+    @execution_diagnostics_enabled.setter
+    def execution_diagnostics_enabled(self, value: bool) -> None:
+        if self._api.diagnostics_refusal is not None:
+            raise self._api.diagnostics_refusal
+        assert not self.built, "execution diagnostics are requested before Build"
+        self.diagnostics_enabled = value
+
+    @property
+    def execution_diagnostics(self) -> SimpleNamespace:
+        if self._api.diagnostics_read_error is not None:
+            raise self._api.diagnostics_read_error
+        if not (self.built and self.diagnostics_enabled):
+            raise _WinMLError("Execution diagnostics were not captured at Build")
+        return _DIAGNOSTICS
 
     @property
     def sequence_capacity(self) -> int:
@@ -130,6 +182,12 @@ class _Stage(_Closable):
 
     def schema(self) -> _Schema:
         return _Schema(self._token_type, self._token_rank)
+
+
+class _LegacyStage(_Stage):
+    """A stage from a projection without stage execution diagnostics."""
+
+    execution_diagnostics_enabled = None  # type: ignore[assignment]
 
 
 class _Pipeline(_Closable):
@@ -152,15 +210,18 @@ class _Builder(_Closable):
 
     def add_model_stage(self, model: Any, target: _Target, name: str) -> _Stage:
         assert name == "decoder"
-        self._runtime.stage = _Stage(
+        api = self._runtime._api
+        self._runtime.stage = api.stage_class(
             target,
             token_type=self._runtime.token_type,
             token_rank=self._runtime.token_rank,
+            api=api,
         )
         return self._runtime.stage
 
     def build(self) -> _Pipeline:
         assert self._runtime.stage is not None
+        self._runtime.stage.built = True
         self._runtime.pipeline = _Pipeline(self._runtime.stage)
         return self._runtime.pipeline
 
@@ -294,21 +355,35 @@ class _Tasks(_Closable):
     def create_text_generation_task(
         self, tokenizer: _Tokenizer, eos_token_ids: Any = None, **kwargs: Any
     ) -> _GenerationTask:
-        assert eos_token_ids is None
-        task = _GenerationTask(self, tokenizer, kwargs.get("default_configuration"))
+        self.api.eos_arguments.append(eos_token_ids)
+        task = _GenerationTask(
+            self, tokenizer, kwargs.get("default_configuration"), eos_token_ids
+        )
         self.api.generation_tasks.append(task)
         return task
 
 
 class _GenerationTask(_Closable):
     def __init__(
-        self, owner: _Tasks, tokenizer: _Tokenizer, configuration: _TaskConfiguration | None
+        self,
+        owner: _Tasks,
+        tokenizer: _Tokenizer,
+        configuration: _TaskConfiguration | None,
+        eos_token_ids: Any = None,
     ) -> None:
         super().__init__()
         self.owner = owner
         self.tokenizer = tokenizer
         self.configuration = configuration
+        self._explicit_eos = None if eos_token_ids is None else tuple(eos_token_ids)
         self._default_session: _GenerationSession | None = None
+
+    @property
+    def default_eos_token_ids(self) -> tuple[int, ...]:
+        """An explicit set (even an empty one) replaces the tokenizer's EOS IDs."""
+        if self._explicit_eos is not None:
+            return self._explicit_eos
+        return tuple(self.tokenizer.eos_token_ids)
 
     def create_session(self, configuration: _TaskConfiguration) -> _GenerationSession:
         assert configuration.validated
@@ -336,6 +411,7 @@ class _GenerationSession(_Closable):
         self.api = task.owner.api
         self.reset_count = 0
         self.streams: list[_TaskStream] = []
+        self._retained: list[int] = []
 
     def reset(self) -> None:
         assert not self.closed
@@ -343,6 +419,26 @@ class _GenerationSession(_Closable):
         self.reset_count += 1
         self.api.clock.advance(2.0)
         self.task.owner.runtime.stage.sequence_position = 0
+        if self.api.reset_keeps_tokens and self.streams:
+            last = self.streams[-1]
+            self._retained = [*last.prompt, *last.tokens]
+        else:
+            self._retained = []
+
+    @property
+    def sequence_state(self) -> SimpleNamespace:
+        if self.api.disclosure_unsupported:
+            raise _NotSupportedError("sequence state disclosure is not supported")
+        self.api.clock.advance(1.0)
+        sources = self.api.kept_token_sources
+        return SimpleNamespace(
+            evaluated_token_count=len(self._retained) if "evaluated" in sources else 0,
+            retained_token_count=len(self._retained) if "retained" in sources else 0,
+        )
+
+    @property
+    def retained_token_ids(self) -> tuple[int, ...]:
+        return tuple(self._retained) if "ids" in self.api.kept_token_sources else ()
 
     def generate_tokens(self, token_ids: Any, options: _TaskOptions) -> _TaskStream:
         assert not self.closed
@@ -397,7 +493,7 @@ class _TaskStream(_Closable):
         self.finish_reason = _FinishReason.MAX_TOKENS
         for _ in range(options.max_new_tokens):
             token = (previous + 1) % _VOCABULARY
-            if token in session.task.tokenizer.eos_token_ids:
+            if token in session.task.default_eos_token_ids:
                 self.finish_reason = _FinishReason.EOS_TOKEN
                 break
             if len(prompt) + len(self.tokens) >= capacity:
@@ -470,6 +566,7 @@ def _runtime_api(
         load_hresult=load_hresult,
         token_type=token_type,
         token_rank=token_rank,
+        eos_arguments=[],
         runtimes=[],
         tokenizers=[],
         tasks=[],
@@ -486,6 +583,13 @@ def _runtime_api(
         result_count_mismatch=False,
         result_prompt_offset=0,
         finish_override=None,
+        disclosure_unsupported=False,
+        reset_keeps_tokens=False,
+        # The state reads that report the tokens a reset kept; the others report none.
+        kept_token_sources=("evaluated", "retained", "ids"),
+        stage_class=_Stage,
+        diagnostics_refusal=None,
+        diagnostics_read_error=None,
     )
     api.Runtime = lambda: _Runtime(api)
 
@@ -505,11 +609,13 @@ def _gguf(tmp_path: Path) -> Path:
 
 
 def _session(
-    tmp_path: Path, *, device: str = "cpu", **api_kwargs: Any
+    tmp_path: Path, *, device: str = "cpu", diagnostics: bool | None = None, **api_kwargs: Any
 ) -> tuple[WinMLLlamaSession, SimpleNamespace]:
+    """A session over a fake Runtime; ``diagnostics`` ``None`` keeps the constructor default."""
     api = _runtime_api(**api_kwargs)
+    options = {} if diagnostics is None else {"execution_diagnostics": diagnostics}
     return WinMLLlamaSession(
-        _gguf(tmp_path), device=device, runtime_api=api, tasks_api=_tasks_api()
+        _gguf(tmp_path), device=device, runtime_api=api, tasks_api=_tasks_api(), **options
     ), api
 
 
@@ -649,6 +755,133 @@ class TestLoad:
         assert api.runtimes[0].stage.closed
 
 
+class TestExecutionDiagnostics:
+    def test_are_not_requested_by_default(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path)
+        session.load(context_length=40)
+        assert not api.runtimes[0].stage.diagnostics_enabled
+        assert session.execution_diagnostics is None
+
+    def test_are_requested_before_build_and_copied_after_it(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path, device="gpu", diagnostics=True)
+        session.load(context_length=40)
+
+        assert api.runtimes[0].stage.diagnostics_enabled  # the fake refuses it after Build
+        assert session.execution_diagnostics == LlamaExecutionDiagnostics(
+            enabled=True,
+            reason=None,
+            coverage="FULL",
+            work_unit="MODEL_LAYER",
+            work_shares=(
+                {
+                    "device_kind": "GPU",
+                    "adapter_luid": "0x00000001_0x0001A2B3",
+                    "implementation": "VENDOR_LIBRARY",
+                    "unit_count": 17,
+                },
+                # A value without a name in the installed projection keeps its number.
+                {"device_kind": "CPU", "adapter_luid": None, "implementation": 9, "unit_count": 1},
+            ),
+            description=_DIAGNOSTICS.description,
+        )
+
+    def test_an_older_windowsml_without_them_still_loads(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path, diagnostics=True)
+        api.stage_class = _LegacyStage
+        session.load(context_length=40)
+
+        assert session.context_length == 40
+        assert session.execution_diagnostics == LlamaExecutionDiagnostics(
+            enabled=False,
+            reason="The installed 'windowsml' package has no stage execution diagnostics.",
+        )
+
+    @pytest.mark.parametrize(
+        ("setting", "enabled", "reason"),
+        [
+            (
+                "diagnostics_refusal",
+                False,
+                "The decoder stage refused execution diagnostics: _NotSupportedError: E_NOTIMPL",
+            ),
+            (
+                "diagnostics_read_error",
+                True,
+                "Could not read the execution diagnostics: _NotSupportedError: E_NOTIMPL",
+            ),
+        ],
+    )
+    def test_a_refusal_or_failed_read_is_recorded_and_the_load_goes_on(
+        self, tmp_path: Path, setting: str, enabled: bool, reason: str
+    ) -> None:
+        session, api = _session(tmp_path, diagnostics=True)
+        setattr(api, setting, _NotSupportedError("E_NOTIMPL", hresult=0x80004001))
+        session.load(context_length=40)
+
+        assert session.context_length == 40
+        assert session.execution_diagnostics == LlamaExecutionDiagnostics(
+            enabled=enabled, reason=reason
+        )
+
+    def test_are_absent_when_the_load_fails_before_build(self, tmp_path: Path) -> None:
+        session, _api = _session(tmp_path, diagnostics=True, load_hresult=0x80004005)
+        with pytest.raises(LlamaLoadError, match="0x80004005"):
+            session.load(context_length=40)
+        assert session.execution_diagnostics is None
+
+    def test_survive_a_task_creation_failure_after_build(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path, diagnostics=True)
+        api.task_create_hresult = 0x80004005
+        with pytest.raises(LlamaLoadError, match="0x80004005"):
+            session.load(context_length=40)
+        assert session.execution_diagnostics is not None
+        assert session.execution_diagnostics.work_unit == "MODEL_LAYER"
+        assert session.execution_diagnostics.to_dict()["work_shares"][0]["unit_count"] == 17
+
+
+class TestLoadReadback:
+    def test_default_eos_policy_is_unchanged(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path)
+        session.load(context_length=32)
+        assert api.eos_arguments == [None]
+        assert session.task_default_eos_token_ids == api.tokenizers[0].eos_token_ids == (_EOS,)
+
+    def test_explicit_empty_eos_set_is_read_back(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path)
+        session.load(context_length=32, eos_token_ids=())
+        assert api.eos_arguments == [()]
+        assert session.task_default_eos_token_ids == ()
+
+    def test_readback_before_load_raises(self, tmp_path: Path) -> None:
+        session, _api = _session(tmp_path)
+        with pytest.raises(LlamaSessionError, match="load"):
+            _ = session.task_default_eos_token_ids
+
+    def test_greedy_options_set_all_eleven_fields(self, tmp_path: Path) -> None:
+        session, _api = _session(tmp_path)
+        session.load(context_length=32)
+        assert dataclasses.asdict(session.greedy_options(128)) == {
+            "max_new_tokens": 128,
+            "stop_token_ids": (),
+            "temperature": 0.0,
+            "top_k": 0,
+            "top_p": 1.0,
+            "min_p": 0.0,
+            "repetition_penalty": 1.0,
+            "repetition_penalty_window": 0,
+            "presence_penalty": 0.0,
+            "frequency_penalty": 0.0,
+            "seed": 0,
+        }
+
+    def test_greedy_options_disable_watermark_on_the_2_8_task_api(self, tmp_path: Path) -> None:
+        tasks = _tasks_api()
+        tasks.TextGenerationOptions = TaskOptions12
+        session = WinMLLlamaSession(_gguf(tmp_path), runtime_api=_runtime_api(), tasks_api=tasks)
+        session.load(context_length=32)
+        assert session.greedy_options(128).watermark is False
+
+
 # ---------------------------------------------------------------------------
 # Prompting and generation
 # ---------------------------------------------------------------------------
@@ -724,9 +957,70 @@ class TestGenerateTimed:
         first = session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
         second = session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
         assert first.response_text == second.response_text == "<4><5><6>"
+        assert first.cached_tokens == second.cached_tokens == 0
         assert len(api.generation_sessions) == 1
         assert api.generation_sessions[0].reset_count == 2
         assert all(stream.closed for stream in api.generation_sessions[0].streams)
+
+    def test_cached_tokens_count_what_the_reset_left_behind(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path)
+        api.reset_keeps_tokens = True
+        session.load(context_length=32)
+        first = session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
+        second = session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
+        stream = api.generation_sessions[0].streams[0]
+        assert first.cached_tokens == 0
+        assert second.cached_tokens == len(stream.prompt) + len(stream.tokens)
+
+    @pytest.mark.parametrize(
+        "sources",
+        [("evaluated", "retained"), ("evaluated",), ("retained",), ("ids",)],
+        ids=["counts-without-ids", "evaluated-only", "retained-only", "ids-only"],
+    )
+    def test_cached_tokens_take_the_largest_state_count(
+        self, tmp_path: Path, sources: tuple[str, ...]
+    ) -> None:
+        # A kept state the Task cannot reuse reports its counts but no retained IDs;
+        # any one read that still sees the kept tokens must count them.
+        session, api = _session(tmp_path)
+        api.reset_keeps_tokens = True
+        api.kept_token_sources = sources
+        session.load(context_length=32)
+        session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
+        second = session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
+        stream = api.generation_sessions[0].streams[0]
+        assert second.cached_tokens == len(stream.prompt) + len(stream.tokens)
+
+    def test_unreadable_session_state_leaves_cached_tokens_unknown(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path)
+        api.disclosure_unsupported = True
+        session.load(context_length=32)
+        timing = session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16)
+        assert timing.cached_tokens is None
+        assert timing.response_text == "<4><5><6>"
+
+    def test_returns_the_clock_readings_behind_the_spans(self, tmp_path: Path) -> None:
+        session, api = _session(tmp_path)
+        session.load(context_length=32)
+        timing = session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=16, clock=api.clock)
+        stream = api.generation_sessions[0].streams[0]
+
+        # The fake's 1 s state read falls after the 2 s reset and before the submit.
+        assert (timing.reset_s, timing.submit_time) == (2.0, 3.0)
+        assert timing.token_ids == tuple(stream.tokens)
+        assert timing.token_times[0] - timing.submit_time == timing.first_token_s
+        assert [later - earlier for earlier, later in pairwise(timing.token_times)] == (
+            timing.decode_s
+        )
+        assert timing.completed_time - timing.token_times[-1] == timing.completion_s
+
+    def test_explicit_empty_eos_set_runs_to_the_limit(self, tmp_path: Path) -> None:
+        session, _api = _session(tmp_path)
+        session.load(context_length=32, eos_token_ids=())
+        timing = session.generate_timed([_EOS - 1], max_new_tokens=4)
+        assert timing.stop_reason == "MAX_TOKENS"
+        assert timing.token_ids[0] == _EOS
+        assert timing.generated_tokens == 4
 
     def test_phase_spans_follow_the_clock(self, tmp_path: Path) -> None:
         session, api = _session(tmp_path)
@@ -847,6 +1141,21 @@ class TestClose:
         assert api.tasks[0].closed
         with pytest.raises(LlamaSessionError, match="load"):
             session.generate_timed(_TEMPLATED_PROMPT, max_new_tokens=4)
+
+    def test_close_frees_interfaces_that_closed_wrappers_left_in_cycles(
+        self, tmp_path: Path
+    ) -> None:
+        session, api = _session(tmp_path)
+        session.load(context_length=32)
+        released = hold_cyclic_interface(api.runtimes[0])
+
+        gc.disable()  # only close() may run the cycle collector
+        try:
+            session.close()
+        finally:
+            gc.enable()
+
+        assert released == ["interface"]
 
 
 # ---------------------------------------------------------------------------

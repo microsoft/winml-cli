@@ -20,7 +20,6 @@ from typing import Any, cast
 
 from datasets import load_dataset
 from datasets.features import ClassLabel, Value
-from transformers import AutoTokenizer
 
 from .base import BaseTaskDataset
 
@@ -120,6 +119,8 @@ class TextDataset(BaseTaskDataset):
 
     def _initialize(self) -> None:
         """Initialize dataset with tokenization pipeline."""
+        from transformers import AutoTokenizer
+
         # 1. Set defaults
         self._get_default_dataset()
 

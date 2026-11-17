@@ -25,6 +25,8 @@ Exports:
 
 from __future__ import annotations
 
+from ..winml import zero_shot_image_classification as _zero_shot_image_classification
+
 # Import configs - importing triggers ONNX config registration with TasksManager
 # ConvNeXT and SAM2 modules also register PATCHING_SPECS / _MODEL_PATCHER
 # on their OnnxConfig classes at import time.

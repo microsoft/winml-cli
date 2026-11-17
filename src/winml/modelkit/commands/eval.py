@@ -16,7 +16,6 @@ from typing import TYPE_CHECKING
 import click
 from rich.console import Console
 
-from ..utils import CGCLoweringTarget
 from ..utils import cli as cli_utils
 from ..utils.constants import (
     ALL_EP_NAMES,
@@ -41,12 +40,12 @@ logger = logging.getLogger(__name__)
     required=False,
     multiple=True,
     help_text=(
-        "Model to evaluate. Accepts a HuggingFace model ID, an ONNX file path "
+        "Model to evaluate. Accepts a HuggingFace model ID, an ONNX or MLIR file path "
         "(requires --model-id), or split-encoder role=path pairs (see --schema)."
     ),
 )
 @cli_utils.model_id_option(
-    help_text="HuggingFace model ID when an ONNX file is provided in --model.",
+    help_text="HuggingFace model ID when an ONNX or MLIR file is provided in --model.",
 )
 @click.option(
     "--dataset",
@@ -128,16 +127,13 @@ logger = logging.getLogger(__name__)
     type=click.Choice(["winml-ort", "winml-runtime", "pytorch"]),
     default="winml-ort",
     show_default=True,
-    metavar="[winml-ort|pytorch]",
     help="Evaluation runtime. 'winml-ort' exports Hugging Face checkpoints to ONNX; "
-    "'pytorch' evaluates the original checkpoint.",
+    "'winml-runtime' runs ONNX or pre-built CGC MLIR; 'pytorch' evaluates the original checkpoint.",
 )
-@cli_utils.cgc_lowering_target_option()
 @click.option(
     "--backend",
     type=click.Choice(list(RUNTIME_BACKENDS)),
     default=None,
-    hidden=True,
     help="[winml-runtime] Execution backend for ONNX inputs (default: cgc). "
     "MLIR inputs always use cgc.",
 )
@@ -256,9 +252,6 @@ logger = logging.getLogger(__name__)
     "--reference-ep",
     type=click.Choice(ALL_EP_NAMES, case_sensitive=False),
     default=None,
-    metavar="["
-    + "|".join(name for name in ALL_EP_NAMES if name not in ("winmlcg", "WinMLCGExecutionProvider"))
-    + "]",
     help="Execution provider used to run the reference ONNX model.",
 )
 @cli_utils.cache_options()
@@ -289,7 +282,6 @@ def eval(
     dynamic_axes: Path | None,
     runtime: EvalRuntime,
     backend: str | None,
-    cgc_lowering_target: CGCLoweringTarget | None,
     ep: EPNameOrAlias | None,
     samples: int,
     split: str,
@@ -400,12 +392,6 @@ def eval(
         cfg.backend = resolve_runtime_api_backend(cfg.runtime, cfg.model_path, cfg.backend)
     except ValueError as error:
         raise click.UsageError(str(error)) from error
-    if cfg.cgc_lowering_target is not None and (
-        cfg.runtime != "winml-runtime" or cfg.backend != "cgc"
-    ):
-        raise click.UsageError(
-            "--cgc-lowering-target requires --runtime winml-runtime with the CGC backend."
-        )
     if cfg.runtime == "pytorch" and cfg.model_path is not None:
         raise click.UsageError(
             "--runtime pytorch requires a Hugging Face model ID or local Hugging Face "

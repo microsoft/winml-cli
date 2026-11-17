@@ -30,6 +30,7 @@ from __future__ import annotations
 import ctypes
 import json
 import logging
+import mmap
 import operator
 import threading
 from contextlib import contextmanager
@@ -50,7 +51,6 @@ if TYPE_CHECKING:
 
     import numpy as np
 
-    from ..utils import CGCLoweringTarget
     from ..utils.constants import RuntimeBackend
     from .ep_registry import WinMLEPDevice
     from .session import PerfContext
@@ -538,18 +538,13 @@ def _compile_runtime_model(
     *,
     symbolic_dimensions: Mapping[str, int] | None = None,
     compiled_form: Any | None = None,
-    cgc_lowering_target: CGCLoweringTarget | None = None,
 ) -> None:
     """Compile a loaded Runtime model while owning compiler/options lifetimes."""
     with _translate_native_errors("build", device_class=resolved_target.device_class):
         compiler = resolved_target.execution_target.model_compiler()
         options = None
         try:
-            if (
-                symbolic_dimensions
-                or compiled_form is not None
-                or cgc_lowering_target is not None
-            ):
+            if symbolic_dimensions or compiled_form is not None:
                 options = compiler.create_options()
                 if symbolic_dimensions:
                     if not options.supports_symbolic_dimensions:
@@ -564,13 +559,6 @@ def _compile_runtime_model(
                             "Runtime does not support DEVICE_TARGETED CG Output IR."
                         )
                     options.form = compiled_form
-                if cgc_lowering_target is not None:
-                    wr = import_runtime()
-                    options.cgc_lowering_target = {
-                        "auto": wr.CgcLoweringTarget.AUTOMATIC,
-                        "dml": wr.CgcLoweringTarget.DML,
-                        "d3d12": wr.CgcLoweringTarget.D3D12,
-                    }[cgc_lowering_target]
                 compiler.compile_to_file(source_model, str(output_path), options=options)
             else:
                 compiler.compile_to_file(source_model, str(output_path))
@@ -594,6 +582,46 @@ def _serialize_mlir_as_text(path: Path) -> None:
     from ..export.cgc.ir import read_mlir_text
 
     path.write_text(read_mlir_text(path), encoding="utf-8", newline="\n")
+
+
+def _cgc_external_weight_options(path: Path) -> dict[str, Any]:
+    """Supply Runtime load options only when Input IR declares external weights."""
+    from ..export.cgc.ir import is_output_ir
+
+    if path.suffix.lower() not in {".mlir", ".mlirbc"} or is_output_ir(path):
+        return {}
+
+    from ..export.cgc import create_foundry_compiler
+
+    with create_foundry_compiler() as compiler:
+        from _foundry import SerializationFormat
+
+        source = path.read_bytes()
+        serialization_format = (
+            SerializationFormat.BYTECODE
+            if source.startswith(b"ML\xefR")
+            else SerializationFormat.TEXT
+        )
+        with compiler.create_module_from_mlir(source, format=serialization_format) as module:
+            tensors = module.external_tensors()
+
+    mappings: dict[Path, mmap.mmap] = {}
+    resources: dict[str, memoryview] = {}
+    for tensor in tensors:
+        weight_path = (path.parent / tensor.file).resolve()
+        if weight_path not in mappings:
+            with weight_path.open("rb") as file:
+                mappings[weight_path] = mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ)
+        mapped = mappings[weight_path]
+        end = tensor.offset + tensor.size
+        if not 0 <= tensor.offset < end <= len(mapped):
+            raise click.ClickException(
+                f"Invalid range for CGIR resource {tensor.key!r} in '{weight_path}': "
+                f"offset={tensor.offset}, size={tensor.size}, file_size={len(mapped)}."
+            )
+        # Views retain their mmap; Runtime retains the buffers through dependent stages.
+        resources[tensor.key] = memoryview(mapped)[tensor.offset:end]
+    return {"resources": resources} if resources else {}
 
 
 def _resolve_onnx_target(
@@ -683,7 +711,6 @@ class WinMLRuntimeSession:
         session_options: Callable[[], Any] | None = None,
         backend: RuntimeBackend,
         device_luid: int | None = None,
-        cgc_lowering_target: CGCLoweringTarget | None = None,
     ) -> None:
         """Initialize a Runtime session.
 
@@ -696,23 +723,11 @@ class WinMLRuntimeSession:
                 rejected for ONNX because the Runtime pipeline API does not
                 expose a per-EP option hook.
             backend: Resolved backend used for model execution.
-            cgc_lowering_target: Optional CGC compilation target; defaults to automatic.
         """
-        from ..utils import CGC_LOWERING_TARGETS
-
-        if cgc_lowering_target is not None:
-            if cgc_lowering_target not in CGC_LOWERING_TARGETS:
-                raise ValueError(
-                    f"Invalid CGC lowering target {cgc_lowering_target!r}; "
-                    f"expected one of {CGC_LOWERING_TARGETS}."
-                )
-            if backend != "cgc":
-                raise ValueError("cgc_lowering_target requires backend='cgc'.")
         self._lock = threading.RLock()
         self._model_path = Path(model_path)
         self._is_mlir = self._model_path.suffix.lower() in {".mlir", ".mlirbc"}
         self._backend = backend
-        self._cgc_lowering_target = cgc_lowering_target
         if self._backend == "cgc" and ep_device is None and device_luid is None:
             raise ValueError("ep_device or device_luid is required for CGC Runtime sessions.")
         self._ep_device = ep_device
@@ -810,8 +825,18 @@ class WinMLRuntimeSession:
         resolved_target: _ResolvedRuntimeTarget,
     ) -> tuple[Any, Any, bool]:
         """Compile ONNX or MLIR to CG Output IR and reload it for execution."""
+        from ..export.cgc.ir import is_output_ir
+
+        output_ir = self._is_mlir and is_output_ir(self._model_path)
         with _translate_native_errors("load"):
-            source_model = runtime.load_model(str(self._model_path))
+            source_model = runtime.load_model(
+                str(self._model_path), **_cgc_external_weight_options(self._model_path)
+            )
+        if output_ir:
+            # Output IR already carries its device lowering and compiled resources.
+            # Recompiling it can reject DML artifacts with ERROR_NOT_SUPPORTED.
+            # Ownership transfers to the session, which closes it on reset/failure.
+            return source_model, None, False
         try:
             ort_schema = None if self._is_mlir else source_model.ort_schema()
 
@@ -822,7 +847,6 @@ class WinMLRuntimeSession:
                 resolved_target,
                 artifact_path,
                 symbolic_dimensions=self._symbolic_dimensions,
-                cgc_lowering_target=self._cgc_lowering_target,
             )
 
             with _translate_native_errors("load"):
@@ -1046,14 +1070,15 @@ class WinMLRuntimeSession:
         source_model = compiled_model = builder = stage = pipeline = source_schema = None
         try:
             with _translate_native_errors("load"):
-                source_model = runtime.load_model(str(self._model_path))
+                source_model = runtime.load_model(
+                    str(self._model_path), **_cgc_external_weight_options(self._model_path)
+                )
                 source_schema = source_model.schema()
             _compile_runtime_model(
                 source_model,
                 resolved_target,
                 destination,
                 compiled_form=wr.CompiledModelForm.DEVICE_TARGETED,
-                cgc_lowering_target=self._cgc_lowering_target,
             )
             if output_format == "text":
                 _serialize_mlir_as_text(destination)
