@@ -49,6 +49,118 @@ If a provider option names a compiler input file, list its key in
 that option path and fingerprints its contents for EPContext cache identity;
 other provider-option strings are always passed through unchanged.
 
+## Compilation without target hardware
+
+Use the explicit `--off-device` route; `--no-validate` alone does not bypass
+physical-device discovery. This route uses ORT's `ModelCompiler`, disables CPU EP
+fallback, embeds the context, and never constructs an inference session.
+
+```powershell
+winml compile --off-device --list-eps
+winml compile --off-device --ep openvino --list-targets
+winml compile --off-device --ep openvino --target 4000 -m model.onnx -o compiled.onnx
+winml compile --off-device --ep qnn --target 60 -m model.onnx -o compiled-qnn.onnx
+winml compile --off-device --ep vitisai --target X2 -m quantized.onnx -o compiled-vitisai.onnx
+```
+
+OpenVINO targets are the virtual platform IDs returned by `--list-targets`.
+QNN's target is a positive numeric QAIRT `soc_model` ID; `60` is an example,
+not an automatically selected target. Use the ID documented for your deployment
+device. QNN does not enumerate SoC IDs, so `--list-targets --ep qnn` reports that
+limitation instead of inventing a list.
+
+QNN requires a compatible plugin payload exposing a CPU compilation host and
+containing `QnnHtp.dll`; set `WINMLCLI_EP_PATH` to the payload directory if needed.
+The host CPU runs the HTP compiler, not the QNN CPU reference backend or the ORT
+CPU execution provider. No full QAIRT SDK is required for this route.
+
+### QNN EP devices and filtering
+
+The CPU compilation host is an actual `ort.OrtEpDevice` advertised by the QNN
+plugin. It represents the host CPU's availability for offline compilation, not a
+physical Qualcomm NPU or an ORT `CPUExecutionProvider` device.
+
+The CLI registers `onnxruntime_providers_qnn.dll` with
+`ort.register_execution_provider_library()`, then calls `ort.get_ep_devices()`.
+That enumeration can return devices from multiple registered EPs.
+`_registered_compilation_devices()` in `src/winml/modelkit/compiler/offdevice.py`
+filters the enumeration by all three of the following:
+
+- The EP name is `QNNExecutionProvider`.
+- The device's `library_path` matches the exact selected QNN plugin DLL.
+- The underlying hardware-device type is `OrtHardwareDeviceType.CPU`.
+
+The helper yields only those filtered QNN CPU compilation hosts. The subsequent
+`matches = list(devices)` copies that filtered list; it does not enumerate again
+or select physical QNN NPUs. Compilation requires exactly one matching host.
+For OpenVINO, the corresponding filter selects only NPU devices marked
+`is_virtual=1`, and compilation then selects the requested `npu_platform`.
+
+The DLLs have distinct roles: `onnxruntime_providers_qnn.dll` exposes the QNN EP
+and its devices to ORT; `QnnHtp.dll` is explicitly selected through
+`backend_path` to compile for the destination NPU specified by `soc_model`.
+The CLI binds the filtered EP device with `SessionOptions.add_provider_for_devices()`
+and calls `ort.ModelCompiler(...).compile_to_file(...)` without running inference.
+
+QNN uses the canonical provider registration name because it is stored in the
+compiled context. A conflicting in-process registration is an error, never
+reused or unregistered; run compilation in a fresh CLI process.
+
+### VitisAI virtual NPU compilation
+
+VitisAI requires an AMD plugin exposing an NPU EP device marked `is_virtual=1`.
+If discovery cannot find it, set `WINMLCLI_EP_PATH` to the full plugin DLL path,
+for example `...\ExecutionProvider\onnxruntime_vitisai_ep.dll`, and inspect it
+with `--off-device --ep vitisai --list-eps`. Use the plugin, not the similarly
+named legacy `onnxruntime_providers_vitisai.dll` wrapper. Unknown DLL filenames
+require an explicit `--ep`; unqualified inventory does not guess their provider.
+The CLI never selects the physical AMD NPU, even when one is present. It filters
+the canonical `VitisAIExecutionProvider` devices by the exact selected DLL,
+NPU type, and virtual-device metadata, and requires exactly one match.
+
+ORT enables `allow_virtual_devices` while a library whose registration name ends
+in `.virtual` is registered. The CLI temporarily registers the selected VitisAI
+DLL with such a name, then registers it as `VitisAIExecutionProvider`. This lets
+the canonical factory enumerate a virtual NPU and keeps the compiled EPContext's
+provider identity stable. Both registrations remain owned by this invocation and
+are released in reverse order before the output is published. A conflicting
+canonical registration fails; it is never reused or unregistered.
+
+This two-registration workaround is tracked by
+[AMD bug 65345287](https://dev.azure.com/microsoft/OS/_workitems/edit/65345287).
+The tested AMD plugin reports the registration alias as its EP identity.
+Single-alias compilation failed for a model with a boundary `QuantizeLinear`,
+but succeeded for an integer-input/output variant. A mismatch between the aliased
+EP identity and canonical helper-kernel identities is suspected, not confirmed.
+The workaround binds only the canonical registration's virtual device; it does
+not enable CPU fallback or rewrite model I/O. Remove it once a fixed plugin passes
+the unchanged boundary-operation model with a single `.virtual` registration.
+
+`--target X2` selects [AMD's documented compiler backend](https://ryzenai.docs.amd.com/en/latest/modelrun.html).
+It is not a SoC ID or an
+advertised destination architecture. The installed virtual device does not
+enumerate architecture profiles, so `--list-targets --ep vitisai` reports that
+limitation. This route does not claim arbitrary AMD NPU generation targeting,
+artifact portability, or independence from installed driver/runtime software.
+X1 and additional compiler options are not supported by this route.
+
+Use an X2-compatible model. Local validation compiled a generated INT8 QDQ Conv
+with integer output into an embedded VitisAI EPContext, binding only the virtual
+NPU. Model preparation was test-only; the CLI does not quantize or rewrite model
+I/O. CPU fallback remains disabled, so unsupported operations, including any
+residual CPU-only boundary operations, fail rather than silently compiling on CPU.
+For INT8/X2 compilation, the CLI sets `enable_cache_file_io_in_mem=1` to keep
+the provider's intermediate cache in memory. It does not configure `cache_dir`
+or `cache_key`, or create a separate provider cache directory. The compiled data
+is embedded in the final ONNX output, which is still staged and published on disk.
+This policy does not claim support for in-memory BF16 compilation.
+No inference or physical-NPU deployment validation is performed.
+
+All three providers require a compatible model and target. Compilation success does
+not establish deployment compatibility or inference correctness on that target.
+Inputs and existing outputs are preserved on failure. Replacing an existing
+output requires `--overwrite`.
+
 ## CGIR to CG Output IR
 
 This explicit mode uses the Windows ML Runtime API directly, without an ONNX
