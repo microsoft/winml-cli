@@ -172,11 +172,16 @@ def test_qnn_extra_installs_compatible_runtime_from_built_wheel(tmp_path: Path) 
         for raw in installed["requirements"]
         if (requirement := Requirement(raw)).name == "onnxruntime-windowsml"
     )
+    windowsml_requirement = next(
+        requirement
+        for raw in installed["requirements"]
+        if (requirement := Requirement(raw)).name == "windowsml"
+    )
 
     assert installed["onnxruntime"] is None
     assert installed["onnxruntime_windowsml"] in runtime_requirement.specifier
     assert installed["onnxruntime_qnn"] is None
-    assert installed["windowsml"] == "2.0.300"
+    assert installed["windowsml"] in windowsml_requirement.specifier
     assert installed["dml_available"] is True
     assert installed["qnn_extra_provided"] is True
     assert installed["qnn_catalog_configured"] is True
