@@ -50,9 +50,9 @@ You can also use `winml build` to build the model with additional configuration 
 
 ## Benchmark the model
 
-Use `winml perf` to explore model compatibility and performance before changing your application. It exercises the same paths available to the application and lets you compare them without first writing integration code. Use [`winml eval`](../commands/eval.md) similarly to evaluate accuracy.
+Use `winml perf` to explore model compatibility and performance before changing your application. It exercises the same paths available to the application and lets you compare them without first writing integration code.
 
-The `winml perf` and `winml eval` commands support models in `.onnx`, `.mlir`, `.gguf`, and `.safetensors` formats. For recommended models, see [The CGC backend in Windows ML](https://review.learn.microsoft.com/en-us/windows/ai/new-windows-ml/runtime/cg-backend?branch=winml%2F2.9-exp#recommended-models).
+`winml perf` supports ONNX (`.onnx`), MLIR (`.mlir`), and GGUF (`.gguf`) files, as well as local safetensors checkpoint directories, through the runtime/backend paths described below. For recommended models, see [The CGC backend in Windows ML](https://review.learn.microsoft.com/en-us/windows/ai/new-windows-ml/runtime/cg-backend?branch=winml%2F2.9-exp#recommended-models).
 
 ### Benchmark .mlir model
 
