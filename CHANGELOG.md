@@ -4,6 +4,32 @@ All notable changes to this project are documented in this file.
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## WinML CLI v0.5.0
+
+This cycle introduces CGC workflows for the first time, adds text-generation benchmarking, GPU execution timing, and AMD NPU operator profiling, and improves runtime startup and memory reporting. See the behavior changes below.
+
+### ⚠️ Behavior changes
+
+- **EP discovery** - listing providers no longer downloads missing Catalog providers; acquisition requires an explicit EP/device request (#1508).
+
+### ✨ Improvements
+
+- **CGC support (first release)** - introduces CGIR export, compilation, inference, and evaluation through Windows ML Runtime and WinMLCG EP, including GPU timing, memory measurements, and experimental text-generation benchmarks for local GGUF and safetensors models (#1426, #1467, #1492, #1503, #1505, #1518).
+- `winml perf` - adds experimental GGUF text-generation benchmarks through the Windows ML Tasks llama.cpp backend (#1468).
+- **Operator profiling** - adds basic VitisAI tracing for AMD NPU with per-operator timings and raw trace artifacts (#1516).
+- **EP loading** - `WINMLCLI_EP_PATH` accepts individual DLL paths as well as directories, including custom filenames with explicit EP selection (#1508).
+- **CLI usability** - improves help and console accessibility, reduces perf/eval startup waits, and lowers GGUF startup memory use (#1485, #1533, #1494).
+
+### 🔧 Internals & CI
+
+- **E2E coverage** - adds CGC cases and optional runtime-wheel overrides, fixes E2E failures, and shares OpenVINO GPU allocators within test sessions (#1532, #1527, #1531, #1480).
+- **Contributor workflows** - refines model-support and auto-optimization skill boundaries and restores their evaluation inputs (#1495, #1496, #1497, #1501).
+
+### 📦 Assets
+
+- `winml_cli-0.5.0-py3-none-any.whl`
+- `rules-v0.5.0.zip`
+
 ## WinML CLI v0.4.0
 
 This cycle adds CGIR and Windows ML Runtime workflows, native PyTorch evaluation, physical-adapter selection, and broader operator profiling. It improves pattern-aware analysis, targeted optimization, model-loading memory measurements, and release evaluation. The release also carries forward the fixes already published in v0.3.1. See the behavior changes below.

@@ -19,7 +19,7 @@ winml sys --list-device --list-ep
 Install the exporter into the same environment:
 
 ```powershell
-uv pip install "ultralytics==8.4.146" --index-url https://packagefeedproxy.microsoft.io/pypi/simple
+uv pip install "ultralytics==8.4.146"
 ```
 
 Place the Ultralytics `yolo11n.pt` checkpoint in the current directory, then
@@ -40,22 +40,11 @@ Test ONNX through the WinMLCG EP:
 winml perf -m .\yolo11n.onnx --runtime winml-ort --ep winmlcg -o .\model-winmlcg-perf.json
 ```
 
-!!! warning
-	With `windowsml==2.7.25.dev0` and `onnxruntime-windowsml==1.30.0.202609102321`,
-	two full benchmark runs produced reports but exited with code 1 on the
-	validation machine. The cause is unresolved; a saved report alone does
-	not indicate a successful command.
-
 To test online CGIR conversion through the Windows ML Runtime API instead:
 
 ```powershell
 winml perf -m .\yolo11n.onnx --runtime winml-runtime -o .\model-runtime-perf.json
 ```
-
-!!! warning
-	With `windowsml==2.7.25.dev0`, the tested CLI's online conversion path
-	fails with `Runtime.load_model() got an unexpected keyword argument 'io_counts'`.
-	Use the offline build and MLIR Runtime path below with this combination.
 
 ## Step 3: Build CGIR
 
@@ -82,10 +71,6 @@ Run the converted model through the Windows ML Runtime API:
 ```powershell
 winml perf -m .\model-cgir\model.mlir --runtime winml-runtime -o .\model-cgir\model-perf.json
 ```
-
-!!! important
-	The `.mlir` artifact cannot be used directly by ONNX Runtime. Load it
-	through the Windows ML Runtime API for CGC inference.
 
 ## Step 5: Compare output tensors
 
