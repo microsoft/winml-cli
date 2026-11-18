@@ -30,5 +30,11 @@ Persist a runnable replay with hash verification, config and inputs in the
 run directory. A replay must reject modified inputs and existing output
 directories, propagate native failures, and stop before perf after a failed
 correctness gate. The script and lock must contain all required dependencies
-or name their pinned locations honestly. Validate the published bundle through
-the existing finalizer; a hand-written diagnostic report is not certification.
+or name their pinned locations honestly. After replay, independently execute
+`validate_config.py` with the final serialized rebuild config. Its clean rebuild
+must preserve public I/O, load on the target, and meet the predeclared
+fixed-input correctness threshold against the confirmed champion. Bind the
+receipt to the config, champion and inputs; any later change invalidates it.
+Validate the published bundle through the existing finalizer; a hand-written
+diagnostic report or a sequence of individually passing transforms is not
+certification of the final composed config.

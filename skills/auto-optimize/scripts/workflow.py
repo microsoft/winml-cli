@@ -15,7 +15,7 @@ import uuid
 from pathlib import Path
 
 
-GATES = ("correctness", "performance", "review", "replay")
+GATES = ("correctness", "performance", "review", "replay", "config_validation")
 
 
 def _load(name):
@@ -124,6 +124,37 @@ def prepare(report, baseline, candidate, analyzer):
         result[section].update(metrics)
         for key in metrics:
             result[section].get("missing_reasons", {}).pop(key, None)
+        benchmark = result.get("benchmark")
+        if isinstance(benchmark, dict):
+            role = "baseline" if section == "baseline" else "champion"
+            rows = benchmark.setdefault("rows", [])
+            matches = [row for row in rows if isinstance(row, dict) and row.get("role") == role]
+            if len(matches) > 1:
+                raise ValueError(f"benchmark contains multiple {role} rows")
+            if matches:
+                row = matches[0]
+            else:
+                info = sessions[0]["benchmark_info"]
+                row = {
+                    "name": "NPU baseline" if role == "baseline" else "Champion",
+                    "role": role,
+                    "device": info["device"],
+                    "ep": info["ep"],
+                    "precision": info["precision"],
+                    "accuracy": "pending",
+                    "memory_mb": None,
+                    "size_mb": None,
+                    "missing_reasons": {
+                        "memory_mb": "Not imported by workflow prepare",
+                        "size_mb": "Not imported by workflow prepare",
+                    },
+                }
+                rows.append(row)
+            for key in ("p50_ms", "p90_ms", "p99_ms", "throughput_ips", "sample_count"):
+                row[key] = metrics[key]
+                row.get("missing_reasons", {}).pop(key, None)
+            if benchmark.get("protocol") in (None, "", "pending"):
+                benchmark["protocol"] = metrics["method"]
     comparison_keys = (
         "ep",
         "device",
@@ -174,6 +205,7 @@ def deliver(state, config, output):
         "rebuild_config",
         "repro_script",
         "repro_lock",
+        "config_validation",
         "promotion_context",
     )
     for key in required:
@@ -190,6 +222,14 @@ def deliver(state, config, output):
         if bound.get(str(Path(path).resolve())) != _record(path):
             raise ValueError("unbound delivery input: " + str(path))
     finalizer._load_renderer().validate_report(_read(config["report"]), final=True)
+    validator = _load("validate_config")
+    validator.verify_receipt(
+        Path(config["config_validation"]),
+        Path(config["rebuild_config"]),
+        Path(config["champion"]),
+        tuple(Path(path) for path in config.get("repro_assets", [])),
+        Path(config["repro_lock"]),
+    )
     output.mkdir(parents=True)
     bundle = finalizer.finalize_output(
         Path(config["report"]),
@@ -201,6 +241,7 @@ def deliver(state, config, output):
         repro_script=Path(config["repro_script"]),
         repro_lock=Path(config["repro_lock"]),
         repro_assets=[Path(p) for p in config.get("repro_assets", [])],
+        config_validation=Path(config["config_validation"]),
     )
     finalizer.validate_output_bundle(bundle)
     promotion = _load("promotion")
@@ -218,6 +259,7 @@ def deliver(state, config, output):
         "model_evidence": "recorded attestation; hashes verified, not independently re-executed",
         "independent_review": "recorded attestation; reviewer identity not authenticated",
         "replay": "recorded evidence; not rerun by deliver",
+        "config_validation": "clean rebuild, runtime load, and correctness receipt verified",
         "visual_review": "not performed",
     }
     _write(output / "receipt.json", receipt)
