@@ -2973,7 +2973,7 @@ and activate that virtual environment. Inspect the available EPs and devices:</p
 </span></code></pre></div>
 <h2 id="step-1-export-yolo11-to-onnx">Step 1: Export YOLO11 to ONNX<a class="headerlink" href="#step-1-export-yolo11-to-onnx" title="Permanent link">&para;</a></h2>
 <p>Install the exporter into the same environment:</p>
-<div class="language-powershell highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">uv</span> <span class="n">pip</span> <span class="n">install</span> <span class="s2">"ultralytics==8.4.146"</span> <span class="p">-</span><span class="n">-index-url</span> <span class="n">https</span><span class="p">://</span><span class="n">packagefeedproxy</span><span class="p">.</span><span class="n">microsoft</span><span class="p">.</span><span class="n">io</span><span class="p">/</span><span class="n">pypi</span><span class="p">/</span><span class="n">simple</span>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">uv</span> <span class="n">pip</span> <span class="n">install</span> <span class="s2">"ultralytics==8.4.146"</span>
 </span></code></pre></div>
 <p>Place the Ultralytics <code>yolo11n.pt</code> checkpoint in the current directory, then
 export a static, batch-one FP32 model without ONNX simplification:</p>
@@ -2985,22 +2985,9 @@ detection output shape <code>[1, 84, 8400]</code>.</p>
 <p>Test ONNX through the WinMLCG EP:</p>
 <div class="language-powershell highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">winml</span> <span class="n">perf</span> <span class="n">-m</span> <span class="p">.\</span><span class="n">yolo11n</span><span class="p">.</span><span class="n">onnx</span> <span class="p">-</span><span class="n">-runtime</span> <span class="n">winml-ort</span> <span class="p">-</span><span class="n">-ep</span> <span class="n">winmlcg</span> <span class="n">-o</span> <span class="p">.\</span><span class="n">model-winmlcg-perf</span><span class="p">.</span><span class="n">json</span>
 </span></code></pre></div>
-<div class="admonition warning">
-<p class="admonition-title">Warning</p>
-<p>With <code>windowsml==2.7.25.dev0</code> and <code>onnxruntime-windowsml==1.30.0.202609102321</code>,
-two full benchmark runs produced reports but exited with code 1 on the
-validation machine. The cause is unresolved; a saved report alone does
-not indicate a successful command.</p>
-</div>
 <p>To test online CGIR conversion through the Windows ML Runtime API instead:</p>
 <div class="language-powershell highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">winml</span> <span class="n">perf</span> <span class="n">-m</span> <span class="p">.\</span><span class="n">yolo11n</span><span class="p">.</span><span class="n">onnx</span> <span class="p">-</span><span class="n">-runtime</span> <span class="n">winml-runtime</span> <span class="n">-o</span> <span class="p">.\</span><span class="n">model-runtime-perf</span><span class="p">.</span><span class="n">json</span>
 </span></code></pre></div>
-<div class="admonition warning">
-<p class="admonition-title">Warning</p>
-<p>With <code>windowsml==2.7.25.dev0</code>, the tested CLI's online conversion path
-fails with <code>Runtime.load_model() got an unexpected keyword argument 'io_counts'</code>.
-Use the offline build and MLIR Runtime path below with this combination.</p>
-</div>
 <h2 id="step-3-build-cgir">Step 3: Build CGIR<a class="headerlink" href="#step-3-build-cgir" title="Permanent link">&para;</a></h2>
 <p>Generate the CGC build configuration:</p>
 <div class="language-powershell highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">winml</span> <span class="n">config</span> <span class="n">-m</span> <span class="p">.\</span><span class="n">yolo11n</span><span class="p">.</span><span class="n">onnx</span> <span class="p">-</span><span class="n">-backend</span> <span class="n">cgc</span> <span class="n">-o</span> <span class="p">.\</span><span class="n">cgc-config</span><span class="p">.</span><span class="n">json</span>
@@ -3015,11 +3002,6 @@ to the build command to skip quantization.</p>
 <p>Run the converted model through the Windows ML Runtime API:</p>
 <div class="language-powershell highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">winml</span> <span class="n">perf</span> <span class="n">-m</span> <span class="p">.\</span><span class="n">model-cgir</span><span class="p">\</span><span class="n">model</span><span class="p">.</span><span class="n">mlir</span> <span class="p">-</span><span class="n">-runtime</span> <span class="n">winml-runtime</span> <span class="n">-o</span> <span class="p">.\</span><span class="n">model-cgir</span><span class="p">\</span><span class="n">model-perf</span><span class="p">.</span><span class="n">json</span>
 </span></code></pre></div>
-<div class="admonition important">
-<p class="admonition-title">Important</p>
-<p>The <code>.mlir</code> artifact cannot be used directly by ONNX Runtime. Load it
-through the Windows ML Runtime API for CGC inference.</p>
-</div>
 <h2 id="step-5-compare-output-tensors">Step 5: Compare output tensors<a class="headerlink" href="#step-5-compare-output-tensors" title="Permanent link">&para;</a></h2>
 <p>Compare the CGIR model against the original FP32 ONNX model on ten generated
 inputs, using ONNX Runtime on CPU as the reference:</p>

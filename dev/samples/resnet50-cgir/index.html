@@ -3027,8 +3027,8 @@ CGIR workflow can be reviewed, repeated, and checked into source control.</p>
 <h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
 <ul>
 <li>A Windows device with a GPU.</li>
-<li>An activated Python 3.11 environment with winml-cli and the experimental
-    wheels from <a href="../../getting-started/cgc-onboarding/#environment-setup">CGC environment setup</a>.</li>
+<li>An activated Python 3.11 environment with winml-cli, as described in
+    <a href="../../getting-started/cgc-onboarding/#environment-setup">CGC environment setup</a>.</li>
 <li>A network connection to download the model and evaluation dataset.</li>
 </ul>
 <h2 id="step-1-check-the-cgc-environment">Step 1: Check the CGC environment<a class="headerlink" href="#step-1-check-the-cgc-environment" title="Permanent link">&para;</a></h2>
@@ -3077,11 +3077,6 @@ preparation, disables EP compilation, and adds <code>convert.target: "cgir"</cod
 </ol>
 <p>FP16 conversion can affect model accuracy. If accuracy drops, rebuild with
 <code>--no-quant</code> and compare the results.</p>
-<div class="admonition important">
-<p class="admonition-title">Important</p>
-<p>The <code>.mlir</code> artifact cannot be used directly by ONNX Runtime. Load it
-through the Windows ML Runtime API for CGC inference.</p>
-</div>
 <h2 id="step-4-measure-cgir-performance">Step 4: Measure CGIR performance<a class="headerlink" href="#step-4-measure-cgir-performance" title="Permanent link">&para;</a></h2>
 <p>Run the CGIR artifact through the Windows ML Runtime API and save the
 performance results:</p>

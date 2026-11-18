@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#preparing-your-model-for-the-windows-ml-runtime-apis-and-dx-cgc" class="md-skip">
+        <a href="#use-the-cgc-backend-with-windows-ml-cli" class="md-skip">
           Skip to content
         </a>
       
@@ -696,13 +696,41 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#before-you-start" class="md-nav__link">
+  <a href="#build-the-model" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Before you start
+        Build the model
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Build the model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#export-pytorch-model-to-mlir" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Export PyTorch model to MLIR
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#export-onnx-model-to-mlir" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Export ONNX model to MLIR
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -719,10 +747,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#mlir-with-runtime-api" class="md-nav__link">
+  <a href="#benchmark-mlir-model" class="md-nav__link">
     <span class="md-ellipsis">
       
-        MLIR with Runtime API
+        Benchmark .mlir model
       
     </span>
   </a>
@@ -730,10 +758,22 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#onnx-with-winmlcg-ep" class="md-nav__link">
+  <a href="#benchmark-onnx-model" class="md-nav__link">
     <span class="md-ellipsis">
       
-        ONNX with WinMLCG EP
+        Benchmark .onnx model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Benchmark .onnx model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#via-onnx-runtime-with-winmlcg-ep" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Via ONNX Runtime with WinMLCG EP
       
     </span>
   </a>
@@ -741,10 +781,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#onnx-with-runtime-api" class="md-nav__link">
+  <a href="#via-windows-ml-runtime-api" class="md-nav__link">
     <span class="md-ellipsis">
       
-        ONNX with Runtime API
+        Via Windows ML Runtime API
       
     </span>
   </a>
@@ -755,68 +795,12 @@
     </nav>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#build-the-model" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Build the model
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Build the model">
-      <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#pytorch-onnx-cgir" class="md-nav__link">
+  <a href="#benchmark-llm-model-gguf-and-safetensor" class="md-nav__link">
     <span class="md-ellipsis">
       
-        PyTorch → ONNX → CGIR
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#onnx-cgir" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        ONNX → CGIR
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#convert-without-optimization-or-quantization" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Convert without optimization or quantization
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#fix-dynamic-input-dimensions" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Fix dynamic input dimensions
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#cgir-to-device-targeted-cg-output-ir" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        CGIR to device-targeted CG Output IR
+        Benchmark LLM model (gguf and safetensor)
       
     </span>
   </a>
@@ -2963,13 +2947,41 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#before-you-start" class="md-nav__link">
+  <a href="#build-the-model" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Before you start
+        Build the model
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Build the model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#export-pytorch-model-to-mlir" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Export PyTorch model to MLIR
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#export-onnx-model-to-mlir" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Export ONNX model to MLIR
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2986,10 +2998,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#mlir-with-runtime-api" class="md-nav__link">
+  <a href="#benchmark-mlir-model" class="md-nav__link">
     <span class="md-ellipsis">
       
-        MLIR with Runtime API
+        Benchmark .mlir model
       
     </span>
   </a>
@@ -2997,10 +3009,22 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#onnx-with-winmlcg-ep" class="md-nav__link">
+  <a href="#benchmark-onnx-model" class="md-nav__link">
     <span class="md-ellipsis">
       
-        ONNX with WinMLCG EP
+        Benchmark .onnx model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Benchmark .onnx model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#via-onnx-runtime-with-winmlcg-ep" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Via ONNX Runtime with WinMLCG EP
       
     </span>
   </a>
@@ -3008,10 +3032,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#onnx-with-runtime-api" class="md-nav__link">
+  <a href="#via-windows-ml-runtime-api" class="md-nav__link">
     <span class="md-ellipsis">
       
-        ONNX with Runtime API
+        Via Windows ML Runtime API
       
     </span>
   </a>
@@ -3022,68 +3046,12 @@
     </nav>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#build-the-model" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Build the model
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Build the model">
-      <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#pytorch-onnx-cgir" class="md-nav__link">
+  <a href="#benchmark-llm-model-gguf-and-safetensor" class="md-nav__link">
     <span class="md-ellipsis">
       
-        PyTorch → ONNX → CGIR
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#onnx-cgir" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        ONNX → CGIR
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#convert-without-optimization-or-quantization" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Convert without optimization or quantization
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#fix-dynamic-input-dimensions" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Fix dynamic input dimensions
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#cgir-to-device-targeted-cg-output-ir" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        CGIR to device-targeted CG Output IR
+        Benchmark LLM model (gguf and safetensor)
       
     </span>
   </a>
@@ -3142,201 +3110,97 @@
   
 
 
-<h1 id="preparing-your-model-for-the-windows-ml-runtime-apis-and-dx-cgc">Preparing your model for the Windows ML Runtime APIs and DX CGC<a class="headerlink" href="#preparing-your-model-for-the-windows-ml-runtime-apis-and-dx-cgc" title="Permanent link">&para;</a></h1>
-<p>CGC onboarding has two journeys:</p>
-<ol>
-<li><strong>Benchmark the model:</strong> Explore model compatibility and performance through the runtime
-   path that your application will use.</li>
-<li><strong>Build the model:</strong> Build a reusable <code>.mlir</code> model from PyTorch or ONNX.</li>
-</ol>
+<h1 id="use-the-cgc-backend-with-windows-ml-cli">Use the CGC backend with Windows ML CLI<a class="headerlink" href="#use-the-cgc-backend-with-windows-ml-cli" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>[!IMPORTANT]
+The CGC backend is experimental, <strong>not supported</strong> for use in production environments, and new in Windows ML 2.9 experimental.</p>
+</blockquote>
+<p>CGC is the Windows-native backend that compiles a model into programs for a Direct3D 12 device and runs them on the GPU target your app picked. It runs on the GPU only, with no CPU fallback. Finding a GPU doesn't establish that CGC supports its driver or a given model: a model that CGC can't run fails to load with an error.</p>
+<p>This article explains how to convert a model to a format supported by CGC and run it using the Windows ML CLI.</p>
 <h2 id="environment-setup">Environment setup<a class="headerlink" href="#environment-setup" title="Permanent link">&para;</a></h2>
-<p>Create a virtual environment and install WinML CLI:</p>
+<p>First, follow the guidance in <a href="https://review.learn.microsoft.com/en-us/windows/ai/new-windows-ml/runtime/cg-backend?branch=winml%2F2.9-exp">The CGC backend in Windows ML</a> to choose recommended hardware and prepare your environment. Then, follow the instructions below to set up a Python environment for winml-cli.</p>
+<p>Create a virtual environment and install WinML CLI version 0.5.0 or above:</p>
 <div class="language-powershell highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">uv</span> <span class="n">venv</span> <span class="p">-</span><span class="n">-python</span> <span class="n">3</span><span class="p">.</span><span class="n">11</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="n">uv</span> <span class="n">pip</span> <span class="n">install</span> <span class="n">winml-cli</span>
 </span></code></pre></div>
-<p>Install the experimental wheels:</p>
-<p><div class="language-powershell highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">uv</span> <span class="n">pip</span> <span class="n">install</span> <span class="s2">"windowsml==&lt;windowsml-version&gt;"</span> <span class="s2">"onnxruntime-windowsml==&lt;onnxruntime-windowsml-version&gt;"</span>
-</span></code></pre></div>
-If you want to restore to stable wheel, you can run <code>uv sync</code></p>
 <p>Activate the virtual environment:</p>
-<div class="language-powershell highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="p">.</span><span class="n">venv</span><span class="p">\</span><span class="n">Scripts</span><span class="p">\</span><span class="n">Activate</span><span class="p">.</span><span class="n">ps1</span>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">.</span><span class="n">venv</span><span class="p">\</span><span class="n">Scripts</span><span class="p">\</span><span class="n">Activate</span><span class="p">.</span><span class="n">ps1</span>
 </span></code></pre></div>
-<h2 id="before-you-start">Before you start<a class="headerlink" href="#before-you-start" title="Permanent link">&para;</a></h2>
-<p>Inspect the available devices and execution providers:</p>
-<div class="language-powershell highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">winml</span> <span class="n">sys</span> <span class="p">-</span><span class="n">-list-device</span> <span class="p">-</span><span class="n">-list-ep</span>
+<h2 id="build-the-model">Build the model<a class="headerlink" href="#build-the-model" title="Permanent link">&para;</a></h2>
+<p>The <code>.mlir</code> format is the model intermediate representation (IR) that can be executed by the CGC backend. For recommended models, see <a href="https://review.learn.microsoft.com/en-us/windows/ai/new-windows-ml/runtime/cg-backend?branch=winml%2F2.9-exp#recommended-models">The CGC backend in Windows ML</a>.</p>
+<h3 id="export-pytorch-model-to-mlir">Export PyTorch model to MLIR<a class="headerlink" href="#export-pytorch-model-to-mlir" title="Permanent link">&para;</a></h3>
+<p>Export a Hugging Face PyTorch model to MLIR:</p>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">winml</span> <span class="n">export</span> <span class="n">-m</span> <span class="n">microsoft</span><span class="p">/</span><span class="n">resnet</span><span class="p">-</span><span class="n">50</span> <span class="p">-</span><span class="n">-target</span> <span class="n">cgir</span> <span class="n">-o</span> <span class="p">.\</span><span class="n">model</span><span class="p">.</span><span class="n">mlir</span>
 </span></code></pre></div>
-<p>Verify that the WinMLCG EP is installed and that the target GPU and its
-CGC-capable driver are listed. If they are missing, install or update the
-Windows ML components and graphics driver before continuing.</p>
+<h3 id="export-onnx-model-to-mlir">Export ONNX model to MLIR<a class="headerlink" href="#export-onnx-model-to-mlir" title="Permanent link">&para;</a></h3>
+<p>Export an existing ONNX model to MLIR:</p>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">winml</span> <span class="n">export</span> <span class="n">-m</span> <span class="p">.\</span><span class="n">model</span><span class="p">.</span><span class="n">onnx</span> <span class="p">-</span><span class="n">-target</span> <span class="n">cgir</span> <span class="n">-o</span> <span class="p">.\</span><span class="n">model</span><span class="p">.</span><span class="n">mlir</span>
+</span></code></pre></div>
+<p>You can also use <code>winml build</code> to build the model with additional configuration options. For details, see the <a href="../../commands/build/"><code>winml build</code> command reference</a>.</p>
 <h2 id="benchmark-the-model">Benchmark the model<a class="headerlink" href="#benchmark-the-model" title="Permanent link">&para;</a></h2>
-<p>Use <code>winml perf</code> to explore model compatibility and performance before changing
-your application. It exercises the same paths available to the application and
-lets you compare them without first writing integration code. Use
-<a href="../../commands/eval/"><code>winml eval</code></a> similarly to evaluate accuracy; the runtime
-and EP options select the same CGC paths shown below.</p>
-<h3 id="mlir-with-runtime-api">MLIR with Runtime API<a class="headerlink" href="#mlir-with-runtime-api" title="Permanent link">&para;</a></h3>
+<p>Use <code>winml perf</code> to explore model compatibility and performance before changing your application. It exercises the same paths available to the application and lets you compare them without first writing integration code.</p>
+<p><code>winml perf</code> supports ONNX (<code>.onnx</code>), MLIR (<code>.mlir</code>), and GGUF (<code>.gguf</code>) files, as well as local safetensors checkpoint directories, through the runtime/backend paths described below. For recommended models, see <a href="https://review.learn.microsoft.com/en-us/windows/ai/new-windows-ml/runtime/cg-backend?branch=winml%2F2.9-exp#recommended-models">The CGC backend in Windows ML</a>.</p>
+<h3 id="benchmark-mlir-model">Benchmark .mlir model<a class="headerlink" href="#benchmark-mlir-model" title="Permanent link">&para;</a></h3>
 <p>Use this path when you already have an offline-converted <code>.mlir</code> model:</p>
 <div class="language-powershell highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">winml</span> <span class="n">perf</span> <span class="n">-m</span> <span class="p">.\</span><span class="n">model</span><span class="p">.</span><span class="n">mlir</span> <span class="p">-</span><span class="n">-runtime</span> <span class="n">winml-runtime</span> <span class="n">-o</span> <span class="p">.\</span><span class="n">model-mlir-perf</span><span class="p">.</span><span class="n">json</span>
 </span></code></pre></div>
-<blockquote>
-<p><strong>Note:</strong> Currently, the graph and weights must be embedded in a single
-<code>.mlir</code> file. External weights will be supported in a future release.</p>
-</blockquote>
-<p>The Runtime API loads the model directly and runs it through DXCGC. A
-<code>.mlir</code> model can only use the Windows ML Runtime API; it cannot be loaded by
-ONNX Runtime and does not use an EP.</p>
-<h3 id="onnx-with-winmlcg-ep">ONNX with WinMLCG EP<a class="headerlink" href="#onnx-with-winmlcg-ep" title="Permanent link">&para;</a></h3>
-<p>Use this path when the application uses ONNX Runtime and should keep ONNX as
-its model contract:</p>
+<p>A <code>.mlir</code> model can only run on the CGC backend through the <a href="https://review.learn.microsoft.com/en-us/windows/ai/new-windows-ml/runtime/overview?branch=winml%2F2.9-exp">Windows ML Runtime API</a>, selected using the <code>--runtime winml-runtime</code> CLI option. It cannot be loaded by ONNX Runtime.</p>
+<h3 id="benchmark-onnx-model">Benchmark .onnx model<a class="headerlink" href="#benchmark-onnx-model" title="Permanent link">&para;</a></h3>
+<p>The <code>winml perf</code> command supports running ONNX models through either the Windows ML Runtime API or ONNX Runtime.</p>
+<h4 id="via-onnx-runtime-with-winmlcg-ep">Via ONNX Runtime with WinMLCG EP<a class="headerlink" href="#via-onnx-runtime-with-winmlcg-ep" title="Permanent link">&para;</a></h4>
+<p>The WinMLCG Execution Provider (EP) makes CGC functionality available through ONNX Runtime.</p>
+<p>Use this path when the application uses ONNX Runtime and should keep ONNX as its model contract:</p>
 <div class="language-powershell highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">winml</span> <span class="n">perf</span> <span class="n">-m</span> <span class="p">.\</span><span class="n">model</span><span class="p">.</span><span class="n">onnx</span> <span class="p">-</span><span class="n">-runtime</span> <span class="n">winml-ort</span> <span class="p">-</span><span class="n">-ep</span> <span class="n">winmlcg</span> <span class="n">-o</span> <span class="p">.\</span><span class="n">model-winmlcg-perf</span><span class="p">.</span><span class="n">json</span>
 </span></code></pre></div>
-<p>The WinMLCG Execution Provider converts the model for CGC when the ONNX Runtime
-session is created. No reusable CGIR artifact is produced. After this test
-succeeds, keep the ONNX model and configure the WinMLCG EP in the application.</p>
-<h3 id="onnx-with-runtime-api">ONNX with Runtime API<a class="headerlink" href="#onnx-with-runtime-api" title="Permanent link">&para;</a></h3>
-<p>Use this path when the application uses the Windows ML Runtime API but should
-keep ONNX as its model contract:</p>
+<p>The WinMLCG Execution Provider converts the model for CGC when the ONNX Runtime session is created. No reusable CGIR artifact is produced. After this test succeeds, keep the ONNX model and configure the WinMLCG EP in the application.</p>
+<h4 id="via-windows-ml-runtime-api">Via Windows ML Runtime API<a class="headerlink" href="#via-windows-ml-runtime-api" title="Permanent link">&para;</a></h4>
+<p>Use this path when the application uses the Windows ML Runtime API but should keep ONNX as its model contract:</p>
 <div class="language-powershell highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="n">winml</span> <span class="n">perf</span> <span class="n">-m</span> <span class="p">.\</span><span class="n">model</span><span class="p">.</span><span class="n">onnx</span> <span class="p">-</span><span class="n">-runtime</span> <span class="n">winml-runtime</span> <span class="n">-o</span> <span class="p">.\</span><span class="n">model-runtime-perf</span><span class="p">.</span><span class="n">json</span>
 </span></code></pre></div>
-<p>The CLI calls the Runtime compiler API to compile ONNX to temporary CG output IR,
-then loads that artifact and runs it through DXCGC. No EP is selected and no
-reusable CGIR artifact is retained. Applications using this path must likewise
-invoke the compiler API before pipeline execution.</p>
-<div class="admonition warning">
-<p class="admonition-title">Warning</p>
-</div>
-<p>With <code>windowsml==2.7.25.dev0</code>, the tested CLI's online conversion path
-  fails with <code>Runtime.load_model() got an unexpected keyword argument 'io_counts'</code>.
-  The offline build and MLIR Runtime path below works with this combination.</p>
-<table>
-<thead>
-<tr>
-<th>Model input</th>
-<th>Runtime path</th>
-<th>EP</th>
-<th>Conversion</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>.onnx</code></td>
-<td>Windows ML ONNX Runtime</td>
-<td>WinMLCG</td>
-<td>When the session is created</td>
-</tr>
-<tr>
-<td><code>.onnx</code></td>
-<td>Windows ML Runtime API + DXCGC</td>
-<td>None</td>
-<td>When the session is created</td>
-</tr>
-<tr>
-<td><code>.mlir</code></td>
-<td>Windows ML Runtime API + DXCGC</td>
-<td>None</td>
-<td>Already converted offline</td>
-</tr>
-</tbody>
-</table>
-<h2 id="build-the-model">Build the model<a class="headerlink" href="#build-the-model" title="Permanent link">&para;</a></h2>
-<p>Build a reusable <code>.mlir</code> model directly. No configuration file is required.
-For PyTorch models, build first exports to ONNX. It then quantizes the model,
-and converts it to MLIR.</p>
-<blockquote>
-<p><strong>Note:</strong> By default, the CGC build converts FP32 to FP16. This may improve
-performance, but can reduce accuracy for some models. Add <code>--no-quant</code> to
-skip quantization if your model is already quantized or accuracy is a concern.</p>
-</blockquote>
-<h3 id="pytorch-onnx-cgir">PyTorch → ONNX → CGIR<a class="headerlink" href="#pytorch-onnx-cgir" title="Permanent link">&para;</a></h3>
-<p>Build from a Hugging Face model:</p>
-<div class="language-powershell highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">winml</span> <span class="n">build</span> <span class="n">-m</span> <span class="n">microsoft</span><span class="p">/</span><span class="n">resnet</span><span class="p">-</span><span class="n">50</span> <span class="p">-</span><span class="n">-backend</span> <span class="n">cgc</span> <span class="n">-o</span> <span class="p">.\</span><span class="n">model-cgir</span>
+<p>The CLI calls the <a href="https://review.learn.microsoft.com/en-us/windows/ai/new-windows-ml/runtime/cg-backend?branch=winml%2F2.9-exp#compile-a-model-for-cg">Runtime compiler API</a> to compile ONNX to temporary, device-targeted CGC output IR, then loads that artifact and runs it through CGC. No EP is selected and no reusable CGIR artifact is retained. Applications using this path must likewise invoke the compiler API before pipeline execution.</p>
+<h3 id="benchmark-llm-model-gguf-and-safetensor">Benchmark LLM model (gguf and safetensor)<a class="headerlink" href="#benchmark-llm-model-gguf-and-safetensor" title="Permanent link">&para;</a></h3>
+<p>The <a href="https://review.learn.microsoft.com/en-us/windows/ai/new-windows-ml/tasks/overview?branch=winml%2F2.9-exp">Windows ML Task API</a> handles prompt tokenization and text generation, streaming generated tokens back to the application. Use this path to benchmark LLM generation on the GPU with CGC. No ONNX or MLIR export is required.</p>
+<p><strong>Safetensors checkpoint:</strong> Download <a href="https://huggingface.co/Qwen/Qwen3-0.6B">Qwen3-0.6B</a> into <code>.\Qwen3-0.6B</code>, keeping the weights, configuration, and tokenizer files together. Pass the folder, not an individual <code>.safetensors</code> file:</p>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">winml</span> <span class="n">perf</span> <span class="n">-m</span> <span class="p">.\</span><span class="n">Qwen3</span><span class="p">-</span><span class="n">0</span><span class="p">.</span><span class="n">6B</span> <span class="p">-</span><span class="n">-backend</span> <span class="n">cgc</span> <span class="n">-o</span> <span class="p">.\</span><span class="nb">checkpoint-perf</span><span class="p">.</span><span class="n">json</span>
 </span></code></pre></div>
-<h3 id="onnx-cgir">ONNX → CGIR<a class="headerlink" href="#onnx-cgir" title="Permanent link">&para;</a></h3>
-<p>Build from an existing ONNX model:</p>
-<div class="language-powershell highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">winml</span> <span class="n">build</span> <span class="n">-m</span> <span class="p">.\</span><span class="n">model</span><span class="p">.</span><span class="n">onnx</span> <span class="p">-</span><span class="n">-backend</span> <span class="n">cgc</span> <span class="n">-o</span> <span class="p">.\</span><span class="n">model-cgir</span>
+<p><strong>GGUF:</strong> Download <a href="https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/blob/main/Qwen3-0.6B-Q4_0.gguf">Qwen3-0.6B-Q4_0.gguf</a> into the current directory, then pass the file:</p>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="n">winml</span> <span class="n">perf</span> <span class="n">-m</span> <span class="p">.\</span><span class="n">Qwen3</span><span class="p">-</span><span class="n">0</span><span class="p">.</span><span class="n">6B-Q4_0</span><span class="p">.</span><span class="n">gguf</span> <span class="p">-</span><span class="n">-backend</span> <span class="n">cgc</span> <span class="n">-o</span> <span class="p">.\</span><span class="n">gguf-perf</span><span class="p">.</span><span class="n">json</span>
 </span></code></pre></div>
-<p>Both paths write <code>model-cgir\model.onnx</code> and <code>model-cgir\model.mlir</code>.
-Benchmark the <code>.mlir</code> model using the
-<a href="#mlir-with-runtime-api">Windows ML Runtime API</a>.</p>
-<h3 id="convert-without-optimization-or-quantization">Convert without optimization or quantization<a class="headerlink" href="#convert-without-optimization-or-quantization" title="Permanent link">&para;</a></h3>
-<p>Use <code>winml export</code> to convert an ONNX model directly to MLIR, skipping the
-optimization and quantization stages:</p>
-<div class="language-powershell highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">winml</span> <span class="n">export</span> <span class="n">-m</span> <span class="p">.\</span><span class="n">model</span><span class="p">.</span><span class="n">onnx</span> <span class="p">-</span><span class="n">-target</span> <span class="n">cgir</span> <span class="n">-o</span> <span class="p">.\</span><span class="n">model</span><span class="p">.</span><span class="n">mlir</span>
+<p>Both commands select the CGC backend, report time to first token and generation throughput, and save the results as JSON.</p>
+<p>Illustrative JSON excerpt (values vary by model and device):</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="p">{</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span><span class="nt">"benchmark_info"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">    </span><span class="nt">"runtime"</span><span class="p">:</span><span class="w"> </span><span class="s2">"winml-runtime"</span><span class="p">,</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">    </span><span class="nt">"backend"</span><span class="p">:</span><span class="w"> </span><span class="s2">"cgc"</span><span class="p">,</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">    </span><span class="nt">"model_format"</span><span class="p">:</span><span class="w"> </span><span class="s2">"gguf"</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="w">  </span><span class="nt">"aggregate"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="w">    </span><span class="nt">"warmup_excluded"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="w">    </span><span class="nt">"task_ttft_duration_ms"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="w">      </span><span class="nt">"mean"</span><span class="p">:</span><span class="w"> </span><span class="mi">20</span>
+</span><span id="__span-9-11"><a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="w">    </span><span class="p">},</span>
+</span><span id="__span-9-12"><a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a><span class="w">    </span><span class="nt">"steady_state_decode_tokens_per_second"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-9-13"><a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="w">      </span><span class="nt">"mean"</span><span class="p">:</span><span class="w"> </span><span class="mi">500</span>
+</span><span id="__span-9-14"><a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a><span class="w">    </span><span class="p">},</span>
+</span><span id="__span-9-15"><a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a><span class="w">    </span><span class="nt">"request_duration_ms"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-9-16"><a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a><span class="w">      </span><span class="nt">"mean"</span><span class="p">:</span><span class="w"> </span><span class="mi">300</span>
+</span><span id="__span-9-17"><a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-9-18"><a id="__codelineno-9-18" name="__codelineno-9-18" href="#__codelineno-9-18"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-9-19"><a id="__codelineno-9-19" name="__codelineno-9-19" href="#__codelineno-9-19"></a><span class="p">}</span>
 </span></code></pre></div>
-<p>The model must already be compatible with the CGC converter.</p>
-<h3 id="fix-dynamic-input-dimensions">Fix dynamic input dimensions<a class="headerlink" href="#fix-dynamic-input-dimensions" title="Permanent link">&para;</a></h3>
-<p>CGIR export automatically freezes a symbolic input dimension named <code>batch_size</code>
-to 1 unless explicitly overridden, and prints a warning. If other named input
-dimensions remain dynamic, conversion stops with the input names, axis indices,
-missing dimensions, and a <code>freeze-dims</code> option template. Substitute your
-deployment dimensions; freezing specializes the artifact, not the input images.</p>
-<p>Use the same repeatable <code>--cgc-options KEY=VALUE</code> syntax for export, config, and build.
-For example, for a model whose input symbols are <code>dynamic_height</code> and
-<code>dynamic_width</code>:</p>
-<div class="language-powershell highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">winml</span> <span class="n">export</span> <span class="n">-m</span> <span class="p">.\</span><span class="n">model</span><span class="p">.</span><span class="n">onnx</span> <span class="p">-</span><span class="n">-target</span> <span class="n">cgir</span> <span class="n">-o</span> <span class="p">.\</span><span class="n">model</span><span class="p">.</span><span class="n">mlir</span> <span class="p">`</span>
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>  <span class="p">-</span><span class="n">-cgc-options</span> <span class="s2">"freeze-dims=dynamic_height=720,dynamic_width=1280"</span>
-</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>
-</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="n">winml</span> <span class="n">config</span> <span class="n">-m</span> <span class="p">.\</span><span class="n">model</span><span class="p">.</span><span class="n">onnx</span> <span class="p">-</span><span class="n">-backend</span> <span class="n">cgc</span> <span class="n">-o</span> <span class="p">.\</span><span class="n">build</span><span class="p">.</span><span class="n">json</span> <span class="p">`</span>
-</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>  <span class="p">-</span><span class="n">-cgc-options</span> <span class="s2">"freeze-dims=dynamic_height=720,dynamic_width=1280"</span>
-</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="n">winml</span> <span class="n">build</span> <span class="n">-m</span> <span class="p">.\</span><span class="n">model</span><span class="p">.</span><span class="n">onnx</span> <span class="n">-c</span> <span class="p">.\</span><span class="n">build</span><span class="p">.</span><span class="n">json</span> <span class="n">-o</span> <span class="p">.\</span><span class="n">model-cgir</span>
-</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a>
-</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="n">winml</span> <span class="n">build</span> <span class="n">-m</span> <span class="p">.\</span><span class="n">model</span><span class="p">.</span><span class="n">onnx</span> <span class="p">-</span><span class="n">-backend</span> <span class="n">cgc</span> <span class="n">-o</span> <span class="p">.\</span><span class="n">model-cgir-direct</span> <span class="p">`</span>
-</span><span id="__span-10-9"><a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a>  <span class="p">-</span><span class="n">-cgc-options</span> <span class="s2">"freeze-dims=dynamic_height=720,dynamic_width=1280"</span>
-</span></code></pre></div>
-<p>Config generation stores these values in <code>convert.options</code>, for example:</p>
-<div class="language-json highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="p">{</span>
-</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span><span class="nt">"convert"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">    </span><span class="nt">"target"</span><span class="p">:</span><span class="w"> </span><span class="s2">"cgir"</span><span class="p">,</span>
-</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">    </span><span class="nt">"options"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">      </span><span class="nt">"freeze-dims"</span><span class="p">:</span><span class="w"> </span><span class="s2">"dynamic_height=720,dynamic_width=1280"</span>
-</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="w">    </span><span class="p">}</span>
-</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="w">  </span><span class="p">}</span>
-</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="p">}</span>
-</span></code></pre></div>
-<p>This is a config fragment. CLI options override config values per option key:
-supplying <code>freeze-dims</code> replaces the entire configured dimension list, not
-individual dimensions. Include all required explicit overrides in that list.
-Other option keys are preserved. Options are only accepted for CGIR conversion.</p>
-<p>Config generation checks the <code>KEY=VALUE</code> format and stores the options without
-inspecting dynamic inputs. Option names, types, and dimension assignments are
-validated by the existing CGIR exporter when conversion runs.
-Build checks input dimensions at its existing CGIR conversion stage, after
-optimization and quantization. The source ONNX file is not modified by freezing.
-Unnamed dynamic axes or unknown input rank cannot be resolved by <code>freeze-dims</code>;
-their handling and diagnostics are left to the compiler.
-Fixing input dimensions does not guarantee support for data-dependent shapes
-or all operators.</p>
-<h3 id="cgir-to-device-targeted-cg-output-ir">CGIR to device-targeted CG Output IR<a class="headerlink" href="#cgir-to-device-targeted-cg-output-ir" title="Permanent link">&para;</a></h3>
-<p>To retain a compiled artifact from existing CGIR, use the explicit
-<a href="../../commands/compile/#cgir-to-cg-output-ir">CGIR compile mode</a>:</p>
-<div class="language-powershell highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="n">winml</span> <span class="n">compile</span> <span class="n">-m</span> <span class="p">.\</span><span class="n">model</span><span class="p">.</span><span class="n">mlir</span> <span class="p">-</span><span class="n">-compiler</span> <span class="n">cgc</span> <span class="p">-</span><span class="n">-device</span> <span class="n">gpu</span> <span class="n">-o</span> <span class="p">.\</span><span class="n">model-output</span><span class="p">.</span><span class="n">mlir</span>
-</span></code></pre></div>
-<p>For <code>.mlir</code> and <code>.mlirbc</code> input, <code>--compiler cgc</code> is optional.</p>
-<p>The artifact is UTF-8 text MLIR, matching the representation written by
-<code>winml export --target cgir</code>. This is a separate compilation stage, without an
-EP, optimization or quantization. Default validation reloads/builds the final
-text artifact and checks I/O; it does not run inference or performance tests.</p>
+<p>These fields show the average Task time to first token, subsequent generation speed, and total request time, excluding warmup requests.</p>
 <h2 id="tutorials-and-samples">Tutorials and samples<a class="headerlink" href="#tutorials-and-samples" title="Permanent link">&para;</a></h2>
 <ul>
-<li><a href="../../samples/resnet50-cgir/">ResNet-50 - PyTorch to CGIR (experimental)</a> walks through
-  the complete Hugging Face PyTorch → ONNX → CGIR build, performance, and
-  evaluation workflow.</li>
-<li><a href="../../samples/yolo11-cgir/">YOLO11 - ONNX to CGIR (experimental)</a> provides an end-to-end
-  conversion journey: export a checkpoint to ONNX, build CGIR, collect GPU
-  performance results, compare raw output tensors, and try the WinMLCG EP alternative.</li>
+<li><a href="../../samples/resnet50-cgir/">ResNet-50 - PyTorch to CGIR (experimental)</a> walks through the complete Hugging Face PyTorch → ONNX → CGIR build, performance, and evaluation workflow.</li>
+<li><a href="../../samples/yolo11-cgir/">YOLO11 - ONNX to CGIR (experimental)</a> provides an end-to-end conversion journey: export a checkpoint to ONNX, build CGIR, collect GPU performance results, compare raw output tensors, and try the WinMLCG EP alternative.</li>
 </ul>
 <h2 id="command-references">Command references<a class="headerlink" href="#command-references" title="Permanent link">&para;</a></h2>
 <ul>
-<li><a href="../../commands/export/"><code>winml export</code></a> documents <code>--target cgir</code> and CGIR
-  export options.</li>
+<li><a href="../../commands/export/"><code>winml export</code></a> documents <code>--target cgir</code> and CGIR export options.</li>
 <li><a href="../../commands/optimize/"><code>winml optimize</code></a> documents ONNX optimization.</li>
-<li><a href="../../commands/perf/"><code>winml perf</code></a> documents <code>.mlir</code>, <code>winml-runtime</code>, and
-  WinMLCG performance measurement.</li>
-<li><a href="../../commands/eval/"><code>winml eval</code></a> documents evaluation of supported CGIR
-  models with compatible preprocessing metadata.</li>
-<li><a href="../../commands/config/"><code>winml config</code></a> and
-  <a href="../../commands/build/"><code>winml build</code></a> document configuration-driven CGIR
-  conversion.</li>
+<li><a href="../../commands/perf/"><code>winml perf</code></a> documents <code>.mlir</code>, <code>winml-runtime</code>, and WinMLCG performance measurement.</li>
+<li><a href="../../commands/eval/"><code>winml eval</code></a> documents evaluation of supported CGIR models with compatible preprocessing metadata.</li>
+<li><a href="../../commands/config/"><code>winml config</code></a> and <a href="../../commands/build/"><code>winml build</code></a> document configuration-driven CGIR conversion.</li>
 </ul>
 
 
