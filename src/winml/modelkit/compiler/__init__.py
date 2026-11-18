@@ -47,6 +47,7 @@ from .utils import (
 # triggering the heavy imports at runtime.
 if TYPE_CHECKING:
     from .compiler import Compiler, compile_multiple_onnx, compile_onnx, list_compilers
+    from .offdevice import compile_off_device, list_compilation_eps, list_compilation_targets
     from .runtime import compile_cgc_ir
     from .stages.compile import CompileStage
     from .stages.optimize import OptimizeStage
@@ -55,6 +56,15 @@ if TYPE_CHECKING:
 
 def __getattr__(name: str) -> Any:
     """Lazy-load heavy symbols that pull in session/torch to speed up import."""
+    if name in {"compile_off_device", "list_compilation_eps", "list_compilation_targets"}:
+        from .offdevice import compile_off_device, list_compilation_eps, list_compilation_targets
+
+        globals().update(
+            compile_off_device=compile_off_device,
+            list_compilation_eps=list_compilation_eps,
+            list_compilation_targets=list_compilation_targets,
+        )
+        return globals()[name]
     if name == "compile_cgc_ir":
         from .runtime import compile_cgc_ir
 
@@ -107,8 +117,11 @@ __all__ = [
     "clear_transforms",
     "compile_cgc_ir",
     "compile_multiple_onnx",
+    "compile_off_device",
     "compile_onnx",
     "get_transforms_for_ep",
+    "list_compilation_eps",
+    "list_compilation_targets",
     "list_compilers",
     "needs_format_conversion",
     "register_transform",
