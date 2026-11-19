@@ -1,3 +1,8 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
+
 # /// script
 # requires-python = ">=3.10,<3.13"
 # dependencies = [
@@ -10,10 +15,6 @@
 #   "tiktoken",
 # ]
 # ///
-# -------------------------------------------------------------------------
-# Copyright (c) Microsoft Corporation. All rights reserved.
-# Licensed under the MIT License.
-# --------------------------------------------------------------------------
 
 """Prepare SPEED-Bench prompt subsets for ``winml perf --dataset``.
 
