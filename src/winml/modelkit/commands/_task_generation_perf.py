@@ -380,21 +380,30 @@ class TaskRequestSample:
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize measured request spans and explicit unavailable legacy fields."""
-        result: dict[str, Any] = {
-            "kind": self.kind,
-            "index": self.index,
-            "prompt_tokens": self.prompt_tokens,
-            "generated_tokens": self.generated_tokens,
-            "decode_token_durations_ms": [
-                round(value, 3) for value in self.decode_token_durations_ms
-            ],
-            **dict.fromkeys(_UNAVAILABLE_MODEL_METRICS),
-        }
-        for metric in _MEASURED_REQUEST_METRICS:
-            value = getattr(self, metric)
-            precision = 2 if metric == "steady_state_decode_tokens_per_second" else 3
-            result[metric] = round(value, precision) if value is not None else None
-        return result
+        return _request_report_fields(self)
+
+
+def _request_report_fields(sample: Any) -> dict[str, Any]:
+    """Return the schema 3 per-request fields of a request sample.
+
+    A metric the sample does not define, such as a Task span on a runner that
+    has no Task, is null, as are the model metrics no stream-timed runner measures.
+    """
+    result: dict[str, Any] = {
+        "kind": sample.kind,
+        "index": sample.index,
+        "prompt_tokens": sample.prompt_tokens,
+        "generated_tokens": sample.generated_tokens,
+        "decode_token_durations_ms": [
+            round(value, 3) for value in sample.decode_token_durations_ms
+        ],
+        **dict.fromkeys(_UNAVAILABLE_MODEL_METRICS),
+    }
+    for metric in _MEASURED_REQUEST_METRICS:
+        value = getattr(sample, metric, None)
+        precision = 2 if metric == "steady_state_decode_tokens_per_second" else 3
+        result[metric] = round(value, precision) if value is not None else None
+    return result
 
 
 @dataclass
@@ -434,7 +443,7 @@ class GenerationBenchmarkResult(ABC, Generic[GenerationConfigT]):
 
     config: GenerationConfigT
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    prompt_tokens: int = 0
+    prompt_tokens: int | None = 0
     generated_tokens: int = 0
     response_text: str = ""
     stop_reason: str | None = None
@@ -951,8 +960,9 @@ def display_task_report(result: GenerationBenchmarkResult[Any], console: Console
     console.print()
     for label, value in rows:
         console.print(f"{labeled(label)}{escape(value)}")
+    prompt_tokens = "n/a" if result.prompt_tokens is None else result.prompt_tokens
     console.print(
-        f"{labeled('Prompt')}{result.prompt_tokens} tokens   "
+        f"{labeled('Prompt')}{prompt_tokens} tokens   "
         f"[dim]Generated:[/dim] {result.generated_tokens} tokens "
         f"(max_new_tokens={cfg.max_new_tokens}, stop={result.stop_reason}){result.prompt_note()}"
     )
