@@ -1,0 +1,20 @@
+{
+  "skill_name": "llm-speed-bench",
+  "description": "Activation cases: 7 should trigger and 7 should not. Keep labels and rationales evaluator-only; grade actual skill invocation from the host trace.",
+  "queries": [
+    { "query": "how do i download SPEED-Bench and run it against my llama-server with winml perf?", "should_trigger": true, "rationale": "Direct acquire-and-run request." },
+    { "query": "the nvidia/SPEED-Bench rows on hugging face just say FULL BENCHMARK DATA SHOULD BE FETCHED FROM THE SOURCE. how do i get the real prompts?", "should_trigger": true, "rationale": "Masked Hub rows need the preparation step." },
+    { "query": "i want to compare decode tokens/sec with and without a draft model on llama.cpp across prompt categories and input lengths.", "should_trigger": true, "rationale": "Speculative decoding comparison by category and length is the skill's purpose." },
+    { "query": "benchmark my OpenAI-compatible local server on long prompts (8k-32k) and break TTFT down by input length.", "should_trigger": true, "rationale": "Throughput buckets with per-length cohorts." },
+    { "query": "prepare_speed_bench.py says it skipped prompts from cais/hle. how do i include them?", "should_trigger": true, "rationale": "Gated-source handling in the skill's script." },
+    { "query": "what --max-new-tokens should i use for a quick speculative decoding benchmark with winml perf --dataset?", "should_trigger": true, "rationale": "Subset-specific run settings." },
+    { "query": "set up repeatable labeled runs of winml perf --endpoint so i can compare two llama-server builds on the same prompts.", "should_trigger": true, "rationale": "Run labels, indexes and same-prompt comparison for endpoint benchmarks." },
+    { "query": "benchmark microsoft/resnet-50 latency on my snapdragon npu with winml.", "should_trigger": false, "rationale": "Classic ONNX model benchmarking belongs to use-winml-cli." },
+    { "query": "evaluate the accuracy of my llm on mmlu-pro.", "should_trigger": false, "rationale": "Accuracy evaluation, not speed measurement." },
+    { "query": "train a draft model for speculative decoding of my target model.", "should_trigger": false, "rationale": "Training is out of scope." },
+    { "query": "my llama-server crashes with CUDA out of memory when loading a 70b model. how do i fix it?", "should_trigger": false, "rationale": "Server troubleshooting, not benchmarking." },
+    { "query": "add support for a new hugging face architecture to winml-cli.", "should_trigger": false, "rationale": "Model onboarding belongs to adding-model-support." },
+    { "query": "optimize the QDQ placement of my ONNX model to reduce NPU latency.", "should_trigger": false, "rationale": "Graph optimization belongs to auto-optimize." },
+    { "query": "what is speculative decoding and why does it help?", "should_trigger": false, "rationale": "Conceptual question with no benchmarking task." }
+  ]
+}
