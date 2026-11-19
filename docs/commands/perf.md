@@ -16,7 +16,7 @@ $ winml perf [options]
 
 | Flag | Short | Type | Default | Description |
 |---|---|---|---|---|
-| `--model` | `-m` | `TEXT` | — | HuggingFace model ID or path to a local `.onnx` file. With `--runtime winml-runtime`, also accepts a prebuilt CGC `.mlir` file. Also accepts a local `.gguf` language model with `--runtime auto` (experimental; see [GGUF models](../samples/gguf-llama-perf.md)). With `--backend cgc`, a local `.gguf` file or a local Hugging Face checkpoint folder (safetensors weights) runs as CGC text generation on a GPU (experimental; see [CGC text generation](../samples/cgc-text-generation-perf.md)). Required. With `--runtime ort-genai`, also accepts a prebuilt genai **bundle directory**, or a HuggingFace model ID that is auto-built into a bundle on demand. |
+| `--model` | `-m` | `TEXT` | — | HuggingFace model ID or path to a local `.onnx` file. With `--runtime winml-runtime`, also accepts a prebuilt CGC `.mlir` file. Also accepts a local `.gguf` language model with `--runtime auto` (experimental; see [GGUF models](../samples/gguf-llama-perf.md)). With `--backend cgc`, a local `.gguf` file or a local Hugging Face checkpoint folder (safetensors weights) runs as CGC text generation on a GPU (experimental; see [CGC text generation](../samples/cgc-text-generation-perf.md)). Required unless `--endpoint` is set. With `--runtime ort-genai`, also accepts a prebuilt genai **bundle directory**, or a HuggingFace model ID that is auto-built into a bundle on demand. |
 | `--runtime` | | `auto\|winml-ort\|ort-genai\|winml-runtime` | `auto` | Inference runtime. `auto` selects `ort-genai` for local folders containing `genai_config.json`, `winml-runtime` for `.mlir` files, Windows ML Tasks for `.gguf` files (llama.cpp unless `--backend cgc`; experimental; see [GGUF models](../samples/gguf-llama-perf.md)), otherwise `winml-ort`. With `--backend cgc`, `auto` runs a `.gguf` file or a local checkpoint folder as CGC text generation on a GPU (experimental; see [CGC text generation](../samples/cgc-text-generation-perf.md)). `winml-ort` benchmarks single-shot ONNX inference; `ort-genai` benchmarks an onnxruntime-genai bundle (LLM generation: time-to-first-token + decode tokens/sec); `winml-runtime` runs ONNX or prebuilt CGC MLIR through Windows ML Runtime, and exports a checkpoint folder to ONNX first, even with `--backend cgc`. With `ort-genai`, a model ID that is not a bundle directory is auto-built into one before benchmarking. An explicit `--ep` or `--device` selects both the transformer build and runtime target; without an override, the auto-build defaults to QNN/NPU. Bundles are cached under `~/.cache/winml/`, separately for each explicit EP/device target. GenAI cache controls are tracked in issue #1275. |
 | `--backend` | | `ort\|cgc` | `cgc` (with `winml-runtime`) | `winml-runtime` backend for ONNX inputs. MLIR requires `cgc`. With `--runtime auto` (the default), `cgc` runs a `.gguf` file or a local Hugging Face checkpoint folder as text generation on the Windows ML CGC backend on a GPU (experimental; see [CGC text generation](../samples/cgc-text-generation-perf.md)); with `--runtime winml-runtime`, a `.gguf` file also runs this way, but a checkpoint folder is still exported to ONNX. Without `--backend`, a `.gguf` file runs on llama.cpp, and `--backend ort` is rejected for it. |
 | `--task` | | `TEXT` | auto-detected | Explicit task override (e.g., `image-classification`). Inferred from the model if omitted. |
@@ -50,6 +50,12 @@ $ winml perf [options]
 | `--ignore-eos/--no-ignore-eos` | | flag | `false` | *(GGUF, --backend cgc)* Create the Task with an empty end-of-sequence set so every request generates `--max-new-tokens` tokens unless it reaches the sequence capacity. |
 | `--evidence` | | `PATH` | — | *(GGUF)* Write raw `gguf-task-events-2` request evidence to this new JSON file. Needs `--warmup` of at least 1 and turns off `--memory`. Applies only to a `.gguf` file on llama.cpp: `--backend cgc` and other inputs reject it. Inputs other than GGUF and `--backend cgc` also reject the three options above. |
 | `--program-cache` | | `DIR` | — | *(--backend cgc)* Directory for compiled GPU programs (Windows ML `compiled_program_directory`) that later runs reuse. Off by default, so every run measures the cold compile. The directory is reported in `benchmark_info.program_cache_dir`, and winml-cli never deletes it. |
+| `--endpoint` | | `URL` | — | Benchmark text generation on a running OpenAI-compatible server instead of loading a model, for example `http://127.0.0.1:8080/v1` (experimental; see [OpenAI-compatible server](../samples/openai-endpoint-perf.md)). Requests stream from `<URL>/chat/completions`. Uses `--prompt` or `--prompt-file`, `--max-new-tokens`, `--iterations` (default `10`), `--warmup` (default `2`), `--output` and `--format`; other options are rejected. `OPENAI_API_KEY`, when set, is sent as a bearer token. |
+| `--endpoint-model` | | `TEXT` | the only listed model | *(--endpoint)* The `model` field to send. Required when the server lists several models at `<URL>/models`. |
+| `--extra-body` | | `JSON` | — | *(--endpoint)* JSON object merged into every request body, for server-specific fields such as `{"cache_prompt": false}` for `llama-server`. Recorded in the report. |
+| `--run-label` | | `KEY=VALUE` (multiple) | — | *(--endpoint)* Label recorded in `provenance.run_labels`, for example `config=draft`. Repeatable. |
+| `--run-index` | | `INTEGER` | — | *(--endpoint)* Position of this run in a repeated series, recorded in `provenance.run_index`. |
+| `--hash-file` | | `LABEL=PATH` (multiple) | — | *(--endpoint)* Record the file name, size and SHA-256 of a file the server uses, for example `model=./model.gguf`. Repeatable. |
 
 ## How it works
 
@@ -70,6 +76,14 @@ Shared metadata such as `model_id`, `running_model_path`, `device`, `ep`,
 `iterations`, `warmup`, and `timestamp` uses the same field names where the
 concepts overlap; GenAI also keeps `bundle_dir` because the runnable artifact is a
 bundle directory.
+
+With `--endpoint` (experimental), winml-cli loads no model: it streams chat
+completions from a running OpenAI-compatible server and measures time to first
+token, decode throughput and request duration at the client, next to the token
+counts and timings the server reports. These reports use `schema_version: 4`, with
+`benchmark_info.runtime: openai-endpoint` and a `provenance` block (host, GPU
+drivers, run labels, run index, file hashes) for comparing runs across machines;
+see [OpenAI-compatible server](../samples/openai-endpoint-perf.md#report-fields).
 
 When `--memory` is enabled, both `winml-ort` and `ort-genai` reports use the same `memory` field names for shared concepts: RSS baseline, after-compile/load, after-inference, peak, model-load delta, inference/generation delta, and total delta; VRAM local/shared baseline, after-compile/load, after-inference, peak, model-load delta, inference/generation delta, and total delta.
 
@@ -607,3 +621,4 @@ loading and dtype conversion still occur at the normal input-allocation boundary
 - [winml build](build.md) — build the quantized artifact that `perf` benchmarks
 - [Load and export concept](../concepts/load-and-export.md) — how `--module` per-instance benchmarking works
 - [ONNX & Execution Providers](../concepts/eps-and-devices.md) — understand `--device` vs `--ep`
+- [OpenAI-compatible server](../samples/openai-endpoint-perf.md) — benchmark a running server with `--endpoint`

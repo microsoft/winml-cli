@@ -3590,6 +3590,130 @@ def _run_cgc_generation_runtime(
     run_cgc_perf(config, console=console, json_mode=json_mode)
 
 
+# Options --endpoint honors; every other option given on the command line is
+# rejected, since the server, not winml-cli, loads and runs the model.
+_ENDPOINT_PARAMS = frozenset(
+    {
+        "endpoint",
+        "endpoint_model",
+        "extra_body",
+        "run_labels",
+        "run_index",
+        "hash_files",
+        "prompt",
+        "prompt_file",
+        "max_new_tokens",
+        "iterations",
+        "warmup",
+        "output",
+        "overwrite",
+        "output_format",
+        "verbose",
+        "quiet",
+    }
+)
+_ENDPOINT_ONLY_PARAMS = ("endpoint_model", "extra_body", "run_labels", "run_index", "hash_files")
+
+
+def _option_flag(ctx: click.Context, name: str) -> str:
+    """The command-line spelling of the option behind parameter ``name``.
+
+    An on/off flag shows both forms, for example ``--apply-template/--no-apply-template``.
+    """
+    for param in ctx.command.params:
+        if param.name == name and param.opts:
+            primary = max(param.opts, key=len)
+            secondary = getattr(param, "secondary_opts", None)
+            return f"{primary}/{max(secondary, key=len)}" if secondary else primary
+    return name
+
+
+def _reject_endpoint_only_options(ctx: click.Context) -> None:
+    """Reject options that only apply with ``--endpoint`` rather than ignoring them."""
+    provided = [
+        _option_flag(ctx, name)
+        for name in _ENDPOINT_ONLY_PARAMS
+        if cli_utils.is_cli_provided(ctx, name)
+    ]
+    if provided:
+        raise click.UsageError(f"{', '.join(provided)} only applies with --endpoint.")
+
+
+def _parse_extra_body(value: str | None) -> dict[str, Any]:
+    """Parse ``--extra-body`` as a JSON object."""
+    if value is None:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except ValueError as exc:
+        raise click.UsageError(f"--extra-body is not valid JSON: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise click.UsageError("--extra-body must be a JSON object, for example '{\"top_k\": 1}'.")
+    return parsed
+
+
+def _run_endpoint_runtime(ctx: click.Context, *, console: Console, json_mode: bool) -> None:
+    """Validate an ``--endpoint`` request and benchmark the running server.
+
+    The server owns the model, so model, build, device and runtime options are
+    rejected. The endpoint imports are function-local so other routes never
+    load them.
+    """
+    from ._openai_chat_client import normalize_base_url
+    from ._perf_endpoint import EndpointPerfConfig, default_report_slug, run_endpoint_perf
+    from ._run_provenance import hash_files, parse_key_values
+
+    p = ctx.params
+    rejected = [
+        _option_flag(ctx, name)
+        for name in p
+        if name not in _ENDPOINT_PARAMS and cli_utils.is_cli_provided(ctx, name)
+    ]
+    if rejected:
+        raise click.UsageError(
+            f"{', '.join(rejected)} cannot be used with --endpoint: the server loads and runs "
+            "the model."
+        )
+    try:
+        base_url = normalize_base_url(p["endpoint"])
+    except ValueError as exc:
+        raise click.UsageError(f"--endpoint {exc}") from exc
+    extra_body = _parse_extra_body(p.get("extra_body"))
+    run_labels = parse_key_values(p.get("run_labels") or (), flag="--run-label")
+    files = {
+        label: Path(path)
+        for label, path in parse_key_values(p.get("hash_files") or (), flag="--hash-file").items()
+    }
+    # As for the other generation routes, a full generation is costly.
+    iterations = p["iterations"] if cli_utils.is_cli_provided(ctx, "iterations") else 10
+    warmup = p["warmup"] if cli_utils.is_cli_provided(ctx, "warmup") else 2
+    output: Path | None = p.get("output")
+    if output is not None:
+        _reject_input_overwrite((("--output", output),), [("--prompt-file", p.get("prompt_file"))])
+        cli_utils.guard_output(output, p["overwrite"])
+    prompt_source = "--prompt-file" if p.get("prompt_file") is not None else "--prompt"
+    config = EndpointPerfConfig(
+        base_url=base_url,
+        model=p.get("endpoint_model"),
+        prompt=_resolve_prompt(ctx),
+        prompt_source=prompt_source,
+        max_new_tokens=p["max_new_tokens"],
+        iterations=iterations,
+        warmup=warmup,
+        extra_body=extra_body,
+        run_labels=run_labels,
+        run_index=p.get("run_index"),
+        file_hashes=hash_files(files) if files else {},
+        output_path=output,
+    )
+    run_endpoint_perf(
+        config,
+        console=console,
+        json_mode=json_mode,
+        resolve_output_path=lambda model_id: generate_output_path(default_report_slug(model_id)),
+    )
+
+
 def _resolve_composite_components_for_perf(model: str, task: str | None) -> dict[str, str] | None:
     """Detect a composite model's sub-components (name -> component task), else None.
 
@@ -3739,6 +3863,56 @@ def _validate_duration(
     help="[--backend cgc] Directory for compiled GPU programs (Windows ML "
     "compiled_program_directory) that later runs reuse. Default: no cache, so every run "
     "measures the cold compile. winml-cli never deletes this directory.",
+)
+@click.option(
+    "--endpoint",
+    type=str,
+    default=None,
+    metavar="URL",
+    help="Benchmark text generation on a running OpenAI-compatible server instead of loading "
+    "a model, for example llama.cpp's llama-server. Pass its OpenAI base URL, such as "
+    "http://127.0.0.1:8080/v1; requests stream from <URL>/chat/completions. Uses --prompt or "
+    "--prompt-file, --max-new-tokens, --iterations and --warmup (experimental). The "
+    "OPENAI_API_KEY environment variable, when set, is sent as a bearer token.",
+)
+@click.option(
+    "--endpoint-model",
+    type=str,
+    default=None,
+    help="[--endpoint] The 'model' field to send. Default: the only model the server lists "
+    "at <URL>/models.",
+)
+@click.option(
+    "--extra-body",
+    type=str,
+    default=None,
+    metavar="JSON",
+    help="[--endpoint] JSON object merged into every request body, for server-specific "
+    "parameters (for example '{\"cache_prompt\": false}' for llama-server). Recorded in "
+    "the report.",
+)
+@click.option(
+    "--run-label",
+    "run_labels",
+    multiple=True,
+    metavar="KEY=VALUE",
+    help="[--endpoint] Label recorded in the report's provenance, for example "
+    "server=llama.cpp or config=draft-3. Repeatable; reports are grouped by labels when "
+    "combined.",
+)
+@click.option(
+    "--run-index",
+    type=click.IntRange(min=0),
+    default=None,
+    help="[--endpoint] Position of this run in a repeated series, recorded in the report.",
+)
+@click.option(
+    "--hash-file",
+    "hash_files",
+    multiple=True,
+    metavar="LABEL=PATH",
+    help="[--endpoint] Record the SHA-256, size and file name of a file the server uses, "
+    "for example model=./model.gguf. Repeatable. Local folders are not recorded.",
 )
 @click.option(
     "--compile-timeout",
@@ -3954,6 +4128,12 @@ def perf(
     ignore_eos: bool,
     evidence: Path | None,
     program_cache: Path | None,
+    endpoint: str | None,
+    endpoint_model: str | None,
+    extra_body: str | None,
+    run_labels: tuple[str, ...],
+    run_index: int | None,
+    hash_files: tuple[str, ...],
     compile_timeout: int,
     task: str | None,
     submodel: str | None,
@@ -4035,7 +4215,18 @@ def perf(
         # GGUF or a safetensors checkpoint on the Windows ML CGC backend (GPU; preview packages)
         winml perf -m qwen2.5-0.5b-instruct-q4_k_m.gguf --backend cgc
         winml perf -m ./Qwen2.5-0.5B-Instruct --backend cgc
+
+        # A running OpenAI-compatible server, such as llama-server (experimental)
+        winml perf --endpoint http://127.0.0.1:8080/v1 --max-new-tokens 256
     """
+    if endpoint is not None:
+        verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
+        configure_logging(verbosity=verbose, quiet=quiet)
+        json_mode = output_format == "json"
+        console = SafeConsole(stderr=True) if json_mode else SafeConsole()
+        _run_endpoint_runtime(ctx, console=console, json_mode=json_mode)
+        return
+    _reject_endpoint_only_options(ctx)
     if not model:
         raise click.UsageError("A model is required via -m/--model.")
 

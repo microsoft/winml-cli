@@ -1,0 +1,212 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/microsoft/winml-cli/schemas/perf-endpoint-report.schema.json",
+  "title": "winml perf --endpoint report",
+  "description": "Report written by `winml perf --endpoint` (schema_version 4). Fields not listed here may be added in later versions; consumers must ignore unknown fields.",
+  "type": "object",
+  "required": ["schema_version", "benchmark_info", "provenance", "requests", "aggregate"],
+  "properties": {
+    "schema_version": { "const": 4 },
+    "benchmark_info": {
+      "type": "object",
+      "required": [
+        "runtime",
+        "api",
+        "timing_source",
+        "endpoint",
+        "model_id",
+        "iterations",
+        "warmup",
+        "max_new_tokens",
+        "request_parameters",
+        "packages",
+        "timestamp"
+      ],
+      "properties": {
+        "runtime": { "const": "openai-endpoint" },
+        "api": { "const": "openai.chat.completions" },
+        "timing_source": { "const": "http-stream" },
+        "experimental": { "type": "boolean" },
+        "endpoint": { "type": "string" },
+        "model_id": { "type": "string" },
+        "iterations": { "type": "integer", "minimum": 0 },
+        "warmup": { "type": "integer", "minimum": 0 },
+        "max_new_tokens": { "type": "integer", "minimum": 1 },
+        "prompt": { "type": ["string", "null"] },
+        "prompt_source": { "type": "string" },
+        "request_parameters": {
+          "type": "object",
+          "required": ["temperature", "extra_body"],
+          "properties": {
+            "temperature": { "type": "number" },
+            "extra_body": { "type": "object" }
+          }
+        },
+        "packages": { "type": "object", "additionalProperties": { "type": ["string", "null"] } },
+        "timestamp": { "type": "string" }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "required": ["run_index", "run_labels", "file_hashes", "host", "server"],
+      "properties": {
+        "run_index": { "type": ["integer", "null"], "minimum": 0 },
+        "run_labels": { "type": "object", "additionalProperties": { "type": "string" } },
+        "file_hashes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["name", "size_bytes", "sha256"],
+            "properties": {
+              "name": { "type": "string" },
+              "size_bytes": { "type": "integer", "minimum": 0 },
+              "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+            }
+          }
+        },
+        "host": {
+          "type": "object",
+          "required": ["platform", "machine", "os", "cpus", "gpus", "ram_mib", "errors"],
+          "properties": {
+            "platform": { "type": "string" },
+            "machine": { "type": "string" },
+            "python": { "type": "string" },
+            "os": { "type": ["object", "null"] },
+            "cpus": { "type": ["array", "null"], "items": { "type": "object" } },
+            "gpus": {
+              "type": ["array", "null"],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "driverVersion": { "type": "string" }
+                }
+              }
+            },
+            "ram_mib": { "type": ["integer", "null"] },
+            "errors": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "server": {
+          "type": "object",
+          "required": ["endpoint", "system_fingerprint", "models"],
+          "properties": {
+            "endpoint": { "type": "string" },
+            "system_fingerprint": { "type": ["string", "null"] },
+            "models": { "type": "array", "items": { "type": "object" } }
+          }
+        }
+      }
+    },
+    "requests": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/request" }
+    },
+    "aggregate": {
+      "type": "object",
+      "required": ["warmup_excluded", "warmup_request_count", "timed_request_count", "totals", "finish_reason_counts"],
+      "properties": {
+        "warmup_excluded": { "type": "boolean" },
+        "warmup_request_count": { "type": "integer", "minimum": 0 },
+        "timed_request_count": { "type": "integer", "minimum": 0 },
+        "ttft_ms": { "$ref": "#/$defs/stats" },
+        "request_duration_ms": { "$ref": "#/$defs/stats" },
+        "decode_tokens_per_second": { "$ref": "#/$defs/stats" },
+        "tokens_per_event": { "$ref": "#/$defs/stats" },
+        "prompt_tokens": { "$ref": "#/$defs/stats" },
+        "completion_tokens": { "$ref": "#/$defs/stats" },
+        "server_prefill_tokens_per_second": { "$ref": "#/$defs/stats" },
+        "server_decode_tokens_per_second": { "$ref": "#/$defs/stats" },
+        "draft_acceptance_rate": { "$ref": "#/$defs/stats" },
+        "totals": {
+          "type": "object",
+          "required": [
+            "prompt_tokens",
+            "cached_prompt_tokens",
+            "completion_tokens",
+            "decode_tokens",
+            "decode_duration_ms",
+            "decode_tokens_per_second",
+            "draft_tokens",
+            "draft_tokens_accepted",
+            "draft_acceptance_rate"
+          ],
+          "additionalProperties": { "type": ["number", "null"] }
+        },
+        "finish_reason_counts": { "type": "object", "additionalProperties": { "type": "integer" } }
+      }
+    },
+    "response_text": { "type": "string" }
+  },
+  "$defs": {
+    "nullable_number": { "type": ["number", "null"] },
+    "stats": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["mean", "std", "min", "max", "p50", "p90", "p95", "p99"],
+          "additionalProperties": { "type": "number" }
+        }
+      ]
+    },
+    "request": {
+      "type": "object",
+      "required": [
+        "kind",
+        "index",
+        "prompt_tokens",
+        "cached_prompt_tokens",
+        "completion_tokens",
+        "completion_tokens_source",
+        "finish_reason",
+        "ttft_ms",
+        "request_duration_ms",
+        "decode_duration_ms",
+        "decode_tokens_per_second",
+        "token_event_count",
+        "tokens_per_event",
+        "token_event_intervals_ms",
+        "server_prefill_tokens",
+        "server_prefill_ms",
+        "server_prefill_tokens_per_second",
+        "server_decode_tokens",
+        "server_decode_ms",
+        "server_decode_tokens_per_second",
+        "draft_tokens",
+        "draft_tokens_accepted",
+        "draft_acceptance_rate",
+        "server_timings",
+        "response_text"
+      ],
+      "properties": {
+        "kind": { "enum": ["warmup", "timed"] },
+        "index": { "type": "integer", "minimum": 0 },
+        "prompt_tokens": { "type": ["integer", "null"] },
+        "cached_prompt_tokens": { "type": ["integer", "null"] },
+        "completion_tokens": { "type": ["integer", "null"] },
+        "completion_tokens_source": { "enum": ["usage", "server_timings", "stream_events"] },
+        "finish_reason": { "type": ["string", "null"] },
+        "ttft_ms": { "$ref": "#/$defs/nullable_number" },
+        "request_duration_ms": { "type": "number" },
+        "decode_duration_ms": { "$ref": "#/$defs/nullable_number" },
+        "decode_tokens_per_second": { "$ref": "#/$defs/nullable_number" },
+        "token_event_count": { "type": "integer", "minimum": 0 },
+        "tokens_per_event": { "$ref": "#/$defs/nullable_number" },
+        "token_event_intervals_ms": { "type": "array", "items": { "type": "number" } },
+        "server_prefill_tokens": { "$ref": "#/$defs/nullable_number" },
+        "server_prefill_ms": { "$ref": "#/$defs/nullable_number" },
+        "server_prefill_tokens_per_second": { "$ref": "#/$defs/nullable_number" },
+        "server_decode_tokens": { "$ref": "#/$defs/nullable_number" },
+        "server_decode_ms": { "$ref": "#/$defs/nullable_number" },
+        "server_decode_tokens_per_second": { "$ref": "#/$defs/nullable_number" },
+        "draft_tokens": { "$ref": "#/$defs/nullable_number" },
+        "draft_tokens_accepted": { "$ref": "#/$defs/nullable_number" },
+        "draft_acceptance_rate": { "$ref": "#/$defs/nullable_number" },
+        "server_timings": { "type": ["object", "null"] },
+        "response_text": { "type": "string" },
+        "reasoning_text": { "type": "string" }
+      }
+    }
+  }
+}
