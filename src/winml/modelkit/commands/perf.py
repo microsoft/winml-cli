@@ -68,6 +68,7 @@ if TYPE_CHECKING:
     from ..session.monitor.ep_monitor import WinMLEPMonitor
     from ..session.monitor.op_metrics import TraceFallbackReason
     from ..session.stats import PerfStats
+    from ._perf_dataset import PromptDataset
 
 logger = logging.getLogger(__name__)
 
@@ -3600,6 +3601,13 @@ _ENDPOINT_PARAMS = frozenset(
         "run_labels",
         "run_index",
         "hash_files",
+        "dataset_path",
+        "dataset_name",
+        "dataset_revision",
+        "split",
+        "samples",
+        "shuffle",
+        "columns",
         "prompt",
         "prompt_file",
         "max_new_tokens",
@@ -3612,7 +3620,24 @@ _ENDPOINT_PARAMS = frozenset(
         "quiet",
     }
 )
-_ENDPOINT_ONLY_PARAMS = ("endpoint_model", "extra_body", "run_labels", "run_index", "hash_files")
+# Options that select dataset prompts; all but --dataset need --dataset.
+_DATASET_PARAMS = (
+    "dataset_name",
+    "dataset_revision",
+    "split",
+    "samples",
+    "shuffle",
+    "columns",
+)
+_ENDPOINT_ONLY_PARAMS = (
+    "endpoint_model",
+    "extra_body",
+    "run_labels",
+    "run_index",
+    "hash_files",
+    "dataset_path",
+    *_DATASET_PARAMS,
+)
 
 
 def _option_flag(ctx: click.Context, name: str) -> str:
@@ -3652,6 +3677,67 @@ def _parse_extra_body(value: str | None) -> dict[str, Any]:
     return parsed
 
 
+def _local_dataset_folder(path: str | None) -> Path | None:
+    """The resolved ``--dataset`` folder when it is a local folder, else ``None``."""
+    if path is None:
+        return None
+    folder = Path(path).expanduser()
+    return folder.resolve() if folder.is_dir() else None
+
+
+def _parse_columns(values: Sequence[str]) -> dict[str, str]:
+    """Parse repeated ``--column KEY=VALUE`` into a mapping, as ``winml eval`` does."""
+    mapping: dict[str, str] = {}
+    for value in values:
+        if "=" not in value:
+            raise click.BadParameter(
+                f"Invalid column format: '{value}'. Use key=value.", param_hint="--column"
+            )
+        key, column = value.split("=", 1)
+        mapping[key.strip()] = column.strip()
+    return mapping
+
+
+def _load_endpoint_dataset(
+    ctx: click.Context, *, console: Console, json_mode: bool
+) -> PromptDataset | None:
+    """Load the ``--dataset`` prompts, or return ``None`` without ``--dataset``."""
+    from ._perf_dataset import PromptDatasetConfig, PromptDatasetError, load_prompt_dataset
+
+    p = ctx.params
+    if p.get("dataset_path") is None:
+        provided = [
+            _option_flag(ctx, name)
+            for name in _DATASET_PARAMS
+            if cli_utils.is_cli_provided(ctx, name)
+        ]
+        if provided:
+            raise click.UsageError(f"{', '.join(provided)} only applies with --dataset.")
+        return None
+    for name in ("prompt", "prompt_file"):
+        if cli_utils.is_cli_provided(ctx, name):
+            raise click.UsageError(
+                f"{_option_flag(ctx, name)} cannot be combined with --dataset, which supplies "
+                "the prompts."
+            )
+    config = PromptDatasetConfig(
+        path=p["dataset_path"],
+        name=p.get("dataset_name"),
+        revision=p.get("dataset_revision"),
+        split=p.get("split"),
+        samples=p.get("samples"),
+        shuffle=bool(p.get("shuffle")),
+        columns_mapping=_parse_columns(p.get("columns") or ()),
+    )
+    try:
+        if json_mode:
+            return load_prompt_dataset(config)
+        with console.status("Loading the dataset"):
+            return load_prompt_dataset(config)
+    except PromptDatasetError as exc:
+        raise click.UsageError(f"--dataset: {exc}") from exc
+
+
 def _run_endpoint_runtime(ctx: click.Context, *, console: Console, json_mode: bool) -> None:
     """Validate an ``--endpoint`` request and benchmark the running server.
 
@@ -3684,18 +3770,35 @@ def _run_endpoint_runtime(ctx: click.Context, *, console: Console, json_mode: bo
         label: Path(path)
         for label, path in parse_key_values(p.get("hash_files") or (), flag="--hash-file").items()
     }
-    # As for the other generation routes, a full generation is costly.
-    iterations = p["iterations"] if cli_utils.is_cli_provided(ctx, "iterations") else 10
-    warmup = p["warmup"] if cli_utils.is_cli_provided(ctx, "warmup") else 2
+    dataset_folder = _local_dataset_folder(p.get("dataset_path"))
     output: Path | None = p.get("output")
     if output is not None:
         _reject_input_overwrite((("--output", output),), [("--prompt-file", p.get("prompt_file"))])
+        if dataset_folder is not None and (
+            dataset_folder == output.resolve().parent or dataset_folder in output.resolve().parents
+        ):
+            raise click.UsageError(
+                f"--output '{output}' is inside the --dataset folder, where it would be read "
+                "as data. Choose a path outside the folder."
+            )
         cli_utils.guard_output(output, p["overwrite"])
-    prompt_source = "--prompt-file" if p.get("prompt_file") is not None else "--prompt"
+    dataset = _load_endpoint_dataset(ctx, console=console, json_mode=json_mode)
+    # As for the other generation routes, a full generation is costly; with a
+    # dataset an iteration is a full pass over its prompts.
+    default_iterations = 10 if dataset is None else 1
+    iterations = (
+        p["iterations"] if cli_utils.is_cli_provided(ctx, "iterations") else default_iterations
+    )
+    warmup = p["warmup"] if cli_utils.is_cli_provided(ctx, "warmup") else 2
+    if dataset is not None:
+        prompt, prompt_source = "", "--dataset"
+    else:
+        prompt = _resolve_prompt(ctx)
+        prompt_source = "--prompt-file" if p.get("prompt_file") is not None else "--prompt"
     config = EndpointPerfConfig(
         base_url=base_url,
         model=p.get("endpoint_model"),
-        prompt=_resolve_prompt(ctx),
+        prompt=prompt,
         prompt_source=prompt_source,
         max_new_tokens=p["max_new_tokens"],
         iterations=iterations,
@@ -3705,6 +3808,7 @@ def _run_endpoint_runtime(ctx: click.Context, *, console: Console, json_mode: bo
         run_index=p.get("run_index"),
         file_hashes=hash_files(files) if files else {},
         output_path=output,
+        dataset=dataset,
     )
     run_endpoint_perf(
         config,
@@ -3913,6 +4017,57 @@ def _validate_duration(
     metavar="LABEL=PATH",
     help="[--endpoint] Record the SHA-256, size and file name of a file the server uses, "
     "for example model=./model.gguf. Repeatable. Local folders are not recorded.",
+)
+@click.option(
+    "--dataset",
+    "dataset_path",
+    type=str,
+    default=None,
+    help="[--endpoint] Send the prompts of a dataset instead of --prompt: a Hugging Face "
+    "dataset id, a folder saved with Dataset.save_to_disk, or a local folder or file of "
+    ".jsonl, .json, .parquet or .csv rows. Each --iterations pass sends every selected row "
+    "once (default 1 pass). Map columns with --column.",
+)
+@click.option(
+    "--dataset-name",
+    type=str,
+    default=None,
+    help="[--dataset] Dataset config name for multi-config datasets.",
+)
+@click.option(
+    "--dataset-revision",
+    type=str,
+    default=None,
+    help="[--dataset] Git revision (branch, tag, or commit) of a Hugging Face dataset to load.",
+)
+@click.option(
+    "--split",
+    type=str,
+    default=None,
+    help="[--dataset] Dataset split. Default: the dataset's only split.",
+)
+@click.option(
+    "--samples",
+    type=click.IntRange(min=1),
+    default=None,
+    help="[--dataset] Number of dataset rows to send. Default: all rows.",
+)
+@click.option(
+    "--shuffle/--no-shuffle",
+    default=False,
+    show_default=True,
+    help="[--dataset] Shuffle the rows with a fixed seed, recorded in the report, before "
+    "taking --samples.",
+)
+@click.option(
+    "--column",
+    "columns",
+    multiple=True,
+    metavar="KEY=VALUE",
+    help="[--dataset] Column mapping as key=value: input_column (default 'prompt'; a string, "
+    "a list of turns of which the first is sent, or a list of role/content messages), "
+    "id_column (default 'id'; the row index when absent), cohort_column (comma-separated "
+    "columns that group prompts in the report). Repeatable.",
 )
 @click.option(
     "--compile-timeout",
@@ -4134,6 +4289,13 @@ def perf(
     run_labels: tuple[str, ...],
     run_index: int | None,
     hash_files: tuple[str, ...],
+    dataset_path: str | None,
+    dataset_name: str | None,
+    dataset_revision: str | None,
+    split: str | None,
+    samples: int | None,
+    shuffle: bool,
+    columns: tuple[str, ...],
     compile_timeout: int,
     task: str | None,
     submodel: str | None,
@@ -4218,6 +4380,10 @@ def perf(
 
         # A running OpenAI-compatible server, such as llama-server (experimental)
         winml perf --endpoint http://127.0.0.1:8080/v1 --max-new-tokens 256
+
+        # The same server over the prompts of a local JSONL folder, grouped by a column
+        winml perf --endpoint http://127.0.0.1:8080/v1 --dataset ./prompts \
+            --column cohort_column=category
     """
     if endpoint is not None:
         verbose, quiet = cli_utils.resolve_verbosity(ctx, verbose, quiet)
