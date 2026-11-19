@@ -50,12 +50,19 @@ $ winml perf [options]
 | `--ignore-eos/--no-ignore-eos` | | flag | `false` | *(GGUF, --backend cgc)* Create the Task with an empty end-of-sequence set so every request generates `--max-new-tokens` tokens unless it reaches the sequence capacity. |
 | `--evidence` | | `PATH` | — | *(GGUF)* Write raw `gguf-task-events-2` request evidence to this new JSON file. Needs `--warmup` of at least 1 and turns off `--memory`. Applies only to a `.gguf` file on llama.cpp: `--backend cgc` and other inputs reject it. Inputs other than GGUF and `--backend cgc` also reject the three options above. |
 | `--program-cache` | | `DIR` | — | *(--backend cgc)* Directory for compiled GPU programs (Windows ML `compiled_program_directory`) that later runs reuse. Off by default, so every run measures the cold compile. The directory is reported in `benchmark_info.program_cache_dir`, and winml-cli never deletes it. |
-| `--endpoint` | | `URL` | — | Benchmark text generation on a running OpenAI-compatible server instead of loading a model, for example `http://127.0.0.1:8080/v1` (experimental; see [OpenAI-compatible server](../samples/openai-endpoint-perf.md)). Requests stream from `<URL>/chat/completions`. Uses `--prompt` or `--prompt-file`, `--max-new-tokens`, `--iterations` (default `10`), `--warmup` (default `2`), `--output` and `--format`; other options are rejected. `OPENAI_API_KEY`, when set, is sent as a bearer token. |
+| `--endpoint` | | `URL` | — | Benchmark text generation on a running OpenAI-compatible server instead of loading a model, for example `http://127.0.0.1:8080/v1` (experimental; see [OpenAI-compatible server](../samples/openai-endpoint-perf.md)). Requests stream from `<URL>/chat/completions`. Uses `--prompt` or `--prompt-file` (or `--dataset`), `--max-new-tokens`, `--iterations` (default `10`; `1` pass with `--dataset`), `--warmup` (default `2`), `--output` and `--format`; other options are rejected. `OPENAI_API_KEY`, when set, is sent as a bearer token. |
 | `--endpoint-model` | | `TEXT` | the only listed model | *(--endpoint)* The `model` field to send. Required when the server lists several models at `<URL>/models`. |
 | `--extra-body` | | `JSON` | — | *(--endpoint)* JSON object merged into every request body, for server-specific fields such as `{"cache_prompt": false}` for `llama-server`. Recorded in the report. |
 | `--run-label` | | `KEY=VALUE` (multiple) | — | *(--endpoint)* Label recorded in `provenance.run_labels`, for example `config=draft`. Repeatable. |
 | `--run-index` | | `INTEGER` | — | *(--endpoint)* Position of this run in a repeated series, recorded in `provenance.run_index`. |
 | `--hash-file` | | `LABEL=PATH` (multiple) | — | *(--endpoint)* Record the file name, size and SHA-256 of a file the server uses, for example `model=./model.gguf`. Repeatable. |
+| `--dataset` | | `TEXT` | — | *(--endpoint)* Send the prompts of a dataset instead of `--prompt`: a Hugging Face dataset ID, a folder saved with `Dataset.save_to_disk`, or a local folder or file of `.jsonl`, `.json`, `.parquet` or `.csv` rows. Each `--iterations` pass sends every selected row once. For a local path, the report records only its last component. See [Benchmark a prompt dataset](../samples/openai-endpoint-perf.md#benchmark-a-prompt-dataset). |
+| `--dataset-name` | | `TEXT` | — | *(--dataset)* Dataset config name for multi-config datasets. |
+| `--dataset-revision` | | `TEXT` | — | *(--dataset)* Git revision (branch, tag, or commit) of a Hugging Face dataset. |
+| `--split` | | `TEXT` | the only split | *(--dataset)* Dataset split. Required when the dataset has several splits. |
+| `--samples` | | `INTEGER` | all rows | *(--dataset)* Number of rows to send. |
+| `--shuffle` / `--no-shuffle` | | flag | `--no-shuffle` | *(--dataset)* Shuffle the rows with a fixed seed (recorded in the report) before taking `--samples`. |
+| `--column` | | `KEY=VALUE` (multiple) | — | *(--dataset)* Column mapping: `input_column` (default `prompt`; a string, a list of turns of which the first is sent, or a list of `role`/`content` messages), `id_column` (default `id`; the row index when the column is absent), `cohort_column` (comma-separated columns that group prompts into cohorts in the report). |
 
 ## How it works
 
@@ -82,7 +89,10 @@ completions from a running OpenAI-compatible server and measures time to first
 token, decode throughput and request duration at the client, next to the token
 counts and timings the server reports. These reports use `schema_version: 4`, with
 `benchmark_info.runtime: openai-endpoint` and a `provenance` block (host, GPU
-drivers, run labels, run index, file hashes) for comparing runs across machines;
+drivers, run labels, run index, file hashes) for comparing runs across machines.
+With `--dataset`, each request also records its `prompt_id`, `cohorts`, `pass`
+and `response_sha256`, a `dataset` block identifies the prompts, and
+`aggregate.cohorts` summarizes each cohort;
 see [OpenAI-compatible server](../samples/openai-endpoint-perf.md#report-fields).
 
 When `--memory` is enabled, both `winml-ort` and `ort-genai` reports use the same `memory` field names for shared concepts: RSS baseline, after-compile/load, after-inference, peak, model-load delta, inference/generation delta, and total delta; VRAM local/shared baseline, after-compile/load, after-inference, peak, model-load delta, inference/generation delta, and total delta.

@@ -74,6 +74,47 @@ winml perf --endpoint http://127.0.0.1:8080/v1 --extra-body '{"cache_prompt": fa
 `--extra-body` is merged into every request body last, so it can also override
 `temperature` or add sampling fields such as `top_k`. The report records it.
 
+## Benchmark a prompt dataset
+
+One prompt says little about a server across different kinds of requests.
+`--dataset` sends the rows of a dataset instead, with the same dataset options as
+`winml eval`. It accepts a Hugging Face dataset ID, a folder saved with
+`Dataset.save_to_disk`, or a local folder or file of `.jsonl`, `.json`,
+`.parquet` or `.csv` rows. For example, a folder `prompts` with a file
+`prompts\data.jsonl`:
+
+```json
+{"question_id": "q1", "category": "math", "turns": ["What is 17 times 23?", "Now divide by 3."]}
+{"question_id": "q2", "category": "coding", "turns": ["Write a Python function that reverses a string."]}
+{"question_id": "q3", "category": "math", "turns": ["List the first five prime numbers."]}
+```
+
+```powershell
+winml perf --endpoint http://127.0.0.1:8080/v1 --dataset prompts `
+    --column input_column=turns --column id_column=question_id --column cohort_column=category
+```
+
+`--column` maps the dataset's columns:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `input_column` | `prompt` | The prompt: a string (one user message), a list of turns (the first turn is sent as the user message), or a list of `{"role": ..., "content": ...}` messages (sent as they are). |
+| `id_column` | `id` | The prompt ID recorded with each request. When the dataset has no such column, the row index is used. IDs must be unique. |
+| `cohort_column` | — | Comma-separated columns whose values group prompts into cohorts, for example `category` or `category,difficulty`. Each column is a separate grouping. |
+
+An unknown key, or a column the dataset does not have, fails with the list of
+available columns. An empty prompt fails with its row index.
+
+Each `--iterations` value is a pass over the selected rows, so the default of
+`1` sends every row once. `--warmup` requests send the first selected rows and
+are excluded from statistics. `--samples N` sends the first `N` rows; add
+`--shuffle` to take them in a shuffled order with a fixed seed that the report
+records. Use `--split` when the dataset has several splits, and `--dataset-name`
+and `--dataset-revision` for a Hugging Face dataset.
+
+The console report adds a table per cohort column, with request count, TTFT,
+decode throughput and request duration for each cohort value.
+
 ## Compare runs
 
 To compare runs later, label each one and record the files the server loaded.
@@ -102,17 +143,19 @@ ships with winml-cli as `winml/modelkit/commands/assets/perf-endpoint-report.sch
 
 | Block | Contents |
 |---|---|
-| `benchmark_info` | Endpoint (without credentials or query), model, iterations, warmup, `max_new_tokens`, prompt, request parameters including `extra_body`, package versions, timestamp. |
+| `benchmark_info` | Endpoint (without credentials or query), model, iterations, warmup, `max_new_tokens`, prompt (`null` with `--dataset`), `prompt_source`, request parameters including `extra_body`, package versions, timestamp. |
 | `provenance` | `run_index`, `run_labels`, `file_hashes` (file name, size and SHA-256; never the folder), `host` (OS, CPUs, GPUs with driver versions, memory; never the host name) and `server` (`system_fingerprint` and the `/v1/models` list). |
-| `requests` | One entry per request, warmup included: token counts, `ttft_ms`, `request_duration_ms`, `decode_tokens_per_second`, `token_event_intervals_ms`, normalized server timings (`server_prefill_ms`, `server_decode_tokens_per_second`, `draft_tokens`, `draft_tokens_accepted`, `draft_acceptance_rate`), the raw `server_timings`, and the response text. |
-| `aggregate` | Percentile summaries over the timed requests, `totals` that pool tokens and time across requests (for example the pooled draft acceptance rate), and `finish_reason_counts`. |
+| `dataset` | `null` without `--dataset`. Otherwise `source` (`hub` or `local`), `path` (the dataset ID, or only the last component of a local path), `name`, `revision`, `split`, `samples`, `shuffle`, `seed`, `column_mapping`, `row_count`, `selected_row_count`, `cohort_columns`, and `prompts_sha256`: a SHA-256 over the selected prompt IDs and messages in sending order, equal across runs that sent the same prompts. |
+| `requests` | One entry per request, warmup included: `pass` (the timed pass, `null` for warmup), `prompt_id` and `row_index` (`null` without `--dataset`), `cohorts` (`{column: value}`), token counts, `ttft_ms`, `request_duration_ms`, `decode_tokens_per_second`, `token_event_intervals_ms`, normalized server timings (`server_prefill_ms`, `server_decode_tokens_per_second`, `draft_tokens`, `draft_tokens_accepted`, `draft_acceptance_rate`), the raw `server_timings`, the response text, and `response_sha256` (plus `reasoning_sha256` when the server streams reasoning text) to check that runs produced the same output. |
+| `aggregate` | Percentile summaries over the timed requests, `totals` that pool tokens and time across requests (for example the pooled draft acceptance rate), `finish_reason_counts`, and `cohorts`: `{column: {value: summary}}`, where each summary has `request_count`, `ttft_ms`, `decode_tokens_per_second` and `request_duration_ms` percentile summaries, and pooled `totals`. |
 
 Server-reported fields are `null` when the server does not send them.
 
 ## Limitations
 
-- Only streaming `/v1/chat/completions` is supported, with one user message per
-  request. The server's chat template and tokenizer decide the prompt tokens, so
+- Only streaming `/v1/chat/completions` is supported. Each request sends one user
+  message, or the messages of a `--dataset` row. The server's chat template and
+  tokenizer decide the prompt tokens, so
   compare prompt token counts only between servers that run the same model.
 - Requests are sequential; concurrent load is not measured.
 - Client-side times include network and HTTP overhead. Run the server on the same

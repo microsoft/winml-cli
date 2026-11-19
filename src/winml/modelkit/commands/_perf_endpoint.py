@@ -28,10 +28,16 @@ decoding, drafted and accepted draft tokens).
 The report uses ``schema_version`` 4. It adds a ``provenance`` block (host,
 GPU drivers, run labels, run index, file hashes, server model list) so reports
 from different machines and runs can be combined and compared.
+
+With ``--dataset`` each pass sends every selected dataset row once. Each
+request records its ``prompt_id``, ``cohorts`` and ``pass`` plus a SHA-256 of
+the response, the report gains a ``dataset`` block that identifies the prompts,
+and ``aggregate.cohorts`` summarizes the timed requests per cohort value.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -53,12 +59,15 @@ from ._openai_chat_client import (
     OpenAIChatClient,
     scrub_url,
 )
+from ._perf_dataset import PromptDataset
 
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from rich.console import Console
+
+    from ._perf_dataset import DatasetPrompt
 
 logger = logging.getLogger(__name__)
 
@@ -97,17 +106,22 @@ class EndpointPerfConfig:
         base_url: The server's OpenAI base URL, for example ``http://127.0.0.1:8080/v1``.
         model: The ``model`` field to send; ``None`` uses the only model the
             server lists.
-        prompt: Text sent as the single user message of every request.
-        prompt_source: Where the prompt came from (``--prompt`` or ``--prompt-file``).
+        prompt: Text sent as the single user message of every request, when
+            no ``dataset`` is given.
+        prompt_source: Where the prompts came from (``--prompt``,
+            ``--prompt-file`` or ``--dataset``).
         max_new_tokens: ``max_tokens`` of every request.
-        iterations: Timed requests.
-        warmup: Warmup requests excluded from statistics.
+        iterations: Timed requests; with a ``dataset``, passes over its
+            selected prompts.
+        warmup: Warmup requests excluded from statistics; with a ``dataset``
+            they send the first selected prompts.
         extra_body: JSON object merged into every request body.
         run_labels: Free-form ``KEY=VALUE`` labels recorded in the report.
         run_index: Position of this run in a repeated series, when given.
         file_hashes: Labelled SHA-256 hashes of files the user named.
         output_path: The JSON report path; ``None`` picks a default once the
             served model is known.
+        dataset: The selected dataset prompts, replacing ``prompt``.
     """
 
     base_url: str
@@ -122,6 +136,7 @@ class EndpointPerfConfig:
     run_index: int | None = None
     file_hashes: dict[str, dict[str, Any]] = field(default_factory=dict)
     output_path: Path | None = None
+    dataset: PromptDataset | None = None
 
 
 def report_model_id(model_id: str) -> str:
@@ -230,10 +245,30 @@ class EndpointRequestSample:
     server_timings: dict[str, Any] | None
     response_text: str = ""
     reasoning_text: str = ""
+    prompt_id: str | None = None
+    row_index: int | None = None
+    cohorts: dict[str, str] = field(default_factory=dict)
+    pass_index: int | None = None
 
     @classmethod
-    def from_timing(cls, kind: str, index: int, timing: ChatStreamTiming) -> EndpointRequestSample:
-        """Build a sample from one streamed response."""
+    def from_timing(
+        cls,
+        kind: str,
+        index: int,
+        timing: ChatStreamTiming,
+        *,
+        prompt: DatasetPrompt | None = None,
+        pass_index: int | None = None,
+    ) -> EndpointRequestSample:
+        """Build a sample from one streamed response.
+
+        Args:
+            kind: ``warmup`` or ``timed``.
+            index: Position of the request in the run.
+            timing: The streamed response.
+            prompt: The dataset prompt sent, if any.
+            pass_index: The timed pass the request belongs to; ``None`` for warmup.
+        """
         usage = timing.usage or {}
         prompt_tokens = usage.get("prompt_tokens")
         details = usage.get("prompt_tokens_details")
@@ -260,6 +295,10 @@ class EndpointRequestSample:
             server_timings=timing.server_timings,
             response_text=timing.response_text,
             reasoning_text=timing.reasoning_text,
+            prompt_id=None if prompt is None else prompt.prompt_id,
+            row_index=None if prompt is None else prompt.row_index,
+            cohorts={} if prompt is None else dict(prompt.cohorts),
+            pass_index=pass_index,
         )
 
     @property
@@ -312,6 +351,10 @@ class EndpointRequestSample:
         result: dict[str, Any] = {
             "kind": self.kind,
             "index": self.index,
+            "pass": self.pass_index,
+            "prompt_id": self.prompt_id,
+            "row_index": self.row_index,
+            "cohorts": dict(self.cohorts),
             "prompt_tokens": self.prompt_tokens,
             "cached_prompt_tokens": self.cached_prompt_tokens,
             "completion_tokens": self.completion_tokens,
@@ -329,50 +372,42 @@ class EndpointRequestSample:
             **{key: _round(value) for key, value in self.server.items()},
             "server_timings": self.server_timings,
             "response_text": self.response_text,
+            "response_sha256": _sha256(self.response_text),
         }
         if self.reasoning_text:
             result["reasoning_text"] = self.reasoning_text
+            result["reasoning_sha256"] = _sha256(self.reasoning_text)
         return result
+
+
+def _sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _round(value: float | None, digits: int = 3) -> float | None:
     return None if value is None else round(value, digits)
 
 
-def aggregate_samples(samples: list[EndpointRequestSample]) -> dict[str, Any]:
-    """Summarize the timed requests; warmup requests are excluded.
+def _total(values: list[float | int | None]) -> float | None:
+    present = [value for value in values if value is not None]
+    return float(sum(present)) if present else None
 
-    Each metric gets the percentile summary of the requests that report it, or
-    ``None`` when none do. ``totals`` pools tokens and time across requests,
-    which weighs long responses more than averaging per-request rates does.
-    """
-    timed = [sample for sample in samples if sample.kind == "timed"]
-    aggregate: dict[str, Any] = {
-        "warmup_excluded": True,
-        "warmup_request_count": sum(sample.kind == "warmup" for sample in samples),
-        "timed_request_count": len(timed),
-    }
-    for name in _AGGREGATED_METRICS:
-        values = [value for sample in timed if (value := sample.metric(name)) is not None]
-        aggregate[name] = _round_stats(_stats(values)) if values else None
 
-    def total(values: list[float | int | None]) -> float | None:
-        present = [value for value in values if value is not None]
-        return float(sum(present)) if present else None
-
+def _pooled_totals(timed: list[EndpointRequestSample]) -> dict[str, Any]:
+    """Pool tokens and time across requests."""
     decode_pairs = [
         (sample.decode_tokens, sample.decode_duration_ms)
         for sample in timed
         if sample.decode_tokens is not None and sample.decode_duration_ms is not None
     ]
-    decode_tokens = total([tokens for tokens, _ in decode_pairs])
-    decode_ms = total([duration for _, duration in decode_pairs])
-    draft = total([sample.server["draft_tokens"] for sample in timed])
-    accepted = total([sample.server["draft_tokens_accepted"] for sample in timed])
-    aggregate["totals"] = {
-        "prompt_tokens": total([sample.prompt_tokens for sample in timed]),
-        "cached_prompt_tokens": total([sample.cached_prompt_tokens for sample in timed]),
-        "completion_tokens": total([sample.completion_tokens for sample in timed]),
+    decode_tokens = _total([tokens for tokens, _ in decode_pairs])
+    decode_ms = _total([duration for _, duration in decode_pairs])
+    draft = _total([sample.server["draft_tokens"] for sample in timed])
+    accepted = _total([sample.server["draft_tokens_accepted"] for sample in timed])
+    return {
+        "prompt_tokens": _total([sample.prompt_tokens for sample in timed]),
+        "cached_prompt_tokens": _total([sample.cached_prompt_tokens for sample in timed]),
+        "completion_tokens": _total([sample.completion_tokens for sample in timed]),
         "decode_tokens": decode_tokens,
         "decode_duration_ms": _round(decode_ms),
         "decode_tokens_per_second": _round(_per_second(decode_tokens, decode_ms), 2),
@@ -382,11 +417,68 @@ def aggregate_samples(samples: list[EndpointRequestSample]) -> dict[str, Any]:
             _round(accepted / draft, 4) if draft and accepted is not None else None
         ),
     }
+
+
+def _metric_stats(timed: list[EndpointRequestSample], name: str) -> dict[str, float] | None:
+    values = [value for sample in timed if (value := sample.metric(name)) is not None]
+    return _round_stats(_stats(values)) if values else None
+
+
+# Per-request metrics summarized for each cohort value.
+_COHORT_METRICS = ("ttft_ms", "decode_tokens_per_second", "request_duration_ms")
+
+
+def aggregate_cohorts(timed: list[EndpointRequestSample]) -> dict[str, dict[str, Any]]:
+    """Summarize timed requests per cohort column and value.
+
+    Returns ``{column: {value: summary}}``; each summary has the request count,
+    percentile summaries of TTFT, decode rate and request duration, and pooled
+    ``totals`` like the run's.
+    """
+    columns: list[str] = []
+    for sample in timed:
+        columns.extend(column for column in sample.cohorts if column not in columns)
+    result: dict[str, dict[str, Any]] = {}
+    for column in columns:
+        groups: dict[str, list[EndpointRequestSample]] = {}
+        for sample in timed:
+            if column in sample.cohorts:
+                groups.setdefault(sample.cohorts[column], []).append(sample)
+        result[column] = {
+            value: {
+                "request_count": len(members),
+                **{name: _metric_stats(members, name) for name in _COHORT_METRICS},
+                "totals": _pooled_totals(members),
+            }
+            for value, members in sorted(groups.items())
+        }
+    return result
+
+
+def aggregate_samples(samples: list[EndpointRequestSample]) -> dict[str, Any]:
+    """Summarize the timed requests; warmup requests are excluded.
+
+    Each metric gets the percentile summary of the requests that report it, or
+    ``None`` when none do. ``totals`` pools tokens and time across requests,
+    which weighs long responses more than averaging per-request rates does.
+    ``cohorts`` holds the same kind of summary per cohort value (empty without
+    a dataset cohort column).
+    """
+    timed = [sample for sample in samples if sample.kind == "timed"]
+    aggregate: dict[str, Any] = {
+        "warmup_excluded": True,
+        "warmup_request_count": sum(sample.kind == "warmup" for sample in samples),
+        "timed_request_count": len(timed),
+    }
+    for name in _AGGREGATED_METRICS:
+        aggregate[name] = _metric_stats(timed, name)
+    aggregate["totals"] = _pooled_totals(timed)
     reasons: dict[str, int] = {}
     for sample in timed:
         key = sample.finish_reason or "none"
         reasons[key] = reasons.get(key, 0) + 1
     aggregate["finish_reason_counts"] = dict(sorted(reasons.items()))
+    aggregate["cohorts"] = aggregate_cohorts(timed)
     return aggregate
 
 
@@ -439,7 +531,7 @@ class EndpointBenchmarkResult:
                 "iterations": cfg.iterations,
                 "warmup": cfg.warmup,
                 "max_new_tokens": cfg.max_new_tokens,
-                "prompt": cfg.prompt,
+                "prompt": None if cfg.dataset is not None else cfg.prompt,
                 "prompt_source": cfg.prompt_source,
                 "request_parameters": {"temperature": 0, "extra_body": dict(cfg.extra_body)},
                 "packages": dict(self.packages),
@@ -456,6 +548,7 @@ class EndpointBenchmarkResult:
                     "models": [_report_model_entry(entry) for entry in self.server_models],
                 },
             },
+            "dataset": None if cfg.dataset is None else cfg.dataset.to_dict(),
             "requests": [sample.to_dict() for sample in self.requests],
             "aggregate": self.aggregate,
             "response_text": first.response_text if first else "",
@@ -487,6 +580,35 @@ def resolve_model(config_model: str | None, models: list[dict[str, Any]]) -> str
     )
 
 
+def request_plan(
+    config: EndpointPerfConfig,
+) -> list[tuple[str, int | None, DatasetPrompt | None]]:
+    """Return ``(kind, pass, prompt)`` for every request, in sending order.
+
+    Without a dataset every request sends ``config.prompt`` and each timed
+    request is its own pass. With a dataset, warmup requests cycle through the
+    first selected prompts and each timed pass sends every selected prompt once.
+    """
+    if config.dataset is None:
+        return [("warmup", None, None)] * config.warmup + [
+            ("timed", number, None) for number in range(config.iterations)
+        ]
+    prompts = config.dataset.prompts
+    warmup = [("warmup", None, prompts[number % len(prompts)]) for number in range(config.warmup)]
+    timed = [("timed", number, prompt) for number in range(config.iterations) for prompt in prompts]
+    return [*warmup, *timed]
+
+
+def _describe(
+    kind: str, pass_index: int | None, prompt: DatasetPrompt | None, config: EndpointPerfConfig
+) -> str:
+    if prompt is None:
+        return kind
+    if pass_index is None:
+        return f"{kind}, prompt {prompt.prompt_id}"
+    return f"{kind}, pass {pass_index + 1} of {config.iterations}, prompt {prompt.prompt_id}"
+
+
 class EndpointPerfBenchmark:
     """Runs warmup and timed requests against one server, one at a time.
 
@@ -495,7 +617,7 @@ class EndpointPerfBenchmark:
         client: A pre-built client (dependency injection for tests). When
             ``None`` one is created from ``config`` and closed after the run.
         collect_host: Returns the host description (injectable for tests).
-        on_request: Called with ``(number, total, kind)`` before each request.
+        on_request: Called with ``(number, total, description)`` before each request.
     """
 
     def __init__(
@@ -543,14 +665,18 @@ class EndpointPerfBenchmark:
         else:
             host = self._collect_host()
 
-        messages = [{"role": "user", "content": config.prompt}]
-        total = config.warmup + config.iterations
+        plan = request_plan(config)
+        total = len(plan)
         samples: list[EndpointRequestSample] = []
         fingerprint: str | None = None
-        for index in range(total):
-            kind = "warmup" if index < config.warmup else "timed"
+        for index, (kind, pass_index, prompt) in enumerate(plan):
             if self._on_request is not None:
-                self._on_request(index + 1, total, kind)
+                self._on_request(index + 1, total, _describe(kind, pass_index, prompt, config))
+            messages = (
+                prompt.messages
+                if prompt is not None
+                else [{"role": "user", "content": config.prompt}]
+            )
             timing = client.stream_chat(
                 model=model,
                 messages=messages,
@@ -558,7 +684,11 @@ class EndpointPerfBenchmark:
                 extra_body=config.extra_body,
             )
             fingerprint = timing.system_fingerprint or fingerprint
-            samples.append(EndpointRequestSample.from_timing(kind, index, timing))
+            samples.append(
+                EndpointRequestSample.from_timing(
+                    kind, index, timing, prompt=prompt, pass_index=pass_index
+                )
+            )
         return EndpointBenchmarkResult(
             config=config,
             model=model,
@@ -595,6 +725,17 @@ def display_endpoint_report(result: EndpointBenchmarkResult, console: Console) -
     ]
     if result.system_fingerprint:
         rows.append(("Server build", result.system_fingerprint))
+    if cfg.dataset is not None:
+        ds = cfg.dataset
+        split = f"split {ds.split}, " if ds.split else ""
+        passes = "pass" if cfg.iterations == 1 else "passes"
+        rows.append(
+            (
+                "Dataset",
+                f"{ds.display_path} ({split}{len(ds.prompts)} of {ds.row_count} rows, "
+                f"{cfg.iterations} {passes})",
+            )
+        )
     if cfg.run_labels or cfg.run_index is not None:
         labels = ", ".join(f"{key}={value}" for key, value in cfg.run_labels.items())
         index = f"run {cfg.run_index}" if cfg.run_index is not None else ""
@@ -604,7 +745,16 @@ def display_endpoint_report(result: EndpointBenchmarkResult, console: Console) -
     console.print()
     for label, value in rows:
         console.print(f"[dim]{label}:[/dim]" + " " * (width - len(label) - 1) + escape(value))
-    if first is not None:
+    if cfg.dataset is not None:
+        totals_prompt = totals.get("prompt_tokens")
+        totals_completion = totals.get("completion_tokens")
+        console.print(
+            "[dim]Requests:[/dim]" + " " * (width - 9) + f"{aggregate['timed_request_count']} "
+            f"timed   [dim]Prompt tokens:[/dim] {_fmt(totals_prompt, 0)}   "
+            f"[dim]Generated tokens:[/dim] {_fmt(totals_completion, 0)} "
+            f"(max_new_tokens={cfg.max_new_tokens})"
+        )
+    elif first is not None:
         console.print(
             "[dim]Prompt:[/dim]" + " " * (width - 7) + f"{first.prompt_tokens} tokens   "
             f"[dim]Generated:[/dim] {first.completion_tokens} tokens "
@@ -662,7 +812,52 @@ def display_endpoint_report(result: EndpointBenchmarkResult, console: Console) -
         console.print(
             "[yellow]Warning:[/yellow] the server generated no tokens, so decode metrics are empty."
         )
+    _print_cohort_tables(aggregate.get("cohorts") or {}, console)
     console.print()
+
+
+def _print_cohort_tables(cohorts: dict[str, dict[str, Any]], console: Console) -> None:
+    """Print one table per cohort column, one row per cohort value."""
+    from rich.table import Table
+
+    for column, groups in cohorts.items():
+        show_draft = any(group["totals"].get("draft_tokens") for group in groups.values())
+        console.print()
+        console.print(f"[bold]Results by {escape(column)}[/bold]")
+        console.print("[dim]TTFT and duration in ms, decode in tokens/sec[/dim]")
+        table = Table(show_header=True, header_style="bold cyan", show_edge=False)
+        table.add_column("Cohort")
+        headers = [
+            "Requests",
+            "TTFT avg",
+            "TTFT P50",
+            "Decode avg",
+            "Decode pooled",
+            "Duration avg",
+        ]
+        if show_draft:
+            headers.append("Draft accept %")
+        for header in headers:
+            table.add_column(header, justify="right", min_width=8 if header == "Requests" else None)
+        for value, group in groups.items():
+            ttft = group.get("ttft_ms") or {}
+            decode = group.get("decode_tokens_per_second") or {}
+            duration = group.get("request_duration_ms") or {}
+            totals = group["totals"]
+            cells = [
+                escape(value),
+                str(group["request_count"]),
+                _fmt(ttft.get("mean")),
+                _fmt(ttft.get("p50")),
+                _fmt(decode.get("mean")),
+                _fmt(totals.get("decode_tokens_per_second")),
+                _fmt(duration.get("mean")),
+            ]
+            if show_draft:
+                rate = totals.get("draft_acceptance_rate")
+                cells.append(_fmt(None if rate is None else rate * 100, 1))
+            table.add_row(*cells)
+        console.print(table)
 
 
 def write_endpoint_report(result: EndpointBenchmarkResult, output_path: Path) -> None:
@@ -695,9 +890,9 @@ def run_endpoint_perf(
     """
     status = None if json_mode else console.status("Connecting to the server")
 
-    def progress(number: int, total: int, kind: str) -> None:
+    def progress(number: int, total: int, description: str) -> None:
         if status is not None:
-            status.update(f"Request {number} of {total} ({kind})")
+            status.update(escape(f"Request {number} of {total} ({description})"))
 
     benchmark = EndpointPerfBenchmark(config, client=client, on_request=progress)
     try:

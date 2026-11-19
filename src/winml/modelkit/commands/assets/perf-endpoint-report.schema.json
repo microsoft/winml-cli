@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/microsoft/winml-cli/schemas/perf-endpoint-report.schema.json",
   "title": "winml perf --endpoint report",
-  "description": "Report written by `winml perf --endpoint` (schema_version 4). Fields not listed here may be added in later versions; consumers must ignore unknown fields.",
+  "description": "Report written by `winml perf --endpoint` (schema_version 4). With --dataset, requests carry prompt_id, cohorts and pass, `dataset` identifies the prompts and `aggregate.cohorts` summarizes each cohort. Fields not listed here may be added in later versions; consumers must ignore unknown fields.",
   "type": "object",
   "required": ["schema_version", "benchmark_info", "provenance", "requests", "aggregate"],
   "properties": {
@@ -102,6 +102,57 @@
       "type": "array",
       "items": { "$ref": "#/$defs/request" }
     },
+    "dataset": {
+      "description": "The dataset prompts of a --dataset run; null or absent for a single-prompt run.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": [
+            "source",
+            "path",
+            "name",
+            "revision",
+            "split",
+            "samples",
+            "shuffle",
+            "seed",
+            "column_mapping",
+            "row_count",
+            "selected_row_count",
+            "cohort_columns",
+            "prompts_sha256"
+          ],
+          "properties": {
+            "source": { "enum": ["hub", "local"] },
+            "path": { "type": "string", "description": "Hugging Face dataset id, or the last component of a local path." },
+            "name": { "type": ["string", "null"] },
+            "revision": { "type": ["string", "null"] },
+            "split": { "type": ["string", "null"] },
+            "samples": { "type": ["integer", "null"], "minimum": 1 },
+            "shuffle": { "type": "boolean" },
+            "seed": { "type": "integer" },
+            "column_mapping": {
+              "type": "object",
+              "required": ["input_column", "id_column", "cohort_column"],
+              "properties": {
+                "input_column": { "type": "string" },
+                "id_column": { "type": ["string", "null"] },
+                "cohort_column": { "type": "array", "items": { "type": "string" } }
+              }
+            },
+            "row_count": { "type": "integer", "minimum": 0 },
+            "selected_row_count": { "type": "integer", "minimum": 0 },
+            "cohort_columns": { "type": "array", "items": { "type": "string" } },
+            "prompts_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "description": "SHA-256 over the selected prompt ids and messages, in sending order."
+            }
+          }
+        }
+      ]
+    },
     "aggregate": {
       "type": "object",
       "required": ["warmup_excluded", "warmup_request_count", "timed_request_count", "totals", "finish_reason_counts"],
@@ -118,28 +169,49 @@
         "server_prefill_tokens_per_second": { "$ref": "#/$defs/stats" },
         "server_decode_tokens_per_second": { "$ref": "#/$defs/stats" },
         "draft_acceptance_rate": { "$ref": "#/$defs/stats" },
-        "totals": {
+        "totals": { "$ref": "#/$defs/totals" },
+        "finish_reason_counts": { "type": "object", "additionalProperties": { "type": "integer" } },
+        "cohorts": {
+          "description": "Timed-request summaries keyed by cohort column, then by cohort value.",
           "type": "object",
-          "required": [
-            "prompt_tokens",
-            "cached_prompt_tokens",
-            "completion_tokens",
-            "decode_tokens",
-            "decode_duration_ms",
-            "decode_tokens_per_second",
-            "draft_tokens",
-            "draft_tokens_accepted",
-            "draft_acceptance_rate"
-          ],
-          "additionalProperties": { "type": ["number", "null"] }
-        },
-        "finish_reason_counts": { "type": "object", "additionalProperties": { "type": "integer" } }
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": { "$ref": "#/$defs/cohort" }
+          }
+        }
       }
     },
     "response_text": { "type": "string" }
   },
   "$defs": {
     "nullable_number": { "type": ["number", "null"] },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "cohort": {
+      "type": "object",
+      "required": ["request_count", "ttft_ms", "decode_tokens_per_second", "request_duration_ms", "totals"],
+      "properties": {
+        "request_count": { "type": "integer", "minimum": 1 },
+        "ttft_ms": { "$ref": "#/$defs/stats" },
+        "decode_tokens_per_second": { "$ref": "#/$defs/stats" },
+        "request_duration_ms": { "$ref": "#/$defs/stats" },
+        "totals": { "$ref": "#/$defs/totals" }
+      }
+    },
+    "totals": {
+      "type": "object",
+      "required": [
+        "prompt_tokens",
+        "cached_prompt_tokens",
+        "completion_tokens",
+        "decode_tokens",
+        "decode_duration_ms",
+        "decode_tokens_per_second",
+        "draft_tokens",
+        "draft_tokens_accepted",
+        "draft_acceptance_rate"
+      ],
+      "additionalProperties": { "type": ["number", "null"] }
+    },
     "stats": {
       "oneOf": [
         { "type": "null" },
@@ -182,6 +254,16 @@
       "properties": {
         "kind": { "enum": ["warmup", "timed"] },
         "index": { "type": "integer", "minimum": 0 },
+        "pass": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Timed pass over the prompts; null for warmup requests."
+        },
+        "prompt_id": { "type": ["string", "null"], "description": "Dataset prompt id; null for a single-prompt run." },
+        "row_index": { "type": ["integer", "null"], "minimum": 0 },
+        "cohorts": { "type": "object", "additionalProperties": { "type": "string" } },
+        "response_sha256": { "$ref": "#/$defs/sha256" },
+        "reasoning_sha256": { "$ref": "#/$defs/sha256" },
         "prompt_tokens": { "type": ["integer", "null"] },
         "cached_prompt_tokens": { "type": ["integer", "null"] },
         "completion_tokens": { "type": ["integer", "null"] },

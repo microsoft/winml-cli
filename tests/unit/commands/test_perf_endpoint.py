@@ -9,6 +9,7 @@ An ``httpx.MockTransport`` plays the server, so no network or model is needed.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import TYPE_CHECKING, Any
 
@@ -25,6 +26,11 @@ from winml.modelkit.commands._openai_chat_client import (
     OpenAIChatClient,
     iter_sse_data,
     scrub_url,
+)
+from winml.modelkit.commands._perf_dataset import (
+    PromptDataset,
+    PromptDatasetConfig,
+    load_prompt_dataset,
 )
 from winml.modelkit.commands._perf_endpoint import (
     REPORT_SCHEMA_PATH,
@@ -383,6 +389,78 @@ def test_benchmark_report_matches_schema() -> None:
     assert report["provenance"]["run_labels"] == {"server": "llama.cpp"}
     assert report["aggregate"]["timed_request_count"] == 2
     assert report["aggregate"]["totals"]["draft_acceptance_rate"] == pytest.approx(0.75)
+    assert report["dataset"] is None
+    assert report["aggregate"]["cohorts"] == {}
+    assert [request["pass"] for request in report["requests"]] == [None, 0, 1]
+    assert report["requests"][1]["prompt_id"] is None
+    assert report["requests"][1]["response_sha256"] == hashlib.sha256(b"ab").hexdigest()
+
+
+def _dataset(tmp_path: Path, rows: list[dict[str, Any]], **mapping: str) -> PromptDataset:
+    folder = tmp_path / "prompts"
+    folder.mkdir(exist_ok=True)
+    (folder / "data.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
+    )
+    return load_prompt_dataset(PromptDatasetConfig(path=str(folder), columns_mapping=mapping))
+
+
+_DATASET_ROWS = [
+    {"id": "a", "prompt": "first", "category": "math"},
+    {"id": "b", "prompt": "second", "category": "coding"},
+    {"id": "c", "prompt": "third", "category": "math"},
+]
+
+
+def test_dataset_benchmark_sends_passes_and_summarizes_cohorts(tmp_path: Path) -> None:
+    server = FakeServer([_chunk("a"), _chunk("b"), *_final(completion=6, timings=_SPEC_TIMINGS)])
+    dataset = _dataset(tmp_path, _DATASET_ROWS, cohort_column="category")
+    config = EndpointPerfConfig(
+        base_url=BASE_URL,
+        prompt_source="--dataset",
+        max_new_tokens=6,
+        iterations=2,
+        warmup=4,
+        dataset=dataset,
+    )
+    result = EndpointPerfBenchmark(config, client=server.client(), collect_host=lambda: _HOST).run()
+    report = result.to_dict()
+
+    jsonschema.validate(report, _report_schema())
+    sent = [body["messages"][0]["content"] for body in server.bodies]
+    assert sent == ["first", "second", "third", "first"] + ["first", "second", "third"] * 2
+    requests = report["requests"]
+    assert [request["kind"] for request in requests[:4]] == ["warmup"] * 4
+    assert [request["pass"] for request in requests] == [None] * 4 + [0, 0, 0, 1, 1, 1]
+    assert [request["prompt_id"] for request in requests[4:7]] == ["a", "b", "c"]
+    assert requests[5]["cohorts"] == {"category": "coding"}
+    assert requests[5]["response_sha256"] == hashlib.sha256(b"ab").hexdigest()
+    assert report["benchmark_info"]["prompt"] is None
+    assert report["benchmark_info"]["prompt_source"] == "--dataset"
+    assert report["dataset"]["path"] == "prompts"
+    assert report["dataset"]["prompts_sha256"] == dataset.prompts_sha256
+    cohorts = report["aggregate"]["cohorts"]["category"]
+    assert list(cohorts) == ["coding", "math"]
+    assert cohorts["math"]["request_count"] == 4
+    assert cohorts["coding"]["request_count"] == 2
+    assert cohorts["math"]["totals"]["draft_tokens"] == 32
+    assert cohorts["math"]["totals"]["draft_acceptance_rate"] == pytest.approx(0.75)
+    assert cohorts["math"]["ttft_ms"]["p50"] is not None
+
+
+def test_reasoning_text_gets_its_own_hash() -> None:
+    sample = EndpointRequestSample.from_timing(
+        "timed", 0, _timing(arrivals=[0.1, 0.2], completion=2)
+    )
+    sample.reasoning_text = "think"
+    serialized = sample.to_dict()
+    assert serialized["reasoning_sha256"] == hashlib.sha256(b"think").hexdigest()
+    assert (
+        "reasoning_sha256"
+        not in EndpointRequestSample.from_timing(
+            "timed", 0, _timing(arrivals=[0.1, 0.2], completion=2)
+        ).to_dict()
+    )
 
 
 def test_hash_files_records_name_size_and_sha256_without_folder(tmp_path: Path) -> None:
@@ -491,6 +569,93 @@ def test_cli_endpoint_only_options_need_endpoint() -> None:
     result = CliRunner().invoke(perf, ["-m", "model.onnx", "--run-label", "a=1"])
     assert result.exit_code == 2
     assert "--run-label only applies with --endpoint" in result.output
+
+
+def _write_prompts(folder: Path) -> None:
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "data.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in _DATASET_ROWS), encoding="utf-8"
+    )
+
+
+def test_cli_endpoint_dataset_run_defaults_to_one_pass(
+    fake_server: FakeServer, tmp_path: Path
+) -> None:
+    folder = tmp_path / "prompts"
+    _write_prompts(folder)
+    output = tmp_path / "report.json"
+    result = CliRunner().invoke(
+        perf,
+        [
+            "--endpoint",
+            BASE_URL,
+            "--dataset",
+            str(folder),
+            "--column",
+            "cohort_column=category",
+            "--warmup",
+            "1",
+            "-o",
+            str(output),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    report = json.loads(output.read_text(encoding="utf-8"))
+    jsonschema.validate(report, _report_schema())
+    assert len(fake_server.bodies) == 4
+    assert report["benchmark_info"]["iterations"] == 1
+    assert report["dataset"]["selected_row_count"] == 3
+    assert report["dataset"]["shuffle"] is False
+    assert set(report["aggregate"]["cohorts"]["category"]) == {"coding", "math"}
+    assert "Results by category" in result.output
+    assert "3 of 3 rows, 1 pass" in result.output
+
+
+def test_cli_endpoint_dataset_selects_shuffled_samples(
+    fake_server: FakeServer, tmp_path: Path
+) -> None:
+    folder = tmp_path / "prompts"
+    _write_prompts(folder)
+    output = tmp_path / "report.json"
+    args = ["--endpoint", BASE_URL, "--dataset", str(folder), "--warmup", "0", "-o", str(output)]
+    result = CliRunner().invoke(perf, [*args, "--samples", "2", "--shuffle", "--overwrite"])
+    assert result.exit_code == 0, result.output
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["dataset"]["samples"] == 2
+    assert report["dataset"]["shuffle"] is True
+    assert len(fake_server.bodies) == 2
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    [
+        (["--split", "test"], "--split only applies with --dataset"),
+        (["--no-shuffle"], "--shuffle/--no-shuffle only applies with --dataset"),
+        (["--dataset", "{folder}", "--prompt", "hi"], "--prompt cannot be combined with --dataset"),
+        (["--dataset", "{folder}", "--column", "bad"], "Use key=value"),
+        (["--dataset", "{folder}", "--column", "x=y"], "Unknown --column key(s): x"),
+        (
+            ["--dataset", "{folder}", "--column", "cohort_column=tier"],
+            "no column 'tier' (cohort_column). Available columns: id, prompt, category",
+        ),
+        (["--dataset", "{folder}", "-o", "{folder}/r.json"], "inside the --dataset folder"),
+    ],
+)
+def test_cli_endpoint_dataset_rejects_invalid_options(
+    tmp_path: Path, args: list[str], message: str
+) -> None:
+    folder = tmp_path / "prompts"
+    _write_prompts(folder)
+    args = [arg.replace("{folder}", str(folder)) for arg in args]
+    result = CliRunner().invoke(perf, ["--endpoint", BASE_URL, *args])
+    assert result.exit_code == 2
+    assert message in " ".join(result.output.split())
+
+
+def test_cli_dataset_needs_endpoint() -> None:
+    result = CliRunner().invoke(perf, ["-m", "model.onnx", "--dataset", "prompts"])
+    assert result.exit_code == 2
+    assert "--dataset only applies with --endpoint" in result.output
 
 
 def test_cli_endpoint_server_failure_writes_no_report(
