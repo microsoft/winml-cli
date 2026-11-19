@@ -33,7 +33,8 @@ dependencies = [
   # (Also avoids the Windows 24.0.0 crash 0xC0000005 when pyarrow's C extension
   # loads after the WinML/ORT EP DLLs — see _preload_bundled_onnxruntime_dll in
   # winml.modelkit.__init__.)
-  "pyarrow==23.0.1",
+  "pyarrow==23.0.1 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
+  "pyarrow==25.0.0 ; sys_platform == 'win32' and platform_machine == 'ARM64'",
   "diffusers>=0.36",
   "evaluate>=0.4.6",
   "fastapi>=0.135.3",
@@ -41,9 +42,10 @@ dependencies = [
   "hf_xet>=1.1.10",
   "httpx>=0.24.0",
   "jsonschema>=4.23",
-  "mcp>=0.1.0",
+  "mcp>=0.1.0 ; platform_machine == 'AMD64' or platform_machine == 'x86_64'",
   "ml-dtypes>=0.5.3",
-  "numpy>=2.2,<2.3",
+  "numpy>=2.2,<2.3 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
+  "numpy==2.3.5 ; sys_platform == 'win32' and platform_machine == 'ARM64'",
   "onnx==1.18",
   "onnx-ir>=0.1",
   "onnxruntime-genai-winml==0.14.1 ; sys_platform == 'win32'",
@@ -59,7 +61,8 @@ dependencies = [
   # pandas version drift changes parquet string typing/metadata, producing
   # non-functional but huge diffs across every generated rule artifact. If you
   # truly must bump this, regenerate ALL parquet artifacts in the same change.
-  "pandas==2.3.3",
+  "pandas==2.3.3 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
+  "pandas==3.0.6 ; sys_platform == 'win32' and platform_machine == 'ARM64'",
   "psutil>=7",
   "pydantic>=2",
   "python-multipart>=0.0.22",
@@ -67,7 +70,8 @@ dependencies = [
   "requests>=2.32.5",
   "rich>=14",
   "scikit-learn>=1.7",
-  "scipy>=1.15,<1.16",
+  "scipy>=1.15,<1.16 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
+  "scipy==1.16.3 ; sys_platform == 'win32' and platform_machine == 'ARM64'",
   "sentencepiece>=0.2.1",
   "seqeval>=1.2.2",
   "snakemd>=2",
@@ -103,19 +107,13 @@ urls.Repository = "https://github.com/microsoft/winml-cli.git"
 scripts.winml = "winml.modelkit.cli:main"
 
 # =============================================================================
-# UV - Supported resolution environments (x64 only)
+# UV - Resolution environments
 # =============================================================================
-# winml-cli is a Windows-only tool and its dependencies (PyTorch, the Windows ML
-# runtime packages, etc.) publish only x64/AMD64 wheels -- there are no
-# win_arm64 wheels. Restricting resolution to these environments keeps the
-# lockfile x64-only and makes `uv sync` fail fast with a clear
-# "unsupported environment" error on native Arm64 Python instead of an opaque
-# missing-wheel error. The linux/x86_64 entry is required for the docs CI job
-# that runs on ubuntu-latest.
 [tool.uv]
 environments = [
   "sys_platform == 'linux' and platform_machine == 'x86_64'",
   "sys_platform == 'win32' and platform_machine == 'AMD64'",
+  "sys_platform == 'win32' and platform_machine == 'ARM64'",
 ]
 
 [[tool.uv.index]]
@@ -123,12 +121,18 @@ name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
+[tool.uv.extra-build-variables]
+# Only applies to PyYAML source builds; prebuilt wheels are unaffected.
+pyyaml = { PYYAML_FORCE_LIBYAML = "0" }
+
 [tool.uv.sources]
 torch = [
   { index = "pytorch-cpu", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
+  { index = "pytorch-cpu", marker = "sys_platform == 'win32' and platform_machine == 'ARM64'" },
 ]
 torchvision = [
   { index = "pytorch-cpu", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
+  { index = "pytorch-cpu", marker = "sys_platform == 'win32' and platform_machine == 'ARM64'" },
 ]
 
 [dependency-groups]
