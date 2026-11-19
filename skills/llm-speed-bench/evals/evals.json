@@ -1,0 +1,57 @@
+{
+  "skill_name": "llm-speed-bench",
+  "description": "Advice-only response cases for preparing SPEED-Bench and running it with winml perf against an OpenAI-compatible server. Assertions are ungraded placeholders: passed null and empty evidence. Validate every concrete command against versioned CLI help and the script's --help.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "acquire-and-run-mini",
+      "prompt": "i have llama-server running a gguf model on port 8080. i want to benchmark it with SPEED-Bench using winml perf. how do i get the data and run a quick pass?",
+      "files": [],
+      "assertions": [
+        { "id": "uses-prepare-script", "text": "Prepares prompts with the skill's prepare_speed_bench.py under uv run instead of pointing winml perf at the masked Hub dataset.", "passed": null, "evidence": "" },
+        { "id": "explains-masking", "text": "Explains that many Hub rows are placeholders that must be rebuilt from source datasets.", "passed": null, "evidence": "" },
+        { "id": "mini-subset", "text": "Uses the mini subset (the default) or --samples for a quick pass.", "passed": null, "evidence": "" },
+        { "id": "endpoint-and-dataset", "text": "Runs winml perf with --endpoint set to the server's /v1 base URL and --dataset set to the prepared subset folder.", "passed": null, "evidence": "" },
+        { "id": "cohorts", "text": "Adds --column cohort_column=bucket,category (or equivalent) to get per-category and per-length results.", "passed": null, "evidence": "" },
+        { "id": "licensing-and-git", "text": "Notes that source-dataset licenses apply and that prepared data and reports stay out of source control.", "passed": null, "evidence": "" }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "speculative-decoding-comparison",
+      "prompt": "I want to know whether adding a draft model to llama-server speeds up generation for my target model across SPEED-Bench categories. How should I run the comparison so the numbers are trustworthy?",
+      "files": [],
+      "assertions": [
+        { "id": "labels-and-indexes", "text": "Uses --run-label to name each configuration and --run-index for repeats.", "passed": null, "evidence": "" },
+        { "id": "hash-files", "text": "Records the loaded model files with --hash-file.", "passed": null, "evidence": "" },
+        { "id": "interleave", "text": "Alternates the configurations across run indexes rather than running all repeats of one configuration first.", "passed": null, "evidence": "" },
+        { "id": "idle-gpu", "text": "Recommends one large model at a time and checking that the GPU is idle.", "passed": null, "evidence": "" },
+        { "id": "noise", "text": "Expects run-to-run noise and recommends several runs per configuration and comparing medians.", "passed": null, "evidence": "" },
+        { "id": "same-prompts", "text": "Compares only reports with the same dataset.prompts_sha256.", "passed": null, "evidence": "" },
+        { "id": "no-invented-numbers", "text": "Does not state measured speedups or acceptance rates that were not produced in the session.", "passed": null, "evidence": "" }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "gated-source-and-arm64",
+      "prompt": "running prepare_speed_bench.py on my snapdragon laptop fails installing pyarrow, and on another machine it said it skipped a bunch of prompts from cais/hle. what's going on?",
+      "files": [],
+      "assertions": [
+        { "id": "x64-python", "text": "Explains that pyarrow has no Windows Arm64 wheel for the needed Python versions and runs the script with an x64 Python through uv.", "passed": null, "evidence": "" },
+        { "id": "gated-login", "text": "Explains that cais/hle is gated, and that accepting its terms and logging in with hf auth login includes those prompts.", "passed": null, "evidence": "" },
+        { "id": "manifest-counts", "text": "Points to manifest.json for the skipped and dropped counts.", "passed": null, "evidence": "" }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "long-prefill",
+      "prompt": "how do i measure prefill time for 16k-token SPEED-Bench prompts on llama-server with winml perf? the numbers look too fast.",
+      "files": [],
+      "assertions": [
+        { "id": "cache-prompt-false", "text": "Recommends --extra-body '{\"cache_prompt\": false}' so the server does not reuse cached prompts.", "passed": null, "evidence": "" },
+        { "id": "context-size", "text": "Sizes the server context for the longest bucket plus generated tokens, with headroom for tokenizer differences.", "passed": null, "evidence": "" },
+        { "id": "bucket-cohort", "text": "Reads the per-bucket cohort results rather than only the overall averages.", "passed": null, "evidence": "" }
+      ]
+    }
+  ]
+}
