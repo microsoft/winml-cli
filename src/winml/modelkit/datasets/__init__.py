@@ -2,10 +2,12 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Predefined datasets for calibration presets.
+"""Datasets for calibration presets, shared dataset loading, and generation prompts.
 
 This module provides organized, extensible datasets for different model tasks,
 making it easy to add new datasets and improve calibration quality over time.
+:func:`load_split` and :func:`load_prompts` load a ``DatasetConfig`` for
+commands that read dataset rows directly, such as ``winml perf --dataset``.
 """
 
 from __future__ import annotations
@@ -21,9 +23,11 @@ from .depth_estimation import DEFAULT_DEPTH_ESTIMATION_SIZE, DepthEstimationData
 from .image import ImageDataset
 from .image_segmentation import ImageSegmentationDataset
 from .keypoint_detection import KeypointDetectionDataset
+from .loading import LoadedSplit, load_split, select_indices
 from .mask_generation import MaskGenerationDataset
 from .object_detection import DEFAULT_OBJECT_DETECTION_SIZE, ObjectDetectionDataset
 from .processor_utils import get_image_processor_config
+from .prompts import PROMPT_SCHEMA, GenerationPrompt, PromptSet, load_prompts
 from .random_dataset import RandomDataset
 from .text import TextDataset
 
@@ -342,4 +346,13 @@ __all__ = [  # noqa: RUF022
     "get_image_processor_config",
     # Mapping
     "TASK_DATASET_MAPPING",
+    # Loading
+    "LoadedSplit",
+    "load_split",
+    "select_indices",
+    # Generation prompts
+    "PROMPT_SCHEMA",
+    "GenerationPrompt",
+    "PromptSet",
+    "load_prompts",
 ]
