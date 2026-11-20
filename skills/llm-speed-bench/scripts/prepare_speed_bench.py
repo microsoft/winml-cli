@@ -196,8 +196,13 @@ def select_part(
 def select_subset(
     rows_by_config: Mapping[str, Sequence[Mapping[str, Any]]], subset: Subset
 ) -> list[tuple[str, Mapping[str, Any]]]:
-    """Select a subset's rows, interleaved across groups so that any prefix is balanced."""
-    return interleave(group for part in subset.parts for group in select_part(rows_by_config, part))
+    """Interleave buckets, then category groups within each bucket, in every selection round."""
+    by_config: dict[str, list[list[tuple[str, Mapping[str, Any]]]]] = {}
+    for part in subset.parts:
+        for group in select_part(rows_by_config, part):
+            if group:
+                by_config.setdefault(group[0][0], []).append(group)
+    return interleave(interleave(by_config.values()))
 
 
 # =============================================================================

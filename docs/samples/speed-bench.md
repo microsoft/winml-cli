@@ -76,8 +76,10 @@ D:\bench\speed-bench\
 
 `prompt` is the first user turn of the SPEED-Bench row. `bucket` is
 `qualitative` or the input length (`1k`, `2k`, `8k`, `16k`, `32k`). Rows are
-interleaved across categories and input lengths, so the first `N` rows are a
-balanced sample. `manifest.json` records the `data_sha256` of `test.jsonl`;
+interleaved across input lengths, then category groups within each length.
+The first rows include one prompt per nonempty bucket before revisiting a
+bucket, so `--samples 5` covers all four `mini` buckets when available; small
+prefixes do not cover every category. `manifest.json` records the `data_sha256` of `test.jsonl`;
 equal values on two machines mean the same prompts.
 
 ## Step 2: Start a server
