@@ -10,6 +10,7 @@ import random
 import sys
 from collections import Counter
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -117,6 +118,9 @@ def test_prefix_spans_buckets_across_subset_parts(subset_name):
     configs = {config for part in subset.parts for config in part.configs}
     selected = psb.select_subset(data, subset)
     assert {config for config, _ in selected[: len(configs)]} == configs
+    assert {category for category, _ in THROUGHPUT} <= {
+        row["category"] for _, row in selected[: len(configs)]
+    }
     expected_ids = {
         row["question_id"]
         for part in subset.parts
@@ -184,6 +188,7 @@ def test_exclude_sources_skips_only_masked_rows_that_need_them():
 
 
 def test_write_subset_manifest_records_pins_counts_and_command(tmp_path):
+    tmp_path = tmp_path / "output with spaces"
     subset = psb.SUBSETS["mini"]
     pairs = psb.select_subset(rows_by_config(), subset)
     rows, dropped = psb.finalize_rows(pairs)
@@ -209,7 +214,7 @@ def test_write_subset_manifest_records_pins_counts_and_command(tmp_path):
     }
     assert psb.PREPARE_PY_COMMIT in psb.PREPARE_PY_URL
     command = manifest["recommended_command"]
-    assert f"--dataset {tmp_path / 'mini'}" in command
+    assert f'--dataset "{tmp_path / "mini"}"' in command
     assert "--max-new-tokens 256" in command
     assert "--column cohort_column=bucket,category" in command
 
@@ -218,3 +223,141 @@ def test_prepare_module_with_wrong_hash_is_not_imported(tmp_path):
     (tmp_path / "prepare.py").write_text("raise SystemExit('must not run')\n")
     with pytest.raises(RuntimeError, match="SHA-256"):
         psb.load_prepare_module(tmp_path)
+
+
+def test_prepare_module_executes_verified_bytes_and_is_registered(tmp_path, monkeypatch):
+    source = f"TURNS_PLACEHOLDER = {psb.PLACEHOLDER!r}\n"
+    path = tmp_path / "prepare.py"
+    path.write_text(source, encoding="utf-8")
+    expected = hashlib.sha256(path.read_bytes()).hexdigest()
+    verify = psb.verify_sha256
+
+    def verify_and_replace(data):
+        verify(data, expected)
+        path.write_text("raise RuntimeError('unverified code ran')\n", encoding="utf-8")
+
+    monkeypatch.setattr(psb, "verify_sha256", verify_and_replace)
+    monkeypatch.setitem(sys.modules, "speed_bench_prepare", None)
+    module = psb.load_prepare_module(tmp_path)
+    assert sys.modules[module.__name__] is module
+    assert module.TURNS_PLACEHOLDER == psb.PLACEHOLDER
+    assert module.__file__ == str(path)
+
+
+def test_prepare_module_restores_registration_on_error(tmp_path, monkeypatch):
+    path = tmp_path / "prepare.py"
+    path.write_text("raise RuntimeError('upstream failed')\n", encoding="utf-8")
+    expected = hashlib.sha256(path.read_bytes()).hexdigest()
+    verify = psb.verify_sha256
+    monkeypatch.setattr(psb, "verify_sha256", lambda data: verify(data, expected))
+    previous = SimpleNamespace()
+    monkeypatch.setitem(sys.modules, "speed_bench_prepare", previous)
+    with pytest.raises(RuntimeError, match="upstream failed"):
+        psb.load_prepare_module(tmp_path)
+    assert sys.modules["speed_bench_prepare"] is previous
+
+
+def test_hub_sources_only_probes_masked_hub_dataset_urls():
+    rows = make_rows("q", {("category", None): 4})
+    for row in rows[:3]:
+        row["turns"] = [psb.PLACEHOLDER]
+    rows[0]["source"] = "https://huggingface.co/datasets/org/gated/resolve/main/data.json"
+    rows[1]["source"] = "http://example.org/org/label/data.json"
+    rows[2]["source"] = "https://huggingface.co.evil.test/datasets/org/label"
+    rows[3]["source"] = "https://huggingface.co/datasets/org/unmasked"
+    assert psb._hub_sources(rows) == ["org/gated"]
+
+
+@pytest.mark.parametrize("force_skip", [False, True])
+def test_gated_lookup_failure_is_not_treated_as_accessible(monkeypatch, force_skip):
+    import huggingface_hub
+
+    def fail(*args, **kwargs):
+        raise TimeoutError("Hub unavailable")
+
+    monkeypatch.setattr(huggingface_hub.HfApi, "dataset_info", fail)
+    with pytest.raises(RuntimeError, match="Cannot inspect Hub dataset org/gated"):
+        psb._gated_unavailable(["org/gated"], force_skip)
+
+
+@pytest.mark.parametrize("force_skip", [False, True])
+def test_gated_access_and_forced_skip(monkeypatch, force_skip):
+    import huggingface_hub
+
+    checked = []
+    monkeypatch.setattr(huggingface_hub, "get_token", lambda: "test-token")
+    monkeypatch.setattr(
+        huggingface_hub.HfApi, "dataset_info", lambda self, source: SimpleNamespace(gated=True)
+    )
+    monkeypatch.setattr(
+        huggingface_hub.HfApi, "auth_check", lambda self, source, **kwargs: checked.append(source)
+    )
+    assert psb._gated_unavailable(["org/gated"], force_skip) == (
+        ["org/gated"] if force_skip else []
+    )
+    assert checked == ([] if force_skip else ["org/gated"])
+
+
+@pytest.mark.parametrize("status", [403, 503])
+def test_gated_access_denial_is_distinct_from_service_failure(monkeypatch, status):
+    import httpx
+    import huggingface_hub
+    from huggingface_hub.errors import HfHubHTTPError
+
+    monkeypatch.setattr(huggingface_hub, "get_token", lambda: "test-token")
+    monkeypatch.setattr(
+        huggingface_hub.HfApi, "dataset_info", lambda self, source: SimpleNamespace(gated=True)
+    )
+
+    def fail(*args, **kwargs):
+        raise HfHubHTTPError(
+            "access check failed",
+            response=httpx.Response(status, request=httpx.Request("GET", "https://huggingface.co")),
+        )
+
+    monkeypatch.setattr(huggingface_hub.HfApi, "auth_check", fail)
+    if status == 403:
+        assert psb._gated_unavailable(["org/gated"], False) == ["org/gated"]
+    else:
+        with pytest.raises(RuntimeError, match="Cannot check access"):
+            psb._gated_unavailable(["org/gated"], False)
+
+
+def test_prepare_probes_metadata_sources_and_explains_forced_skip(tmp_path, monkeypatch, capsys):
+    import datasets
+    import huggingface_hub
+
+    rows = make_rows("q", {("category", None): 3}, masked={"q-category-None-0"})
+    rows[0]["source"] = "https://huggingface.co/datasets/org/gated/resolve/main/data.json"
+    rows[1]["source"] = "https://example.org/org/nonhub"
+    metadata = datasets.Dataset.from_list(rows)
+    loads = []
+    probes = []
+    module = SimpleNamespace(
+        BenchmarkDataset=[SimpleNamespace(value=value) for value in ("org/gated", "org/nonhub")],
+        _resolve_external_data=lambda selected, config: selected,
+    )
+
+    def load(dataset, config, *, split, revision):
+        loads.append((dataset, config, split, revision))
+        return metadata
+
+    def info(self, source):
+        probes.append(source)
+        return SimpleNamespace(gated=True)
+
+    monkeypatch.setattr(datasets, "load_dataset", load)
+    monkeypatch.setattr(psb, "load_prepare_module", lambda path: module)
+    monkeypatch.setattr(huggingface_hub.HfApi, "dataset_info", info)
+    monkeypatch.setattr(huggingface_hub, "get_token", lambda: "test-token")
+    subset = psb.Subset("test", (psb.Part((psb.QUALITATIVE,), psb.BY_CATEGORY, 2),), 256)
+    monkeypatch.setitem(psb.SUBSETS, "test", subset)
+    manifests = psb.prepare(tmp_path, ["test"], skip_gated=True)
+    assert loads == [(psb.SPEED_BENCH_DATASET, psb.QUALITATIVE, "test", psb.SPEED_BENCH_REVISION)]
+    assert probes == ["org/gated"]
+    assert manifests[0]["row_count"] == 2
+    assert manifests[0]["skipped_gated_rows"] == {"org/gated": 1}
+    assert manifests[0]["dropped_unresolved_rows"] == 0
+    output = capsys.readouterr().out
+    assert "--skip-gated was requested" in output
+    assert "cannot read it" not in output

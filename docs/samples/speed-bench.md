@@ -56,6 +56,20 @@ Face login that accepted its terms, the script skips those rows before selecting
 prompts and reports the count. To include them, accept the terms on the dataset
 page, run `hf auth login`, and rerun the script.
 
+Access changes which prompts the fixed-size subsets select. To match a machine
+without gated access, pass `--skip-gated` on every machine. Compare prompt
+hashes even when subset names and pins match. A sub-category's family is its
+prefix before the first underscore; HLE subject labels without underscores
+each form their own family and can increase the `throughput` subset's size.
+
+Preparation can download whole source corpora for a few selected prompts.
+Allow gigabytes of cache space (`full` needs substantially more than `mini`).
+Set `HF_HOME` before preparing to choose the cache drive; `--output-dir` only
+places the prepared files. The cache is not required to benchmark written JSONL.
+The pins cover SPEED-Bench metadata and `prepare.py`, not every upstream source
+file or dependency. Upstream AdaLEval files use plain HTTP at
+`opencompass.openxlab.space`; review the pinned script's source URLs and terms.
+
 Pass `--subset` (repeatable) to choose what to write:
 
 | Subset | Selection | Suggested `--max-new-tokens` |
@@ -76,7 +90,8 @@ D:\bench\speed-bench\
 
 `prompt` is the first user turn of the SPEED-Bench row. `bucket` is
 `qualitative` or the input length (`1k`, `2k`, `8k`, `16k`, `32k`). Rows are
-interleaved across input lengths, then category groups within each length.
+interleaved across input lengths, then category groups within each length,
+rotating the starting group per bucket.
 The first rows include one prompt per nonempty bucket before revisiting a
 bucket, so `--samples 5` covers all four `mini` buckets when available; small
 prefixes do not cover every category. `manifest.json` records the `data_sha256` of `test.jsonl`;
@@ -86,13 +101,19 @@ equal values on two machines mean the same prompts.
 
 Start a server as in the
 [OpenAI-compatible server sample](openai-endpoint-perf.md#step-1-start-a-server),
-with a context large enough for the longest prompts plus the generated tokens.
+with a context large enough for the longest prompts in the server's tokenizer
+plus the generated tokens.
 Input lengths are counted with the `o200k_base` tokenizer, so add headroom for
 your model's tokenizer. For the `mini` subset (up to 16k):
 
 ```powershell
 llama-server -m models\target.gguf --alias target -ngl 99 -c 24576 --parallel 1 --port 8080
 ```
+
+The other subsets reach 32k in `o200k_base` and need a larger context. The
+example's context size is not a guarantee for every tokenizer; measure the
+longest prepared prompts with the server's tokenizer rather than relying on
+a fixed percentage of headroom.
 
 ## Step 3: Run the benchmark
 
@@ -104,7 +125,10 @@ winml perf --endpoint http://127.0.0.1:8080/v1 --dataset D:\bench\speed-bench\mi
 The defaults of `--column` already match the folder (`input_column=prompt`,
 `id_column=id`); `cohort_column=bucket,category` adds a table per input length
 and per category to the console report, and `aggregate.cohorts` to the JSON
-report. Add `--samples 5` for a quick check.
+report. Before a long run, add `--samples B` for one prompt per bucket:
+4 for `mini`, 5 for `throughput`, 6 for `long` and `full` when all buckets are
+available. This reaches the longest bucket but does not test every prompt.
+One failed request stops the run without writing a report.
 
 To measure the full prefill on `llama-server`, add
 `--extra-body '{"cache_prompt": false}'`. Otherwise the warmup requests, which
