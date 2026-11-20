@@ -28,11 +28,6 @@ from winml.modelkit.commands._openai_chat_client import (
     iter_sse_data,
     scrub_url,
 )
-from winml.modelkit.commands._perf_dataset import (
-    PromptDataset,
-    PromptDatasetConfig,
-    load_prompt_dataset,
-)
 from winml.modelkit.commands._perf_endpoint import (
     EndpointPerfBenchmark,
     EndpointPerfConfig,
@@ -48,6 +43,8 @@ from winml.modelkit.commands._task_generation_perf import (
     display_task_report,
 )
 from winml.modelkit.commands.perf import perf
+from winml.modelkit.datasets import PromptSet, load_prompts
+from winml.modelkit.eval import DatasetConfig
 
 
 if TYPE_CHECKING:
@@ -439,13 +436,17 @@ def test_benchmark_report_uses_schema3_layout() -> None:
     assert report["requests"][1]["response_sha256"] == hashlib.sha256(b"ab").hexdigest()
 
 
-def _dataset(tmp_path: Path, rows: list[dict[str, Any]], **mapping: str) -> PromptDataset:
+def _dataset(tmp_path: Path, rows: list[dict[str, Any]], **mapping: str) -> PromptSet:
     folder = tmp_path / "prompts"
     folder.mkdir(exist_ok=True)
     (folder / "data.jsonl").write_text(
         "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
     )
-    return load_prompt_dataset(PromptDatasetConfig(path=str(folder), columns_mapping=mapping))
+    return load_prompts(
+        DatasetConfig(
+            path=str(folder), split=None, samples=None, shuffle=False, columns_mapping=mapping
+        )
+    )
 
 
 _DATASET_ROWS = [

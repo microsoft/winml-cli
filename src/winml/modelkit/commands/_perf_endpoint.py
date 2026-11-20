@@ -62,7 +62,6 @@ from ._openai_chat_client import (
     OpenAIChatClient,
     scrub_url,
 )
-from ._perf_dataset import PromptDataset
 from ._task_generation_perf import (
     _MEASURED_REQUEST_METRICS,
     _UNAVAILABLE_MODEL_METRICS,
@@ -78,7 +77,7 @@ if TYPE_CHECKING:
 
     from rich.console import Console
 
-    from ._perf_dataset import DatasetPrompt
+    from ..datasets import GenerationPrompt, PromptSet  # noqa: TC004
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +145,7 @@ class EndpointPerfConfig:
     run_index: int | None = None
     file_hashes: dict[str, dict[str, Any]] = field(default_factory=dict)
     output_path: Path | None = None
-    dataset: PromptDataset | None = None
+    dataset: PromptSet | None = None
 
 
 def report_model_id(model_id: str) -> str:
@@ -269,7 +268,7 @@ class EndpointRequestSample:
         index: int,
         timing: ChatStreamTiming,
         *,
-        prompt: DatasetPrompt | None = None,
+        prompt: GenerationPrompt | None = None,
         pass_index: int | None = None,
     ) -> EndpointRequestSample:
         """Build a sample from one streamed response.
@@ -715,7 +714,7 @@ def resolve_model(config_model: str | None, models: list[dict[str, Any]]) -> str
 
 def request_plan(
     config: EndpointPerfConfig,
-) -> list[tuple[str, int | None, DatasetPrompt | None]]:
+) -> list[tuple[str, int | None, GenerationPrompt | None]]:
     """Return ``(kind, pass, prompt)`` for every request, in sending order.
 
     Without a dataset every request sends ``config.prompt`` and each timed
@@ -733,7 +732,7 @@ def request_plan(
 
 
 def _describe(
-    kind: str, pass_index: int | None, prompt: DatasetPrompt | None, config: EndpointPerfConfig
+    kind: str, pass_index: int | None, prompt: GenerationPrompt | None, config: EndpointPerfConfig
 ) -> str:
     if prompt is None:
         return kind

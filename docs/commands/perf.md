@@ -61,7 +61,7 @@ $ winml perf [options]
 | `--dataset-revision` | | `TEXT` | — | *(--dataset)* Git revision (branch, tag, or commit) of a Hugging Face dataset. |
 | `--split` | | `TEXT` | the only split | *(--dataset)* Dataset split. Required when the dataset has several splits. |
 | `--samples` | | `INTEGER` | all rows | *(--dataset)* Number of rows to send. |
-| `--shuffle` / `--no-shuffle` | | flag | `--no-shuffle` | *(--dataset)* Shuffle the rows with a fixed seed (recorded in the report) before taking `--samples`. |
+| `--shuffle` / `--no-shuffle` | | flag | `--no-shuffle` | *(--dataset)* Shuffle the rows with a fixed seed (recorded in the report) before taking `--samples`. The same seed selects the same rows as `winml eval`. |
 | `--column` | | `KEY=VALUE` (multiple) | — | *(--dataset)* Column mapping: `input_column` (default `prompt`; a string, a list of turns of which the first is sent, or a list of `role`/`content` messages), `id_column` (default `id`; the row index when the column is absent), `cohort_column` (comma-separated columns that group prompts into cohorts in the report). |
 
 ## How it works
