@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Dependency-light statistics and memory checkpoints for generation perf.
+"""Dependency-light statistics, request aggregation and memory checkpoints for generation perf.
 
 Shared helpers must not import a generation command or session backend: GGUF
 uses Task API and does not need the Python ORT/GenAI runtime to report metrics.
@@ -11,7 +11,13 @@ uses Task API and does not need the Python ORT/GenAI runtime to report metrics.
 from __future__ import annotations
 
 import gc
+import re
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Protocol
+
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Sequence
 
 
 # Keep the existing default prompt and percentile/JSON semantics for both routes.
@@ -56,6 +62,80 @@ def _stats(values: list[float]) -> dict[str, float]:
 def _round_stats(values: dict[str, float]) -> dict[str, float]:
     """Round a stats block for JSON output."""
     return {key: round(value, 3) for key, value in values.items()}
+
+
+class _RequestSample(Protocol):
+    """A per-request record: ``kind`` is ``"warmup"`` or ``"timed"``."""
+
+    @property
+    def kind(self) -> str:
+        """``"warmup"`` or ``"timed"``."""
+
+
+def request_counts(samples: Sequence[_RequestSample]) -> dict[str, Any]:
+    """Return the request-count header of an aggregate block; warmups are excluded."""
+    return {
+        "warmup_excluded": True,
+        "warmup_request_count": sum(sample.kind == "warmup" for sample in samples),
+        "timed_request_count": sum(sample.kind == "timed" for sample in samples),
+    }
+
+
+def _natural_key(value: object) -> list[tuple[int, int, str]]:
+    """Sort key that orders digit runs by number, so ``2k`` precedes ``16k``."""
+    return [
+        (0, int(part), "") if part.isdigit() else (1, 0, part)
+        for part in re.split(r"(\d+)", str(value))
+        if part
+    ]
+
+
+def aggregate_requests(
+    samples: Sequence[_RequestSample],
+    metrics: Iterable[str],
+    *,
+    group_by: str | None = None,
+) -> dict[str, Any]:
+    """Summarize each per-request metric over the timed samples.
+
+    Each metric is read as a sample attribute and gets the :func:`_stats` block
+    of the timed samples that report it (not ``None``), or ``None`` when none do.
+
+    Args:
+        samples: Warmup and timed request samples; warmups are excluded.
+        metrics: Sample attribute names to summarize, in output order.
+        group_by: Name of a sample attribute holding a ``{dimension: value}``
+            mapping. When given, the result also holds that name mapped to
+            ``{dimension: {value: summary}}``, where each summary is the
+            :func:`request_counts` header plus these metric summaries of the
+            samples in that group, in natural order of value (``1k``, ``2k``,
+            ``16k``, then text labels). A sample without a dimension is left
+            out of that dimension's groups.
+
+    Returns:
+        ``{metric: stats or None}``, plus the group summaries with ``group_by``.
+    """
+    metrics = tuple(metrics)
+    timed = [sample for sample in samples if sample.kind == "timed"]
+    result: dict[str, Any] = {}
+    for metric in metrics:
+        values = [value for sample in timed if (value := getattr(sample, metric)) is not None]
+        result[metric] = _stats(values) if values else None
+    if group_by is None:
+        return result
+
+    members: dict[str, dict[Any, list[_RequestSample]]] = {}
+    for sample in samples:
+        for dimension, value in getattr(sample, group_by).items():
+            members.setdefault(dimension, {}).setdefault(value, []).append(sample)
+    result[group_by] = {
+        dimension: {
+            value: {**request_counts(group), **aggregate_requests(group, metrics)}
+            for value, group in sorted(groups.items(), key=lambda item: _natural_key(item[0]))
+        }
+        for dimension, groups in members.items()
+    }
+    return result
 
 
 def _get_rss_mb() -> float:
