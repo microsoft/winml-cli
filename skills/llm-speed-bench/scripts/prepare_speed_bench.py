@@ -39,9 +39,9 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import importlib.util
 import json
 import sys
+import types
 import urllib.request
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
@@ -49,6 +49,7 @@ from dataclasses import dataclass
 from itertools import zip_longest
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 
 PREPARE_PY_REPO = "NVIDIA-NeMo/Gym"
@@ -202,7 +203,11 @@ def select_subset(
         for group in select_part(rows_by_config, part):
             if group:
                 by_config.setdefault(group[0][0], []).append(group)
-    return interleave(interleave(by_config.values()))
+    rotated = []
+    for index, groups in enumerate(by_config.values()):
+        offset = index % len(groups)
+        rotated.append(groups[offset:] + groups[:offset])
+    return interleave(interleave(rotated))
 
 
 # =============================================================================
@@ -289,7 +294,7 @@ def finalize_rows(
 def recommended_command(dataset_dir: str, max_new_tokens: int) -> str:
     """The ``winml perf`` command suggested for a subset folder."""
     return (
-        f"winml perf --endpoint {DEFAULT_ENDPOINT} --dataset {dataset_dir} "
+        f'winml perf --endpoint {DEFAULT_ENDPOINT} --dataset "{dataset_dir}" '
         f"--max-new-tokens {max_new_tokens} --column cohort_column={COHORT_COLUMNS}"
     )
 
@@ -324,7 +329,11 @@ def build_manifest(
         "skipped_gated_rows": dict(sorted(skipped_sources.items())),
         "dropped_unresolved_rows": dropped_unresolved,
         "selection": {
-            "order": "sha256 of question_id within each group, interleaved across groups",
+            "version": 2,
+            "order": (
+                "sha256 of question_id within each group; bucket groups rotated by bucket "
+                "position, then interleaved across buckets and groups"
+            ),
             "parts": [
                 {"configs": list(p.configs), "group_by": p.group_by, "per_group": p.per_group}
                 for p in subset.parts
@@ -407,18 +416,50 @@ def load_prepare_module(work_dir: Path) -> Any:
             data = response.read()
         verify_sha256(data)
         path.write_bytes(data)
-    verify_sha256(path.read_bytes())
-    spec = importlib.util.spec_from_file_location("speed_bench_prepare", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    if module.TURNS_PLACEHOLDER != PLACEHOLDER:
-        raise RuntimeError("prepare.py uses a different placeholder text than expected.")
+    data = path.read_bytes()
+    try:
+        verify_sha256(data)
+    except RuntimeError as exc:
+        raise RuntimeError(f"{path}: {exc}") from exc
+    module = types.ModuleType("speed_bench_prepare")
+    module.__file__ = str(path)
+    previous = sys.modules.get(module.__name__)
+    sys.modules[module.__name__] = module
+    try:
+        exec(compile(data, str(path), "exec"), module.__dict__)  # noqa: S102 -- pinned bytes verified above
+        if module.TURNS_PLACEHOLDER != PLACEHOLDER:
+            raise RuntimeError("prepare.py uses a different placeholder text than expected.")
+    except BaseException:
+        if previous is None:
+            sys.modules.pop(module.__name__, None)
+        else:
+            sys.modules[module.__name__] = previous
+        raise
     return module
+
+
+def _hub_sources(rows: Iterable[Mapping[str, Any]]) -> list[str]:
+    """Hub dataset ids named explicitly by masked rows' source URLs."""
+    sources = set()
+    for row in rows:
+        if not is_masked(row):
+            continue
+        url = urlsplit(str(row.get("source") or ""))
+        parts = url.path.strip("/").split("/")
+        if (
+            url.scheme == "https"
+            and url.hostname == "huggingface.co"
+            and len(parts) >= 3
+            and parts[0] == "datasets"
+        ):
+            sources.add("/".join(parts[1:3]))
+    return sorted(sources)
 
 
 def _gated_unavailable(source_ids: Iterable[str], force_skip: bool) -> list[str]:
     """Gated Hub datasets that the current login cannot read (all of them with force_skip)."""
     from huggingface_hub import HfApi, get_token
+    from huggingface_hub.errors import HfHubHTTPError
 
     api = HfApi()
     token = get_token()
@@ -428,8 +469,8 @@ def _gated_unavailable(source_ids: Iterable[str], force_skip: bool) -> list[str]
             continue
         try:
             gated = api.dataset_info(source_id).gated
-        except Exception:
-            continue
+        except Exception as exc:
+            raise RuntimeError(f"Cannot inspect Hub dataset {source_id}: {exc}") from exc
         if not gated:
             continue
         if force_skip or token is None:
@@ -437,8 +478,15 @@ def _gated_unavailable(source_ids: Iterable[str], force_skip: bool) -> list[str]
             continue
         try:
             api.auth_check(source_id, repo_type="dataset")
-        except Exception:
-            unavailable.append(source_id)
+        except HfHubHTTPError as exc:
+            if exc.response is not None and exc.response.status_code in (401, 403):
+                unavailable.append(source_id)
+            else:
+                raise RuntimeError(
+                    f"Cannot check access to Hub dataset {source_id}: {exc}"
+                ) from exc
+        except Exception as exc:
+            raise RuntimeError(f"Cannot check access to Hub dataset {source_id}: {exc}") from exc
     return unavailable
 
 
@@ -474,14 +522,6 @@ def prepare(out_dir: Path, subset_names: Sequence[str], *, skip_gated: bool) -> 
     subsets = {name: SUBSETS[name] for name in subset_names}
     configs = [c for c in CONFIGS if any(c in p.configs for s in subsets.values() for p in s.parts)]
 
-    unavailable = _gated_unavailable(source_ids, skip_gated)
-    for source_id in unavailable:
-        print(
-            f"Skipping prompts rebuilt from the gated dataset {source_id}: the current "
-            "Hugging Face login cannot read it. To include them, accept its terms on the "
-            "Hub, run 'hf auth login', and run this script again."
-        )
-
     metadata: dict[str, Any] = {}
     candidates: dict[str, list[Mapping[str, Any]]] = {}
     skipped: dict[str, Counter[str]] = {}
@@ -491,6 +531,18 @@ def prepare(out_dir: Path, subset_names: Sequence[str], *, skip_gated: bool) -> 
             SPEED_BENCH_DATASET, config, split="test", revision=SPEED_BENCH_REVISION
         )
         metadata[config] = meta
+
+    hub_sources = _hub_sources(row for meta in metadata.values() for row in meta)
+    unavailable = _gated_unavailable(hub_sources, skip_gated)
+    for source_id in unavailable:
+        reason = (
+            "--skip-gated was requested. Omit it to include accessible gated datasets."
+            if skip_gated
+            else "the current Hugging Face login cannot read it. To include it, accept "
+            "its terms on the Hub, run 'hf auth login', and rerun."
+        )
+        print(f"Skipping prompts rebuilt from the gated dataset {source_id}: {reason}")
+    for config, meta in metadata.items():
         candidates[config], skipped[config] = exclude_sources(list(meta), unavailable, source_ids)
 
     selections = {name: select_subset(candidates, subset) for name, subset in subsets.items()}

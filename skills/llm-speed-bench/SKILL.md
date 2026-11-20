@@ -52,6 +52,9 @@ Prerequisites:
   dataset `cais/hle`. Without it, the script skips the prompts rebuilt from that
   dataset before selecting rows and reports how many it skipped. To include
   them, accept the terms on the dataset page, run `hf auth login`, and rerun.
+- Gated-source access changes which prompts fixed-size subsets select, not
+  just their counts. Use `--skip-gated` on all machines to match a machine
+  without access, and still compare prompt hashes before comparing runs.
 - Windows on Arm64: `pyarrow` has no Arm64 wheel for the needed Python
   versions. Run the script with an x64 Python, which runs under emulation:
   `uv run --python cpython-3.11-windows-x86_64-none ...`.
@@ -70,11 +73,29 @@ uv run skills\llm-speed-bench\scripts\prepare_speed_bench.py --output-dir D:\ben
 
 Selection orders each group's rows by the SHA-256 of `question_id`, alternates
 between sub-categories inside a group, and interleaves input-length buckets,
-then category groups within each bucket. The first rows include one prompt per
+then category groups within each bucket, rotating each bucket's starting group.
+The first rows include one prompt per
 nonempty bucket before revisiting a bucket; small prefixes do not cover every
 category. The first run
 downloads the source datasets into the Hugging Face cache; `full` downloads
 and rebuilds the most.
+
+Families are the label prefix before the first underscore. Labels without
+underscores, including HLE subject labels, each form a separate family. Access
+to HLE therefore adds families to `throughput`; fixed-size category selections
+can replace other prompts with HLE prompts.
+
+Preparation may download entire source corpora even for a few selected rows.
+Allow gigabytes of cache space, especially for `full`; the output directory
+does not relocate the Hugging Face cache. Set `HF_HOME` to a suitable drive
+before preparing. The source cache is not needed to run the written JSONL,
+but keeping it saves downloads on future preparations.
+
+Only SPEED-Bench metadata and `prepare.py` are pinned here. Upstream source
+files and the inline dependencies are not all pinned; some upstream AdaLEval
+downloads use plain HTTP at `opencompass.openxlab.space`. Review the pinned
+upstream script's source URLs before allowing network access. Equal pins alone
+do not ensure equal prompts: compare `data_sha256` and report prompt hashes.
 
 Columns of `test.jsonl`, chosen to match the `winml perf --dataset` defaults:
 
@@ -88,13 +109,16 @@ Columns of `test.jsonl`, chosen to match the `winml perf --dataset` defaults:
 | `source` | Source dataset URL recorded by SPEED-Bench. |
 
 `manifest.json` records the pins (dataset revision, `prepare.py` commit and
-SHA-256), counts per bucket and category, skipped and dropped rows, the
+SHA-256), selection version and ordering, counts per bucket and category,
+gated rows excluded from the candidate pool and dropped rows, the
 `data_sha256` of `test.jsonl`, package versions, and the suggested command. Two
 machines that report the same `data_sha256` prepared the same prompts.
 
 Throughput lengths are counted with the `o200k_base` tokenizer. A server's
-tokenizer produces a different count, so size its context with headroom: at
-least the bucket length plus `--max-new-tokens`, plus about 25 percent.
+tokenizer produces a different count. Size the context for the longest prompt
+in the server's tokenizer plus `--max-new-tokens`; no fixed percentage of the
+bucket length guarantees that it fits. `mini` reaches 16k in `o200k_base`;
+the other subsets reach 32k.
 
 ## Step 2: Start a server
 
@@ -126,8 +150,10 @@ winml perf --endpoint http://127.0.0.1:8080/v1 --dataset D:\bench\speed-bench\mi
 
 - `--column cohort_column=bucket,category` adds per-bucket and per-category
   tables to the console and `aggregate.cohorts` to the report.
-- `--samples N` sends a bucket-interleaved prefix for a quick check; 5 samples
-  cover all four `mini` buckets when available.
+- Before a long run, use `--samples B` to check one prompt per bucket:
+  4 for `mini`, 5 for `throughput`, 6 for `long` and `full` when all buckets
+  are available. This reaches the longest bucket but does not test its every
+  prompt. One failed request stops the run without writing a report.
 - `--run-label KEY=VALUE` names the configuration; `--run-index` numbers the
   repeats; `--hash-file LABEL=PATH` records the size and SHA-256 of each file
   the server loaded.
