@@ -23,7 +23,7 @@ from .constants import (
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     from ..config import WinMLBuildConfig
 
@@ -318,6 +318,131 @@ def dynamic_axes_option(
             '(e.g., {"input_ids": {"0": "batch", "1": "sequence"}}).'
         ),
     )
+
+
+def _apply_options(options: Sequence[Callable[[F], F]]) -> Callable[[F], F]:
+    """Apply options so ``--help`` lists them in ``options`` order."""
+
+    def decorator(func: F) -> F:
+        for option in reversed(options):
+            func = option(func)
+        return func
+
+    return decorator
+
+
+def dataset_source_options(
+    *,
+    path_help: str,
+    scope: str = "",
+    name_help: str = "Dataset config name for multi-config datasets (e.g. 'mrpc').",
+    revision_help: str = (
+        "Git revision (branch, tag, or commit) to load. Useful for script-based "
+        "datasets that have a parquet mirror at 'refs/convert/parquet'."
+    ),
+) -> Callable[[F], F]:
+    """Add ``--dataset``, ``--dataset-name`` and ``--dataset-revision``.
+
+    The parameters are ``dataset_path``, ``dataset_name`` and
+    ``dataset_revision``, the ``cli_name`` of the ``DatasetConfig`` fields, so
+    :func:`collect_cli_overrides` maps them.
+
+    Args:
+        path_help: Command-specific help of ``--dataset``.
+        scope: Prefix of the other options' help, such as ``"[--dataset] "``.
+        name_help: Help of ``--dataset-name``.
+        revision_help: Help of ``--dataset-revision``.
+    """
+    return _apply_options(
+        [
+            click.option("--dataset", "dataset_path", type=str, default=None, help=path_help),
+            click.option(
+                "--dataset-name", "dataset_name", type=str, default=None, help=scope + name_help
+            ),
+            click.option(
+                "--dataset-revision",
+                "dataset_revision",
+                type=str,
+                default=None,
+                help=scope + revision_help,
+            ),
+        ]
+    )
+
+
+def dataset_selection_options(
+    *,
+    samples_default: int | None,
+    split_default: str | None,
+    shuffle_default: bool,
+    samples_help: str,
+    split_help: str,
+    shuffle_help: str,
+    min_samples: int | None = None,
+) -> Callable[[F], F]:
+    """Add ``--samples``, ``--split`` and ``--shuffle/--no-shuffle``.
+
+    Each command keeps its own defaults; ``None`` defaults mean every row and
+    the dataset's only split, as ``DatasetConfig`` reads them.
+
+    Args:
+        samples_default: Default of ``--samples``.
+        split_default: Default of ``--split``.
+        shuffle_default: Default of ``--shuffle/--no-shuffle``.
+        samples_help: Help of ``--samples``.
+        split_help: Help of ``--split``.
+        shuffle_help: Help of ``--shuffle/--no-shuffle``.
+        min_samples: Smallest accepted ``--samples``, or ``None`` for any integer.
+    """
+    samples_type: click.ParamType = (
+        click.INT if min_samples is None else click.IntRange(min=min_samples)
+    )
+    return _apply_options(
+        [
+            click.option(
+                "--samples",
+                type=samples_type,
+                default=samples_default,
+                show_default=samples_default is not None,
+                help=samples_help,
+            ),
+            click.option(
+                "--split",
+                type=str,
+                default=split_default,
+                show_default=split_default is not None,
+                help=split_help,
+            ),
+            click.option(
+                "--shuffle/--no-shuffle",
+                default=shuffle_default,
+                show_default=True,
+                help=shuffle_help,
+            ),
+        ]
+    )
+
+
+def column_option(help_text: str, *, metavar: str | None = None) -> Callable[[F], F]:
+    """Add the repeatable ``--column KEY=VALUE`` mapping, parsed by :func:`parse_column_mapping`."""
+    return click.option("--column", "column", multiple=True, metavar=metavar, help=help_text)
+
+
+def parse_column_mapping(values: Sequence[str]) -> dict[str, str]:
+    """Parse repeated ``--column KEY=VALUE`` values into ``DatasetConfig.columns_mapping``.
+
+    Raises:
+        click.BadParameter: A value has no ``=``.
+    """
+    mapping: dict[str, str] = {}
+    for value in values:
+        if "=" not in value:
+            raise click.BadParameter(
+                f"Invalid column format: '{value}'. Use key=value.", param_hint="--column"
+            )
+        key, column = value.split("=", 1)
+        mapping[key.strip()] = column.strip()
+    return mapping
 
 
 def overwrite_option(optional_message: str | None = None) -> Callable[[F], F]:

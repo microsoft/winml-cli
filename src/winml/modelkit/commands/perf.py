@@ -62,6 +62,7 @@ if TYPE_CHECKING:
     import numpy as np
     from rich.console import Console
 
+    from ..datasets import PromptSet
     from ..models.winml.base import WinMLPreTrainedModel
     from ..models.winml.composite_model import WinMLCompositeModel
     from ..session import EPDeviceTarget, WinMLDevice, WinMLEPDevice
@@ -69,7 +70,6 @@ if TYPE_CHECKING:
     from ..session.monitor.ep_monitor import WinMLEPMonitor
     from ..session.monitor.op_metrics import TraceFallbackReason
     from ..session.stats import PerfStats
-    from ._perf_dataset import PromptDataset
 
 logger = logging.getLogger(__name__)
 
@@ -3638,7 +3638,7 @@ _ENDPOINT_PARAMS = frozenset(
         "split",
         "samples",
         "shuffle",
-        "columns",
+        "column",
         "prompt",
         "prompt_file",
         "max_new_tokens",
@@ -3658,7 +3658,7 @@ _DATASET_PARAMS = (
     "split",
     "samples",
     "shuffle",
-    "columns",
+    "column",
 )
 _ENDPOINT_ONLY_PARAMS = (
     "endpoint_model",
@@ -3737,24 +3737,13 @@ def _local_dataset_folder(path: str | None) -> Path | None:
     return folder.resolve() if folder.is_dir() else None
 
 
-def _parse_columns(values: Sequence[str]) -> dict[str, str]:
-    """Parse repeated ``--column KEY=VALUE`` into a mapping, as ``winml eval`` does."""
-    mapping: dict[str, str] = {}
-    for value in values:
-        if "=" not in value:
-            raise click.BadParameter(
-                f"Invalid column format: '{value}'. Use key=value.", param_hint="--column"
-            )
-        key, column = value.split("=", 1)
-        mapping[key.strip()] = column.strip()
-    return mapping
-
-
 def _load_endpoint_dataset(
     ctx: click.Context, *, console: Console, json_mode: bool
-) -> PromptDataset | None:
+) -> PromptSet | None:
     """Load the ``--dataset`` prompts, or return ``None`` without ``--dataset``."""
-    from ._perf_dataset import PromptDatasetConfig, PromptDatasetError, load_prompt_dataset
+    from ..datasets import load_prompts
+    from ..eval import DatasetConfig
+    from ..utils.eval_utils import DatasetValidationError
 
     p = ctx.params
     if p.get("dataset_path") is None:
@@ -3772,21 +3761,21 @@ def _load_endpoint_dataset(
                 f"{_option_flag(ctx, name)} cannot be combined with --dataset, which supplies "
                 "the prompts."
             )
-    config = PromptDatasetConfig(
-        path=p["dataset_path"],
-        name=p.get("dataset_name"),
-        revision=p.get("dataset_revision"),
-        split=p.get("split"),
-        samples=p.get("samples"),
-        shuffle=bool(p.get("shuffle")),
-        columns_mapping=_parse_columns(p.get("columns") or ()),
-    )
+    # perf's defaults (the only split, every row, no shuffle) replace eval's.
+    fields: dict[str, Any] = {
+        "split": None,
+        "samples": None,
+        "shuffle": False,
+        **cli_utils.collect_cli_overrides(ctx, DatasetConfig),
+        "columns_mapping": cli_utils.parse_column_mapping(p.get("column") or ()),
+    }
+    config = DatasetConfig(**fields)
     try:
         if json_mode:
-            return load_prompt_dataset(config)
+            return load_prompts(config)
         with console.status("Loading the dataset"):
-            return load_prompt_dataset(config)
-    except PromptDatasetError as exc:
+            return load_prompts(config)
+    except DatasetValidationError as exc:
         raise click.UsageError(f"--dataset: {exc}") from exc
 
 
@@ -4075,56 +4064,29 @@ def _validate_duration(
     help="[--endpoint] Record the SHA-256, size and file name of a file the server uses, "
     "for example model=./model.gguf. Repeatable. Local folders are not recorded.",
 )
-@click.option(
-    "--dataset",
-    "dataset_path",
-    type=str,
-    default=None,
-    help="[--endpoint] Send the prompts of a dataset instead of --prompt: a Hugging Face "
+@cli_utils.dataset_source_options(
+    path_help="[--endpoint] Send the prompts of a dataset instead of --prompt: a Hugging Face "
     "dataset id, a folder saved with Dataset.save_to_disk, or a local folder or file of "
     ".jsonl, .json, .parquet or .csv rows. Each --iterations pass sends every selected row "
     "once (default 1 pass). Map columns with --column.",
+    scope="[--dataset] ",
 )
-@click.option(
-    "--dataset-name",
-    type=str,
-    default=None,
-    help="[--dataset] Dataset config name for multi-config datasets.",
+@cli_utils.dataset_selection_options(
+    samples_default=None,
+    split_default=None,
+    shuffle_default=False,
+    samples_help="[--dataset] Number of dataset rows to send. Default: all rows.",
+    split_help="[--dataset] Dataset split. Default: the dataset's only split.",
+    shuffle_help="[--dataset] Shuffle the rows with a fixed seed, recorded in the report, "
+    "before taking --samples. Selects the same rows as winml eval.",
+    min_samples=1,
 )
-@click.option(
-    "--dataset-revision",
-    type=str,
-    default=None,
-    help="[--dataset] Git revision (branch, tag, or commit) of a Hugging Face dataset to load.",
-)
-@click.option(
-    "--split",
-    type=str,
-    default=None,
-    help="[--dataset] Dataset split. Default: the dataset's only split.",
-)
-@click.option(
-    "--samples",
-    type=click.IntRange(min=1),
-    default=None,
-    help="[--dataset] Number of dataset rows to send. Default: all rows.",
-)
-@click.option(
-    "--shuffle/--no-shuffle",
-    default=False,
-    show_default=True,
-    help="[--dataset] Shuffle the rows with a fixed seed, recorded in the report, before "
-    "taking --samples.",
-)
-@click.option(
-    "--column",
-    "columns",
-    multiple=True,
-    metavar="KEY=VALUE",
-    help="[--dataset] Column mapping as key=value: input_column (default 'prompt'; a string, "
+@cli_utils.column_option(
+    "[--dataset] Column mapping as key=value: input_column (default 'prompt'; a string, "
     "a list of turns of which the first is sent, or a list of role/content messages), "
     "id_column (default 'id'; the row index when absent), cohort_column (comma-separated "
     "columns that group prompts in the report). Repeatable.",
+    metavar="KEY=VALUE",
 )
 @click.option(
     "--compile-timeout",
@@ -4360,7 +4322,7 @@ def perf(
     split: str | None,
     samples: int | None,
     shuffle: bool,
-    columns: tuple[str, ...],
+    column: tuple[str, ...],
     compile_timeout: int,
     task: str | None,
     submodel: str | None,
