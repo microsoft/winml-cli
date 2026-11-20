@@ -21,7 +21,10 @@
       {
         "name": "logits"
       }
-    ]
+    ],
+    "compatibility": {
+      "transformers_attention": "eager"
+    }
   },
   "optim": {},
   "quant": null,
