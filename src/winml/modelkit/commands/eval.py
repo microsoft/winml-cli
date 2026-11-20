@@ -47,27 +47,9 @@ logger = logging.getLogger(__name__)
 @cli_utils.model_id_option(
     help_text="HuggingFace model ID when an ONNX or MLIR file is provided in --model.",
 )
-@click.option(
-    "--dataset",
-    "dataset_path",
-    type=str,
-    default=None,
-    help="HF dataset path (e.g. 'imagenet-1k', 'nyu-mll/glue'). "
+@cli_utils.dataset_source_options(
+    path_help="HF dataset path (e.g. 'imagenet-1k', 'nyu-mll/glue'). "
     "If omitted, uses a default dataset for the task.",
-)
-@click.option(
-    "--dataset-name",
-    type=str,
-    default=None,
-    help="Dataset config name for multi-config datasets (e.g. 'mrpc').",
-)
-@click.option(
-    "--dataset-revision",
-    "revision",
-    type=str,
-    default=None,
-    help="Git revision (branch, tag, or commit) to load. Useful for script-based "
-    "datasets that have a parquet mirror at 'refs/convert/parquet'.",
 )
 @click.option(
     "--task",
@@ -137,25 +119,13 @@ logger = logging.getLogger(__name__)
     help="[winml-runtime] Execution backend for ONNX inputs (default: cgc). "
     "MLIR inputs always use cgc.",
 )
-@click.option(
-    "--samples",
-    type=int,
-    default=100,
-    show_default=True,
-    help="Number of dataset samples.",
-)
-@click.option(
-    "--split",
-    type=str,
-    default="validation",
-    show_default=True,
-    help="Dataset split.",
-)
-@click.option(
-    "--shuffle/--no-shuffle",
-    default=True,
-    show_default=True,
-    help="Shuffle dataset before sampling.",
+@cli_utils.dataset_selection_options(
+    samples_default=100,
+    split_default="validation",
+    shuffle_default=True,
+    samples_help="Number of dataset samples.",
+    split_help="Dataset split.",
+    shuffle_help="Shuffle dataset before sampling.",
 )
 @click.option(
     "--streaming/--no-streaming",
@@ -163,11 +133,7 @@ logger = logging.getLogger(__name__)
     show_default=True,
     help="Stream dataset instead of downloading fully.",
 )
-@click.option(
-    "--column",
-    multiple=True,
-    help="Column mapping as key=value (e.g. --column input_column=image).",
-)
+@cli_utils.column_option("Column mapping as key=value (e.g. --column input_column=image).")
 @click.option(
     "--label-mapping",
     # Distinct Python variable name so ctx.params["label_mapping_path"] does
@@ -267,7 +233,7 @@ def eval(
     model_id: str | None,
     dataset_path: str,
     dataset_name: str | None,
-    revision: str | None,
+    dataset_revision: str | None,
     task: str | None,
     device: str,
     device_luid: str | None,
@@ -502,16 +468,7 @@ def _build_eval_config(
 
     # --column is multiple=True; non-empty tuple means user provided it
     if column:
-        columns_mapping: dict[str, str] = {}
-        for c in column:
-            if "=" not in c:
-                raise click.BadParameter(
-                    f"Invalid column format: '{c}'. Use key=value.",
-                    param_hint="--column",
-                )
-            k, v = c.split("=", 1)
-            columns_mapping[k] = v
-        ds_overrides["columns_mapping"] = columns_mapping
+        ds_overrides["columns_mapping"] = cli_utils.parse_column_mapping(column)
 
     if label_mapping_path is not None:
         ds_overrides["label_mapping_file"] = str(label_mapping_path)

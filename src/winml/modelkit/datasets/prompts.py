@@ -2,13 +2,12 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 # --------------------------------------------------------------------------
-"""Prompt datasets for ``winml perf --endpoint --dataset``.
+"""Text generation prompts read from a dataset.
 
-A prompt dataset is any table ``datasets`` can load: a Hugging Face Hub
-dataset, a folder written by ``Dataset.save_to_disk``, or a local folder or
-file of ``.jsonl``, ``.json``, ``.parquet`` or ``.csv`` rows. The options and
-the loading path follow ``winml eval``; the columns ``winml perf`` reads are
-described by :data:`PROMPT_DATASET_SCHEMA` and remapped with ``--column``:
+:func:`load_prompts` loads a split with :func:`~.loading.load_split`, selects
+rows with :func:`~.loading.select_indices`, and turns each row into a
+:class:`GenerationPrompt`. The columns it reads are described by
+:data:`PROMPT_SCHEMA` and remapped with ``--column``:
 
 * ``input_column`` (default ``prompt``): a string, a list of turns (the first
   turn is sent as the user message), or a list of ``{role, content}`` messages
@@ -18,29 +17,28 @@ described by :data:`PROMPT_DATASET_SCHEMA` and remapped with ``--column``:
 * ``cohort_column`` (no default): comma-separated columns whose values group
   prompts into cohorts, each column a separate grouping.
 
-``datasets`` is imported only when a dataset is loaded.
+Prompts keep their text: the runtime that generates from them applies the
+chat template and tokenizes.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-import random
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from ..utils.eval_utils import SchemaItem, TaskSchema
+from ..utils.eval_utils import DatasetValidationError, SchemaItem, TaskSchema
+from .loading import load_split, select_indices
 
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
+    from ..eval import DatasetConfig  # noqa: TC004
 
-# Recorded in the report so a shuffled selection can be reproduced.
-SHUFFLE_SEED = 42
 
-PROMPT_DATASET_SCHEMA = TaskSchema(
+PROMPT_SCHEMA = TaskSchema(
     columns=(
         SchemaItem(
             "input_column",
@@ -64,43 +62,10 @@ PROMPT_DATASET_SCHEMA = TaskSchema(
     )
 )
 
-_FILE_BUILDERS = {".jsonl": "json", ".json": "json", ".parquet": "parquet", ".csv": "csv"}
-# Files written by Dataset.save_to_disk / DatasetDict.save_to_disk.
-_SAVED_DATASET_MARKERS = ("state.json", "dataset_dict.json")
-
-
-class PromptDatasetError(ValueError):
-    """The prompt dataset could not be loaded or does not fit the schema."""
-
-
-@dataclass
-class PromptDatasetConfig:
-    """Which dataset rows to send, named like ``winml eval``'s ``DatasetConfig``.
-
-    Attributes:
-        path: A Hugging Face dataset id, or a local folder or file.
-        name: Config name for multi-config Hub datasets.
-        revision: Git revision of a Hub dataset.
-        split: Split to read; ``None`` uses the only split.
-        samples: Rows to send; ``None`` sends every row.
-        shuffle: Shuffle the rows with ``seed`` before taking ``samples``.
-        seed: Shuffle seed.
-        columns_mapping: ``--column`` overrides of :data:`PROMPT_DATASET_SCHEMA`.
-    """
-
-    path: str
-    name: str | None = None
-    revision: str | None = None
-    split: str | None = None
-    samples: int | None = None
-    shuffle: bool = False
-    seed: int = SHUFFLE_SEED
-    columns_mapping: dict[str, str] = field(default_factory=dict)
-
 
 @dataclass(frozen=True)
-class DatasetPrompt:
-    """One selected row, ready to send."""
+class GenerationPrompt:
+    """One selected row, ready to generate from."""
 
     row_index: int
     prompt_id: str
@@ -109,10 +74,10 @@ class DatasetPrompt:
 
 
 @dataclass
-class PromptDataset:
-    """The selected prompts of a loaded dataset and how they were chosen."""
+class PromptSet:
+    """The selected prompts of a dataset and how they were chosen."""
 
-    config: PromptDatasetConfig
+    config: DatasetConfig
     source: str
     display_path: str
     split: str | None
@@ -120,7 +85,7 @@ class PromptDataset:
     input_column: str
     id_column: str | None
     cohort_columns: list[str]
-    prompts: list[DatasetPrompt]
+    prompts: list[GenerationPrompt]
 
     @property
     def prompts_sha256(self) -> str:
@@ -130,7 +95,7 @@ class PromptDataset:
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize for the report; a local path is reduced to its last component."""
+        """Serialize for a report; a local path is reduced to its last component."""
         cfg = self.config
         return {
             "source": self.source,
@@ -158,33 +123,33 @@ class PromptDataset:
 # =============================================================================
 
 
-def validate_column_keys(columns_mapping: Mapping[str, str]) -> None:
+def _validate_column_keys(columns_mapping: Mapping[str, str]) -> None:
     """Reject ``--column`` keys the prompt schema does not define."""
-    known = [item.name for item in PROMPT_DATASET_SCHEMA.columns]
+    known = [item.name for item in PROMPT_SCHEMA.columns]
     unknown = sorted(set(columns_mapping) - set(known))
     if unknown:
-        raise PromptDatasetError(
+        raise DatasetValidationError(
             f"Unknown --column key(s): {', '.join(unknown)}. Valid keys: {', '.join(known)}."
         )
 
 
 def _default(name: str) -> str | None:
-    return next(item.default for item in PROMPT_DATASET_SCHEMA.columns if item.name == name)
+    return next(item.default for item in PROMPT_SCHEMA.columns if item.name == name)
 
 
-def resolve_columns(
+def _resolve_columns(
     columns_mapping: Mapping[str, str], column_names: Sequence[str]
 ) -> tuple[str, str | None, list[str]]:
     """Return the prompt column, the id column (or ``None``) and the cohort columns.
 
     Raises:
-        PromptDatasetError: A key is unknown or a named column is missing.
+        DatasetValidationError: A key is unknown or a named column is missing.
     """
-    validate_column_keys(columns_mapping)
+    _validate_column_keys(columns_mapping)
     available = ", ".join(column_names) or "none"
 
-    def missing(column: str, key: str) -> PromptDatasetError:
-        return PromptDatasetError(
+    def missing(column: str, key: str) -> DatasetValidationError:
+        return DatasetValidationError(
             f"The dataset has no column '{column}' ({key}). Available columns: {available}. "
             f"Set it with --column {key}=<name>."
         )
@@ -206,11 +171,11 @@ def resolve_columns(
             raise missing(column, "cohort_column")
         cohort_columns.append(column)
     if "cohort_column" in columns_mapping and not cohort_columns:
-        raise PromptDatasetError("--column cohort_column needs at least one column name.")
+        raise DatasetValidationError("--column cohort_column needs at least one column name.")
     return input_column, id_column, cohort_columns
 
 
-def normalize_prompt(value: object, row_index: int) -> list[dict[str, Any]]:
+def _normalize_prompt(value: object, row_index: int) -> list[dict[str, Any]]:
     """Turn a prompt cell into chat messages.
 
     A string becomes one user message; a list of strings (turns) sends its
@@ -218,11 +183,11 @@ def normalize_prompt(value: object, row_index: int) -> list[dict[str, Any]]:
     sent as it is.
 
     Raises:
-        PromptDatasetError: The prompt is empty or has another shape.
+        DatasetValidationError: The prompt is empty or has another shape.
     """
 
-    def fail(reason: str) -> PromptDatasetError:
-        return PromptDatasetError(f"Row {row_index}: the prompt {reason}.")
+    def fail(reason: str) -> DatasetValidationError:
+        return DatasetValidationError(f"Row {row_index}: the prompt {reason}.")
 
     if isinstance(value, str):
         if not value.strip():
@@ -232,7 +197,7 @@ def normalize_prompt(value: object, row_index: int) -> list[dict[str, Any]]:
         if not value:
             raise fail("is an empty list")
         if all(isinstance(turn, str) for turn in value):
-            return normalize_prompt(value[0], row_index)
+            return _normalize_prompt(value[0], row_index)
         if all(isinstance(message, dict) for message in value):
             messages = [dict(message) for message in value]
             for message in messages:
@@ -258,46 +223,40 @@ def _cell_text(value: object) -> str:
     return json.dumps(value, sort_keys=True, ensure_ascii=False, default=str)
 
 
-def select_rows(row_count: int, *, samples: int | None, shuffle: bool, seed: int) -> list[int]:
-    """Return the row indices to send, in sending order."""
-    indices = list(range(row_count))
-    if shuffle:
-        random.Random(seed).shuffle(indices)
-    return indices if samples is None else indices[:samples]
-
-
-def build_prompts(
+def _build_prompts(
     rows: Sequence[Mapping[str, Any]],
     row_indices: Sequence[int],
     *,
     input_column: str,
     id_column: str | None,
     cohort_columns: Sequence[str],
-) -> list[DatasetPrompt]:
+) -> list[GenerationPrompt]:
     """Turn selected rows into prompts; ``rows[i]`` is row ``row_indices[i]``.
 
     Raises:
-        PromptDatasetError: A prompt is invalid, an id is missing, or ids repeat.
+        DatasetValidationError: A prompt is invalid, an id is missing, or ids repeat.
     """
-    prompts: list[DatasetPrompt] = []
+    prompts: list[GenerationPrompt] = []
     seen: dict[str, int] = {}
     for row_index, row in zip(row_indices, rows, strict=True):
-        messages = normalize_prompt(row.get(input_column), row_index)
+        messages = _normalize_prompt(row.get(input_column), row_index)
         if id_column is None:
             prompt_id = str(row_index)
         else:
             raw_id = row.get(id_column)
             if raw_id is None or raw_id == "":
-                raise PromptDatasetError(f"Row {row_index}: the id column '{id_column}' is empty.")
+                raise DatasetValidationError(
+                    f"Row {row_index}: the id column '{id_column}' is empty."
+                )
             prompt_id = _cell_text(raw_id)
         if prompt_id in seen:
-            raise PromptDatasetError(
+            raise DatasetValidationError(
                 f"Rows {seen[prompt_id]} and {row_index} share the prompt id '{prompt_id}'. "
                 "Choose a unique column with --column id_column=<name>."
             )
         seen[prompt_id] = row_index
         cohorts = {column: _cell_text(row.get(column)) for column in cohort_columns}
-        prompts.append(DatasetPrompt(row_index, prompt_id, messages, cohorts))
+        prompts.append(GenerationPrompt(row_index, prompt_id, messages, cohorts))
     return prompts
 
 
@@ -306,105 +265,53 @@ def build_prompts(
 # =============================================================================
 
 
-def _pick_split(loaded: Any, split: str | None) -> tuple[Any, str | None]:
-    """Return one split of a ``Dataset`` or ``DatasetDict`` and its name."""
-    if not hasattr(loaded, "keys"):  # a single Dataset
-        actual = getattr(loaded, "split", None)
-        return loaded, split or (str(actual) if actual else None)
-    names = list(loaded.keys())
-    if split is not None:
-        if split not in names:
-            raise PromptDatasetError(
-                f"The dataset has no split '{split}'. Available splits: {', '.join(names)}."
-            )
-        return loaded[split], split
-    if len(names) == 1:
-        return loaded[names[0]], names[0]
-    raise PromptDatasetError(
-        f"The dataset has several splits; choose one with --split: {', '.join(names)}."
-    )
+def load_prompts(config: DatasetConfig) -> PromptSet:
+    """Load the dataset, map its columns and select the prompts.
 
-
-def _load_local(path: Path, config: PromptDatasetConfig) -> Any:
-    import datasets
-
-    if config.revision is not None:
-        raise PromptDatasetError("--dataset-revision applies only to Hugging Face Hub datasets.")
-    if path.is_dir() and any((path / marker).exists() for marker in _SAVED_DATASET_MARKERS):
-        if config.name is not None:
-            raise PromptDatasetError("--dataset-name does not apply to a saved dataset folder.")
-        return datasets.load_from_disk(str(path))
-    if path.is_file():
-        builder = _FILE_BUILDERS.get(path.suffix.lower())
-        if builder is None:
-            raise PromptDatasetError(
-                f"'{path.name}' is not a {', '.join(sorted(_FILE_BUILDERS))} file."
-            )
-        return datasets.load_dataset(builder, data_files=str(path))
-    return datasets.load_dataset(str(path), name=config.name)
-
-
-def load_prompt_dataset(config: PromptDatasetConfig) -> PromptDataset:
-    """Load the dataset, map its columns and select the prompts to send.
+    ``config.columns_mapping`` holds the :data:`PROMPT_SCHEMA` overrides.
 
     Raises:
-        PromptDatasetError: The dataset could not be loaded or does not fit
-            the prompt schema.
+        DatasetValidationError: The dataset could not be loaded or does not
+            fit the prompt schema.
     """
-    validate_column_keys(config.columns_mapping)
+    _validate_column_keys(config.columns_mapping)
     import datasets
 
-    # The CLI shows its own progress; keep the library's bars out of the report.
+    # Callers show their own progress; keep the library's bars out of reports.
     bars_enabled = datasets.is_progress_bar_enabled()
     datasets.disable_progress_bars()
     try:
-        return _load_prompt_dataset(config)
+        return _load_prompts(config)
     finally:
         if bars_enabled:
             datasets.enable_progress_bars()
 
 
-def _load_prompt_dataset(config: PromptDatasetConfig) -> PromptDataset:
-    local = Path(config.path).expanduser()
-    try:
-        if local.exists():
-            loaded = _load_local(local, config)
-            source, display_path = "local", local.resolve().name or config.path
-        else:
-            import datasets
-
-            loaded = datasets.load_dataset(
-                config.path, name=config.name, revision=config.revision, split=config.split
-            )
-            source, display_path = "hub", config.path
-    except PromptDatasetError:
-        raise
-    except Exception as exc:  # datasets raises many types for unreadable data
-        raise PromptDatasetError(f"Could not load the dataset '{config.path}': {exc}") from exc
-    dataset, split = _pick_split(loaded, config.split)
-
+def _load_prompts(config: DatasetConfig) -> PromptSet:
+    loaded = load_split(config)
+    dataset = loaded.dataset
     column_names = list(dataset.column_names or [])
-    input_column, id_column, cohort_columns = resolve_columns(config.columns_mapping, column_names)
+    input_column, id_column, cohort_columns = _resolve_columns(config.columns_mapping, column_names)
     row_count = len(dataset)
     if row_count == 0:
-        raise PromptDatasetError("The dataset split has no rows.")
-    indices = select_rows(
+        raise DatasetValidationError("The dataset split has no rows.")
+    indices = select_indices(
         row_count, samples=config.samples, shuffle=config.shuffle, seed=config.seed
     )
     wanted = [input_column, *([id_column] if id_column else []), *cohort_columns]
     rows = dataset.select_columns(list(dict.fromkeys(wanted))).select(indices)
-    prompts = build_prompts(
+    prompts = _build_prompts(
         list(rows),
         indices,
         input_column=input_column,
         id_column=id_column,
         cohort_columns=cohort_columns,
     )
-    return PromptDataset(
+    return PromptSet(
         config=config,
-        source=source,
-        display_path=display_path,
-        split=split,
+        source=loaded.source,
+        display_path=loaded.display_path,
+        split=loaded.split,
         row_count=row_count,
         input_column=input_column,
         id_column=id_column,
