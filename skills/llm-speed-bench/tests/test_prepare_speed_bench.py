@@ -110,6 +110,22 @@ def test_selected_rows_are_interleaved_across_groups():
     assert len({(c, r["category"]) for c, r in first_round}) == 12
 
 
+@pytest.mark.parametrize("subset_name", psb.SUBSETS)
+def test_prefix_spans_buckets_across_subset_parts(subset_name):
+    data = rows_by_config()
+    subset = psb.SUBSETS[subset_name]
+    configs = {config for part in subset.parts for config in part.configs}
+    selected = psb.select_subset(data, subset)
+    assert {config for config, _ in selected[: len(configs)]} == configs
+    expected_ids = {
+        row["question_id"]
+        for part in subset.parts
+        for group in psb.select_part(data, part)
+        for _, row in group
+    }
+    assert Counter(row["question_id"] for _, row in selected) == Counter(expected_ids)
+
+
 def test_throughput_subset_groups_by_family_and_full_takes_every_row():
     data = rows_by_config()
     throughput = psb.select_subset(data, psb.SUBSETS["throughput"])

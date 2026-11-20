@@ -69,8 +69,10 @@ uv run skills\llm-speed-bench\scripts\prepare_speed_bench.py --output-dir D:\ben
 | `full` | Every qualitative prompt and every throughput prompt from 1k to 32k | 1024 |
 
 Selection orders each group's rows by the SHA-256 of `question_id`, alternates
-between sub-categories inside a group, and interleaves the groups. Any prefix is
-therefore balanced, so `--samples N` is a fair smaller run. The first run
+between sub-categories inside a group, and interleaves input-length buckets,
+then category groups within each bucket. The first rows include one prompt per
+nonempty bucket before revisiting a bucket; small prefixes do not cover every
+category. The first run
 downloads the source datasets into the Hugging Face cache; `full` downloads
 and rebuilds the most.
 
@@ -124,7 +126,8 @@ winml perf --endpoint http://127.0.0.1:8080/v1 --dataset D:\bench\speed-bench\mi
 
 - `--column cohort_column=bucket,category` adds per-bucket and per-category
   tables to the console and `aggregate.cohorts` to the report.
-- `--samples N` sends a balanced prefix for a quick check.
+- `--samples N` sends a bucket-interleaved prefix for a quick check; 5 samples
+  cover all four `mini` buckets when available.
 - `--run-label KEY=VALUE` names the configuration; `--run-index` numbers the
   repeats; `--hash-file LABEL=PATH` records the size and SHA-256 of each file
   the server loaded.
