@@ -11,6 +11,7 @@ uses Task API and does not need the Python ORT/GenAI runtime to report metrics.
 from __future__ import annotations
 
 import gc
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -67,7 +68,8 @@ class _RequestSample(Protocol):
     """A per-request record: ``kind`` is ``"warmup"`` or ``"timed"``."""
 
     @property
-    def kind(self) -> str: ...
+    def kind(self) -> str:
+        """``"warmup"`` or ``"timed"``."""
 
 
 def request_counts(samples: Sequence[_RequestSample]) -> dict[str, Any]:
@@ -77,6 +79,15 @@ def request_counts(samples: Sequence[_RequestSample]) -> dict[str, Any]:
         "warmup_request_count": sum(sample.kind == "warmup" for sample in samples),
         "timed_request_count": sum(sample.kind == "timed" for sample in samples),
     }
+
+
+def _natural_key(value: object) -> list[tuple[int, int, str]]:
+    """Sort key that orders digit runs by number, so ``2k`` precedes ``16k``."""
+    return [
+        (0, int(part), "") if part.isdigit() else (1, 0, part)
+        for part in re.split(r"(\d+)", str(value))
+        if part
+    ]
 
 
 def aggregate_requests(
@@ -97,8 +108,9 @@ def aggregate_requests(
             mapping. When given, the result also holds that name mapped to
             ``{dimension: {value: summary}}``, where each summary is the
             :func:`request_counts` header plus these metric summaries of the
-            samples in that group, sorted by value. A sample without a
-            dimension is left out of that dimension's groups.
+            samples in that group, in natural order of value (``1k``, ``2k``,
+            ``16k``, then text labels). A sample without a dimension is left
+            out of that dimension's groups.
 
     Returns:
         ``{metric: stats or None}``, plus the group summaries with ``group_by``.
@@ -119,7 +131,7 @@ def aggregate_requests(
     result[group_by] = {
         dimension: {
             value: {**request_counts(group), **aggregate_requests(group, metrics)}
-            for value, group in sorted(groups.items())
+            for value, group in sorted(groups.items(), key=lambda item: _natural_key(item[0]))
         }
         for dimension, groups in members.items()
     }

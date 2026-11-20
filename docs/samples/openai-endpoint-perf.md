@@ -76,6 +76,10 @@ the `llama-server` prompt cache:
 winml perf --endpoint http://127.0.0.1:8080/v1 --extra-body '{"cache_prompt": false}'
 ```
 
+This quoting needs PowerShell 7.3 or newer. Windows PowerShell 5.1 strips the
+inner double quotes when it starts winml, so the JSON arrives invalid; there, write
+the value as `'{\"cache_prompt\": false}'`.
+
 `--extra-body` is merged into every request body last, so it can also override
 `temperature` or add sampling fields such as `top_k`. The report records it.
 
