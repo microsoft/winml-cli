@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -788,6 +789,22 @@ def test_cli_endpoint_dataset_rejects_invalid_options(
     result = CliRunner().invoke(perf, ["--endpoint", BASE_URL, *args])
     assert result.exit_code == 2
     assert message in " ".join(result.output.split())
+
+
+@pytest.mark.parametrize("alias", [False, True])
+def test_cli_endpoint_dataset_file_is_never_overwritten(tmp_path: Path, alias: bool) -> None:
+    folder = tmp_path / "prompts"
+    _write_prompts(folder)
+    dataset = folder / "data.jsonl"
+    original = dataset.read_bytes()
+    output = tmp_path / "link.jsonl" if alias else dataset
+    if alias:
+        os.link(dataset, output)
+    args = ["--endpoint", BASE_URL, "--dataset", str(dataset), "-o", str(output), "--overwrite"]
+    result = CliRunner().invoke(perf, args)
+    assert result.exit_code == 2
+    assert "--output would overwrite the --dataset input" in " ".join(result.output.split())
+    assert dataset.read_bytes() == original
 
 
 def test_cli_dataset_needs_endpoint() -> None:

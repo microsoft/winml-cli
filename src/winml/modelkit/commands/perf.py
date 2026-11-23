@@ -3706,6 +3706,14 @@ def _local_dataset_folder(path: str | None) -> Path | None:
     return folder.resolve() if folder.is_dir() else None
 
 
+def _local_dataset_file(path: str | None) -> Path | None:
+    """The ``--dataset`` path when it is a local file, else ``None``."""
+    if path is None:
+        return None
+    file = Path(path).expanduser()
+    return file if file.is_file() else None
+
+
 def _load_endpoint_dataset(
     ctx: click.Context, *, console: Console, json_mode: bool
 ) -> PromptSet | None:
@@ -3781,12 +3789,14 @@ def _run_endpoint_runtime(ctx: click.Context, *, console: Console, json_mode: bo
         for label, path in parse_key_values(p.get("hash_files") or (), flag="--hash-file").items()
     }
     dataset_folder = _local_dataset_folder(p.get("dataset_path"))
+    dataset_file = _local_dataset_file(p.get("dataset_path"))
     output: Path | None = p.get("output")
     if output is not None:
         _reject_input_overwrite(
             (("--output", output),),
             [
                 ("--prompt-file", p.get("prompt_file")),
+                ("--dataset", dataset_file),
                 *(("--hash-file", path) for path in files.values()),
             ],
         )
