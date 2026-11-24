@@ -25,7 +25,8 @@ class DatasetConfig:
     Attributes:
         path: HF dataset path (e.g., "imagenet-1k", "nyu-mll/glue").
         name: Config name for multi-config datasets (e.g., "mrpc").
-        split: Dataset split; ``None`` uses the dataset's only split.
+        split: Dataset split. ``None`` uses the dataset's only split, which only
+            ``winml perf --dataset`` supports; ``winml eval`` needs a split.
         samples: Number of samples to evaluate; ``None`` uses every row.
         shuffle: Whether to shuffle before sampling for label coverage.
         seed: Random seed for reproducible shuffling.

@@ -821,19 +821,29 @@ class EndpointPerfBenchmark:
         fingerprint: str | None = None
         served: set[str] = set()
         for index, (kind, pass_index, prompt) in enumerate(plan):
+            description = _describe(kind, pass_index, prompt, config)
             if self._on_request is not None:
-                self._on_request(index + 1, total, _describe(kind, pass_index, prompt, config))
+                self._on_request(index + 1, total, description)
             messages = (
                 prompt.messages
                 if prompt is not None
                 else [{"role": "user", "content": config.prompt}]
             )
-            timing = client.stream_chat(
-                model=model,
-                messages=messages,
-                max_tokens=config.max_new_tokens,
-                extra_body=config.extra_body,
-            )
+            try:
+                timing = client.stream_chat(
+                    model=model,
+                    messages=messages,
+                    max_tokens=config.max_new_tokens,
+                    extra_body=config.extra_body,
+                )
+            except EndpointError as exc:
+                if prompt is None:
+                    raise
+                # Name the dataset row so a failing prompt need not be bisected.
+                raise EndpointError(
+                    f"Request {index + 1} of {total} ({description}, row {prompt.row_index}) "
+                    f"failed: {exc}"
+                ) from exc
             fingerprint = timing.system_fingerprint or fingerprint
             if timing.response_model:
                 served.add(timing.response_model)

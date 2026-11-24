@@ -3749,10 +3749,6 @@ def _load_endpoint_dataset(
     ctx: click.Context, *, console: Console, json_mode: bool
 ) -> PromptSet | None:
     """Load the ``--dataset`` prompts, or return ``None`` without ``--dataset``."""
-    from ..datasets import load_prompts
-    from ..eval import DatasetConfig
-    from ..utils.eval_utils import DatasetValidationError
-
     p = ctx.params
     if p.get("dataset_path") is None:
         provided = [
@@ -3763,6 +3759,11 @@ def _load_endpoint_dataset(
         if provided:
             raise click.UsageError(f"{', '.join(provided)} only applies with --dataset.")
         return None
+    # Imported only with --dataset: the datasets package loads torch and onnxruntime.
+    from ..datasets import load_prompts
+    from ..eval import DatasetConfig
+    from ..utils.eval_utils import DatasetValidationError
+
     for name in ("prompt", "prompt_file"):
         if cli_utils.is_cli_provided(ctx, name):
             raise click.UsageError(

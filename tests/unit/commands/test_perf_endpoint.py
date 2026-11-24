@@ -13,6 +13,8 @@ import hashlib
 import io
 import json
 import os
+import subprocess
+import sys
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -563,6 +565,37 @@ def test_dataset_benchmark_sends_passes_and_summarizes_cohorts(tmp_path: Path) -
     assert cohorts["math"]["totals"]["draft_acceptance_rate"] == pytest.approx(0.75)
     assert cohorts["math"]["request_ttft_duration_ms"]["p50"] is not None
     assert cohorts["math"]["steady_state_decode_tokens_per_second"] is not None
+
+
+def test_dataset_request_failure_names_the_prompt_and_row(tmp_path: Path) -> None:
+    server = FakeServer([], chat_status=400)
+    dataset = _dataset(tmp_path, _DATASET_ROWS)
+    config = EndpointPerfConfig(
+        base_url=BASE_URL, prompt_source="--dataset", iterations=1, warmup=0, dataset=dataset
+    )
+    benchmark = EndpointPerfBenchmark(config, client=server.client(), collect_host=lambda: _HOST)
+    with pytest.raises(
+        EndpointError, match=r"Request 1 of 3 \(timed, pass 1 of 1, prompt a, row 0\)"
+    ):
+        benchmark.run()
+
+
+def test_endpoint_without_dataset_does_not_import_the_datasets_package() -> None:
+    # A fresh interpreter: other tests have already imported the package here.
+    script = (
+        "import sys\n"
+        "from rich.console import Console\n"
+        "from winml.modelkit.commands.perf import _load_endpoint_dataset, perf\n"
+        "ctx = perf.make_context('perf', ['--endpoint', 'http://127.0.0.1:1/v1'])\n"
+        "assert _load_endpoint_dataset(ctx, console=Console(), json_mode=True) is None\n"
+        "loaded = [m for m in ('winml.modelkit.datasets', 'datasets', 'onnxruntime', 'torch')"
+        " if m in sys.modules]\n"
+        "assert not loaded, loaded\n"
+    )
+    result = subprocess.run(  # noqa: S603 -- fixed interpreter and repository code
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_reasoning_text_gets_its_own_hash() -> None:
