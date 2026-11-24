@@ -16,17 +16,59 @@ from weakref import ref
 import onnx
 import onnxruntime as ort
 import pytest
+from click.testing import CliRunner
 from google.protobuf.message import DecodeError
 
 from tests.fixtures.create_test_models import create_simple_conv_model
 from tests.unit.compiler.test_compiler_stages import create_epcontext_onnx, create_simple_model
 from winml.modelkit.compiler import (
-    compile_off_device,
+    CompileContext,
+    CompileStage,
+    EPConfig,
+    WinMLCompileConfig,
+    compile_onnx,
     list_compilation_eps,
     list_compilation_targets,
     offdevice,
 )
 from winml.modelkit.ep_path import DirectorySource, EPEntry
+from winml.modelkit.session import (
+    EPDeviceTarget,
+    WinMLEPRegistry,
+    WinMLOffDeviceSession,
+    bind_compilation_device,
+)
+from winml.modelkit.utils.constants import normalize_ep_name
+
+
+def _compile_model(
+    model_path: Path,
+    output_path: Path,
+    target: str,
+    *,
+    ep_name: str = "openvino",
+    source: str | None = None,
+    overwrite: bool = False,
+    validate: bool = False,
+) -> Path:
+    """Run the shared pipeline with the requested test compilation configuration."""
+    is_vitisai = normalize_ep_name(ep_name) == "VitisAIExecutionProvider"
+    config = WinMLCompileConfig.from_dict(
+        {
+            "execution_provider": ep_name,
+            "compiler": "offdevice",
+            "device": "npu",
+            "embed_context": True,
+            "validate": validate,
+            "target_platform": None if is_vitisai else target,
+            "provider_options": {"target": target} if is_vitisai else {},
+            "ep_device": EPDeviceTarget(ep=ep_name, device="npu", source=source).to_dict(),
+        }
+    )
+    result = compile_onnx(model_path, output_path, config, overwrite=overwrite)
+    assert result.success, result.errors
+    assert result.output_path is not None
+    return result.output_path
 
 
 @pytest.fixture
@@ -69,6 +111,349 @@ def payload(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         unregister=unregister,
         get_devices=get_devices,
     )
+
+
+@pytest.mark.parametrize(
+    ("payload_fixture", "provider", "platform", "options"),
+    [
+        ("payload", "openvino", "4000", {}),
+        ("qnn_payload", "qnn", "60", {}),
+        ("vitisai_payload", "vitisai", None, {"target": "X2"}),
+    ],
+)
+def test_compilation_binding_outlives_session_cleanup(
+    payload_fixture: str,
+    provider: str,
+    platform: str | None,
+    options: dict[str, str],
+    compilation: SimpleNamespace,
+    request: pytest.FixtureRequest,
+) -> None:
+    selected = request.getfixturevalue(payload_fixture)
+    config = EPConfig(
+        provider=provider,
+        compiler="offdevice",
+        embed_context=True,
+        target_platform=platform,
+        provider_options=options,
+    )
+    target = EPDeviceTarget(ep=provider, device="npu", source="directory")
+
+    with bind_compilation_device(target, ep_config=config) as bound:
+        assert bound.device.ort_handle is selected.device
+        assert bound.ep.arg0 == selected.register.call_args_list[-1].args[0]
+        selected.unregister.assert_not_called()
+        session = WinMLOffDeviceSession(compilation.model, bound, config)
+        try:
+            session.compile()
+            artifact = session.running_model_path
+            assert artifact.is_file()
+        finally:
+            session.reset()
+        assert not artifact.exists()
+        selected.unregister.assert_not_called()
+
+    selected.unregister.assert_called()
+    compilation.factory.assert_called_once()
+
+
+def test_compilation_binding_unregisters_when_the_caller_fails(
+    payload: SimpleNamespace,
+) -> None:
+    config = EPConfig(compiler="offdevice", target_platform="4000")
+    target = EPDeviceTarget(ep="openvino", device="npu")
+    with (
+        pytest.raises(RuntimeError, match="Caller failed"),
+        bind_compilation_device(target, ep_config=config),
+    ):
+        raise RuntimeError("Caller failed")
+    payload.unregister.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("platform", "duplicate"),
+    [("unavailable", False), ("4000", True)],
+)
+def test_compilation_binding_rejects_missing_or_ambiguous_platforms(
+    platform: str,
+    duplicate: bool,
+    payload: SimpleNamespace,
+) -> None:
+    if duplicate:
+        payload.get_devices.return_value = [payload.device, payload.device]
+    config = EPConfig(compiler="offdevice", target_platform=platform)
+    target = EPDeviceTarget(ep="openvino", device="npu")
+    with (
+        pytest.raises(ValueError, match="must match exactly one virtual NPU"),
+        bind_compilation_device(target, ep_config=config),
+    ):
+        pytest.fail("An invalid compilation binding was accepted")
+    payload.unregister.assert_called_once()
+
+
+def test_regular_compilation_binding_uses_the_existing_registry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = Mock()
+    monkeypatch.setattr(WinMLEPRegistry, "instance", Mock(return_value=registry))
+    target = EPDeviceTarget(ep="cpu", device="cpu")
+    with bind_compilation_device(target, ep_config=EPConfig()) as bound:
+        assert bound is registry.auto_device.return_value
+    registry.auto_device.assert_called_once_with(target)
+
+
+@pytest.mark.parametrize(
+    ("payload_fixture", "provider", "platform", "options"),
+    [
+        ("payload", "openvino", "4000", {}),
+        ("qnn_payload", "qnn", "60", {}),
+        ("vitisai_payload", "vitisai", None, {"target": "X2"}),
+    ],
+)
+def test_offdevice_stage_publishes_before_cleanup(
+    payload_fixture: str,
+    provider: str,
+    platform: str | None,
+    options: dict[str, str],
+    compilation: SimpleNamespace,
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    selected = request.getfixturevalue(payload_fixture)
+    config = WinMLCompileConfig(
+        ep_config=EPConfig(
+            provider=provider,
+            compiler="offdevice",
+            embed_context=True,
+            target_platform=platform,
+            provider_options=options,
+        ),
+        validate=False,
+    ).to_dict()
+    config["output_path"] = str(compilation.output)
+    compilation.output.parent.mkdir()
+    context = CompileContext(model_path=compilation.model, config=config)
+    forbidden = Mock(side_effect=AssertionError("Physical device resolution is forbidden"))
+    monkeypatch.setattr(
+        "winml.modelkit.compiler.stages.compile.resolve_device", forbidden
+    )
+    monkeypatch.setattr(WinMLEPRegistry.instance(), "auto_device", forbidden)
+    original_reset = WinMLOffDeviceSession.reset
+    resets = []
+
+    def reset(session: WinMLOffDeviceSession) -> None:
+        selected.unregister.assert_not_called()
+        assert context.output_path == compilation.output
+        assert context.output_path.is_file()
+        staged_path = session.running_model_path
+        original_reset(session)
+        assert not staged_path.exists()
+        resets.append(staged_path)
+
+    monkeypatch.setattr(WinMLOffDeviceSession, "reset", reset)
+
+    CompileStage().process(context)
+
+    assert len(resets) == 1
+    assert context.session is None
+    assert onnx.load(context.output_path).graph == compilation.context.graph
+    compilation.factory.assert_called_once()
+    selected.unregister.assert_called()
+    forbidden.assert_not_called()
+
+
+def test_offdevice_stage_unregisters_after_compilation_failure(
+    compilation: SimpleNamespace,
+    payload: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    compilation.factory.side_effect = RuntimeError("Native compile failed")
+    context = CompileContext(
+        model_path=compilation.model,
+        config={
+            "execution_provider": "openvino",
+            "compiler": "offdevice",
+            "embed_context": True,
+            "target_platform": "4000",
+            "validate": False,
+        },
+    )
+    original_reset = WinMLOffDeviceSession.reset
+    resets = []
+
+    def reset(session: WinMLOffDeviceSession) -> None:
+        payload.unregister.assert_not_called()
+        original_reset(session)
+        resets.append(session)
+
+    monkeypatch.setattr(WinMLOffDeviceSession, "reset", reset)
+
+    with pytest.raises(RuntimeError, match="Native compile failed"):
+        CompileStage().process(context)
+
+    assert len(resets) == 1
+    assert context.session is None
+    assert context.output_path is None
+    assert context.has_error
+    payload.unregister.assert_called_once()
+
+
+def test_offdevice_stage_rejects_shared_contexts_before_registration(
+    compilation: SimpleNamespace,
+    payload: SimpleNamespace,
+) -> None:
+    context = CompileContext(
+        model_path=compilation.model,
+        config={"compiler": "offdevice"},
+        n_total_models=2,
+    )
+
+    with pytest.raises(ValueError, match="does not support shared multi-model contexts"):
+        CompileStage().process(context)
+
+    payload.register.assert_not_called()
+    payload.get_devices.assert_not_called()
+    compilation.factory.assert_not_called()
+
+
+@pytest.mark.parametrize("validate", [False, True])
+def test_offdevice_cli_runs_the_shared_pipeline(
+    validate: bool,
+    compilation: SimpleNamespace,
+    payload: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from winml.modelkit.commands.compile import compile as compile_command
+
+    forbidden = Mock(side_effect=AssertionError("Physical device resolution is forbidden"))
+    monkeypatch.setattr(
+        "winml.modelkit.commands.compile.resolve_device", forbidden
+    )
+
+    result = CliRunner().invoke(
+        compile_command,
+        [
+            "--compiler", "offdevice",
+            "--ep", "openvino@directory",
+            "--target-platform", "4000",
+            "--model", str(compilation.model),
+            "--output", str(compilation.output),
+            "--validate" if validate else "--no-validate",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    output = " ".join(result.output.split())
+    assert "Artifact validation: passed (embedded-context checks)" in output
+    assert (
+        "Target-device inference validation: skipped (off-device compilation)" in output
+    )
+    assert onnx.load(compilation.output).graph == compilation.context.graph
+    compilation.factory.assert_called_once()
+    payload.unregister.assert_called_once()
+    forbidden.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("overwrite", "created_during_compile"),
+    [(False, False), (True, False), (False, True)],
+)
+def test_offdevice_pipeline_preserves_output_overwrite_policy(
+    overwrite: bool,
+    created_during_compile: bool,
+    compilation: SimpleNamespace,
+    payload: SimpleNamespace,
+) -> None:
+    config = WinMLCompileConfig(
+        ep_config=EPConfig(
+            provider="openvino",
+            compiler="offdevice",
+            embed_context=True,
+            target_platform="4000",
+        ),
+        validate=False,
+    )
+    previous = compilation.model.read_bytes()
+    compilation.output.parent.mkdir()
+    if created_during_compile:
+        original_write = compilation.native.compile_to_file.side_effect
+
+        def write_output(path: str) -> None:
+            original_write(path)
+            compilation.output.write_bytes(previous)
+
+        compilation.native.compile_to_file.side_effect = write_output
+    else:
+        compilation.output.write_bytes(previous)
+
+    if overwrite:
+        result = compile_onnx(
+            compilation.model,
+            compilation.output,
+            config,
+            overwrite=True,
+        )
+        assert result.success
+        assert onnx.load(result.output_path).graph == compilation.context.graph
+    else:
+        with pytest.raises(FileExistsError):
+            compile_onnx(
+                compilation.model,
+                compilation.output,
+                config,
+                overwrite=False,
+            )
+        assert compilation.output.read_bytes() == previous
+    payload.unregister.assert_called_once()
+    staged = Path(compilation.native.compile_to_file.call_args.args[0])
+    assert not staged.parent.exists()
+    assert list(compilation.output.parent.iterdir()) == [compilation.output]
+
+
+@pytest.mark.parametrize("destination_kind", ["model", "hardlink", "external-data"])
+def test_offdevice_pipeline_never_overwrites_input_files(
+    destination_kind: str,
+    compilation: SimpleNamespace,
+    payload: SimpleNamespace,
+) -> None:
+    if destination_kind == "external-data":
+        model = create_simple_conv_model()
+        for tensor in model.graph.initializer:
+            tensor.CopyFrom(
+                onnx.numpy_helper.from_array(
+                    onnx.numpy_helper.to_array(tensor), name=tensor.name
+                )
+            )
+        onnx.save_model(
+            model,
+            compilation.model,
+            save_as_external_data=True,
+            all_tensors_to_one_file=True,
+            location="weights.bin",
+            size_threshold=0,
+        )
+        destination = compilation.model.parent / "weights.bin"
+    elif destination_kind == "hardlink":
+        destination = compilation.model.with_name("alias.onnx")
+        destination.hardlink_to(compilation.model)
+    else:
+        destination = compilation.model
+    previous = destination.read_bytes()
+    config = WinMLCompileConfig(
+        ep_config=EPConfig(
+            provider="openvino",
+            compiler="offdevice",
+            embed_context=True,
+            target_platform="4000",
+        ),
+        validate=False,
+    )
+
+    with pytest.raises(ValueError, match="must not overwrite the input model or its data files"):
+        compile_onnx(compilation.model, destination, config, overwrite=True)
+
+    assert destination.read_bytes() == previous
+    payload.unregister.assert_called_once()
 
 
 def test_inventory_does_not_register_or_probe_devices(payload: SimpleNamespace) -> None:
@@ -168,7 +553,9 @@ def test_qnn_inventory_does_not_invent_targets_or_load_the_payload(
     assert rows[0]["compilation_device_type"] == "cpu"
     assert rows[0]["target_parameter"] == "soc_model"
     assert rows[0]["targets_enumerable"] is False
-    with pytest.raises(ValueError, match="QNN does not enumerate SoC targets"):
+    with pytest.raises(
+        ValueError, match=r"QNN does not enumerate SoC targets.*Use --target-platform"
+    ):
         list_compilation_targets("qnn")
     qnn_payload.register.assert_not_called()
     qnn_payload.get_devices.assert_not_called()
@@ -191,7 +578,7 @@ def test_qnn_binds_cpu_host_to_explicit_htp_backend_and_soc(
         other_provider,
         qnn_payload.device,
     ]
-    result = compile_off_device(
+    result = _compile_model(
         compilation.model, compilation.output, "60", ep_name="qnn", source="directory"
     )
     assert result.is_file()
@@ -215,12 +602,14 @@ def test_qnn_binds_cpu_host_to_explicit_htp_backend_and_soc(
 
 
 @pytest.mark.parametrize("target", ["", "0", "-1", "SM8650", "60,88", "\uff16\uff10"])
-def test_qnn_requires_explicit_numeric_soc_before_registration(
+def test_qnn_requires_explicit_numeric_soc_before_native_compilation(
     target: str, compilation: SimpleNamespace, qnn_payload: SimpleNamespace
 ) -> None:
-    with pytest.raises(ValueError, match="positive numeric soc_model"):
-        compile_off_device(compilation.model, compilation.output, target, ep_name="qnn")
-    qnn_payload.register.assert_not_called()
+    with pytest.raises(
+        ValueError, match="QNN target_platform must be a positive numeric soc_model"
+    ):
+        _compile_model(compilation.model, compilation.output, target, ep_name="qnn")
+    qnn_payload.unregister.assert_called_once_with("QNNExecutionProvider")
     compilation.factory.assert_not_called()
 
 
@@ -240,12 +629,12 @@ def test_qnn_unavailable_compiler_never_falls_back(
         qnn_payload.entry.dll_path.with_name("QnnHtp.dll").unlink()
     source = "pypi" if case == "wrong-source" else None
     with pytest.raises((ValueError, FileNotFoundError)):
-        compile_off_device(
+        _compile_model(
             compilation.model, compilation.output, "60", ep_name="qnn", source=source
         )
     compilation.factory.assert_not_called()
     assert not compilation.output.exists()
-    assert not list(compilation.output.parent.iterdir())
+    assert not compilation.output.parent.exists()
     if case in {"missing-payload", "wrong-source"}:
         qnn_payload.register.assert_not_called()
     else:
@@ -259,7 +648,7 @@ def test_qnn_registration_collision_never_unregisters_another_owner(
     compilation.output.parent.mkdir()
     compilation.output.write_bytes(b"previous output")
     with pytest.raises(RuntimeError, match="already registered"):
-        compile_off_device(
+        _compile_model(
             compilation.model, compilation.output, "60", ep_name="qnn", overwrite=True
         )
     qnn_payload.unregister.assert_not_called()
@@ -274,7 +663,7 @@ def test_qnn_rejects_context_with_temporary_provider_identity(
         if attribute.name == "source":
             attribute.s = b"QNNExecutionProvider_temporary.virtual"
     with pytest.raises(ValueError, match="embedded QNNExecutionProvider"):
-        compile_off_device(compilation.model, compilation.output, "60", ep_name="qnn")
+        _compile_model(compilation.model, compilation.output, "60", ep_name="qnn")
     qnn_payload.unregister.assert_called_once_with("QNNExecutionProvider")
     assert not compilation.output.exists()
 
@@ -383,7 +772,9 @@ def test_vitisai_inventory_does_not_invent_architectures_or_load_dll(
     assert row["compilation_device_type"] == "virtual_npu"
     assert row["target_parameter"] == "target"
     assert row["targets_enumerable"] is False
-    with pytest.raises(ValueError, match="not a destination SoC"):
+    with pytest.raises(
+        ValueError, match=r"Use --ep-options target=X2.*not a destination SoC"
+    ):
         list_compilation_targets("vitisai")
     vitisai_payload.register.assert_not_called()
     vitisai_payload.get_devices.assert_not_called()
@@ -403,14 +794,11 @@ def test_unrecognized_dll_inventory_requires_explicit_provider(
 
 
 @pytest.mark.parametrize("overwrite", [False, True])
-def test_vitisai_binds_only_owned_virtual_npu_and_cleans_up_before_publish(
+def test_vitisai_pipeline_binds_only_owned_virtual_npu_and_cleans_up(
     overwrite: bool,
     compilation: SimpleNamespace,
     vitisai_payload: SimpleNamespace,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    temporary_directory = Mock(wraps=offdevice.TemporaryDirectory)
-    monkeypatch.setattr(offdevice, "TemporaryDirectory", temporary_directory)
     physical = deepcopy(vitisai_payload.device)
     physical.device.metadata["is_virtual"] = "0"
     bootstrap_device = deepcopy(vitisai_payload.device)
@@ -433,13 +821,12 @@ def test_vitisai_binds_only_owned_virtual_npu_and_cleans_up_before_publish(
         compilation.output.write_bytes(b"previous output")
 
     def unregister(_name: str) -> None:
-        if overwrite:
-            assert compilation.output.read_bytes() == b"previous output"
-        else:
-            assert not compilation.output.exists()
+        assert onnx.load(compilation.output).graph == compilation.context.graph
+        staged = Path(compilation.native.compile_to_file.call_args.args[0])
+        assert not staged.parent.exists()
 
     vitisai_payload.unregister.side_effect = unregister
-    result = compile_off_device(
+    result = _compile_model(
         compilation.model,
         compilation.output,
         "X2",
@@ -453,8 +840,6 @@ def test_vitisai_binds_only_owned_virtual_npu_and_cleans_up_before_publish(
     assert bound_devices == (vitisai_payload.device,)
     staged = Path(compilation.native.compile_to_file.call_args.args[0])
     assert provider_options == {"target": "X2", "enable_cache_file_io_in_mem": "1"}
-    temporary_directory.assert_called_once()
-    assert staged.parent.parent == compilation.output.parent
     assert not staged.parent.exists()
     compilation.options.add_session_config_entry.assert_called_once_with(
         "session.disable_cpu_ep_fallback", "1"
@@ -474,12 +859,12 @@ def test_vitisai_binds_only_owned_virtual_npu_and_cleans_up_before_publish(
 
 
 @pytest.mark.parametrize("target", ["", "X1", "STX", "x2"])
-def test_vitisai_requires_explicit_supported_backend_before_loading(
+def test_vitisai_requires_explicit_supported_backend_before_native_compilation(
     target: str, compilation: SimpleNamespace, vitisai_payload: SimpleNamespace
 ) -> None:
-    with pytest.raises(ValueError, match="requires --target X2"):
-        compile_off_device(compilation.model, compilation.output, target, ep_name="vitisai")
-    vitisai_payload.register.assert_not_called()
+    with pytest.raises(ValueError, match="requires target=X2"):
+        _compile_model(compilation.model, compilation.output, target, ep_name="vitisai")
+    assert vitisai_payload.unregister.call_count == 2
     compilation.factory.assert_not_called()
 
 
@@ -496,7 +881,7 @@ def test_vitisai_requires_explicit_supported_backend_before_loading(
         "bootstrap-unregister",
     ],
 )
-def test_vitisai_failure_preserves_output_and_releases_only_owned_registrations(
+def test_vitisai_pipeline_failure_releases_only_owned_registrations(
     phase: str,
     compilation: SimpleNamespace,
     vitisai_payload: SimpleNamespace,
@@ -513,7 +898,10 @@ def test_vitisai_failure_preserves_output_and_releases_only_owned_registrations(
         owned.append(name)
 
     def unregister(name: str) -> None:
-        assert compilation.output.read_bytes() == b"previous output"
+        if phase in {"canonical-unregister", "bootstrap-unregister"}:
+            assert onnx.load(compilation.output).graph == compilation.context.graph
+        else:
+            assert compilation.output.read_bytes() == b"previous output"
         if (phase == "canonical-unregister" and name == "VitisAIExecutionProvider") or (
             phase == "bootstrap-unregister" and name.endswith(".virtual")
         ):
@@ -537,12 +925,16 @@ def test_vitisai_failure_preserves_output_and_releases_only_owned_registrations(
         (RuntimeError, ValueError),
         match=r"native failure|No physical-device fallback|exactly one virtual NPU",
     ):
-        compile_off_device(
+        _compile_model(
             compilation.model, compilation.output, "X2", ep_name="vitisai", overwrite=True
         )
     assert [call.args[0] for call in vitisai_payload.unregister.call_args_list] == owned[::-1]
-    assert compilation.output.read_bytes() == b"previous output"
-    assert list(compilation.output.parent.iterdir()) == [compilation.output]
+    if phase in {"canonical-unregister", "bootstrap-unregister"}:
+        assert onnx.load(compilation.output).graph == compilation.context.graph
+        assert list(compilation.output.parent.iterdir()) == [compilation.output]
+    else:
+        assert compilation.output.read_bytes() == b"previous output"
+        assert list(compilation.output.parent.iterdir()) == [compilation.output]
     if phase not in {"compile", "canonical-unregister", "bootstrap-unregister"}:
         compilation.factory.assert_not_called()
 
@@ -554,13 +946,13 @@ def test_vitisai_rejects_context_with_temporary_provider_identity(
         if attribute.name == "source":
             attribute.s = b"VitisAIExecutionProvider_temporary.virtual"
     with pytest.raises(ValueError, match="embedded VitisAIExecutionProvider"):
-        compile_off_device(compilation.model, compilation.output, "X2", ep_name="vitisai")
+        _compile_model(compilation.model, compilation.output, "X2", ep_name="vitisai")
     assert vitisai_payload.unregister.call_count == 2
     assert not compilation.output.exists()
 
 
 @pytest.mark.parametrize("overwrite", [False, True])
-def test_compilation_binds_only_selected_virtual_device_and_publishes_after_unregister(
+def test_pipeline_publishes_and_resets_before_unregister(
     overwrite: bool, compilation: SimpleNamespace, payload: SimpleNamespace
 ) -> None:
     if overwrite:
@@ -568,13 +960,12 @@ def test_compilation_binds_only_selected_virtual_device_and_publishes_after_unre
         compilation.output.write_bytes(b"previous output")
 
     def unregister(_name: str) -> None:
-        if overwrite:
-            assert compilation.output.read_bytes() == b"previous output"
-        else:
-            assert not compilation.output.exists()
+        assert onnx.load(compilation.output).graph == compilation.context.graph
+        staged = Path(compilation.native.compile_to_file.call_args.args[0])
+        assert not staged.parent.exists()
 
     payload.unregister.side_effect = unregister
-    result = compile_off_device(
+    result = _compile_model(
         compilation.model, compilation.output, "4000", source="directory", overwrite=overwrite
     )
     assert result == compilation.output
@@ -594,7 +985,7 @@ def test_compilation_binds_only_selected_virtual_device_and_publishes_after_unre
     )
     staged = Path(compilation.native.compile_to_file.call_args.args[0])
     assert staged != compilation.output
-    assert staged.parent.parent == compilation.output.parent
+    assert not staged.parent.exists()
     assert list(compilation.output.parent.iterdir()) == [compilation.output]
     payload.unregister.assert_called_once_with(payload.register.call_args.args[0])
 
@@ -603,78 +994,28 @@ def test_compilation_binds_only_selected_virtual_device_and_publishes_after_unre
     ("case", "error"),
     [
         ("missing", FileNotFoundError),
-        ("input", ValueError),
-        ("hardlink", ValueError),
-        ("directory", IsADirectoryError),
-        ("existing", FileExistsError),
-        ("target", ValueError),
         ("compiled", ValueError),
     ],
 )
-def test_invalid_inputs_fail_before_registration(
+def test_invalid_model_never_reaches_native_compilation(
     case: str,
     error: type[Exception],
     compilation: SimpleNamespace,
     payload: SimpleNamespace,
     tmp_path: Path,
 ) -> None:
-    model, output, target = compilation.model, compilation.output, "4000"
+    model = compilation.model
     if case == "missing":
         model = tmp_path / "missing.onnx"
-    elif case == "input":
-        output = model
-    elif case == "hardlink":
-        output = tmp_path / "alias.onnx"
-        output.hardlink_to(model)
-    elif case == "directory":
-        output = tmp_path
-    elif case == "existing":
-        output.parent.mkdir()
-        output.write_bytes(b"previous output")
-    elif case == "target":
-        target = ""
     elif case == "compiled":
         onnx.save(compilation.context, model)
     with pytest.raises(error):
-        compile_off_device(model, output, target, overwrite=case != "existing")
-    payload.register.assert_not_called()
+        _compile_model(model, compilation.output, "4000")
+    if case == "missing":
+        payload.register.assert_not_called()
+    else:
+        payload.unregister.assert_called_once()
     compilation.factory.assert_not_called()
-
-
-def test_external_input_weights_cannot_be_overwritten(
-    compilation: SimpleNamespace, payload: SimpleNamespace
-) -> None:
-    model = create_simple_conv_model()
-    for tensor in model.graph.initializer:
-        tensor.CopyFrom(
-            onnx.numpy_helper.from_array(onnx.numpy_helper.to_array(tensor), name=tensor.name)
-        )
-    onnx.save_model(
-        model,
-        compilation.model,
-        save_as_external_data=True,
-        all_tensors_to_one_file=True,
-        location="weights.bin",
-        size_threshold=0,
-    )
-    weights = compilation.model.with_name("weights.bin")
-    original = weights.read_bytes()
-    with pytest.raises(ValueError, match="input model or its data files"):
-        compile_off_device(compilation.model, weights, "4000", overwrite=True)
-    assert weights.read_bytes() == original
-    payload.register.assert_not_called()
-
-
-@pytest.mark.parametrize(("target", "count"), [("unavailable", 1), ("4000", 2)])
-def test_missing_or_ambiguous_platform_never_compiles(
-    target: str, count: int, compilation: SimpleNamespace, payload: SimpleNamespace
-) -> None:
-    payload.get_devices.return_value = [payload.device] * count
-    with pytest.raises(ValueError, match="must match exactly one virtual NPU device"):
-        compile_off_device(compilation.model, compilation.output, target)
-    compilation.factory.assert_not_called()
-    payload.unregister.assert_called_once()
-    assert not compilation.output.exists()
 
 
 @pytest.mark.parametrize(
@@ -688,11 +1029,13 @@ def test_missing_or_ambiguous_platform_never_compiles(
         ("main_context", 0, "no main EPContext"),
     ],
 )
+@pytest.mark.parametrize("validate", [False, True])
 def test_invalid_context_preserves_existing_output(
     attribute: str,
     value: str | int | bytes,
     message: str,
     compilation: SimpleNamespace,
+    validate: bool,
 ) -> None:
     node = compilation.context.graph.node[0]
     for existing in node.attribute:
@@ -701,7 +1044,13 @@ def test_invalid_context_preserves_existing_output(
     compilation.output.parent.mkdir()
     compilation.output.write_bytes(b"previous output")
     with pytest.raises(ValueError, match=message):
-        compile_off_device(compilation.model, compilation.output, "4000", overwrite=True)
+        _compile_model(
+            compilation.model,
+            compilation.output,
+            "4000",
+            overwrite=True,
+            validate=validate,
+        )
     assert compilation.output.read_bytes() == b"previous output"
     assert list(compilation.output.parent.iterdir()) == [compilation.output]
 
@@ -716,8 +1065,12 @@ def test_invalid_context_preserves_existing_output(
         ("external", ValueError),
     ],
 )
+@pytest.mark.parametrize("validate", [False, True])
 def test_missing_malformed_or_nonportable_artifact_is_not_published(
-    artifact: str, error: type[Exception], compilation: SimpleNamespace
+    artifact: str,
+    error: type[Exception],
+    compilation: SimpleNamespace,
+    validate: bool,
 ) -> None:
     if artifact == "missing":
         compilation.native.compile_to_file.side_effect = None
@@ -737,13 +1090,43 @@ def test_missing_malformed_or_nonportable_artifact_is_not_published(
         tensor.external_data.add(key="location", value="weights.bin")
         compilation.context.graph.initializer.append(tensor)
     with pytest.raises(error):
-        compile_off_device(compilation.model, compilation.output, "4000")
+        _compile_model(
+            compilation.model, compilation.output, "4000", validate=validate
+        )
     assert not compilation.output.exists()
-    assert not list(compilation.output.parent.iterdir())
+    assert not compilation.output.parent.exists()
+
+
+@pytest.mark.parametrize("validate", [False, True])
+def test_offdevice_reports_skipped_inference(
+    validate: bool,
+    compilation: SimpleNamespace,
+) -> None:
+    import json
+
+    config = WinMLCompileConfig.from_dict(
+        {
+            "execution_provider": "openvino",
+            "compiler": "offdevice",
+            "target_platform": "4000",
+            "embed_context": True,
+            "validate": validate,
+        }
+    )
+    result = compile_onnx(compilation.model, compilation.output, config)
+
+    assert result.success, result.errors
+    assert result.output_path == compilation.output
+    assert result.validation_passed is False
+    warning = "Target-device inference validation: skipped (off-device compilation)"
+    assert warning in result.warnings
+    serialized = json.loads(json.dumps(result.to_dict()))
+    assert warning in serialized["warnings"]
+    assert serialized["validation_passed"] is False
 
 
 @pytest.mark.parametrize("phase", ["compile", "unregister"])
-def test_partial_compile_or_cleanup_failure_preserves_existing_output(
+def test_pipeline_failure_preserves_output_until_publication(
     phase: str, compilation: SimpleNamespace, payload: SimpleNamespace
 ) -> None:
     def fail_compile(path: str) -> None:
@@ -757,26 +1140,14 @@ def test_partial_compile_or_cleanup_failure_preserves_existing_output(
     else:
         payload.unregister.side_effect = RuntimeError("native failure")
     with pytest.raises(RuntimeError, match="native failure"):
-        compile_off_device(compilation.model, compilation.output, "4000", overwrite=True)
-    assert compilation.output.read_bytes() == b"previous output"
-    assert list(compilation.output.parent.iterdir()) == [compilation.output]
+        _compile_model(compilation.model, compilation.output, "4000", overwrite=True)
+    if phase == "compile":
+        assert compilation.output.read_bytes() == b"previous output"
+        assert list(compilation.output.parent.iterdir()) == [compilation.output]
+    else:
+        assert onnx.load(compilation.output).graph == compilation.context.graph
+        assert list(compilation.output.parent.iterdir()) == [compilation.output]
     payload.unregister.assert_called_once()
-
-
-def test_concurrent_output_is_not_overwritten_without_permission(
-    compilation: SimpleNamespace,
-) -> None:
-    write_output = compilation.native.compile_to_file.side_effect
-
-    def concurrent_write(path: str) -> None:
-        write_output(path)
-        compilation.output.write_bytes(b"concurrent output")
-
-    compilation.native.compile_to_file.side_effect = concurrent_write
-    with pytest.raises(FileExistsError):
-        compile_off_device(compilation.model, compilation.output, "4000")
-    assert compilation.output.read_bytes() == b"concurrent output"
-    assert list(compilation.output.parent.iterdir()) == [compilation.output]
 
 
 def test_secondary_context_without_its_own_cache_is_supported(
@@ -791,7 +1162,7 @@ def test_secondary_context_without_its_own_cache_is_supported(
         elif attribute.name == "ep_cache_context":
             attribute.s = b""
     compilation.context.graph.node.append(secondary)
-    result = compile_off_device(compilation.model, compilation.output, "4000")
+    result = _compile_model(compilation.model, compilation.output, "4000")
     assert len(onnx.load(result, load_external_data=False).graph.node) == 2
 
 
@@ -800,7 +1171,7 @@ def test_context_attribute_defaults_are_supported(compilation: SimpleNamespace) 
     for attribute in list(node.attribute):
         if attribute.name in {"main_context", "embed_mode"}:
             node.attribute.remove(attribute)
-    result = compile_off_device(compilation.model, compilation.output, "4000")
+    result = _compile_model(compilation.model, compilation.output, "4000")
     assert result.is_file()
 
 
@@ -848,5 +1219,5 @@ def test_compiler_and_options_are_released_before_unregister_on_failure(
     monkeypatch.setattr(ort, "ModelCompiler", create_compiler)
     payload.unregister.side_effect = unregister
     with pytest.raises(error_type, match="native compilation failed"):
-        compile_off_device(model_path, tmp_path / "compiled.onnx", "4000")
+        _compile_model(model_path, tmp_path / "compiled.onnx", "4000")
     payload.unregister.assert_called_once()

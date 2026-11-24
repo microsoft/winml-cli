@@ -101,24 +101,6 @@ class TestCompileIncompatiblePair:
         assert result.exit_code != 0
         assert "does not support device" in result.output
 
-    @pytest.mark.parametrize(
-        ("device", "ep", "expected"),
-        [
-            ("cpu", "cpu", "CPUExecutionProvider"),
-            ("npu", "qnn", "QNNExecutionProvider"),
-            ("gpu", "qnn", "QNNExecutionProvider"),
-            ("npu", "vitisai", "VitisAIExecutionProvider"),
-            ("gpu", "dml", "DmlExecutionProvider"),
-            ("gpu", "migraphx", "MIGraphXExecutionProvider"),
-            ("gpu", "openvino", "OpenVINOExecutionProvider"),
-        ],
-    )
-    def test_compatible_pair_returns_canonical(self, device: str, ep: str, expected: str) -> None:
-        from winml.modelkit.commands.compile import _resolve_compile_provider
-
-        assert _resolve_compile_provider(device, ep) == expected
-
-
 # Note: EP host-availability ("EP not registered on this host") is enforced by
 # ``sysinfo.device.resolve_device``; see
 # tests/unit/sysinfo/test_device.py::test_ep_requested_but_not_available_raises

@@ -146,7 +146,7 @@ def test_cli_compiles_advertised_virtual_npu_target(
     monkeypatch.setattr(ort, "register_execution_provider_library", register)
     monkeypatch.setattr(ort, "unregister_execution_provider_library", unregister)
     runner = CliRunner()
-    arguments = ["compile", "--off-device", "--ep", "openvino"]
+    arguments = ["compile", "--compiler", "offdevice", "--ep", "openvino"]
     inventory = runner.invoke(main, [*arguments, "--list-eps"])
     assert inventory.exit_code == 0, inventory.output
     if not json.loads(inventory.stdout)[0]["payload_available"]:
@@ -191,7 +191,7 @@ def test_cli_compiles_advertised_virtual_npu_target(
         output_path.parent.mkdir()
         output_path.write_bytes(b"previous output")
     arguments += [
-        "--target",
+        "--target-platform",
         selected["npu_platform"],
         "--model",
         str(model_path),
@@ -200,7 +200,9 @@ def test_cli_compiles_advertised_virtual_npu_target(
     ]
     result = runner.invoke(main, [*arguments, *(["--overwrite"] if overwrite else [])])
     assert result.exit_code == 0, result.output
-    assert "no inference was run" in result.output
+    output = " ".join(result.output.split())
+    assert "Artifact validation: passed (embedded-context checks)" in output
+    assert "Target-device inference validation: skipped (off-device compilation)" in output
     assert not get_external_data_files(output_path)
     contexts = [
         {attribute.name: onnx.helper.get_attribute_value(attribute) for attribute in node.attribute}

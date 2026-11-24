@@ -31,7 +31,9 @@ if TYPE_CHECKING:
 
 # EP → available compilers. Keys are canonical EPName (or None for the default).
 EP_COMPILER_MAPPING: dict[EPName | None, list[CompilerName]] = {
-    "QNNExecutionProvider": ["ort", "ort_session", "qairt"],
+    "QNNExecutionProvider": ["ort", "ort_session", "qairt", "offdevice"],
+    "OpenVINOExecutionProvider": ["ort", "ort_session", "offdevice"],
+    "VitisAIExecutionProvider": ["ort", "ort_session", "offdevice"],
     None: ["ort", "ort_session"],
 }
 
@@ -101,6 +103,8 @@ class Compiler:
         model_path: str | Path,
         output_path: str | Path | None = None,
         config: WinMLCompileConfig | None = None,
+        *,
+        overwrite: bool = True,
     ) -> CompileResult:
         """Execute the compilation pipeline.
 
@@ -108,6 +112,7 @@ class Compiler:
             model_path: Path to input ONNX model
             output_path: Path for output compiled model (defaults to {model_stem}_ctx.onnx)
             config: Compilation configuration (defaults to QNN with quantization)
+            overwrite: Allow replacing an existing output. Defaults to existing pipeline behavior.
 
         Returns:
             CompileResult with paths and metrics
@@ -144,6 +149,9 @@ class Compiler:
 
             if output_path is not None:
                 context.config["output_path"] = str(output_path)
+            context.config["overwrite"] = overwrite
+            if config.ep_config.compiler == "offdevice":
+                context.config["input_model_path"] = str(model_path.resolve())
 
             context.log(f"Starting compilation of {model_path}")
             context.log(f"Execution provider: {context.execution_provider}")
@@ -204,6 +212,8 @@ def compile_onnx(
     model_path: str | Path,
     output_path: str | Path | None = None,
     config: WinMLCompileConfig | None = None,
+    *,
+    overwrite: bool = True,
 ) -> CompileResult:
     """Compile ONNX model to EP-specific format.
 
@@ -213,6 +223,7 @@ def compile_onnx(
         model_path: Path to input ONNX model
         output_path: Path for output compiled model (defaults to {model_stem}_ctx.onnx)
         config: Compilation configuration. If None, compilation is skipped (passthrough).
+        overwrite: Allow replacing an existing output. Defaults to existing pipeline behavior.
 
     Returns:
         CompileResult with paths and metrics
@@ -234,7 +245,12 @@ def compile_onnx(
         # (build_hf_model or build_onnx_model) for quantize+compile workflows.
     """
     compiler = Compiler()
-    return compiler.compile(model_path=model_path, output_path=output_path, config=config)
+    return compiler.compile(
+        model_path=model_path,
+        output_path=output_path,
+        config=config,
+        overwrite=overwrite,
+    )
 
 
 def compile_multiple_onnx(

@@ -147,12 +147,6 @@ def mock_compile_resolution():
     ]
     _patches.append(
         patch(
-            "winml.modelkit.commands.compile.available_eps_for_device",
-            side_effect=lambda device: list(_DEVICE_TO_EPS.get(device, [])),
-        )
-    )
-    _patches.append(
-        patch(
             "winml.modelkit.ep_path.EPCatalog.is_compatible",
             return_value=True,
         )

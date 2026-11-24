@@ -115,7 +115,7 @@ def test_cli_compiles_vitisai_with_virtual_npu_only(
     monkeypatch.setattr(ort, "unregister_execution_provider_library", unregister)
     monkeypatch.setattr(ort.SessionOptions, "add_provider_for_devices", bind)
     runner = CliRunner()
-    arguments = ["compile", "--off-device", "--ep", "vitisai"]
+    arguments = ["compile", "--compiler", "offdevice", "--ep", "vitisai"]
     inventory = runner.invoke(main, [*arguments, "--list-eps"])
     assert inventory.exit_code == 0, inventory.output
     row = json.loads(inventory.stdout)[0]
@@ -128,7 +128,7 @@ def test_cli_compiles_vitisai_with_virtual_npu_only(
     if overwrite:
         output.parent.mkdir()
         output.write_bytes(b"previous output")
-    arguments += ["--target", "X2", "--model", str(model), "--output", str(output)]
+    arguments += ["--ep-options", "target=X2", "--model", str(model), "--output", str(output)]
     result = runner.invoke(main, [*arguments, *(["--overwrite"] if overwrite else [])])
     assert len(bound) == 1, result.output
     assert (
@@ -153,7 +153,9 @@ def test_cli_compiles_vitisai_with_virtual_npu_only(
         assert output.read_bytes() == b"previous output"
         return
     assert result.exit_code == 0, result.output
-    assert "no inference was run" in result.output
+    report = " ".join(result.output.split())
+    assert "Artifact validation: passed (embedded-context checks)" in report
+    assert "Target-device inference validation: skipped (off-device compilation)" in report
     assert not get_external_data_files(output)
     contexts = [
         {attribute.name: onnx.helper.get_attribute_value(attribute) for attribute in node.attribute}

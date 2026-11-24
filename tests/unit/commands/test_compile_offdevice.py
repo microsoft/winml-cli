@@ -44,7 +44,9 @@ def test_listing_outputs_json_without_a_model(
     rows = [{"provider_name": "OpenVINOExecutionProvider"}]
     listing = Mock(return_value=rows)
     monkeypatch.setattr(compiler, helper, listing)
-    result = CliRunner().invoke(compile, ["--off-device", flag, "--ep", "openvino@directory"])
+    result = CliRunner().invoke(
+        compile, ["--compiler", "offdevice", flag, "--ep", "openvino@directory"]
+    )
     assert result.exit_code == 0, result.output
     assert json.loads(result.output) == rows
     listing.assert_called_once()
@@ -55,7 +57,7 @@ def test_listing_outputs_json_without_a_model(
 def test_ep_inventory_needs_no_ep_selection(monkeypatch: pytest.MonkeyPatch) -> None:
     listing = Mock(return_value=[])
     monkeypatch.setattr(compiler, "list_compilation_eps", listing)
-    result = CliRunner().invoke(compile, ["--off-device", "--list-eps"])
+    result = CliRunner().invoke(compile, ["--compiler", "offdevice", "--list-eps"])
     assert result.exit_code == 0, result.output
     listing.assert_called_once_with(None, source=None)
 
@@ -63,27 +65,27 @@ def test_ep_inventory_needs_no_ep_selection(monkeypatch: pytest.MonkeyPatch) -> 
 @pytest.mark.parametrize(
     ("arguments", "message"),
     [
-        (["--list-eps"], "require --off-device"),
-        (["--off-device", "--list-eps", "--list-targets"], "mutually exclusive"),
-        (["--off-device"], "requires exactly one --model"),
-        (["--target", "4000"], "requires --off-device"),
+        (["--list-eps"], "require --compiler offdevice"),
+        (["--compiler", "offdevice", "--list-eps", "--list-targets"], "mutually exclusive"),
+        (["--compiler", "offdevice"], "requires exactly one --model"),
+        (["--target-platform", "4000"], "requires --compiler offdevice"),
         (
-            ["--off-device", "--list-eps", "--target", "4000"],
-            "does not accept --target",
+            ["--compiler", "offdevice", "--list-eps", "--target-platform", "4000"],
+            "does not accept --target-platform",
         ),
-        (["--off-device", "--list-targets"], "requires --ep"),
-        (["--off-device", "--list-eps", "--device", "gpu"], "requires --device npu"),
+        (["--compiler", "offdevice", "--list-targets"], "requires --ep"),
+        (["--compiler", "offdevice", "--list-eps", "--device", "gpu"], "requires --device npu"),
         (
-            ["--off-device", "--list-eps", "--compiler", "ort_session"],
-            "requires --compiler ort",
+            ["--compiler", "offdevice", "--list-eps", "--compiler", "ort_session"],
+            "require --compiler offdevice",
         ),
         (
-            ["--off-device", "--list-eps", "--compiler", "cgc"],
+            ["--compiler", "offdevice", "--list-eps", "--compiler", "cgc"],
             "CG Output IR compilation does not support",
         ),
-        (["--off-device", "--list-eps", "--list"], "cannot be combined with --list"),
+        (["--compiler", "offdevice", "--list-eps", "--list"], "cannot be combined with --list"),
         (
-            ["--off-device", "--list-eps", "--ep-options", "device_type=NPU"],
+            ["--compiler", "offdevice", "--list-eps", "--ep-options", "device_type=NPU"],
             "does not accept provider options",
         ),
     ],
@@ -97,17 +99,19 @@ def test_invalid_listing_combinations_fail(arguments: list[str], message: str) -
 def test_listing_rejects_model_input(tmp_path: Path) -> None:
     model = tmp_path / "input.onnx"
     model.touch()
-    result = CliRunner().invoke(compile, ["--off-device", "--list-eps", "--model", str(model)])
+    result = CliRunner().invoke(
+        compile, ["--compiler", "offdevice", "--list-eps", "--model", str(model)]
+    )
     assert result.exit_code == 2, result.output
     assert "does not accept --model" in result.output
 
 
 def test_listing_rejects_qnn_sdk_options(tmp_path: Path) -> None:
     result = CliRunner().invoke(
-        compile, ["--off-device", "--list-eps", "--qnn-sdk-root", str(tmp_path)]
+        compile, ["--compiler", "offdevice", "--list-eps", "--qnn-sdk-root", str(tmp_path)]
     )
     assert result.exit_code == 2, result.output
-    assert "requires --compiler ort" in result.output
+    assert "does not accept --qnn-sdk-root" in result.output
 
 
 def test_listing_error_is_not_a_successful_empty_inventory(
@@ -118,7 +122,9 @@ def test_listing_error_is_not_a_successful_empty_inventory(
         "list_compilation_targets",
         Mock(side_effect=RuntimeError("No virtual NPU targets")),
     )
-    result = CliRunner().invoke(compile, ["--off-device", "--list-targets", "--ep", "openvino"])
+    result = CliRunner().invoke(
+        compile, ["--compiler", "offdevice", "--list-targets", "--ep", "openvino"]
+    )
     assert result.exit_code == 1, result.output
     assert "No virtual NPU targets" in result.output
 
@@ -133,10 +139,11 @@ def model_path(tmp_path: Path) -> Path:
 @pytest.fixture
 def compile_arguments(model_path: Path) -> list[str]:
     return [
-        "--off-device",
+        "--compiler",
+        "offdevice",
         "--ep",
         "openvino@directory",
-        "--target",
+        "--target-platform",
         "4000",
         "--model",
         str(model_path),
@@ -145,8 +152,12 @@ def compile_arguments(model_path: Path) -> list[str]:
 
 @pytest.fixture
 def compile_backend(monkeypatch: pytest.MonkeyPatch) -> Mock:
-    backend = Mock(side_effect=lambda _model, destination, _target, **_kwargs: destination)
-    monkeypatch.setattr(compiler, "compile_off_device", backend)
+    backend = Mock(
+        side_effect=lambda _model, *, output_path, **_kwargs: compiler.CompileResult(
+            success=True, output_path=output_path
+        )
+    )
+    monkeypatch.setattr(compiler, "compile_onnx", backend)
     return backend
 
 
@@ -170,17 +181,23 @@ def test_compilation_forwards_virtual_target_source_and_output(
 
     assert result.exit_code == 0, result.output
     compile_backend.assert_called_once_with(
-        model_path, destination, "4000", ep_name=ANY, source="directory", overwrite=False
+        model_path, output_path=destination, config=ANY, overwrite=False
     )
-    assert normalize_ep_name(compile_backend.call_args.kwargs["ep_name"]) == (
-        "OpenVINOExecutionProvider"
-    )
-    assert "no inference was run" in result.output
+    config = compile_backend.call_args.kwargs["config"]
+    assert normalize_ep_name(config.ep_config.provider) == "OpenVINOExecutionProvider"
+    assert config.ep_config.compiler == "offdevice"
+    assert config.ep_config.target_platform == "4000"
+    assert config.ep_config.provider_options == {}
+    assert config.ep_config.embed_context is True
+    assert config.validate is True
+    assert config.ep_device.source == "directory"
+    assert config.ep_device.device == "npu"
+    assert "Artifact validation: passed" in result.output
 
 
 @pytest.mark.parametrize(
     ("omitted", "message"),
-    [("--ep", "requires --ep"), ("--target", "requires --target")],
+    [("--ep", "requires --ep"), ("--target-platform", "requires --target-platform")],
 )
 def test_compilation_requires_explicit_selectors(
     omitted: str,
@@ -200,9 +217,8 @@ def test_compilation_requires_explicit_selectors(
 @pytest.mark.parametrize(
     ("extra", "message"),
     [
-        (["--validate"], "cannot run inference validation"),
         (["--no-embed"], "requires embedded context"),
-        (["--target", " "], "requires --target"),
+        (["--target-platform", " "], "requires --target-platform"),
     ],
 )
 def test_compilation_rejects_conflicting_options(
@@ -229,7 +245,7 @@ def test_compilation_rejects_multiple_models(
 @pytest.mark.parametrize(
     ("settings", "overrides", "message"),
     [
-        ({"validate": True}, [], "cannot run inference validation"),
+        ({"validate": True}, [], None),
         ({"embed_context": False}, [], "requires embedded context"),
         (
             {"validate": True, "embed_context": False},
@@ -259,7 +275,35 @@ def test_compilation_honors_explicit_config_and_cli_precedence(
     else:
         assert result.exit_code == 0, result.output
         compile_backend.assert_called_once()
-        assert "no inference was run" in result.output
+        assert "Artifact validation: passed" in result.output
+        expected_validate = "--no-validate" not in overrides and settings.get("validate", True)
+        assert compile_backend.call_args.kwargs["config"].validate == expected_validate
+
+
+@pytest.mark.parametrize("validate", [False, True])
+def test_offdevice_validation_request_and_reporting(
+    validate: bool,
+    compile_arguments: list[str],
+    compile_backend: Mock,
+) -> None:
+    warning = "Target-device inference validation: skipped (off-device compilation)"
+    compile_backend.side_effect = (
+        lambda _model, *, output_path, **_kwargs: compiler.CompileResult(
+            success=True,
+            output_path=output_path,
+            warnings=[warning],
+        )
+    )
+    result = CliRunner().invoke(
+        compile,
+        [*compile_arguments, "--validate" if validate else "--no-validate"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert compile_backend.call_args.kwargs["config"].validate is validate
+    output = " ".join(result.output.split())
+    assert "Artifact validation: passed (embedded-context checks)" in output
+    assert warning in output
 
 
 @pytest.mark.parametrize("overwrite", [False, True])
@@ -295,20 +339,38 @@ def test_compilation_failure_is_not_reported_as_success(
 
 
 @pytest.mark.parametrize(
-    ("ep_name", "target", "canonical"),
-    [("qnn", "60", "QNNExecutionProvider"), ("vitisai", "X2", "VitisAIExecutionProvider")],
+    ("ep_name", "selector", "value", "target", "canonical", "label"),
+    [
+        ("qnn", "--target-platform", "60", "60", "QNNExecutionProvider", "Target platform"),
+        (
+            "vitisai",
+            "--ep-options",
+            "target=X2",
+            "X2",
+            "VitisAIExecutionProvider",
+            "Compiler backend",
+        ),
+    ],
 )
 def test_compilation_forwards_provider_target_and_source(
-    ep_name: str, target: str, canonical: str, model_path: Path, compile_backend: Mock
+    ep_name: str,
+    selector: str,
+    value: str,
+    target: str,
+    canonical: str,
+    label: str,
+    model_path: Path,
+    compile_backend: Mock,
 ) -> None:
     result = CliRunner().invoke(
         compile,
         [
-            "--off-device",
+            "--compiler",
+            "offdevice",
             "--ep",
             f"{ep_name}@directory",
-            "--target",
-            target,
+            selector,
+            value,
             "--model",
             str(model_path),
         ],
@@ -316,11 +378,202 @@ def test_compilation_forwards_provider_target_and_source(
     assert result.exit_code == 0, result.output
     compile_backend.assert_called_once_with(
         model_path,
-        model_path.with_name("model_ctx.onnx"),
-        target,
-        ep_name=ANY,
-        source="directory",
+        output_path=model_path.with_name("model_ctx.onnx"),
+        config=ANY,
         overwrite=False,
     )
-    assert normalize_ep_name(compile_backend.call_args.kwargs["ep_name"]) == canonical
-    assert "no inference was run" in result.output
+    config = compile_backend.call_args.kwargs["config"]
+    assert normalize_ep_name(config.ep_config.provider) == canonical
+    assert config.ep_device.source == "directory"
+    if ep_name == "vitisai":
+        assert config.ep_config.target_platform is None
+        assert config.ep_config.provider_options == {"target": target}
+    else:
+        assert config.ep_config.target_platform == target
+        assert config.ep_config.provider_options == {}
+    assert f"{label}: {target}" in result.output
+    assert "Artifact validation: passed" in result.output
+
+
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        ([], "requires --ep-options target=X2"),
+        (["--ep-options", "target=X1"], "requires --ep-options target=X2"),
+        (["--target-platform", "X2"], "instead of --target-platform"),
+        (
+            ["--ep-options", "target=X2", "--ep-options", "device_type=NPU"],
+            "does not accept provider options",
+        ),
+    ],
+)
+def test_vitisai_rejects_invalid_backend_options(
+    options: list[str],
+    message: str,
+    model_path: Path,
+    compile_backend: Mock,
+) -> None:
+    result = CliRunner().invoke(
+        compile,
+        [
+            "--compiler",
+            "offdevice",
+            "--ep",
+            "vitisai",
+            "--model",
+            str(model_path),
+            *options,
+        ],
+    )
+    assert result.exit_code == 2, result.output
+    assert message in result.output
+    compile_backend.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("configured_target", "cli_options"),
+    [
+        ("X2", []),
+        ("X1", ["--ep-options", "target=X2"]),
+    ],
+)
+def test_vitisai_backend_honors_config_and_cli_precedence(
+    configured_target: str,
+    cli_options: list[str],
+    model_path: Path,
+    compile_backend: Mock,
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "compile.json"
+    config.write_text(
+        json.dumps({"compile": {"provider_options": {"target": configured_target}}}),
+        encoding="utf-8",
+    )
+    result = CliRunner().invoke(
+        compile,
+        [
+            "--compiler",
+            "offdevice",
+            "--ep",
+            "vitisai",
+            "--model",
+            str(model_path),
+            "--config",
+            str(config),
+            *cli_options,
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    compile_backend.assert_called_once()
+    config = compile_backend.call_args.kwargs["config"]
+    assert config.ep_config.provider_options == {"target": "X2"}
+    assert config.ep_config.target_platform is None
+
+
+@pytest.mark.parametrize(
+    ("cli_target", "expected"),
+    [(None, "4000"), ("5010", "5010")],
+)
+def test_config_selects_offdevice_and_cli_overrides_platform(
+    cli_target: str | None,
+    expected: str,
+    model_path: Path,
+    compile_backend: Mock,
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "compile.json"
+    config.write_text(
+        json.dumps(
+            {
+                "compile": {
+                    "compiler": "offdevice",
+                    "execution_provider": "openvino",
+                    "target_platform": "4000",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    arguments = ["--model", str(model_path), "--config", str(config)]
+    if cli_target is not None:
+        arguments += ["--target-platform", cli_target]
+
+    result = CliRunner().invoke(compile, arguments)
+
+    assert result.exit_code == 0, result.output
+    compile_backend.assert_called_once()
+    assert compile_backend.call_args.kwargs["config"].ep_config.target_platform == expected
+
+
+@pytest.mark.parametrize(
+    ("configured_compiler", "cli_options", "accepted"),
+    [
+        ("offdevice", [], True),
+        ("ort", ["--compiler", "offdevice"], True),
+        ("offdevice", ["--compiler", "ort"], False),
+    ],
+)
+def test_listing_respects_configured_compiler_and_cli_precedence(
+    configured_compiler: str,
+    cli_options: list[str],
+    accepted: bool,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = tmp_path / "compile.json"
+    config.write_text(
+        json.dumps({"compile": {"compiler": configured_compiler}}),
+        encoding="utf-8",
+    )
+    listing = Mock(return_value=[])
+    monkeypatch.setattr(compiler, "list_compilation_eps", listing)
+
+    result = CliRunner().invoke(
+        compile, ["--config", str(config), "--list-eps", *cli_options]
+    )
+
+    if accepted:
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output) == []
+        listing.assert_called_once_with(None, source=None)
+    else:
+        assert result.exit_code == 2, result.output
+        assert "require --compiler offdevice" in result.output
+        listing.assert_not_called()
+
+
+def test_config_rejects_non_string_target_platform(
+    compile_arguments: list[str],
+    compile_backend: Mock,
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "compile.json"
+    config.write_text(
+        json.dumps({"compile": {"target_platform": 4000}}),
+        encoding="utf-8",
+    )
+    arguments = compile_arguments.copy()
+    index = arguments.index("--target-platform")
+    del arguments[index : index + 2]
+
+    result = CliRunner().invoke(compile, [*arguments, "--config", str(config)])
+
+    assert result.exit_code == 2, result.output
+    assert "compile.target_platform must be a string" in result.output
+    compile_backend.assert_not_called()
+
+
+@pytest.mark.parametrize("success", [False, True])
+def test_pipeline_failure_or_missing_artifact_is_not_reported_as_success(
+    success: bool,
+    compile_arguments: list[str],
+    compile_backend: Mock,
+) -> None:
+    compile_backend.side_effect = None
+    compile_backend.return_value = compiler.CompileResult(success=success, output_path=None)
+
+    result = CliRunner().invoke(compile, compile_arguments)
+
+    assert result.exit_code == 1, result.output
+    assert "No compiled artifact was produced" in result.output
+    assert "Success!" not in result.output

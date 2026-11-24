@@ -45,7 +45,7 @@ def test_cli_compiles_qnn_htp_without_physical_device_or_inference(
     monkeypatch.setattr(ort, "register_execution_provider_library", register)
     monkeypatch.setattr(ort, "unregister_execution_provider_library", unregister)
     runner = CliRunner()
-    arguments = ["compile", "--off-device", "--ep", "qnn"]
+    arguments = ["compile", "--compiler", "offdevice", "--ep", "qnn"]
     inventory = runner.invoke(main, [*arguments, "--list-eps"])
     assert inventory.exit_code == 0, inventory.output
     row = json.loads(inventory.stdout)[0]
@@ -61,7 +61,9 @@ def test_cli_compiles_qnn_htp_without_physical_device_or_inference(
     if overwrite:
         output.parent.mkdir()
         output.write_bytes(b"previous output")
-    arguments += ["--target", target, "--model", str(model_path), "--output", str(output)]
+    arguments += [
+        "--target-platform", target, "--model", str(model_path), "--output", str(output)
+    ]
     result = runner.invoke(main, [*arguments, *(["--overwrite"] if overwrite else [])])
     if target != "60":
         assert result.exit_code == 1, result.output
@@ -75,7 +77,9 @@ def test_cli_compiles_qnn_htp_without_physical_device_or_inference(
         physical.assert_not_called()
         return
     assert result.exit_code == 0, result.output
-    assert "no inference was run" in result.output
+    report = " ".join(result.output.split())
+    assert "Artifact validation: passed (embedded-context checks)" in report
+    assert "Target-device inference validation: skipped (off-device compilation)" in report
     assert not get_external_data_files(output)
     contexts = [
         {attribute.name: onnx.helper.get_attribute_value(attribute) for attribute in node.attribute}

@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from traceback import clear_frames
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -18,7 +17,7 @@ import onnxruntime as ort
 from onnx import helper
 
 from ..ep_path import _parse_winmlcli_ep_path, discover_all_eps
-from ..onnx import get_external_data_files, is_compiled_onnx, load_onnx
+from ..onnx import get_external_data_files, load_onnx
 from ..session.ep_registry import _entry_source_tag, _suppress_dll_load_dialogs
 from ..utils.constants import normalize_ep_name
 
@@ -88,7 +87,7 @@ def list_compilation_eps(
 @contextmanager
 def _registered_compilation_devices(
     ep_name: str, source: str | None
-) -> Iterator[tuple[EPEntry, list[ort.OrtEpDevice]]]:
+) -> Iterator[tuple[EPEntry, list[ort.OrtEpDevice], str]]:
     """Keep the selected payload and its compilation host handles alive for the caller."""
     provider = normalize_ep_name(ep_name)
     is_qnn = provider == _QNN_EP
@@ -147,7 +146,7 @@ def _registered_compilation_devices(
                 device.device.device_id,
             )
         )
-        yield entry, devices
+        yield entry, devices, registration_name
     finally:
         devices.clear()
         registrations.close()
@@ -157,15 +156,15 @@ def list_compilation_targets(ep_name: str, *, source: str | None = None) -> list
     """Snapshot virtual NPU targets from the highest-priority selected payload."""
     if normalize_ep_name(ep_name) == _QNN_EP:
         raise ValueError(
-            "QNN does not enumerate SoC targets. Use --target with the positive numeric "
+            "QNN does not enumerate SoC targets. Use --target-platform with the positive numeric "
             "soc_model ID documented by QAIRT for your target device."
         )
     if normalize_ep_name(ep_name) == _VITISAI_EP:
         raise ValueError(
-            "VitisAI does not advertise NPU architecture targets. Use --target X2 "
+            "VitisAI does not advertise NPU architecture targets. Use --ep-options target=X2 "
             "to select the supported compiler backend, not a destination SoC."
         )
-    with _registered_compilation_devices(ep_name, source) as (entry, devices):
+    with _registered_compilation_devices(ep_name, source) as (entry, devices, _):
         targets: list[dict[str, object]] = []
         seen: set[str] = set()
         for device in devices:
@@ -222,121 +221,48 @@ def _validate_compilation_output(model_path: Path, ep_name: str = _OPENVINO_EP) 
         raise ValueError("Off-device output contains no main EPContext.")
 
 
-def compile_off_device(
-    model_path: str | Path,
-    output_path: str | Path,
+def _compile_bound_model(
+    model_path: Path,
+    output_path: Path,
     target: str,
     *,
-    ep_name: str = _OPENVINO_EP,
-    source: str | None = None,
-    overwrite: bool = False,
-) -> Path:
-    """Compile one embedded NPU model on Windows without matching target hardware."""
-    ep_name = normalize_ep_name(ep_name)
-    is_qnn = ep_name == _QNN_EP
-    if is_qnn and (not target.isascii() or not target.isdecimal() or int(target) <= 0):
-        raise ValueError("QNN --target must be a positive numeric soc_model ID from QAIRT.")
-    if ep_name == _VITISAI_EP and target != "X2":
-        raise ValueError(
-            "VitisAI off-device mode requires --target X2 (compiler backend, not an NPU SoC)."
-        )
-    model_path = Path(model_path).resolve()
-    output_path = Path(output_path).absolute()
-    if not model_path.is_file():
-        raise FileNotFoundError(f"ONNX model not found: {model_path}")
-    input_files = [
-        model_path,
-        *(model_path.parent / name for name in get_external_data_files(model_path)),
-    ]
-    if any(
-        output_path.resolve() == input_file.resolve()
-        or (output_path.exists() and input_file.exists() and output_path.samefile(input_file))
-        for input_file in input_files
-    ):
-        raise ValueError(
-            "The compiled output must not overwrite the input model or its data files."
-        )
-    if output_path.is_dir():
-        raise IsADirectoryError(f"Expected an output file, not a directory: {output_path}")
-    if output_path.exists() and not overwrite:
-        raise FileExistsError(
-            f"Output already exists: {output_path}. Use --overwrite to replace it."
-        )
-    if not target:
-        raise ValueError("An explicit NPU compilation target is required.")
-    if is_compiled_onnx(model_path):
-        raise ValueError("The input model already contains EPContext nodes.")
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with TemporaryDirectory(prefix=f".{output_path.stem}.compile-", dir=output_path.parent) as work:
-        compiled_path = Path(work) / output_path.name
-        with _registered_compilation_devices(ep_name, source) as (entry, devices):
-            if ep_name in {_QNN_EP, _VITISAI_EP}:
-                matches = list(devices)
-            elif ep_name == _OPENVINO_EP:
-                matches = [
-                    device for device in devices if device.ep_metadata["npu_platform"] == target
-                ]
-            else:
-                raise ValueError(f"Unsupported off-device provider: {ep_name}")
-            if len(matches) != 1:
-                if is_qnn:
-                    raise ValueError(
-                        f"QNN offline compilation requires exactly one CPU host "
-                        f"(found {len(matches)})."
-                    )
-                if ep_name == _VITISAI_EP:
-                    raise ValueError(
-                        f"VitisAI offline compilation requires exactly one virtual NPU "
-                        f"(found {len(matches)})."
-                    )
-                available = ", ".join(sorted({d.ep_metadata["npu_platform"] for d in devices}))
-                raise ValueError(
-                    f"Target {target!r} must match exactly one virtual NPU device "
-                    f"(found {len(matches)}). Available platforms: {available}."
+    entry: EPEntry,
+    device: ort.OrtEpDevice,
+) -> None:
+    """Compile with a device whose registration is owned by the caller."""
+    options = None
+    compiler = None
+    try:
+        provider_options = {}
+        if entry.ep_name == _QNN_EP:
+            backend_path = entry.dll_path.resolve().with_name("QnnHtp.dll")
+            if not backend_path.is_file():
+                raise FileNotFoundError(
+                    f"QNN offline compilation requires the HTP backend: {backend_path}"
                 )
-            options = None
-            compiler = None
-            try:
-                provider_options = {}
-                if is_qnn:
-                    backend_path = entry.dll_path.resolve().with_name("QnnHtp.dll")
-                    if not backend_path.is_file():
-                        raise FileNotFoundError(
-                            f"QNN offline compilation requires the HTP backend: {backend_path}"
-                        )
-                    provider_options = {"backend_path": str(backend_path), "soc_model": target}
-                elif ep_name == _VITISAI_EP:
-                    provider_options = {
-                        "target": target,
-                        "enable_cache_file_io_in_mem": "1",
-                    }
-                options = ort.SessionOptions()
-                options.add_session_config_entry("session.disable_cpu_ep_fallback", "1")
-                options.add_provider_for_devices(matches, provider_options)
-                compiler = ort.ModelCompiler(
-                    options,
-                    str(model_path),
-                    embed_compiled_data_into_model=True,
-                    flags=(
-                        ort.OrtCompileApiFlags.ERROR_IF_NO_NODES_COMPILED
-                        | ort.OrtCompileApiFlags.ERROR_IF_OUTPUT_FILE_EXISTS
-                    ),
-                )
-                compiler.compile_to_file(str(compiled_path))
-            except BaseException as error:
-                # ORT's Python wrapper retains the compiler in traceback frames.
-                clear_frames(error.__traceback__)
-                raise
-            finally:
-                compiler = None
-                options = None
-                matches.clear()
-
-        _validate_compilation_output(compiled_path, ep_name)
-        if overwrite:
-            compiled_path.replace(output_path)
-        else:
-            # Windows rename fails atomically if the destination already exists.
-            compiled_path.rename(output_path)
-    return output_path
+            provider_options = {"backend_path": str(backend_path), "soc_model": target}
+        elif entry.ep_name == _VITISAI_EP:
+            provider_options = {
+                "target": target,
+                "enable_cache_file_io_in_mem": "1",
+            }
+        options = ort.SessionOptions()
+        options.add_session_config_entry("session.disable_cpu_ep_fallback", "1")
+        options.add_provider_for_devices([device], provider_options)
+        compiler = ort.ModelCompiler(
+            options,
+            str(model_path),
+            embed_compiled_data_into_model=True,
+            flags=(
+                ort.OrtCompileApiFlags.ERROR_IF_NO_NODES_COMPILED
+                | ort.OrtCompileApiFlags.ERROR_IF_OUTPUT_FILE_EXISTS
+            ),
+        )
+        compiler.compile_to_file(str(output_path))
+    except BaseException as error:
+        # ORT's Python wrapper retains the compiler in traceback frames.
+        clear_frames(error.__traceback__)
+        raise
+    finally:
+        compiler = None
+        options = None

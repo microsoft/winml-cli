@@ -18,18 +18,21 @@ $ winml compile [options]
 
 | Flag | Short | Type | Default | Description |
 |---|---|---|---|---|
-| `--model` | `-m` | path | *(required unless `--list`)* | Input model. |
+| `--model` | `-m` | path | *(required unless listing)* | Input model. Not required with `--list`, `--list-eps`, or `--list-targets`. |
 | `--output` | `-o` | path | — | Output file path (e.g., `model_compiled.onnx`). Takes precedence over `--output-dir`. |
 | `--output-dir` | | path | same dir as input | Directory to write compiled output artifacts. |
 | `--device` | `-d` | choice | `auto` | Target device: `auto`, `npu`, `gpu`, or `cpu`. |
 | `--device-luid` | | string | — | Explicit CGC IR mode only: GPU adapter LUID from `winml sys`, in `0xHHHHHHHH_0xLLLLLLLL` form. |
 | `--ep` | | `TEXT` | — | Force a specific execution provider, overriding device-to-provider mapping. Accepts full names (e.g., `QNNExecutionProvider`) or aliases (`qnn`, `dml`, `openvino`, `vitisai`, `migraphx`, `cpu`, `nvtensorrtrtx`). |
 | `--ep-options` | | `KEY=VALUE` | — | Execution-provider option for the compilation session. Repeat for multiple options; later duplicate keys win. Explicit CLI values override matching `compile.provider_options` keys from `--config`. |
-| `--validate` / `--no-validate` | | flag | `--validate` | Post-compilation validation. |
-| `--compiler` | | choice | `ort` | Backends: `ort`, `ort_session`, `qairt`, `cgc`. `cgc` is inferred for a single `.mlir` input. |
+| `--validate` / `--no-validate` | | flag | `--validate` | Request post-compilation validation. Offdevice always checks artifact integrity and skips target-device inference. |
+| `--compiler` | | choice | `ort` | Backends: `ort`, `ort_session`, `qairt`, `offdevice`, `cgc`. The initial `offdevice` strategy uses ORT ModelCompiler without matching target hardware. `cgc` is inferred for a single `.mlir` input. |
+| `--target-platform` | | string | — | With `--compiler offdevice`: OpenVINO virtual NPU platform ID or QNN numeric QAIRT `soc_model` ID. For VitisAI, use `--ep-options target=X2` instead. |
 | `--qnn-sdk-root` | | path | `None` | Path to the QNN SDK root directory. |
 | `--embed/--no-embed` | | flag | `false` | Embed the EP context blob inside the ONNX file instead of writing a separate `.bin` file. |
 | `--list` | | flag | `false` | List available compiler backends for the selected device and exit without compiling. |
+| `--list-eps` | | flag | `false` | With `--compiler offdevice`: list supported EPs and discovered compiler payloads as JSON. |
+| `--list-targets` | | flag | `false` | With `--compiler offdevice --ep ...`: list advertised deployment platforms as JSON, or report guidance when enumeration is unavailable. |
 | `--help` | `-h` | flag | | Show this message and exit. |
 
 ## How it works
@@ -51,23 +54,60 @@ other provider-option strings are always passed through unchanged.
 
 ## Compilation without target hardware
 
-Use the explicit `--off-device` route; `--no-validate` alone does not bypass
-physical-device discovery. This route uses ORT's `ModelCompiler`, disables CPU EP
-fallback, embeds the context, and never constructs an inference session.
+Select `--compiler offdevice`; `--no-validate` alone does not bypass
+physical-device discovery. The initial offdevice strategy uses ORT's
+`ModelCompiler` internally, disables CPU EP fallback, embeds the context, and
+never constructs an inference session.
 
-```powershell
-winml compile --off-device --list-eps
-winml compile --off-device --ep openvino --list-targets
-winml compile --off-device --ep openvino --target 4000 -m model.onnx -o compiled.onnx
-winml compile --off-device --ep qnn --target 60 -m model.onnx -o compiled-qnn.onnx
-winml compile --off-device --ep vitisai --target X2 -m quantized.onnx -o compiled-vitisai.onnx
+### Validation scope
+
+Off-device compilation always checks the embedded artifact before publication,
+including with `--no-validate`. These checks verify the embedded EPContext
+structure, provider identity, nonempty main contexts, and absence of external
+initializer data.
+
+`--validate` is accepted, but cannot run target-device inference. Compile and
+build report:
+
+```text
+Artifact validation: passed (embedded-context checks)
+Target-device inference validation: skipped (off-device compilation)
 ```
 
-OpenVINO targets are the virtual platform IDs returned by `--list-targets`.
-QNN's target is a positive numeric QAIRT `soc_model` ID; `60` is an example,
-not an automatically selected target. Use the ID documented for your deployment
-device. QNN does not enumerate SoC IDs, so `--list-targets --ep qnn` reports that
-limitation instead of inventing a list.
+The same behavior applies to JSON configuration and the Python API.
+`CompileResult.validation_passed` remains false because inference was not run;
+`CompileResult.warnings` explains the skipped step and retains that explanation
+when serialized with `to_dict()`. Invalid artifacts are never published.
+
+The former `--off-device` and `--target` flags have been replaced by
+`--compiler offdevice` and `--target-platform`, respectively.
+
+```powershell
+winml compile --compiler offdevice --list-eps
+winml compile --compiler offdevice --ep openvino --list-targets
+winml compile --compiler offdevice --ep openvino --target-platform 4000 -m model.onnx -o compiled.onnx
+winml compile --compiler offdevice --ep qnn --target-platform 60 -m model.onnx -o compiled-qnn.onnx
+winml compile --compiler offdevice --ep vitisai --ep-options target=X2 -m quantized.onnx -o compiled-vitisai.onnx
+```
+
+`--list-eps` reports supported providers and discovered payloads; a supported
+provider may still have no installed payload.
+
+| EP | Selector | Expected value |
+|---|---|---|
+| OpenVINO | `--target-platform` | Exact virtual NPU `npu_platform` ID advertised by `--list-targets`. |
+| QNN | `--target-platform` | Positive numeric QAIRT `soc_model` ID for the deployment device. |
+| VitisAI | `--ep-options target=...` | `X2`, selecting a compiler backend rather than a deployment platform. |
+
+`4000` and `60` above are examples, not automatically selected defaults.
+Use an advertised OpenVINO ID or the QAIRT ID documented for your deployment
+device. QNN does not enumerate SoC IDs, so
+`--compiler offdevice --ep qnn --list-targets` reports guidance instead of
+inventing a list.
+
+For off-device compilation, the only currently accepted provider option is
+VitisAI's `target=X2`. It can also be supplied through
+`compile.provider_options` in configuration; an explicit CLI value wins.
 
 QNN requires a compatible plugin payload exposing a CPU compilation host and
 containing `QnnHtp.dll`; set `WINMLCLI_EP_PATH` to the payload directory if needed.
@@ -111,7 +151,7 @@ reused or unregistered; run compilation in a fresh CLI process.
 VitisAI requires an AMD plugin exposing an NPU EP device marked `is_virtual=1`.
 If discovery cannot find it, set `WINMLCLI_EP_PATH` to the full plugin DLL path,
 for example `...\ExecutionProvider\onnxruntime_vitisai_ep.dll`, and inspect it
-with `--off-device --ep vitisai --list-eps`. Use the plugin, not the similarly
+with `--compiler offdevice --ep vitisai --list-eps`. Use the plugin, not the similarly
 named legacy `onnxruntime_providers_vitisai.dll` wrapper. Unknown DLL filenames
 require an explicit `--ep`; unqualified inventory does not guess their provider.
 The CLI never selects the physical AMD NPU, even when one is present. It filters
@@ -136,10 +176,11 @@ The workaround binds only the canonical registration's virtual device; it does
 not enable CPU fallback or rewrite model I/O. Remove it once a fixed plugin passes
 the unchanged boundary-operation model with a single `.virtual` registration.
 
-`--target X2` selects [AMD's documented compiler backend](https://ryzenai.docs.amd.com/en/latest/modelrun.html).
+`--ep-options target=X2` selects [AMD's documented compiler backend](https://ryzenai.docs.amd.com/en/latest/modelrun.html).
 It is not a SoC ID or an
 advertised destination architecture. The installed virtual device does not
-enumerate architecture profiles, so `--list-targets --ep vitisai` reports that
+enumerate architecture profiles, so
+`--compiler offdevice --ep vitisai --list-targets` reports that
 limitation. This route does not claim arbitrary AMD NPU generation targeting,
 artifact portability, or independence from installed driver/runtime software.
 X1 and additional compiler options are not supported by this route.
@@ -262,9 +303,10 @@ winml compile -m microsoft_resnet50.onnx --device gpu --ep openvino
 - **`--embed` inflates the `.onnx` file significantly.** Embedding the EP
   context produces a single portable file but can make it impractical to open or
   inspect the ONNX graph with standard tooling.
-- **Validation requires the target hardware.** The post-compilation validation
-  step runs an actual inference pass; on a machine without the NPU driver or the
-  relevant EP installed, always pass `--no-validate`.
+- **Inference validation requires target hardware.** Ordinary EPContext
+  compilation can disable that pass with `--no-validate`. With
+  `--compiler offdevice`, inference is always skipped and artifact-integrity
+  checks always run, regardless of this flag.
 - **`--device auto` auto-detects the best available hardware.** Pass `--device npu`,
   `--device gpu`, or `--device cpu` explicitly when targeting specific hardware
   regardless of what is auto-detected.

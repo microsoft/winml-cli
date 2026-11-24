@@ -236,6 +236,299 @@ def _invoke(args: list[str], *, debug: bool = False):
 # =============================================================================
 
 
+@pytest.mark.parametrize(
+    ("provider", "platform", "options"),
+    [
+        ("openvino", "4000", {}),
+        ("qnn", "60", {}),
+        ("vitisai", None, {"target": "X2"}),
+    ],
+)
+@pytest.mark.parametrize("explicit_ep", [False, True])
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        [],
+        ["--device", "npu"],
+        ["--device", "auto"],
+        ["--precision", "fp16"],
+        ["--device", "npu", "--precision", "fp16"],
+    ],
+)
+def test_build_preserves_offdevice_compile_request(
+    provider: str,
+    platform: str | None,
+    options: dict[str, str],
+    overrides: list[str],
+    explicit_ep: bool,
+    tmp_path: Path,
+    mock_run_single_build: MagicMock,
+) -> None:
+    from tests.unit.compiler.test_compiler_stages import create_simple_model
+    from winml.modelkit.commands.build import _load_config, _run_compile_stage
+    from winml.modelkit.compiler import CompileResult
+
+    section = {
+        "execution_provider": provider,
+        "compiler": "offdevice",
+        "target_platform": platform,
+        "provider_options": options,
+        "embed_context": True,
+        "validate": True,
+        "verbose": True,
+        "device": "auto",
+        "ep_device": EPDeviceTarget(
+            ep=provider, device="auto", source="directory"
+        ).to_dict(),
+    }
+    config_file = _make_minimal_config_file(tmp_path, compile_section=section)
+    expected = _load_config(config_file).compile.to_dict()
+    if "--device" in overrides:
+        expected["device"] = "npu"
+        expected["ep_device"]["device"] = "npu"
+
+    source = tmp_path / "source.onnx"
+    compiled = tmp_path / "compiled.onnx"
+    create_simple_model(source)
+
+    def compile_model(*, model_path, output_path, config):
+        output_path.write_bytes(model_path.read_bytes())
+        return CompileResult(success=True, output_path=output_path)
+
+    def run_build(**kwargs):
+        from winml.modelkit.utils.constants import normalize_ep_name
+
+        assert kwargs["device"] == "npu"
+        assert kwargs["ep"] == normalize_ep_name(provider)
+        return _run_compile_stage(
+            config=kwargs["config"],
+            current_path=source,
+            compiled_path=compiled,
+            stage_timings=[],
+        )
+
+    mock_run_single_build.side_effect = run_build
+    with (
+        patch("winml.modelkit.compiler.compile_onnx", side_effect=compile_model) as backend,
+        patch(
+            "winml.modelkit.session.resolve_device",
+            side_effect=AssertionError("Off-device build attempted host-device resolution"),
+        ),
+        patch(
+            "winml.modelkit.sysinfo.hardware.get_available_devices",
+            return_value=["cpu"],
+        ),
+    ):
+        result = _invoke(
+            [
+                "-c", config_file,
+                "-m", "test-model",
+                "-o", str(tmp_path / "out"),
+                "--no-quant",
+                *(["--ep", provider] if explicit_ep else []),
+                *overrides,
+            ]
+        )
+
+    assert result.exit_code == 0, result.output
+    backend.assert_called_once()
+    assert backend.call_args.kwargs["config"].to_dict() == expected
+    assert compiled.read_bytes() == source.read_bytes()
+
+
+@pytest.mark.parametrize("device", ["cpu", "gpu"])
+@pytest.mark.parametrize("explicit_device", [False, True])
+def test_build_rejects_incompatible_offdevice_deployment_device(
+    device: str,
+    explicit_device: bool,
+    tmp_path: Path,
+    mock_run_single_build: MagicMock,
+) -> None:
+    config_file = _make_minimal_config_file(
+        tmp_path,
+        compile_section={
+            "execution_provider": "openvino",
+            "compiler": "offdevice",
+            "target_platform": "4000",
+            "embed_context": True,
+            "device": "auto" if explicit_device else device,
+        },
+    )
+
+    result = _invoke(
+        [
+            "-c", config_file,
+            "-m", "test-model",
+            "-o", str(tmp_path / "out"),
+            *(["--device", device] if explicit_device else []),
+            "--no-quant",
+        ]
+    )
+
+    assert result.exit_code == 2, result.output
+    assert "requires an NPU deployment target" in result.output
+    mock_run_single_build.assert_not_called()
+
+
+def test_build_rejects_conflicting_offdevice_provider(
+    tmp_path: Path,
+    mock_run_single_build: MagicMock,
+) -> None:
+    config_file = _make_minimal_config_file(
+        tmp_path,
+        compile_section={
+            "execution_provider": "openvino",
+            "compiler": "offdevice",
+            "target_platform": "4000",
+            "embed_context": True,
+        },
+    )
+    result = _invoke(
+        [
+            "-c", config_file,
+            "-m", "test-model",
+            "-o", str(tmp_path / "out"),
+            "--ep", "qnn",
+        ]
+    )
+    assert result.exit_code == 2, result.output
+    assert "--ep must match the provider" in result.output
+    mock_run_single_build.assert_not_called()
+
+
+@pytest.mark.parametrize("export_type", [None, "optimized"])
+def test_build_offdevice_does_not_use_genai_recipe(
+    export_type: str | None,
+    tmp_path: Path,
+    mock_run_single_build: MagicMock,
+) -> None:
+    config_file = _make_minimal_config_file(
+        tmp_path,
+        compile_section={
+            "execution_provider": "qnn",
+            "compiler": "offdevice",
+            "target_platform": "60",
+            "embed_context": True,
+        },
+    )
+    with patch("winml.modelkit.commands.build._resolve_genai_recipe") as recipe:
+        result = _invoke(
+            [
+                "-c", config_file,
+                "-m", "test-model",
+                "-o", str(tmp_path / "out"),
+                "--ep", "qnn",
+                *(["--export-type", export_type] if export_type else []),
+            ]
+        )
+    recipe.assert_not_called()
+    if export_type:
+        assert result.exit_code == 2, result.output
+        assert "does not support the off-device compiler" in result.output
+        mock_run_single_build.assert_not_called()
+    else:
+        assert result.exit_code == 0, result.output
+        mock_run_single_build.assert_called_once()
+
+
+@pytest.mark.parametrize("validate", [False, True])
+def test_build_offdevice_validation_reporting(
+    validate: bool,
+    tmp_path: Path,
+) -> None:
+    from tests.unit.compiler.test_compiler_stages import create_simple_model
+    from winml.modelkit.commands.build import _run_compile_stage
+    from winml.modelkit.compiler import CompileResult, WinMLCompileConfig
+    from winml.modelkit.config import WinMLBuildConfig
+
+    source = tmp_path / "source.onnx"
+    output = tmp_path / "compiled.onnx"
+    create_simple_model(source)
+    config = WinMLBuildConfig(
+        compile=WinMLCompileConfig.from_dict(
+            {
+                "execution_provider": "openvino",
+                "compiler": "offdevice",
+                "target_platform": "4000",
+                "embed_context": True,
+                "validate": validate,
+            }
+        )
+    )
+    warning = "Target-device inference validation: skipped (off-device compilation)"
+
+    def compile_model(*, model_path, output_path, config):
+        assert config.validate is validate
+        output_path.write_bytes(model_path.read_bytes())
+        return CompileResult(
+            success=True,
+            output_path=output_path,
+            warnings=[warning],
+        )
+
+    with (
+        patch("winml.modelkit.compiler.compile_onnx", side_effect=compile_model),
+        patch("winml.modelkit.utils.console.StageLive") as stage,
+    ):
+        result = _run_compile_stage(
+            config=config,
+            current_path=source,
+            compiled_path=output,
+            stage_timings=[],
+        )
+
+    assert result == output
+    display = stage.return_value.__enter__.return_value
+    display.detail.assert_any_call(
+        "Artifact validation: passed (embedded-context checks)"
+    )
+    display.detail.assert_any_call(warning)
+
+
+def test_build_offdevice_optimize_uses_deployment_device(tmp_path: Path) -> None:
+    from tests.unit.compiler.test_compiler_stages import create_simple_model
+    from winml.modelkit.commands.build import _run_optimize_stage
+    from winml.modelkit.compiler import WinMLCompileConfig
+    from winml.modelkit.config import WinMLBuildConfig
+
+    source = tmp_path / "source.onnx"
+    create_simple_model(source)
+    config = WinMLBuildConfig(
+        compile=WinMLCompileConfig.from_dict(
+            {
+                "execution_provider": "qnn",
+                "compiler": "offdevice",
+                "target_platform": "60",
+                "embed_context": True,
+            }
+        )
+    )
+    with (
+        patch(
+            "winml.modelkit.session.resolve_device",
+            side_effect=AssertionError("Off-device analysis attempted host-device resolution"),
+        ),
+        patch("winml.modelkit.analyze.utils.ep_utils.has_rule_data_for_ep") as rule_data,
+        patch("winml.modelkit.build.run_optimize_analyze_loop") as optimize,
+    ):
+        def run_optimize(**kwargs):
+            kwargs["on_ep_start"]("QNNExecutionProvider", {})
+            return source, 0.0, 0, 0, {}
+
+        optimize.side_effect = run_optimize
+        output, _ = _run_optimize_stage(
+            config=config,
+            model_path=source,
+            optimized_path=source,
+            ep="qnn",
+            device="npu",
+            max_iters=1,
+            stage_timings=[],
+        )
+    assert output == source
+    assert rule_data.call_args.args[1] == "npu"
+
+
 class TestBuildCliInterface:
     """Test CLI flag parsing and help text."""
 

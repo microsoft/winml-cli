@@ -149,6 +149,48 @@ def _load_config(
     raise click.UsageError(f"Config must be a JSON object or array, got {type(data).__name__}")
 
 
+def _resolve_build_target(
+    config: WinMLBuildConfig | None,
+    *,
+    ep: EPNameOrAlias | None,
+    device: str,
+) -> tuple[EPNameOrAlias | None, str]:
+    from ..session import EPDeviceTarget, resolve_device
+    from ..utils.constants import normalize_ep_name
+
+    compile_config = config.compile if config is not None else None
+    if (
+        compile_config is not None
+        and compile_config.ep_config is not None
+        and compile_config.ep_config.compiler == "offdevice"
+    ):
+        ep_config = compile_config.ep_config
+        provider = normalize_ep_name(ep_config.provider)
+        if ep is not None and normalize_ep_name(ep) != provider:
+            raise click.UsageError(
+                "--ep must match the provider in the off-device compile configuration."
+            )
+        configured_device = (
+            compile_config.ep_device.device
+            if compile_config.ep_device is not None
+            else ep_config.device
+        )
+        deployment_device = device if device.lower() != "auto" else configured_device
+        if deployment_device.lower() not in {"auto", "npu"}:
+            raise click.UsageError(
+                "Off-device compilation requires an NPU deployment target."
+            )
+        return provider, "npu"
+
+    if ep is None:
+        try:
+            target = resolve_device(EPDeviceTarget(ep="auto", device=device))
+        except ValueError as e:
+            raise click.UsageError(str(e)) from e
+        return cast("EPNameOrAlias", target.ep), target.device
+    return ep, device
+
+
 def _instantiate_parent_model(model_type: str, task: str | None = None) -> nn.Module:
     """Instantiate parent model with init weights for submodule extraction.
 
@@ -235,6 +277,16 @@ def _build_modules(
         if not module_path:
             raise click.UsageError(f"Config #{i} missing loader.module_path")
 
+        module_ep, module_device = (
+            _resolve_build_target(cfg, ep=ep, device=device or "auto")
+            if device is not None
+            or (
+                cfg.compile is not None
+                and cfg.compile.ep_config is not None
+                and cfg.compile.ep_config.compiler == "offdevice"
+            )
+            else (ep, device)
+        )
         task = cfg.loader.task
         parent_key = f"{model_type}:{task}"
         if parent_key not in parents:
@@ -251,8 +303,8 @@ def _build_modules(
             output_dir=subdir,
             pytorch_model=submodule,
             rebuild=rebuild,
-            ep=ep,
-            device=device,
+            ep=module_ep,
+            device=module_device,
             allow_unsupported_nodes=allow_unsupported_nodes,
         )
         results.append(result)
@@ -646,6 +698,24 @@ def _maybe_build_genai_bundle(
     if explicit_type and not want_optimized:
         return False
 
+    configs = (
+        config_or_configs
+        if isinstance(config_or_configs, list)
+        else [config_or_configs]
+    )
+    if any(
+        cfg.compile is not None
+        and cfg.compile.ep_config is not None
+        and cfg.compile.ep_config.compiler == "offdevice"
+        for cfg in configs
+    ):
+        if want_optimized:
+            raise click.UsageError(
+                "--export-type optimized does not support the off-device compiler; "
+                "use --export-type generic."
+            )
+        return False
+
     recipe = _resolve_genai_recipe(
         model=model,
         model_is_onnx=model_is_onnx,
@@ -1030,26 +1100,25 @@ def build(
 
         request_device = device
         request_ep_value = ep_value
-        runtime_device = request_device
-        runtime_ep_value = request_ep_value
-        if runtime_ep_value is None:
-            from ..session import EPDeviceTarget, resolve_device
-
-            try:
-                resolved_target = resolve_device(EPDeviceTarget(ep="auto", device=runtime_device))
-            except ValueError as e:
-                raise click.UsageError(str(e)) from e
-            runtime_device = resolved_target.device
-            runtime_ep_value = cast("EPNameOrAlias", resolved_target.ep)
-            logger.info("Auto-resolved device=%s, EP=%s", runtime_device, runtime_ep_value)
+        loaded_config = (
+            _load_config(config_file, no_quant=not quant, no_compile=no_compile)
+            if config_file is not None
+            else None
+        )
+        if isinstance(loaded_config, list):
+            runtime_ep_value = request_ep_value
+            runtime_device = request_device
+        else:
+            runtime_ep_value, runtime_device = _resolve_build_target(
+                loaded_config,
+                ep=request_ep_value,
+                device=request_device,
+            )
 
         # Load or auto-generate config
         if config_file is not None:
-            config_or_configs = _load_config(
-                config_file,
-                no_quant=not quant,
-                no_compile=no_compile,
-            )
+            assert loaded_config is not None
+            config_or_configs = loaded_config
             if export_overrides:
                 from ..config import merge_export_overrides
 
@@ -1076,7 +1145,30 @@ def build(
                     config_or_configs = merge_export_overrides(config_or_configs, export_overrides)
             from ..config.build import apply_export_compatibility_policy
 
-            apply_export_compatibility_policy(config_or_configs, device=device, ep=ep_value)
+            configs = (
+                config_or_configs
+                if isinstance(config_or_configs, list)
+                else [config_or_configs]
+            )
+            for cfg in configs:
+                if (
+                    cfg.compile is not None
+                    and cfg.compile.ep_config is not None
+                    and cfg.compile.ep_config.compiler == "offdevice"
+                ):
+                    from ..export import ExportPolicyTarget, resolve_export_compatibility
+
+                    target_ep, target_device = _resolve_build_target(
+                        cfg,
+                        ep=request_ep_value,
+                        device=request_device,
+                    )
+                    if cfg.export is not None and not cfg.export.compatibility:
+                        cfg.export.compatibility = resolve_export_compatibility(
+                            (ExportPolicyTarget(ep=target_ep, device=target_device),)
+                        )
+                else:
+                    apply_export_compatibility_policy(cfg, device=device, ep=ep_value)
         else:
             if not model:
                 raise click.UsageError("-m/--model is required when -c is not provided.")
@@ -1143,8 +1235,17 @@ def build(
             def _patch_device(cfg: WinMLBuildConfig) -> None:
                 from ..config import resolve_quant_compile_config
 
+                target_ep, target_device = (
+                    _resolve_build_target(
+                        cfg,
+                        ep=request_ep_value,
+                        device=request_device,
+                    )
+                    if isinstance(config_or_configs, list)
+                    else (runtime_ep_value, runtime_device)
+                )
                 resolved_quant, _ = resolve_quant_compile_config(
-                    device=runtime_device, precision=precision, ep=runtime_ep_value, backend=backend
+                    device=target_device, precision=precision, ep=target_ep, backend=backend
                 )
                 if not quant or resolved_quant is None or is_pre_quantized_onnx_input:
                     cfg.quant = None
@@ -1171,8 +1272,21 @@ def build(
                 if precision:
                     cfg.precision = precision.lower()  # type: ignore[attr-defined]
                 if cfg.compile is not None and cfg.compile.ep_config is not None:
+                    if cfg.compile.ep_config.compiler == "offdevice":
+                        if cli_utils.is_cli_provided(ctx, "device"):
+                            cfg.compile.ep_config.device = "npu"
+                            if cfg.compile.ep_device is not None:
+                                from ..session import EPDeviceTarget
+
+                                target = cfg.compile.ep_device
+                                cfg.compile.ep_device = EPDeviceTarget(
+                                    ep=target.ep,
+                                    device="npu",
+                                    source=target.source,
+                                )
+                        return
                     provider = cfg.compile.ep_config.provider
-                    patched = WinMLCompileConfig.for_provider(provider, device=runtime_device)
+                    patched = WinMLCompileConfig.for_provider(provider, device=target_device)
                     if patched is not None:
                         cfg.compile = patched
 
@@ -1789,9 +1903,16 @@ def _run_optimize_stage(
         from ..session import EPDeviceTarget
         from ..session import resolve_device as _resolve_device
 
-        _resolved_device = _resolve_device(
-            EPDeviceTarget(ep=ep or "auto", device=device or "auto")
-        ).device
+        if (
+            config.compile is not None
+            and config.compile.ep_config is not None
+            and config.compile.ep_config.compiler == "offdevice"
+        ):
+            _resolved_device = "npu"
+        else:
+            _resolved_device = _resolve_device(
+                EPDeviceTarget(ep=ep or "auto", device=device or "auto")
+            ).device
 
         def _on_ep_start(ep_name: EPName, operator_counts: dict) -> None:
             nonlocal _current_ep
@@ -2048,6 +2169,14 @@ def _run_compile_stage(
         current_path = compiled_path
         _compile_elapsed = time.monotonic() - t0
         sl.set_done(_compile_elapsed)
+
+        if (
+            config.compile.ep_config is not None
+            and config.compile.ep_config.compiler == "offdevice"
+        ):
+            sl.detail("Artifact validation: passed (embedded-context checks)")
+            for warning in compile_result.warnings:
+                sl.detail(warning)
 
         # Graph summary
         try:

@@ -20,6 +20,73 @@ if TYPE_CHECKING:
 from winml.modelkit.commands.build import _load_config
 
 
+def test_offdevice_modules_keep_independent_compile_targets(tmp_path: Path) -> None:
+    from torch import nn
+
+    from tests.unit.compiler.test_compiler_stages import create_simple_model
+    from winml.modelkit.commands.build import _build_modules, _run_compile_stage
+    from winml.modelkit.compiler import CompileResult, WinMLCompileConfig
+    from winml.modelkit.config import WinMLBuildConfig
+    from winml.modelkit.loader import WinMLLoaderConfig
+    from winml.modelkit.utils.constants import normalize_ep_name
+
+    parent = nn.Sequential(nn.Linear(2, 2), nn.ReLU())
+    requests = [("openvino", "4000"), ("qnn", "60")]
+    configs = [
+        WinMLBuildConfig(
+            loader=WinMLLoaderConfig(
+                model_type=type(parent).__name__,
+                model_class=type(module).__name__,
+                module_path=name,
+            ),
+            compile=WinMLCompileConfig.from_dict(
+                {
+                    "execution_provider": provider,
+                    "compiler": "offdevice",
+                    "target_platform": platform,
+                    "embed_context": True,
+                }
+            ),
+        )
+        for (name, module), (provider, platform) in zip(
+            parent.named_children(), requests, strict=True
+        )
+    ]
+    source = tmp_path / "source.onnx"
+    create_simple_model(source)
+
+    def compile_model(*, model_path, output_path, config):
+        output_path.write_bytes(model_path.read_bytes())
+        return CompileResult(success=True, output_path=output_path)
+
+    def build_module(**kwargs):
+        kwargs["output_dir"].mkdir()
+        return _run_compile_stage(
+            config=kwargs["config"],
+            current_path=source,
+            compiled_path=kwargs["output_dir"] / source.name,
+            stage_timings=[],
+        )
+
+    with (
+        patch("winml.modelkit.commands.build._instantiate_parent_model", return_value=parent),
+        patch("winml.modelkit.build.build_hf_model", side_effect=build_module) as build,
+        patch("winml.modelkit.compiler.compile_onnx", side_effect=compile_model) as backend,
+        patch(
+            "winml.modelkit.session.resolve_device",
+            side_effect=AssertionError("Off-device module attempted host-device resolution"),
+        ),
+    ):
+        _build_modules(configs=configs, output_dir=tmp_path)
+
+    for build_call, compile_call, config in zip(
+        build.call_args_list, backend.call_args_list, configs, strict=True
+    ):
+        assert build_call.kwargs["ep"] == normalize_ep_name(config.compile.ep_config.provider)
+        assert build_call.kwargs["device"] == "npu"
+        assert compile_call.kwargs["config"] is config.compile
+
+
 class TestLoadConfigModuleMode:
     """Tests for _load_config array detection."""
 

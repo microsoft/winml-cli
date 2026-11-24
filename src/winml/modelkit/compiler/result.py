@@ -30,7 +30,8 @@ class CompileResult:
     input_shapes: dict[str, list[int]] = field(default_factory=dict)
     output_shapes: dict[str, list[int]] = field(default_factory=dict)
 
-    # Validation metrics
+    # Inference validation only; False also covers skipped validation.
+    # Off-device artifact checks do not set this flag.
     validation_passed: bool = False
     performance_metrics: dict[str, float] = field(default_factory=dict)
 

@@ -19,12 +19,13 @@ import numpy as np
 from filelock import FileLock
 from onnx import AttributeProto
 
-from ...onnx import load_onnx, save_onnx
+from ...onnx import get_external_data_files, load_onnx, save_onnx
 from ...onnx.epcontext import select_main_epcontext_partition_name
 from ...session import (
     EPDeviceTarget,
     WinMLEPRegistry,
     WinMLSession,
+    bind_compilation_device,
     resolve_device,
 )
 from ...utils.constants import ORT_SESSION_COMPILER
@@ -43,6 +44,7 @@ if TYPE_CHECKING:
 COMPILER_SESSION_MAPPING: dict[str, type[WinMLSession] | tuple[str, str]] = {
     "ort": WinMLSession,
     "qairt": ("...session.qairt.qairt_session", "WinMLQairtSession"),
+    "offdevice": ("...session.offdevice_session", "WinMLOffDeviceSession"),
 }
 
 
@@ -86,6 +88,10 @@ class CompileStage(BaseStage):
         start_time = time.time()
 
         try:
+            if context.config.get("compiler") == "offdevice" and context.n_total_models > 1:
+                raise ValueError(
+                    "Off-device compilation does not support shared multi-model contexts."
+                )
             if context.use_inference_session or (
                 context.enable_ep_context and context.n_total_models > 1
             ):
@@ -105,7 +111,7 @@ class CompileStage(BaseStage):
         return context
 
     def _compile_single_model(self, context: CompileContext) -> None:
-        """Compile one model through the configured ModelCompiler or QAIRT backend."""
+        """Compile one model through the configured session backend."""
         compiler = context.config.get("compiler", "ort")
         if compiler == ORT_SESSION_COMPILER:
             raise ValueError(f"{ORT_SESSION_COMPILER!r} requires the inference-session path")
@@ -125,41 +131,54 @@ class CompileStage(BaseStage):
             target = compile_cfg.ep_device
         else:
             ep_str = context.execution_provider
-            target = resolve_device(EPDeviceTarget(ep=ep_str or "auto", device=ep_config.device))
-        ep_device = WinMLEPRegistry.instance().auto_device(target)
-        session_cls_name = getattr(session_cls, "__name__", session_cls.__class__.__name__)
-        context.log(f"Creating {session_cls_name} for {target.ep}/{target.device}")
-        winml_session = session_cls(
-            onnx_path=model_path,
-            ep_device=ep_device,
-            ep_config=ep_config,
-        )
-        try:
-            winml_session.compile()
-            running_model_path = winml_session.running_model_path
+            target = EPDeviceTarget(ep=ep_str or "auto", device=ep_config.device)
+            if compiler != "offdevice":
+                target = resolve_device(target)
 
-            session = winml_session._session
-            context.session = session
-            if session is not None:
-                context.log(f"Actual providers: {session.get_providers()}")
-                if context.validate:
-                    self._validate_model(session, context)
-                self._collect_model_info(session, context)
+        with bind_compilation_device(target, ep_config=ep_config) as ep_device:
+            session_cls_name = getattr(session_cls, "__name__", session_cls.__class__.__name__)
+            context.log(f"Creating {session_cls_name} for {target.ep}/{target.device}")
+            winml_session = session_cls(
+                onnx_path=model_path,
+                ep_device=ep_device,
+                ep_config=ep_config,
+            )
+            try:
+                winml_session.compile()
+                running_model_path = winml_session.running_model_path
 
-            if ep_config.enable_ep_context:
-                if running_model_path == model_path:
-                    context.add_warning(f"No EPContext produced for {model_path.name}")
-                    return
-                self._finalize_output(
-                    context,
-                    model_path,
-                    output_dir,
-                    device=ep_device.device.device_type.lower(),
-                    src_ctx_path=running_model_path,
-                )
-        finally:
-            context.session = None
-            winml_session.reset()
+                if compiler == "offdevice":
+                    context.add_warning(
+                        "Target-device inference validation: skipped "
+                        "(off-device compilation)"
+                    )
+
+                session = winml_session._session
+                context.session = session
+                if session is not None:
+                    context.log(f"Actual providers: {session.get_providers()}")
+                    if context.validate:
+                        self._validate_model(session, context)
+                    self._collect_model_info(session, context)
+
+                if ep_config.enable_ep_context:
+                    if running_model_path == model_path:
+                        context.add_warning(f"No EPContext produced for {model_path.name}")
+                        return
+                    self._finalize_output(
+                        context,
+                        model_path,
+                        output_dir,
+                        device=(
+                            "npu"
+                            if compiler == "offdevice"
+                            else ep_device.device.device_type.lower()
+                        ),
+                        src_ctx_path=running_model_path,
+                    )
+            finally:
+                context.session = None
+                winml_session.reset()
 
     def _compile_shared_context(self, context: CompileContext) -> None:
         """Compile through shared SessionOptions for multi-model and ORT-session flows."""
@@ -395,6 +414,26 @@ class CompileStage(BaseStage):
         else:
             final_ctx_path = output_dir / f"{original_stem}_{output_suffix}_ctx.onnx"
 
+        if context.config.get("compiler") == "offdevice":
+            input_path = Path(context.config.get("input_model_path", context.model_path))
+            input_files = [
+                input_path,
+                *(input_path.parent / name for name in get_external_data_files(input_path)),
+            ]
+            if any(
+                final_ctx_path.resolve() == input_file.resolve()
+                or (
+                    final_ctx_path.exists()
+                    and input_file.exists()
+                    and final_ctx_path.samefile(input_file)
+                )
+                for input_file in input_files
+            ):
+                raise ValueError(
+                    "The compiled output must not overwrite the input model or its data files."
+                )
+
+        output_dir.mkdir(parents=True, exist_ok=True)
         publish_lock = final_ctx_path.with_name(f"{final_ctx_path.name}.publish.lock")
         with _finalize_thread_lock(publish_lock), FileLock(publish_lock):
             self._publish_finalized_output(
@@ -526,7 +565,11 @@ class CompileStage(BaseStage):
             for cache_attr in cache_attrs:
                 cache_attr.s = final_ref_bytes
 
-        self._atomic_save_onnx(model, final_ctx_path)
+        self._atomic_save_onnx(
+            model,
+            final_ctx_path,
+            overwrite=context.config.get("overwrite", True),
+        )
         context.log(f"Published EPContext: {final_ctx_path}")
 
         context.output_path = final_ctx_path
@@ -567,8 +610,10 @@ class CompileStage(BaseStage):
             temporary_path.unlink(missing_ok=True)
 
     @staticmethod
-    def _atomic_save_onnx(model: ModelProto, destination: Path) -> None:
-        """Save an ONNX model beside its destination and atomically replace it."""
+    def _atomic_save_onnx(
+        model: ModelProto, destination: Path, *, overwrite: bool = True
+    ) -> None:
+        """Save an ONNX model beside its destination and publish it atomically."""
         fd, temporary_name = tempfile.mkstemp(
             prefix=f".{destination.stem}.", suffix=destination.suffix, dir=destination.parent
         )
@@ -577,7 +622,10 @@ class CompileStage(BaseStage):
         temporary_path.unlink(missing_ok=True)
         try:
             save_onnx(model, temporary_path)
-            temporary_path.replace(destination)
+            if overwrite:
+                temporary_path.replace(destination)
+            else:
+                temporary_path.rename(destination)
         finally:
             temporary_path.unlink(missing_ok=True)
 
