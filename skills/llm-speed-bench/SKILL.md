@@ -48,6 +48,8 @@ Prerequisites:
 - [uv](https://docs.astral.sh/uv/). The script declares its dependencies inline
   (PEP 723), so `uv run` builds an isolated environment for it.
 - Network access to Hugging Face, GitHub and the source sites.
+  Preparation checks Hub access even with warm caches and `--skip-gated`;
+  `HF_HUB_OFFLINE=1` is not supported.
 - Optional: a Hugging Face login that has accepted the terms of the gated
   dataset `cais/hle`. Without it, the script skips the prompts rebuilt from that
   dataset before selecting rows and reports how many it skipped. To include
@@ -88,7 +90,9 @@ can replace other prompts with HLE prompts.
 Preparation may download entire source corpora even for a few selected rows.
 Allow gigabytes of cache space, especially for `full`; the output directory
 does not relocate the Hugging Face cache. Set `HF_HOME` to a suitable drive
-before preparing. The source cache is not needed to run the written JSONL,
+before `hf auth login` and preparation: it also relocates the saved token.
+To move only caches, set `HF_HUB_CACHE` and `HF_DATASETS_CACHE` instead.
+The source cache is not needed to run the written JSONL,
 but keeping it saves downloads on future preparations.
 
 Only SPEED-Bench metadata and `prepare.py` are pinned here. Upstream source
@@ -119,6 +123,10 @@ tokenizer produces a different count. Size the context for the longest prompt
 in the server's tokenizer plus `--max-new-tokens`; no fixed percentage of the
 bucket length guarantees that it fits. `mini` reaches 16k in `o200k_base`;
 the other subsets reach 32k.
+With `llama-server`, POST each prepared prompt in the largest bucket to
+`/tokenize` with `{"content": "<prompt>"}` and count the returned tokens.
+Allow additional space for the chat template (inspect it with `/apply-template`)
+and the requested generated tokens; one preflight prompt is not a worst-case bound.
 
 ## Step 2: Start a server
 
@@ -160,6 +168,8 @@ winml perf --endpoint http://127.0.0.1:8080/v1 --dataset D:\bench\speed-bench\mi
 - To measure a full prefill on `llama-server`, turn off its prompt cache:
   `--extra-body '{"cache_prompt": false}'`. Warmup requests reuse the first
   rows, so without this they prime the cache for the timed pass.
+  This quoting requires PowerShell 7.3 or newer. In Windows PowerShell 5.1,
+  write `--extra-body '{\"cache_prompt\": false}'` instead.
 
 ## Measurement hygiene
 

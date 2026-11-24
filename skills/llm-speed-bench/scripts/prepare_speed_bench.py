@@ -59,6 +59,7 @@ PREPARE_PY_URL = (
     f"{PREPARE_PY_COMMIT}/benchmarks/speed-bench/prepare.py"
 )
 PREPARE_PY_SHA256 = "640de89c585d6e7a7ad8a5e09ef3621c3471e459e992848d1387f43d7e47ec8a"
+PREPARE_MODULE_NAME = f"speed_bench_prepare_{PREPARE_PY_SHA256}"
 SPEED_BENCH_DATASET = "nvidia/SPEED-Bench"
 # Tag v1.1 of the dataset.
 SPEED_BENCH_REVISION = "fa4e669bee2a4393c56aa8ed05a7c667897f9590"
@@ -421,7 +422,7 @@ def load_prepare_module(work_dir: Path) -> Any:
         verify_sha256(data)
     except RuntimeError as exc:
         raise RuntimeError(f"{path}: {exc}") from exc
-    module = types.ModuleType("speed_bench_prepare")
+    module = types.ModuleType(PREPARE_MODULE_NAME)
     module.__file__ = str(path)
     previous = sys.modules.get(module.__name__)
     sys.modules[module.__name__] = module

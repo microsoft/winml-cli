@@ -64,8 +64,12 @@ each form their own family and can increase the `throughput` subset's size.
 
 Preparation can download whole source corpora for a few selected prompts.
 Allow gigabytes of cache space (`full` needs substantially more than `mini`).
-Set `HF_HOME` before preparing to choose the cache drive; `--output-dir` only
+Set `HF_HOME` before `hf auth login` and preparation to choose the cache drive;
+it also moves the saved token. To relocate only caches, set `HF_HUB_CACHE` and
+`HF_DATASETS_CACHE` instead. `--output-dir` only
 places the prepared files. The cache is not required to benchmark written JSONL.
+Preparation still checks Hub access with warm caches or `--skip-gated`, so
+`HF_HUB_OFFLINE=1` is not supported.
 The pins cover SPEED-Bench metadata and `prepare.py`, not every upstream source
 file or dependency. Upstream AdaLEval files use plain HTTP at
 `opencompass.openxlab.space`; review the pinned script's source URLs and terms.
@@ -93,7 +97,7 @@ D:\bench\speed-bench\
 interleaved across input lengths, then category groups within each length,
 rotating the starting group per bucket.
 The first rows include one prompt per nonempty bucket before revisiting a
-bucket, so `--samples 5` covers all four `mini` buckets when available; small
+bucket, so `--samples 4` covers all four `mini` buckets when available; small
 prefixes do not cover every category. `manifest.json` records the `data_sha256` of `test.jsonl`;
 equal values on two machines mean the same prompts.
 
@@ -114,6 +118,10 @@ The other subsets reach 32k in `o200k_base` and need a larger context. The
 example's context size is not a guarantee for every tokenizer; measure the
 longest prepared prompts with the server's tokenizer rather than relying on
 a fixed percentage of headroom.
+With `llama-server`, POST each prepared prompt in the largest bucket to
+`/tokenize` with `{"content": "<prompt>"}` and count the returned tokens.
+Add room for the chat template (inspect it with `/apply-template`) and the
+requested generated tokens; the preflight alone does not establish a worst case.
 
 ## Step 3: Run the benchmark
 
@@ -133,6 +141,8 @@ One failed request stops the run without writing a report.
 To measure the full prefill on `llama-server`, add
 `--extra-body '{"cache_prompt": false}'`. Otherwise the warmup requests, which
 reuse the first rows, leave those prompts in the server's cache.
+This quoting requires PowerShell 7.3 or newer. In Windows PowerShell 5.1,
+write `--extra-body '{\"cache_prompt\": false}'` instead.
 
 ## Compare configurations
 

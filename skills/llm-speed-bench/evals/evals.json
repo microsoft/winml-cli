@@ -48,7 +48,7 @@
       "prompt": "how do i measure prefill time for 16k-token SPEED-Bench prompts on llama-server with winml perf? the numbers look too fast.",
       "files": [],
       "assertions": [
-        { "id": "cache-prompt-false", "text": "Recommends --extra-body '{\"cache_prompt\": false}' so the server does not reuse cached prompts.", "passed": null, "evidence": "" },
+        { "id": "cache-prompt-false", "text": "Recommends --extra-body with cache_prompt set to false so the server does not reuse cached prompts, using JSON quoting appropriate to the user's shell (unescaped inner quotes in PowerShell 7.3+, backslash-escaped inner quotes in Windows PowerShell 5.1).", "passed": null, "evidence": "" },
         { "id": "context-size", "text": "Sizes the server context for the longest bucket plus generated tokens, with headroom for tokenizer differences.", "passed": null, "evidence": "" },
         { "id": "bucket-cohort", "text": "Reads the per-bucket cohort results rather than only the overall averages.", "passed": null, "evidence": "" }
       ]

@@ -237,7 +237,7 @@ def test_prepare_module_executes_verified_bytes_and_is_registered(tmp_path, monk
         path.write_text("raise RuntimeError('unverified code ran')\n", encoding="utf-8")
 
     monkeypatch.setattr(psb, "verify_sha256", verify_and_replace)
-    monkeypatch.setitem(sys.modules, "speed_bench_prepare", None)
+    monkeypatch.setitem(sys.modules, psb.PREPARE_MODULE_NAME, None)
     module = psb.load_prepare_module(tmp_path)
     assert sys.modules[module.__name__] is module
     assert module.TURNS_PLACEHOLDER == psb.PLACEHOLDER
@@ -251,10 +251,33 @@ def test_prepare_module_restores_registration_on_error(tmp_path, monkeypatch):
     verify = psb.verify_sha256
     monkeypatch.setattr(psb, "verify_sha256", lambda data: verify(data, expected))
     previous = SimpleNamespace()
-    monkeypatch.setitem(sys.modules, "speed_bench_prepare", previous)
+    monkeypatch.setitem(sys.modules, psb.PREPARE_MODULE_NAME, previous)
     with pytest.raises(RuntimeError, match="upstream failed"):
         psb.load_prepare_module(tmp_path)
-    assert sys.modules["speed_bench_prepare"] is previous
+    assert sys.modules[psb.PREPARE_MODULE_NAME] is previous
+
+
+def test_prepare_module_pin_changes_resolver_fingerprint(tmp_path, monkeypatch):
+    from datasets.fingerprint import Hasher
+
+    verify = psb.verify_sha256
+    hashes = []
+    for version in range(2):
+        source = (
+            f"TURNS_PLACEHOLDER = {psb.PLACEHOLDER!r}\n"
+            f"def resolve(row):\n    return {{**row, 'version': {version}}}\n"
+        ).encode()
+        digest = hashlib.sha256(source).hexdigest()
+        name = f"speed_bench_prepare_{digest}"
+        monkeypatch.setattr(psb, "PREPARE_MODULE_NAME", name)
+        monkeypatch.setattr(psb, "verify_sha256", lambda data, digest=digest: verify(data, digest))
+        monkeypatch.setitem(sys.modules, name, None)
+        (tmp_path / "prepare.py").write_bytes(source)
+        module = psb.load_prepare_module(tmp_path)
+        fingerprint = Hasher.hash(module.resolve)
+        assert fingerprint == Hasher.hash(psb.load_prepare_module(tmp_path).resolve)
+        hashes.append(fingerprint)
+    assert len(set(hashes)) == len(hashes)
 
 
 def test_hub_sources_only_probes_masked_hub_dataset_urls():
@@ -275,6 +298,7 @@ def test_gated_lookup_failure_is_not_treated_as_accessible(monkeypatch, force_sk
     def fail(*args, **kwargs):
         raise TimeoutError("Hub unavailable")
 
+    monkeypatch.setattr(huggingface_hub, "get_token", lambda: None)
     monkeypatch.setattr(huggingface_hub.HfApi, "dataset_info", fail)
     with pytest.raises(RuntimeError, match="Cannot inspect Hub dataset org/gated"):
         psb._gated_unavailable(["org/gated"], force_skip)
