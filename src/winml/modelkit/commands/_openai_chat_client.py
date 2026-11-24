@@ -16,6 +16,7 @@ It imports only ``httpx`` and the standard library.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import time
@@ -58,7 +59,8 @@ def normalize_base_url(url: str) -> str:
     """Validate an OpenAI base URL such as ``http://127.0.0.1:8080/v1``.
 
     Raises:
-        ValueError: The URL is not an absolute http(s) URL with a valid port.
+        ValueError: The URL is not an absolute http(s) URL with a valid port,
+            or it has a query or fragment, which request paths cannot follow.
     """
     import httpx
 
@@ -69,6 +71,8 @@ def normalize_base_url(url: str) -> str:
             f"'{url}' is not an http(s) URL. Pass the server's OpenAI base URL, "
             "for example http://127.0.0.1:8080/v1."
         )
+    if parts.query or parts.fragment:
+        raise ValueError(f"'{scrub_url(url)}' must not have a query or fragment.")
     try:
         _ = parts.port
         httpx.URL(url)
@@ -76,6 +80,17 @@ def normalize_base_url(url: str) -> str:
         shown = urlunsplit((parts.scheme, parts.netloc.rpartition("@")[2], parts.path, "", ""))
         raise ValueError(f"'{shown}' is not a valid URL: {exc}") from exc
     return url.rstrip("/")
+
+
+def _is_loopback(url: str) -> bool:
+    """Whether ``url`` names this machine (``localhost``, ``127.0.0.0/8`` or ``::1``)."""
+    host = urlsplit(url).hostname or ""
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 @dataclass
@@ -213,6 +228,10 @@ class OpenAIChatClient:
 
         self.base_url = normalize_base_url(base_url)
         key = api_key if api_key is not None else os.environ.get(API_KEY_ENV)
+        key = key.strip() if key else key
+        if key and any(ord(char) < 0x20 or ord(char) == 0x7F for char in key):
+            # Never echo the key: error text reaches consoles and CI logs.
+            raise EndpointError(f"{API_KEY_ENV} contains control characters; check its value.")
         headers = {"Accept": "text/event-stream"}
         if key:
             headers["Authorization"] = f"Bearer {key}"
@@ -220,6 +239,10 @@ class OpenAIChatClient:
             headers=headers,
             timeout=httpx.Timeout(timeout_s, connect=min(timeout_s, 30.0)),
             transport=transport,
+            # A proxy from the environment or the Windows registry would carry
+            # loopback traffic too (NO_PROXY=localhost does not cover 127.0.0.1)
+            # and add its latency to every timing.
+            trust_env=not _is_loopback(self.base_url),
         )
 
     def close(self) -> None:
@@ -271,11 +294,12 @@ class OpenAIChatClient:
         """Send one greedy streaming chat completion and time its events.
 
         The request asks for ``temperature`` 0 and a final ``usage`` event;
-        ``extra_body`` keys are merged last, so they can override either.
+        ``extra_body`` keys are merged last, so they can override the temperature.
 
         Raises:
             EndpointError: The request failed, the server returned a non-200
-                status, or the stream carried an error event.
+                status, the stream carried an error event, or the response
+                carried no streamed events.
         """
         import httpx
 
@@ -290,6 +314,7 @@ class OpenAIChatClient:
         }
         url = f"{self.base_url}/chat/completions"
         state = _StreamState()
+        events = 0
         start = clock()
         try:
             with self._client.stream("POST", url, json=body) as response:
@@ -299,8 +324,10 @@ class OpenAIChatClient:
                         f"POST {scrub_url(url)} returned HTTP {response.status_code}: "
                         f"{_short(response.text)}"
                     )
-                for payload in iter_sse_data(response.iter_lines()):
+                lines = response.iter_lines()
+                for payload in iter_sse_data(lines):
                     arrival = clock() - start
+                    events += 1
                     try:
                         event = json.loads(payload)
                     except ValueError as exc:
@@ -309,9 +336,18 @@ class OpenAIChatClient:
                         ) from exc
                     if isinstance(event, dict):
                         state.add_event(event, arrival)
+                end = clock() - start
+                # Read the body to its end so the connection returns to the pool;
+                # otherwise the next request reconnects inside its timed span.
+                for _ in lines:
+                    pass
         except httpx.HTTPError as exc:
             raise EndpointError(f"Request to {scrub_url(url)} failed: {exc}") from exc
-        end = clock() - start
+        if not events:
+            raise EndpointError(
+                f"POST {scrub_url(url)} returned no streamed events; the server must support "
+                "streaming chat completions."
+            )
         return ChatStreamTiming(
             first_token_s=state.first_token_s,
             token_event_arrivals_s=state.arrivals,

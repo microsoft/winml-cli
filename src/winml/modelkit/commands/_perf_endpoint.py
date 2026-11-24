@@ -198,6 +198,8 @@ def normalize_server_timings(timings: dict[str, Any] | None) -> dict[str, float 
 
     llama.cpp splits prefill from decode at a different point than the schema 3
     ``prefill_*`` and ``response_eval_*`` metrics, so these stay server fields.
+    The first generated token comes from the prompt batch, so ``predicted_ms``
+    spans ``predicted_n - 1`` decode steps, as llama.cpp's own rate counts them.
     Unknown or missing keys give ``None``; the raw object is kept separately.
     """
     t = timings or {}
@@ -205,15 +207,16 @@ def normalize_server_timings(timings: dict[str, Any] | None) -> dict[str, float 
     prompt_ms = _number(t.get("prompt_ms"))
     predicted_n = _number(t.get("predicted_n"))
     predicted_ms = _number(t.get("predicted_ms"))
+    decode_n = predicted_n - 1 if predicted_n is not None and predicted_n >= 2 else None
     draft_n = _number(t.get("draft_n"))
     accepted = _number(t.get("draft_n_accepted"))
     return {
         "prefill_tokens": prompt_n,
         "prefill_duration_ms": prompt_ms,
         "prefill_tokens_per_second": _per_second(prompt_n, prompt_ms),
-        "decode_tokens": predicted_n,
+        "decode_tokens": decode_n,
         "decode_duration_ms": predicted_ms,
-        "decode_tokens_per_second": _per_second(predicted_n, predicted_ms),
+        "decode_tokens_per_second": _per_second(decode_n, predicted_ms),
         "draft_tokens": draft_n,
         "draft_tokens_accepted": accepted,
         "draft_acceptance_rate": (
@@ -456,7 +459,10 @@ class EndpointBenchmarkResult(GenerationBenchmarkResult[EndpointPerfConfig]):
             "requested_model": report_model_id(self.model),
             "endpoint": scrub_url(cfg.base_url),
             "prompt_source": cfg.prompt_source,
-            "request_parameters": {"temperature": 0, "extra_body": dict(cfg.extra_body)},
+            "request_parameters": {
+                "temperature": cfg.extra_body.get("temperature", 0),
+                "extra_body": dict(cfg.extra_body),
+            },
         }
 
     def _report_sections(self) -> dict[str, Any]:
@@ -539,7 +545,8 @@ class EndpointBenchmarkResult(GenerationBenchmarkResult[EndpointPerfConfig]):
             console.print(
                 "[yellow]Note:[/yellow] the server reused cached prompt tokens on timed requests, "
                 "so TTFT excludes part of the prefill. To measure a full prefill, turn off the "
-                "server's prompt cache (llama-server: --extra-body '{\"cache_prompt\": false}')."
+                'server\'s prompt cache (llama-server: send "cache_prompt": false with '
+                "--extra-body; see the OpenAI-compatible server sample for shell quoting)."
             )
 
 

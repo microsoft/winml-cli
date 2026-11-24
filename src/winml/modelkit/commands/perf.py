@@ -3639,8 +3639,23 @@ def _reject_endpoint_only_options(ctx: click.Context) -> None:
         raise click.UsageError(f"{', '.join(provided)} only applies with --endpoint.")
 
 
+# Request fields the benchmark sets itself; each other option names the flag for it.
+_RESERVED_EXTRA_BODY = {
+    "model": "--endpoint-model",
+    "messages": "--prompt or --prompt-file",
+    "max_tokens": "--max-new-tokens",
+    "stream": None,
+    "stream_options": None,
+}
+
+
 def _parse_extra_body(value: str | None) -> dict[str, Any]:
-    """Parse ``--extra-body`` as a JSON object."""
+    """Parse ``--extra-body`` as a JSON object.
+
+    Fields the benchmark depends on are rejected: turning off streaming leaves
+    nothing to time, and the report would not show an overridden model, prompt
+    or token limit.
+    """
     if value is None:
         return {}
     try:
@@ -3649,6 +3664,12 @@ def _parse_extra_body(value: str | None) -> dict[str, Any]:
         raise click.UsageError(f"--extra-body is not valid JSON: {exc}") from exc
     if not isinstance(parsed, dict):
         raise click.UsageError("--extra-body must be a JSON object, for example '{\"top_k\": 1}'.")
+    for key, flag in _RESERVED_EXTRA_BODY.items():
+        if key in parsed:
+            hint = f" Use {flag} instead." if flag else ""
+            raise click.UsageError(
+                f"--extra-body cannot set '{key}': the benchmark sets it itself.{hint}"
+            )
     return parsed
 
 
@@ -3689,7 +3710,13 @@ def _run_endpoint_runtime(ctx: click.Context, *, console: Console, json_mode: bo
     warmup = p["warmup"] if cli_utils.is_cli_provided(ctx, "warmup") else 2
     output: Path | None = p.get("output")
     if output is not None:
-        _reject_input_overwrite((("--output", output),), [("--prompt-file", p.get("prompt_file"))])
+        _reject_input_overwrite(
+            (("--output", output),),
+            [
+                ("--prompt-file", p.get("prompt_file")),
+                *(("--hash-file", path) for path in files.values()),
+            ],
+        )
         cli_utils.guard_output(output, p["overwrite"])
     prompt_source = "--prompt-file" if p.get("prompt_file") is not None else "--prompt"
     config = EndpointPerfConfig(
@@ -3897,8 +3924,7 @@ def _validate_duration(
     multiple=True,
     metavar="KEY=VALUE",
     help="[--endpoint] Label recorded in the report's provenance, for example "
-    "server=llama.cpp or config=draft-3. Repeatable; reports are grouped by labels when "
-    "combined.",
+    "server=llama.cpp or config=draft-3. Repeatable.",
 )
 @click.option(
     "--run-index",

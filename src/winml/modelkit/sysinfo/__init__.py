@@ -25,7 +25,7 @@ if TYPE_CHECKING:
         open_gpu_adapter,
     )
     from .gpu_priority import gpu_priority_key
-    from .hardware import CPU, GPU, NPU, get_available_devices
+    from .hardware import CPU, GPU, NPU, RAM, get_available_devices
     from .luid import format_pdh_luid, get_ep_device_luid
     from .software import OS
     from .sysinfo import SysInfo
@@ -46,6 +46,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "CPU": (".hardware", "CPU"),
     "GPU": (".hardware", "GPU"),
     "NPU": (".hardware", "NPU"),
+    "RAM": (".hardware", "RAM"),
     "get_available_devices": (".hardware", "get_available_devices"),
     "format_pdh_luid": (".luid", "format_pdh_luid"),
     "get_ep_device_luid": (".luid", "get_ep_device_luid"),
@@ -58,6 +59,7 @@ __all__ = [
     "GPU",
     "NPU",
     "OS",
+    "RAM",
     "DXCoreAdapterError",
     "DXCoreAdapterHandle",
     "DXCoreAdapterInfo",

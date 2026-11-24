@@ -84,7 +84,7 @@ def request_counts(samples: Sequence[_RequestSample]) -> dict[str, Any]:
 def _natural_key(value: object) -> list[tuple[int, int, str]]:
     """Sort key that orders digit runs by number, so ``2k`` precedes ``16k``."""
     return [
-        (0, int(part), "") if part.isdigit() else (1, 0, part)
+        (0, int(part), "") if part.isdecimal() else (1, 0, part)
         for part in re.split(r"(\d+)", str(value))
         if part
     ]

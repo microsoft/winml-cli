@@ -101,8 +101,7 @@ def collect_host_info() -> dict[str, Any]:
     The host name is never recorded. Queries that fail are listed under
     ``errors`` and their fields are ``None``.
     """
-    from ..sysinfo.hardware import CPU, GPU, RAM
-    from ..sysinfo.software import OS
+    from ..sysinfo import CPU, GPU, OS, RAM
 
     errors: list[str] = []
     os_info = _safe(lambda: OS.get().to_dict(), errors, "os")

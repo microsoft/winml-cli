@@ -21,15 +21,21 @@ Requests are sent one at a time with `temperature` 0 (greedy decoding) and
 | Time to first token (`request_ttft_duration_ms`) | Client: from sending the request to the first streamed event that carries generated text. |
 | Decode throughput (`steady_state_decode_tokens_per_second`) | Client: `generated_tokens - 1` divided by the time from the first to the last event that carries text. `steady_state_tpot_ms` is the inverse. |
 | Request duration (`request_duration_ms`) | Client: from sending the request to the end of the stream. |
-| Prompt, cached prompt and generated tokens | Server: the `usage` object of the final event. |
+| Prompt, cached prompt and generated tokens | Server: the `usage` object of the final event. Without `usage`, the generated count falls back to the server `timings` (`predicted_n`), then to the number of text events; `generated_tokens_source` records which. |
 | Stop reason, server build | Server: `finish_reason` and `system_fingerprint`. |
-| Server prefill and decode spans, draft tokens and accepted draft tokens | Server: a llama.cpp-style `timings` object, when the server sends one. |
+| Server prefill and decode spans, draft tokens and accepted draft tokens | Server: a llama.cpp-style `timings` object, when the server sends one. As in llama.cpp, the server decode rate counts `predicted_n - 1` tokens, because the first one comes from the prompt batch. |
 
-A server that uses speculative decoding can stream several tokens in one event.
-Throughput is therefore computed from the token count, not from gaps between
-events; `tokens_per_event` in the report shows how many tokens each event carried.
-At one token per event, the values equal what GGUF and CGC runs report under the
-same names.
+A server can stream several tokens in one event. Throughput is therefore computed
+from the token count, not from gaps between events; `tokens_per_event` in the report
+shows how many tokens each event carried. At one token per event, the values equal
+what GGUF and CGC runs report under the same names. Two caveats:
+
+- `usage.completion_tokens` counts an end-of-sequence token that the server does
+  not stream, so a reply that stops on end-of-sequence reports slightly more than
+  one token per event.
+- `llama-server` streams each accepted draft token as its own event, so with a
+  draft model `tokens_per_event` stays near 1; use the accepted draft tokens to
+  judge speculative decoding.
 
 ## Step 1: Start a server
 
@@ -81,7 +87,14 @@ inner double quotes when it starts winml, so the JSON arrives invalid; there, wr
 the value as `'{\"cache_prompt\": false}'`.
 
 `--extra-body` is merged into every request body last, so it can also override
-`temperature` or add sampling fields such as `top_k`. The report records it.
+`temperature` or add sampling fields such as `top_k`. The report records it and
+the effective `temperature`. It cannot set `model`, `messages`, `max_tokens`,
+`stream` or `stream_options`; use `--endpoint-model`, `--prompt` and
+`--max-new-tokens` instead.
+
+For a server on this machine (`localhost`, `127.0.0.0/8` or `::1`), requests skip
+any proxy set in the environment or in Windows settings, so proxy latency never
+enters the timings.
 
 ## Compare runs
 

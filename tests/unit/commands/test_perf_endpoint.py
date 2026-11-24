@@ -45,7 +45,7 @@ from winml.modelkit.commands.perf import perf
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
     from pathlib import Path
 
 BASE_URL = "http://127.0.0.1:8080/v1"
@@ -208,11 +208,71 @@ def test_stream_chat_times_text_events_and_reads_usage_and_timings() -> None:
 
 
 def test_api_key_comes_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    # A trailing newline, as from reading a key file, is stripped.
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test\r\n")
     server = FakeServer(_final(completion=1))
     with server.client() as client:
         client.list_models()
     assert server.headers[0]["Authorization"] == "Bearer sk-test"
+
+
+def test_api_key_with_control_characters_is_rejected_without_echoing_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-secret\rkey")
+    with pytest.raises(EndpointError) as excinfo:
+        OpenAIChatClient(BASE_URL)
+    assert "OPENAI_API_KEY" in str(excinfo.value)
+    assert "sk-secret" not in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    ("url", "trust_env"),
+    [
+        ("http://127.0.0.1:8080/v1", False),
+        ("http://localhost:8080/v1", False),
+        ("http://[::1]:8080/v1", False),
+        ("https://api.example.com/v1", True),
+    ],
+)
+def test_loopback_servers_bypass_environment_proxies(url: str, trust_env: bool) -> None:
+    with OpenAIChatClient(url) as client:
+        assert client._client.trust_env is trust_env
+
+
+class _TrackedStream(httpx.SyncByteStream):
+    """A response body that records whether it was read to its end."""
+
+    def __init__(self, chunks: list[bytes]) -> None:
+        self.chunks = chunks
+        self.finished = False
+
+    def __iter__(self) -> Iterator[bytes]:
+        yield from self.chunks
+        self.finished = True
+
+
+def test_stream_chat_reads_past_done_so_the_connection_is_reused() -> None:
+    body = _sse([_chunk("a"), *_final(completion=1)])
+    stream = _TrackedStream([body, b": trailing comment\n\n"])
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=stream, headers={"Content-Type": "text/event-stream"})
+
+    with OpenAIChatClient(BASE_URL, transport=httpx.MockTransport(handle)) as client:
+        client.stream_chat(model="m", messages=[], max_tokens=1)
+    assert stream.finished
+
+
+def test_stream_chat_raises_when_the_response_is_not_streamed() -> None:
+    def handle(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"choices": [{"message": {"content": "hi"}}]})
+
+    with (
+        OpenAIChatClient(BASE_URL, transport=httpx.MockTransport(handle)) as client,
+        pytest.raises(EndpointError, match="no streamed events"),
+    ):
+        client.stream_chat(model="m", messages=[], max_tokens=1)
 
 
 def test_stream_chat_raises_on_http_error_status() -> None:
@@ -262,6 +322,13 @@ def test_decode_rate_uses_token_count_not_event_count() -> None:
     assert sample.steady_state_decode_tokens_per_second == pytest.approx(40.0)
     assert sample.steady_state_tpot_ms == pytest.approx(25.0)
     assert sample.tokens_per_event == pytest.approx(3.0)
+
+
+def test_server_decode_rate_excludes_the_first_token() -> None:
+    # llama-server: the first token comes from the prompt batch, outside predicted_ms.
+    server = perf_endpoint.normalize_server_timings({"predicted_n": 64, "predicted_ms": 630.0})
+    assert server["decode_tokens"] == 63
+    assert server["decode_tokens_per_second"] == pytest.approx(100.0)
 
 
 def test_generated_tokens_fall_back_to_server_timings_then_events() -> None:
@@ -510,6 +577,9 @@ def test_cli_endpoint_defaults_to_ten_iterations_and_two_warmup(
         (["--no-apply-template"], "--apply-template/--no-apply-template cannot be used"),
         (["--extra-body", "[1]"], "--extra-body must be a JSON object"),
         (["--extra-body", "{bad"], "--extra-body is not valid JSON"),
+        (["--extra-body", '{"stream": false}'], "--extra-body cannot set 'stream'"),
+        (["--extra-body", '{"max_tokens": 3}'], "Use --max-new-tokens instead"),
+        (["--endpoint-model", "m", "--extra-body", '{"model": "x"}'], "Use --endpoint-model"),
         (["--run-label", "novalue"], "--run-label 'novalue' must be KEY=VALUE"),
         (["--run-label", "a=1", "--run-label", "a=2"], "repeats the key 'a'"),
     ],
@@ -528,6 +598,25 @@ def test_cli_endpoint_rejects_invalid_url(url: str) -> None:
     assert result.exit_code == 2
     assert "URL" in result.output
     assert "Traceback" not in result.output
+
+
+def test_cli_endpoint_rejects_url_with_query() -> None:
+    result = CliRunner().invoke(perf, ["--endpoint", "http://127.0.0.1:8080/v1?key=secret"])
+    assert result.exit_code == 2
+    assert "must not have a query or fragment" in result.output
+    assert "secret" not in result.output
+
+
+def test_cli_endpoint_output_cannot_overwrite_a_hashed_file(tmp_path: Path) -> None:
+    model = tmp_path / "model.gguf"
+    model.write_bytes(b"abc")
+    result = CliRunner().invoke(
+        perf,
+        ["--endpoint", BASE_URL, "--hash-file", f"model={model}", "-o", str(model), "--overwrite"],
+    )
+    assert result.exit_code == 2
+    assert "would overwrite the --hash-file input" in result.output
+    assert model.read_bytes() == b"abc"
 
 
 def test_cli_endpoint_only_options_need_endpoint() -> None:

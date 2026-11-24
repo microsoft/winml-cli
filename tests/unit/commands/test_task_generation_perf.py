@@ -290,12 +290,22 @@ class TestAggregateRequests:
         }
 
     def test_group_values_are_in_natural_order(self) -> None:
-        labels = ["16k", "qualitative", "1k", "32k", "2k", "8k"]
+        # Superscripts and circled digits are digits to str.isdigit() but not to int().
+        labels = ["16k", "qualitative", "1k", "32k", "10\u00b2", "2k", "\u2460", "8k"]
         samples = [_Sample("timed", 1.0, {"bucket": label}) for label in labels]
 
         groups = aggregate_requests(samples, ["latency_ms"], group_by="groups")["groups"]
 
-        assert list(groups["bucket"]) == ["1k", "2k", "8k", "16k", "32k", "qualitative"]
+        assert list(groups["bucket"]) == [
+            "1k",
+            "2k",
+            "8k",
+            "10\u00b2",
+            "16k",
+            "32k",
+            "qualitative",
+            "\u2460",
+        ]
 
     def test_group_with_only_warmups_reports_no_metric_stats(self) -> None:
         samples = [_Sample("warmup", 1.0, {"domain": "math"}), _Sample("timed", 2.0, {})]
