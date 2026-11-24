@@ -129,10 +129,18 @@ available columns. An empty prompt fails with its row index.
 
 Each `--iterations` value is a pass over the selected rows, so the default of
 `1` sends every row once. `--warmup` requests send the first selected rows and
-are excluded from statistics. `--samples N` sends the first `N` rows; add
-`--shuffle` to take them in a shuffled order with a fixed seed that the report
-records. Use `--split` when the dataset has several splits, and `--dataset-name`
-and `--dataset-revision` for a Hugging Face dataset.
+are excluded from statistics, but the timed requests that resend those rows,
+and every pass after the first, can be served from the server's prompt cache,
+which lowers their TTFT. To compare TTFT across cohorts, turn the cache off
+(llama-server: `--extra-body '{"cache_prompt": false}'`). `--samples N` sends N
+rows: the first N, or with `--shuffle`, N rows taken after shuffling the whole
+split with a fixed seed that the report records. Use `--split` when the dataset
+has several splits, and `--dataset-name` and `--dataset-revision` for a Hugging
+Face dataset.
+
+A request the server fails stops the run, and no report is written; the error
+names the request, prompt ID and row. The server's context must fit the longest
+prompt plus `--max-new-tokens`.
 
 The console report adds a table per cohort column, with request count, TTFT,
 decode throughput and request duration for each cohort value.

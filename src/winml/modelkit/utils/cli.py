@@ -432,6 +432,8 @@ def column_option(help_text: str, *, metavar: str | None = None) -> Callable[[F]
 def parse_column_mapping(values: Sequence[str]) -> dict[str, str]:
     """Parse repeated ``--column KEY=VALUE`` values into ``DatasetConfig.columns_mapping``.
 
+    Keys and values are kept as typed, so a column name may contain spaces.
+
     Raises:
         click.BadParameter: A value has no ``=``.
     """
@@ -442,7 +444,7 @@ def parse_column_mapping(values: Sequence[str]) -> dict[str, str]:
                 f"Invalid column format: '{value}'. Use key=value.", param_hint="--column"
             )
         key, column = value.split("=", 1)
-        mapping[key.strip()] = column.strip()
+        mapping[key] = column
     return mapping
 
 

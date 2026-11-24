@@ -199,13 +199,22 @@ def _normalize_prompt(value: object, row_index: int) -> list[dict[str, Any]]:
         if all(isinstance(turn, str) for turn in value):
             return _normalize_prompt(value[0], row_index)
         if all(isinstance(message, dict) for message in value):
-            messages = [dict(message) for message in value]
+            # Arrow struct columns give every message every field, absent ones as None;
+            # servers reject null fields, and they would change the prompts hash.
+            messages = [
+                {key: item for key, item in message.items() if item is not None}
+                for message in value
+            ]
             for message in messages:
                 if not isinstance(message.get("role"), str) or message.get("content") in (
                     None,
                     "",
                 ):
                     raise fail("has a message without a 'role' string and 'content'")
+            try:
+                json.dumps(messages)
+            except (TypeError, ValueError) as exc:
+                raise fail(f"has a message value that is not JSON ({exc})") from exc
             return messages
         raise fail("mixes turns and messages")
     if value is None:

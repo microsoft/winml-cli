@@ -173,3 +173,34 @@ def test_load_prompts_rejects_repeated_ids_and_empty_prompts(tmp_path: Path) -> 
     _write_jsonl(folder / "data.jsonl", [{"prompt": "a"}, {"prompt": ""}])
     with pytest.raises(DatasetValidationError, match="Row 1: the prompt is empty"):
         load_prompts(_config(folder))
+
+
+def test_load_prompts_drops_null_struct_fields_from_messages(tmp_path: Path) -> None:
+    import datasets
+
+    def message_rows(*extra: dict[str, Any]) -> list[dict[str, Any]]:
+        rows = [
+            {"id": "x", "prompt": [{"role": "user", "content": "hi"}]},
+            {"id": "y", "prompt": [{"role": "user", "content": "bye"}]},
+        ]
+        return rows + list(extra)
+
+    # In Parquet every message gets every struct field; an absent one reads back as None.
+    plain, wider = tmp_path / "plain.parquet", tmp_path / "wider.parquet"
+    datasets.Dataset.from_list(message_rows()).to_parquet(str(plain))
+    named = {"id": "z", "prompt": [{"role": "user", "content": "yo", "name": "bob"}]}
+    datasets.Dataset.from_list(message_rows(named)).to_parquet(str(wider))
+
+    first = load_prompts(_config(plain, samples=2))
+    second = load_prompts(_config(wider, samples=2))
+    assert second.prompts[0].messages == [{"role": "user", "content": "hi"}]
+    assert first.prompts_sha256 == second.prompts_sha256
+    assert load_prompts(_config(wider)).prompts[2].messages[0]["name"] == "bob"
+
+
+def test_normalize_prompt_rejects_values_that_are_not_json() -> None:
+    import datetime
+
+    message = {"role": "user", "content": "hi", "sent": datetime.datetime(2026, 1, 1)}
+    with pytest.raises(DatasetValidationError, match="Row 3: the prompt has a message value"):
+        _normalize_prompt([message], 3)
