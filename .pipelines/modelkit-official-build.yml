@@ -159,8 +159,12 @@ extends:
 
               # Build wheel AFTER injection so the wheel carries the
               # real iKey.
-              - script: python -m build --wheel --outdir "$(ob_outputDirectory)"
-                displayName: 'Build wheel (with injected iKey)'
+              - powershell: |
+                  foreach ($platform in 'win_arm64', 'win_amd64') {
+                    python -m build --wheel "-C--build-option=--plat-name=$platform" --outdir "$(ob_outputDirectory)"
+                    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                  }
+                displayName: 'Build ARM64 and x64 wheels (with injected iKey)'
 
               # Verify the wheel carries the real iKey AND the sdist
               # carries the empty placeholder. Reading constants.py out
@@ -180,13 +184,17 @@ extends:
                     } finally { $zip.Dispose() }
                   }
 
-                  $wheel = Get-ChildItem "$(ob_outputDirectory)\*.whl" | Select-Object -First 1
-                  if (-not $wheel) { throw "no wheel found in $(ob_outputDirectory)" }
-                  $wheelContent = Read-ConstantsFromArchive $wheel.FullName
-                  if ($wheelContent -match 'INSTRUMENTATION_KEY\s*=\s*""') {
-                    throw "wheel contains empty INSTRUMENTATION_KEY placeholder - injection failed"
+                  $wheels = @(Get-ChildItem "$(ob_outputDirectory)\*.whl")
+                  if ($wheels.Count -ne 2) { throw "Expected exactly two Windows wheels" }
+                  foreach ($platform in 'win_arm64', 'win_amd64') {
+                    $wheel = $wheels | Where-Object Name -like "*-py3-none-$platform.whl"
+                    if (-not $wheel) { throw "Missing wheel for $platform" }
+                    $wheelContent = Read-ConstantsFromArchive $wheel.FullName
+                    if ($wheelContent -match 'INSTRUMENTATION_KEY\s*=\s*""') {
+                      throw "$platform wheel contains empty INSTRUMENTATION_KEY placeholder - injection failed"
+                    }
+                    Write-Host "$platform wheel verified - constants.py has non-empty iKey"
                   }
-                  Write-Host "Wheel verified - constants.py has non-empty iKey"
 
                   $sdist = Get-ChildItem "$(ob_outputDirectory)\*.tar.gz" | Select-Object -First 1
                   if (-not $sdist) { throw "no sdist found in $(ob_outputDirectory)" }

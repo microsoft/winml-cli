@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tarfile
 import textwrap
+from email import message_from_bytes
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -73,6 +74,56 @@ def test_built_distributions_include_available_providers(tmp_path: Path) -> None
         assert config_file is not None
         with config_file:
             assert json.load(config_file) == expected_config
+
+
+@pytest.mark.parametrize(
+    ("platform_tag", "machine"), [("win_arm64", "ARM64"), ("win_amd64", "AMD64")]
+)
+def test_windows_runtime_wheel_profile(tmp_path: Path, platform_tag: str, machine: str) -> None:
+    """Check both the installer's platform tag and the dependencies it will select."""
+    uv = shutil.which("uv")
+    assert uv is not None
+    _run(
+        [
+            uv,
+            "build",
+            "--wheel",
+            f"-C=--build-option=--plat-name={platform_tag}",
+            "--out-dir",
+            str(tmp_path),
+            str(REPO_ROOT),
+        ],
+        cwd=tmp_path,
+    )
+    (archive,) = tmp_path.glob("*.whl")
+    assert archive.name.endswith(f"-py3-none-{platform_tag}.whl")
+    with ZipFile(archive) as wheel:
+        (tag_info,) = (n for n in wheel.namelist() if n.endswith(".dist-info/WHEEL"))
+        (metadata,) = (n for n in wheel.namelist() if n.endswith(".dist-info/METADATA"))
+        assert message_from_bytes(wheel.read(tag_info)).get_all("Tag") == [
+            f"py3-none-{platform_tag}"
+        ]
+        # Cross-building these tags is only valid while native code ships separately.
+        assert not any(
+            n.lower().endswith((".dll", ".pyd", ".exe", ".so")) for n in wheel.namelist()
+        )
+        requirements = message_from_bytes(wheel.read(metadata)).get_all("Requires-Dist") or []
+    env = {"sys_platform": "win32", "platform_machine": machine, "extra": ""}
+    active = {
+        r.name: r
+        for r in map(Requirement, requirements)
+        if r.marker is None or r.marker.evaluate(env)
+    }
+    assert {"numpy", "onnx", "onnxruntime-windowsml", "windowsml"} <= active.keys()
+    full_stack = {"torch", "torchvision", "pyarrow", "pandas", "optimum"}
+    if platform_tag == "win_arm64":
+        assert full_stack.isdisjoint(active)
+        assert active["windowsml-llama-core"].specifier == active["windowsml"].specifier
+        assert "2.3.5" in active["numpy"].specifier
+    else:
+        assert full_stack <= active.keys()
+        assert "windowsml-llama-core" not in active
+        assert "2.3.5" not in active["numpy"].specifier
 
 
 @pytest.mark.network
