@@ -23,7 +23,7 @@ uv pip install winml-cli
 `uv python install 3.11` downloads and pins the exact Python version the project requires. `uv pip install winml-cli` installs the latest release from PyPI into a managed environment. No separate venv activation is needed.
 
 !!! warning "Full CLI on Windows on Arm"
-    Use x64 Python 3.11 under emulation for the complete export/evaluation toolchain. For native CPU inference, see the [ARM64 runtime preview](#native-windows-arm64-runtime-preview).
+    Use x64 Python 3.11 under emulation for the complete export/evaluation toolchain. For native inference, see the [ARM64 runtime preview](#native-windows-arm64-runtime-preview).
 
     ```powershell
     uv python install cpython-3.11-windows-x86_64-none
@@ -43,8 +43,8 @@ uv pip install winml-cli
 
 ### Native Windows ARM64 runtime preview
 
-The preview runs `winml perf` on a local GGUF using Windows ML Tasks and the
-llama.cpp CPU backend. The x64 and ARM64 wheels have the same distribution name
+The preview runs `winml perf` on local ONNX models and on a local GGUF using
+Windows ML Tasks and the llama.cpp CPU backend. The x64 and ARM64 wheels have the same distribution name
 and version. The **Python process architecture**, not the host CPU, selects
 the wheel and its dependencies. The CLI payload is Python and package data;
 the native DLLs come from the platform-specific dependencies. Do not rename an
@@ -80,12 +80,28 @@ Check `benchmark_info.effective_device` (`cpu`), `requests[0].generated_tokens`
 (positive), and `response_text` in the JSON report. This is a smoke test, not
 an accuracy or performance benchmark.
 
+For classic ONNX, use the small fixtures **from the repository root**:
+
+```powershell
+$fp32 = 'tests\assets\resnet_fp32\model.onnx'
+$w8a8 = 'tests\assets\resnet_w8a8\model.onnx'
+& "$scripts\winml.exe" perf -m $fp32 --device cpu --ep cpu --iterations 1 --warmup 0 --no-memory
+& "$scripts\winml.exe" perf -m $fp32 --device gpu --ep dml --iterations 1 --warmup 0 --no-memory
+& "$scripts\winml.exe" perf -m $w8a8 --device npu --ep qnn --iterations 1 --warmup 0 --no-memory
+```
+
+On a Snapdragon X Elite, all three commands completed without the export stack.
+The QNN command can provision an EP through Windows ML Catalog on first use.
+In a separate ORT profile of the same fixtures, DirectML ran one fused node;
+QNN ran one fused partition with the input quantize and output dequantize on CPU.
+Selecting `--device npu` does not imply that every operation ran on the NPU.
+
 **Limits and next steps:**
 
-- Native Windows ML, ORT WindowsML, and ORT GenAI wheels exist at the current
-  main pins. A standalone CPU ONNX session is not equivalent to classic
-  `winml perf`/`run`: those commands still traverse model and export imports.
-  Keep this path separate from GGUF when bringing up classic ONNX.
+- Pre-exported ONNX `perf` needs `ml-dtypes` for ONNX dtype handling. Its
+  native wheel is included; this does not verify Hugging Face model loading
+  or model export. `winml run` is disabled in this CLI version, independently
+  of ARM support.
 - The full profile from `private/zhenni/arm` selects `pyarrow==25.0.0`;
   its PyPI release has no CPython 3.11 Windows ARM64 wheel. PyTorch's CPU
   index has native torchvision builds, but a `tool.uv.sources` entry is not
@@ -94,11 +110,14 @@ an accuracy or performance benchmark.
 - [PR 1534](https://github.com/microsoft/winml-cli/pull/1534) used matching
   `2.9.31a0` preview packages and split direct Runtime/CGEP paths from the
   export wrappers. This preview uses `windowsml` and `windowsml-llama-core`
-  `2.9.36a0` instead. The PR's ResNet `0x887A0005` at pipeline build needs
-  independent reproduction on the target GPU/driver; enumeration is not
-  evidence of GPU or NPU inference.
+  `2.9.36a0` instead. `perf --runtime winml-runtime --backend cgc --device gpu`
+  built a pipeline and completed a measured iteration on both the repository
+  FP32 fixture and a local FP16 ResNet-50. The latter also ran through
+  `--runtime winml-ort --device gpu --ep winmlcg`. This did not reproduce the PR's
+  `0x887A0005`, but the model bytes, runtime and driver were not matched
+  against the original report.
 - Full developer-group `uv sync`, export/eval/build parity, accelerator
-  execution, and a hosted release run are not certified by the ARM64 smoke.
+  accuracy across models, and a hosted release run are not certified by the ARM64 smoke.
   Validate each separately before promoting the preview.
 
 ## Verify

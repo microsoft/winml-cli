@@ -114,7 +114,7 @@ def test_windows_runtime_wheel_profile(tmp_path: Path, platform_tag: str, machin
         for r in map(Requirement, requirements)
         if r.marker is None or r.marker.evaluate(env)
     }
-    assert {"numpy", "onnx", "onnxruntime-windowsml", "windowsml"} <= active.keys()
+    assert {"ml-dtypes", "numpy", "onnx", "onnxruntime-windowsml", "windowsml"} <= active.keys()
     full_stack = {"torch", "torchvision", "pyarrow", "pandas", "optimum"}
     if platform_tag == "win_arm64":
         assert full_stack.isdisjoint(active)

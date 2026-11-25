@@ -45,6 +45,7 @@ dependencies = [
   "jsonschema>=4.23",
   "mcp>=0.1.0 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
   "ml-dtypes>=0.5.3 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
+  "ml-dtypes==0.5.4 ; sys_platform == 'win32' and platform_machine == 'ARM64'",
   "numpy>=2.2,<2.3 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
   "numpy==2.3.5 ; sys_platform == 'win32' and platform_machine == 'ARM64'",
   "onnx==1.18",

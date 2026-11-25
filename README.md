@@ -43,7 +43,7 @@ Purpose-built for Windows hardware diversity, the CLI handles conversion, graph 
 
 WinML CLI requires **Python 3.11** and is distributed as a Python wheel. We recommend [uv](https://docs.astral.sh/uv/) for fast, reproducible environment setup.
 
-> **Windows on Arm:** For the full export, evaluation and development stack, use **x64 Python 3.11** under emulation as shown below. For native ARM64 Python, this branch has a [runtime wheel preview](docs/getting-started/installation.md#native-windows-arm64-runtime-preview) tested with CPU GGUF generation. It is not a drop-in replacement for the full x64 CLI.
+> **Windows on Arm:** For the full export, evaluation and development stack, use **x64 Python 3.11** under emulation as shown below. The [native ARM64 runtime wheel](docs/getting-started/installation.md#native-windows-arm64-runtime-preview) has been tested with CPU GGUF generation and local ONNX inference on CPU, DirectML GPU and Qualcomm QNN NPU. It is not a drop-in replacement for the full x64 CLI.
 >
 > ```powershell
 > uv python install cpython-3.11-windows-x86_64-none
