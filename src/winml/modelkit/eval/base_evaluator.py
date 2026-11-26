@@ -120,12 +120,14 @@ class WinMLEvaluator:
         if ds.streaming:
             if ds.shuffle:
                 dataset = dataset.shuffle(seed=ds.seed)
-            dataset = Dataset.from_list(list(dataset.take(ds.samples)), features=dataset.features)
+            rows = dataset if ds.samples is None else dataset.take(ds.samples)
+            dataset = Dataset.from_list(list(rows), features=dataset.features)
         else:
             if ds.shuffle:
                 dataset = dataset.shuffle(seed=ds.seed)
-            actual_samples = min(ds.samples, len(dataset))
-            if actual_samples < ds.samples:
+            # ``samples=None`` evaluates every row.
+            actual_samples = len(dataset) if ds.samples is None else min(ds.samples, len(dataset))
+            if ds.samples is not None and actual_samples < ds.samples:
                 logger.warning(
                     "Requested %d samples but dataset has %d. Using all.",
                     ds.samples,

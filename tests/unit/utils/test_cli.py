@@ -29,6 +29,7 @@ from winml.modelkit.utils.cli import (
     no_color_option,
     optimize_option,
     overwrite_option,
+    parse_column_mapping,
     parse_ep_options,
     parse_options,
     precision_option,
@@ -38,6 +39,14 @@ from winml.modelkit.utils.cli import (
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+def test_parse_column_mapping_keeps_keys_and_values_as_typed() -> None:
+    # A CSV header "text, label" names a column " label", as winml eval always allowed.
+    assert parse_column_mapping(["label_column= label", "input_column=text"]) == {
+        "label_column": " label",
+        "input_column": "text",
+    }
 
 
 class TestParseEpOptions:

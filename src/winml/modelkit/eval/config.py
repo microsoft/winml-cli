@@ -25,8 +25,9 @@ class DatasetConfig:
     Attributes:
         path: HF dataset path (e.g., "imagenet-1k", "nyu-mll/glue").
         name: Config name for multi-config datasets (e.g., "mrpc").
-        split: Dataset split.
-        samples: Number of samples to evaluate.
+        split: Dataset split. ``None`` uses the dataset's only split, which only
+            ``winml perf --dataset`` supports; ``winml eval`` needs a split.
+        samples: Number of samples to evaluate; ``None`` uses every row.
         shuffle: Whether to shuffle before sampling for label coverage.
         seed: Random seed for reproducible shuffling.
         columns_mapping: Column name overrides as key=value pairs.
@@ -44,8 +45,8 @@ class DatasetConfig:
 
     path: str | None = field(default=None, metadata={"cli_name": "dataset_path"})
     name: str | None = field(default=None, metadata={"cli_name": "dataset_name"})
-    split: str = "validation"
-    samples: int = 100
+    split: str | None = "validation"
+    samples: int | None = 100
     shuffle: bool = True
     seed: int = 42
     columns_mapping: dict[str, str] = field(default_factory=dict)
