@@ -41,6 +41,7 @@ jobs:
               tests/unit/optracing tests/unit/serve tests/unit/packaging tests/regression tests/cli
               tests/unit/ep_path
               skills/adding-model-support/tests skills/auto-optimize/tests
+              skills/llm-speed-bench/tests
 
     name: test (${{ matrix.group }})
 

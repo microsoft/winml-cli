@@ -145,6 +145,9 @@ prompt plus `--max-new-tokens`.
 The console report adds a table per cohort column, with request count, TTFT,
 decode throughput and request duration for each cohort value.
 
+To benchmark with SPEED-Bench, a prompt set for speculative decoding grouped by
+category and input length, see [SPEED-Bench](speed-bench.md).
+
 ## Compare runs
 
 To compare runs later, label each one and record the files the server loaded.
@@ -203,4 +206,5 @@ different point. Server-reported fields are `null` when the server does not send
 ## See also
 
 - [`winml perf`](../commands/perf.md)
+- [SPEED-Bench](speed-bench.md)
 - [GGUF — llama.cpp on Windows ML Runtime](gguf-llama-perf.md)
