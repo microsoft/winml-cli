@@ -7,13 +7,14 @@
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import click
 import pytest
 
 from winml.modelkit.compiler import compile_cgc_ir
 from winml.modelkit.compiler.runtime import _publish, _select_gpu
+from winml.modelkit.sysinfo import DXCoreAdapterError
 
 
 @pytest.fixture
@@ -27,7 +28,7 @@ def native(tmp_path, monkeypatch):
     compile_action = Mock()
 
     def write_artifact(path: Path) -> None:
-        path.write_bytes(b"ML\xefRcompiled")
+        path.write_text("module { cgc.output }", encoding="utf-8")
         path.with_suffix(".data").write_bytes(b"resources")
 
     compile_action.side_effect = write_artifact
@@ -41,13 +42,18 @@ def native(tmp_path, monkeypatch):
             self.validate = None
             sessions.append(self)
 
-        def compile_to_file(self, path, *, validate):
+        def compile_to_file(self, path, *, validate, output_format):
             self.validate = validate
+            self.output_format = output_format
             compile_action(Path(path))
 
     monkeypatch.setattr("winml.modelkit.compiler.runtime.WinMLRuntimeSession", FakeSession)
     gpu = SimpleNamespace(device_type="GPU", name="Test GPU", luid="0x00000000_0x00000001")
-    monkeypatch.setattr("winml.modelkit.compiler.runtime.enumerate_compute_adapters", lambda: [gpu])
+    adapter = MagicMock()
+    adapter.__enter__.return_value.info = gpu
+    monkeypatch.setattr(
+        "winml.modelkit.compiler.runtime.open_gpu_adapter", Mock(return_value=adapter)
+    )
     return SimpleNamespace(
         source=source,
         output=output,
@@ -60,13 +66,13 @@ def test_compile_routes_through_runtime_session_and_publishes_bundle(native):
     result = compile_cgc_ir(native.source, native.output)
 
     assert result == native.output
-    assert native.output.read_bytes() == b"ML\xefRcompiled"
+    assert native.output.read_text(encoding="utf-8") == "module { cgc.output }"
     assert native.output.with_suffix(".data").read_bytes() == b"resources"
     metadata = json.loads(native.output.with_name("output_metadata.json").read_text())
     assert metadata["format"] == "cg-output-ir"
     receipt = json.loads(native.output.with_name("output_compile.json").read_text())
     assert receipt["validation"]["status"] == "passed"
-    assert receipt["output_encoding"] == "mlir-bytecode"
+    assert receipt["output_encoding"] == "mlir-text"
     assert {entry["filename"] for entry in receipt["artifacts"]} == {
         "output.mlir",
         "output.data",
@@ -77,6 +83,7 @@ def test_compile_routes_through_runtime_session_and_publishes_bundle(native):
     assert session.backend == "cgc"
     assert session.device_luid == 1
     assert session.validate is True
+    assert session.output_format == "text"
 
 
 def test_no_validate_is_forwarded_to_runtime_session(native):
@@ -93,7 +100,7 @@ def test_overwrite_requires_opt_in_and_preserves_source(native):
     native.compile_action.assert_not_called()
 
     compile_cgc_ir(native.source, native.output, overwrite=True)
-    assert native.output.read_bytes() == b"ML\xefRcompiled"
+    assert native.output.read_text(encoding="utf-8") == "module { cgc.output }"
     assert native.source.read_bytes() == b"Input IR fixture"
 
 
@@ -105,7 +112,7 @@ def test_overwrite_removes_stale_output_metadata(native):
 
     compile_cgc_ir(native.source, native.output, overwrite=True)
 
-    assert native.output.read_bytes() == b"ML\xefRcompiled"
+    assert native.output.read_text(encoding="utf-8") == "module { cgc.output }"
     assert not stale.exists()
 
 
@@ -126,12 +133,12 @@ def test_compile_failure_does_not_replace_existing_output(native):
     assert native.output.read_bytes() == b"old"
 
 
-@pytest.mark.parametrize("failure", ["empty", "text"])
+@pytest.mark.parametrize("failure", ["empty", "binary"])
 def test_rejects_invalid_runtime_output(native, failure):
     if failure == "empty":
         native.compile_action.side_effect = lambda path: None
     else:
-        native.compile_action.side_effect = lambda path: path.write_text("unexpected")
+        native.compile_action.side_effect = lambda path: path.write_bytes(b"\xff\xfe")
     with pytest.raises(click.ClickException):
         compile_cgc_ir(native.source, native.output)
     assert not native.output.exists()
@@ -139,7 +146,7 @@ def test_rejects_invalid_runtime_output(native, failure):
 
 def test_changed_input_is_rejected_before_publication(native):
     def mutate(path):
-        path.write_bytes(b"ML\xefRcompiled")
+        path.write_text("module { cgc.output }", encoding="utf-8")
         native.source.write_bytes(b"changed")
 
     native.compile_action.side_effect = mutate
@@ -159,7 +166,7 @@ def test_invalid_metadata_is_explicit(native, kind):
 
 def test_source_metadata_change_during_compile_is_rejected(native):
     def mutate(path):
-        path.write_bytes(b"ML\xefRcompiled")
+        path.write_text("module { cgc.output }", encoding="utf-8")
         native.source.with_name("input_metadata.json").write_text("{}")
 
     native.compile_action.side_effect = mutate
@@ -170,7 +177,7 @@ def test_source_metadata_change_during_compile_is_rejected(native):
 
 def test_input_and_output_metadata_collision_preserves_source(native):
     destination = native.source.with_suffix(".mlirbc")
-    with pytest.raises(click.ClickException, match="source artifact"):
+    with pytest.raises(click.UsageError, match=r"must use \.mlir"):
         compile_cgc_ir(native.source, destination, overwrite=True)
     assert not destination.exists()
 
@@ -178,7 +185,7 @@ def test_input_and_output_metadata_collision_preserves_source(native):
 def test_nonexistent_input_and_wrong_output_suffix_are_explicit(native):
     with pytest.raises(click.ClickException, match="file not found"):
         compile_cgc_ir(native.source.with_name("missing.mlir"), native.output)
-    with pytest.raises(click.UsageError, match=r"\.mlir or \.mlirbc"):
+    with pytest.raises(click.UsageError, match=r"must use \.mlir"):
         compile_cgc_ir(native.source, native.output.with_suffix(".onnx"))
     native.compile_action.assert_not_called()
 
@@ -196,19 +203,27 @@ def test_cgc_compile_without_io_metadata(native):
     assert not native.output.with_name("output_metadata.json").exists()
 
 
-@pytest.mark.parametrize("count", [0, 2])
-def test_gpu_selection_rejects_missing_or_ambiguous_adapters(monkeypatch, count):
-    adapters = [
-        SimpleNamespace(device_type="GPU", name=f"GPU {i}", luid=f"0x00000000_0x0000000{i}")
-        for i in range(count)
-    ]
+@pytest.mark.parametrize("device_luid", [None, "0X00000000_0X00000001"])
+def test_gpu_selection_uses_shared_selector_and_releases_handle(monkeypatch, device_luid):
+    adapter = MagicMock()
+    gpu = adapter.__enter__.return_value.info
+    select_gpu = Mock(return_value=adapter)
+    monkeypatch.setattr("winml.modelkit.compiler.runtime.open_gpu_adapter", select_gpu)
+
+    assert _select_gpu(device_luid) is gpu
+
+    select_gpu.assert_called_once_with(device_luid)
+    adapter.__exit__.assert_called_once_with(None, None, None)
+
+
+def test_gpu_selection_reports_selector_error(monkeypatch):
+    error = DXCoreAdapterError("Windows cannot rank the GPUs")
     monkeypatch.setattr(
-        "winml.modelkit.compiler.runtime.enumerate_compute_adapters", lambda: adapters
+        "winml.modelkit.compiler.runtime.open_gpu_adapter", Mock(side_effect=error)
     )
-    with pytest.raises(click.ClickException, match="unambiguous"):
+    with pytest.raises(click.ClickException, match=str(error)) as caught:
         _select_gpu(None)
-    if count == 2:
-        assert _select_gpu("0X00000000_0X00000001") == adapters[1]
+    assert caught.value.__cause__ is error
 
 
 def test_atomic_publication_rolls_back_new_and_invalidated_files(tmp_path, monkeypatch):

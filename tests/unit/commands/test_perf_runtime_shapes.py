@@ -147,8 +147,10 @@ def test_ort_options_are_fresh_and_receive_dimensions_before_use(monkeypatch):
         options.add_free_dimension_override_by_name.assert_called_once_with("batch", 2)
 
 
-@pytest.mark.parametrize("runtime", ["winml-runtime", "winml-ort"])
-def test_perf_hands_shapes_to_runtime_before_compilation(tmp_path, monkeypatch, runtime):
+@pytest.mark.parametrize("runtime", ["winml-ort", "winml-runtime"])
+def test_perf_hands_shapes_to_runtime_before_compilation(
+    tmp_path, monkeypatch, runtime
+):
     from winml.modelkit.models import WinMLAutoModel
 
     model_path = _model(tmp_path)

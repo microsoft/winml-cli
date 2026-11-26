@@ -7,13 +7,14 @@
 from __future__ import annotations
 
 import json
+import sys
 import threading
 import time
 import weakref
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import click
 import numpy as np
@@ -22,9 +23,12 @@ import pytest
 from winml.modelkit.session.runtime_session import (
     WinMLRuntimeSession,
     _apply_io_metadata,
+    _cgc_external_weight_options,
+    _compile_runtime_model,
     _DXCoreAdapter,
     _numpy_dtype_for,
     _ResolvedRuntimeTarget,
+    _serialize_mlir_as_text,
     _shape_with_dynamic_dims,
     _stage_schema,
     _symbolic_dimensions_for_inputs,
@@ -123,6 +127,7 @@ class _Model:
 class _Runtime:
     def __init__(self, stage: _Stage, pipeline: _Pipeline) -> None:
         self.builder = _Builder(stage, pipeline)
+        self.target = Mock()
 
     def load_model(self, path: str) -> _Model:
         assert path.endswith(".mlir")
@@ -132,7 +137,7 @@ class _Runtime:
         return self.builder
 
     def create_target_from_adapter(self, adapter: object) -> object:
-        return adapter
+        return self.target
 
     def close(self) -> None:
         pass
@@ -189,7 +194,7 @@ def test_onnx_cgc_reloads_compiled_model_without_io_counts() -> None:
     )
     session = WinMLRuntimeSession("model.onnx", ep_device=_mlir_ep_device(), backend="cgc")
     try:
-        model, ort_schema, has_named_bindings = session._load_onnx_on_cgc(runtime, target)
+        model, ort_schema, has_named_bindings = session._load_on_cgc(runtime, target)
 
         assert model is compiled_model
         assert ort_schema is source_model.ort_schema.return_value
@@ -199,6 +204,7 @@ def test_onnx_cgc_reloads_compiled_model_without_io_counts() -> None:
         compiler.compile_to_file.assert_called_once_with(source_model, loaded_paths[1])
         compiler.close.assert_called_once_with()
         source_model.schema.assert_not_called()
+        source_model.close.assert_called_once_with()
     finally:
         session.reset()
 
@@ -227,13 +233,14 @@ def test_cgc_compile_uses_public_symbolic_options_and_closes_them(monkeypatch, f
     try:
         if fails:
             with pytest.raises(RuntimeError, match="compile failed"):
-                session._load_onnx_on_cgc(runtime, target)
+                session._load_on_cgc(runtime, target)
         else:
-            session._load_onnx_on_cgc(runtime, target)
+            session._load_on_cgc(runtime, target)
         assert options.symbolic_dimensions == {"batch": 2}
         assert compiler.compile_to_file.call_args.kwargs == {"options": options}
         options.close.assert_called_once_with()
         compiler.close.assert_called_once_with()
+        source.close.assert_called_once_with()
     finally:
         session.reset()
 
@@ -275,7 +282,9 @@ def test_stage_schema_falls_back_to_projection_interface() -> None:
     )
 
 
-def test_persistent_compile_normalizes_dynamic_schema_dimensions(tmp_path, monkeypatch) -> None:
+def test_persistent_compile_normalizes_dynamic_schema_dimensions(
+    tmp_path, monkeypatch
+) -> None:
     source_schema = Mock()
     source_schema.inputs.return_value = [("float32", (0, 4))]
     source_schema.outputs.return_value = [("float32", (0, 4))]
@@ -308,21 +317,125 @@ def test_persistent_compile_normalizes_dynamic_schema_dimensions(tmp_path, monke
     monkeypatch.setattr(
         "winml.modelkit.session.runtime_session.import_runtime", lambda: wr
     )
+    serialize_text = Mock(
+        side_effect=lambda path: path.write_text(
+            "module { cgc.output }", encoding="utf-8"
+        )
+    )
+    monkeypatch.setattr(
+        "winml.modelkit.session.runtime_session._serialize_mlir_as_text",
+        serialize_text,
+    )
     session = WinMLRuntimeSession(
-        tmp_path / "input.mlir", backend="cgc", device_luid=1
+        tmp_path / "input.mlir", backend="cgc", device_luid=1,
     )
     monkeypatch.setattr(session, "_resolve_target", lambda _runtime, _wr: resolved)
 
-    session.compile_to_file(output)
+    session.compile_to_file(output, output_format="text")
 
-    assert output.is_file()
+    assert output.read_text(encoding="utf-8") == "module { cgc.output }"
     assert options.form == "device-targeted"
     compiler.compile_to_file.assert_called_once_with(
         source_model, str(output), options=options
     )
+    serialize_text.assert_called_once_with(output)
     compiled_schema.close.assert_called_once_with()
     with pytest.raises(click.ClickException):
         _numpy_dtype_for(SimpleNamespace(name="BFLOAT16"))
+
+
+def test_serialize_mlir_as_text_replaces_bytecode(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "output.mlir"
+    path.write_bytes(b"ML\xefRcompiled")
+    read_text = Mock(return_value="module { cgc.output }\n")
+    monkeypatch.setattr(
+        "winml.modelkit.export.cgc.ir.read_mlir_text",
+        read_text,
+    )
+
+    _serialize_mlir_as_text(path)
+
+    assert path.read_text(encoding="utf-8") == "module { cgc.output }\n"
+    read_text.assert_called_once_with(path)
+
+
+@pytest.mark.parametrize("suffix", [".onnx", ".mlir", ".mlirbc"])
+def test_inference_loaders_compile_with_defaults(tmp_path, suffix):
+    source, compiled = Mock(), Mock()
+    runtime = Mock()
+    runtime.load_model.side_effect = [source, compiled]
+    options = SimpleNamespace(close=Mock())
+    compiler = Mock(create_options=Mock(return_value=options))
+    target = _ResolvedRuntimeTarget(
+        SimpleNamespace(model_compiler=lambda: compiler), "gpu"
+    )
+    session = WinMLRuntimeSession(
+        tmp_path / f"input{suffix}", backend="cgc", device_luid=1,
+    )
+    try:
+        model, ort_schema, has_named_bindings = session._load_on_cgc(runtime, target)
+        assert model is compiled
+        assert has_named_bindings is False
+        compiler.create_options.assert_not_called()
+        compiler.compile_to_file.assert_called_once_with(
+            source, runtime.load_model.call_args.args[0]
+        )
+        options.close.assert_not_called()
+        compiler.close.assert_called_once()
+        source.close.assert_called_once()
+        if suffix == ".onnx":
+            assert ort_schema is source.ort_schema.return_value
+        else:
+            assert ort_schema is None
+            source.ort_schema.assert_not_called()
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize("suffix", [".onnx", ".mlir", ".mlirbc"])
+@pytest.mark.parametrize("failure_point", ["compile", "reload"])
+def test_cgc_loader_closes_source_on_failure(tmp_path, suffix, failure_point):
+    source = Mock()
+    compiler = Mock()
+    failure = RuntimeError(f"{failure_point} failed")
+    runtime = Mock(load_model=Mock(side_effect=[source, Mock()]))
+    if failure_point == "compile":
+        compiler.compile_to_file.side_effect = failure
+    else:
+        runtime.load_model.side_effect = [source, failure]
+    target = _ResolvedRuntimeTarget(
+        SimpleNamespace(model_compiler=lambda: compiler), "gpu"
+    )
+    session = WinMLRuntimeSession(
+        tmp_path / f"input{suffix}", backend="cgc", device_luid=1
+    )
+    try:
+        with pytest.raises(RuntimeError, match=f"{failure_point} failed") as raised:
+            session._load_on_cgc(runtime, target)
+        assert raised.value is failure
+        source.close.assert_called_once()
+        compiler.close.assert_called_once()
+    finally:
+        session.close()
+
+
+def test_compile_preserves_options_and_propagates_failure():
+    options = SimpleNamespace(
+        supports_symbolic_dimensions=True, symbolic_dimensions={}, close=Mock()
+    )
+    compiler = Mock(create_options=Mock(return_value=options))
+    compiler.compile_to_file.side_effect = RuntimeError("lowering rejected")
+    target = _ResolvedRuntimeTarget(SimpleNamespace(model_compiler=lambda: compiler), "gpu")
+    with pytest.raises(RuntimeError, match="lowering rejected"):
+        _compile_runtime_model(
+            Mock(), target, Path("output.mlir"),
+            symbolic_dimensions={"batch": 2}, compiled_form="device-targeted",
+        )
+    assert options.symbolic_dimensions == {"batch": 2}
+    assert options.form == "device-targeted"
+    compiler.compile_to_file.assert_called_once()
+    options.close.assert_called_once()
+    compiler.close.assert_called_once()
 
 
 def test_io_metadata_replaces_ordinal_names(tmp_path: Path) -> None:
@@ -392,8 +505,7 @@ def test_onnx_io_ranges_reach_tensor_comparison(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "failure_point",
     [
-        "_load_mlir",
-        "_load_onnx_on_cgc",
+        "_load_on_cgc",
         "_load_onnx_on_ort",
         "create_pipeline_builder",
         "build",
@@ -769,7 +881,8 @@ def test_mlir_session_builds_runs_and_resets(
     session.compile()
     close.assert_not_called()
     assert session._adapter_handle is adapter
-    assert runtime.builder.targets == [123]
+    assert runtime.builder.targets == [runtime.target]
+    runtime.target.model_compiler.return_value.compile_to_file.assert_called_once()
     assert runtime.builder.caller_owned_at_build is False
     assert session.device == "gpu"
     assert session.io_config["input_names"] == ["input_0"]
@@ -913,7 +1026,7 @@ def test_cgc_target_uses_selected_adapter(
     else:
         resolved = session._resolve_target(runtime, SimpleNamespace())
         try:
-            assert resolved.execution_target == adapter.pointer
+            assert resolved.execution_target is runtime.target
             assert resolved.adapter is adapter
             assert adapter.closed is False
         finally:
@@ -994,7 +1107,7 @@ def test_onnx_session_passes_resolved_ep_and_device_to_runtime(
     assert runtime.target_args == (
         "NvTensorRTRTXExecutionProvider",
         gpu_kind,
-        123,
+        runtime.target,
     )
     assert runtime.builder.caller_owned_at_build is False
     assert runtime.builder.targets[0] is not None
@@ -1216,3 +1329,71 @@ def test_perf_rejects_monitor_without_loading_runtime() -> None:
     session = WinMLRuntimeSession("model.mlir", ep_device=_mlir_ep_device(), backend="cgc")
     with pytest.raises(click.ClickException, match="monitor"), session.perf(monitor=object()):
         pass
+
+
+@pytest.fixture(autouse=True)
+def mock_input_ir_classification(monkeypatch):
+    monkeypatch.setattr('winml.modelkit.export.cgc.ir.is_output_ir', lambda path: False)
+    monkeypatch.setattr(
+        'winml.modelkit.session.runtime_session._cgc_external_weight_options', lambda path: {}
+    )
+
+
+def test_cgc_external_weights_use_tensor_ranges_and_share_file_mapping(tmp_path, monkeypatch):
+    arrays = np.random.default_rng(42).standard_normal((3, 16)).astype(np.float32)
+    payloads = [array.tobytes() for array in arrays]
+    shared = tmp_path / "shared.data"
+    shared.write_bytes(payloads[0] + payloads[1])
+    separate = tmp_path / "separate.data"
+    separate.write_bytes(payloads[2])
+    source = tmp_path / "model.mlir"
+    source.write_bytes(arrays.tobytes())
+    tensors = [
+        SimpleNamespace(key="first", file=shared.name, offset=0, size=len(payloads[0])),
+        SimpleNamespace(
+            key="second", file=shared.name, offset=len(payloads[0]), size=len(payloads[1])
+        ),
+        SimpleNamespace(key="third", file=str(separate), offset=0, size=len(payloads[2])),
+    ]
+    compiler = MagicMock()
+    compiler.__enter__.return_value = compiler
+    module = compiler.create_module_from_mlir.return_value.__enter__.return_value
+    module.external_tensors.return_value = tensors
+    monkeypatch.setattr("winml.modelkit.export.cgc.create_foundry_compiler", lambda: compiler)
+    monkeypatch.setitem(
+        sys.modules, "_foundry",
+        SimpleNamespace(SerializationFormat=SimpleNamespace(TEXT=0, BYTECODE=1)),
+    )
+
+    resources = _cgc_external_weight_options(source)["resources"]
+    assert list(resources) == [tensor.key for tensor in tensors]
+    for tensor, expected in zip(tensors, payloads, strict=True):
+        assert bytes(resources[tensor.key]) == expected
+        assert resources[tensor.key].readonly
+    assert resources["first"].obj is resources["second"].obj
+    assert resources["third"].obj is not resources["first"].obj
+
+
+def test_output_ir_load_bypasses_compiler_and_transfers_ownership(monkeypatch):
+    monkeypatch.setattr('winml.modelkit.export.cgc.ir.is_output_ir', lambda path: True)
+    source = Mock()
+    runtime = Mock(load_model=Mock(return_value=source))
+    compiler = Mock()
+    target = _ResolvedRuntimeTarget(
+        execution_target=SimpleNamespace(model_compiler=lambda: compiler),
+        device_class='gpu',
+    )
+    session = WinMLRuntimeSession(
+        'compiled.mlir', backend='cgc', ep_device=_mlir_ep_device(),
+    )
+    try:
+        model, ort_schema, named = session._load_on_cgc(runtime, target)
+        assert model is source
+        assert ort_schema is None
+        assert named is False
+        compiler.compile_to_file.assert_not_called()
+        source.close.assert_not_called()
+        assert session._compiled_artifacts is None
+    finally:
+        source.close()
+        session.close()

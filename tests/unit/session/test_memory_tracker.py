@@ -8,6 +8,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from winml.modelkit.commands import _generation_metrics as generation_metrics
 from winml.modelkit.session.monitor import memory_tracker as mt
 
 
@@ -180,9 +181,9 @@ def test_main_mean_metrics_keep_unavailable_and_zero_distinct():
 def test_genai_consumer_propagates_missing_vram_without_crashing(monkeypatch):
     from winml.modelkit.commands import _perf_genai as genai
 
-    monkeypatch.setattr(genai, "_get_rss_mb", lambda: 100.0)
+    monkeypatch.setattr(generation_metrics, "_get_rss_mb", lambda: 100.0)
     samples = iter([(None, 0.0), (20.0, 0.0), (30.0, 0.0)])
-    monkeypatch.setattr(genai, "_get_vram_mb", lambda _: next(samples))
+    monkeypatch.setattr(generation_metrics, "_get_vram_mb", lambda _: next(samples))
     tracker = genai._GenaiMemoryTracker(adapter_luid="bound-luid")
     tracker.record_baseline()
     tracker.record_after_load()

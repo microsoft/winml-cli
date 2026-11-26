@@ -1,0 +1,105 @@
+{
+  "skill_name": "use-winml-cli",
+  "description": "Recovered real-execution scenarios. Expected outcomes are evaluator-only. Use isolated fresh trial directories, verify actual device/provider execution and artifacts, and report unavailable hardware as SKIP. No runner or historical passing grades are bundled.",
+  "default_runs": 3,
+  "cases": [
+    {
+      "id": "cpu-benchmark-resnet",
+      "hardware": "any",
+      "required_ep": null,
+      "prompt": "I just got this Windows AI PC and I want to know how fast `microsoft/resnet-50` runs on CPU using winml. Set it up, benchmark it on CPU only, save the metrics to perf.json in the trial output directory, and report the measured latency.",
+      "expected_outcomes": {
+        "artifact_glob": "**/perf.json",
+        "artifact_keys": ["latency_ms"],
+        "verify_execution_device": "cpu",
+        "final_message_must_match": "\\d+\\.?\\d*\\s*ms",
+        "max_tool_uses": 15,
+        "max_duration_s": 600,
+        "should_complete_task": true
+      }
+    },
+    {
+      "id": "llm-refusal-phi3",
+      "hardware": "any",
+      "required_ep": null,
+      "prompt": "Can you help me convert microsoft/Phi-3-mini-4k-instruct to run on my Intel NPU? I want to use winml or whatever the windows ml toolkit is.",
+      "expected_outcomes": {
+        "artifact_glob": null,
+        "artifact_keys": null,
+        "final_message_must_match": "(out of scope|outside.+scope|generative|LLM)",
+        "forbidden_commands": ["export", "optimize", "quantize", "compile", "build", "perf"],
+        "scope_boundary": "Declines this skill's classic-model pipeline for a generative model without claiming that the current CLI has no generative capabilities.",
+        "max_tool_uses": 10,
+        "max_duration_s": 300,
+        "should_complete_task": false,
+        "should_refuse": true
+      }
+    },
+    {
+      "id": "cpu-full-build-resnet",
+      "hardware": "any",
+      "required_ep": null,
+      "prompt": "I want to build a CPU-optimized version of microsoft/resnet-50 using the winml pipeline. Generate the config, run the build into the trial output directory, and confirm the output artifact exists. Just CPU EP, no NPU needed.",
+      "expected_outcomes": {
+        "artifact_glob": "**/*.onnx",
+        "artifact_keys": null,
+        "verify_model_load": true,
+        "verify_execution_device": "cpu",
+        "final_message_must_match": "(build|completed|saved|success)",
+        "max_tool_uses": 20,
+        "max_duration_s": 900,
+        "should_complete_task": true
+      }
+    },
+    {
+      "id": "qnn-benchmark-resnet",
+      "hardware": "snapdragon",
+      "required_ep": "QNNExecutionProvider",
+      "prompt": "I have a Snapdragon X Elite dev box. Benchmark microsoft/resnet-50 on the Hexagon NPU end-to-end, save metrics to perf.json in the trial output directory, and report the measured latency. Do not substitute CPU.",
+      "expected_outcomes": {
+        "artifact_glob": "**/perf.json",
+        "artifact_keys": ["latency_ms"],
+        "verify_execution_device": "npu",
+        "verify_execution_ep": "QNNExecutionProvider",
+        "final_message_must_match": "\\d+\\.?\\d*\\s*ms",
+        "max_tool_uses": 20,
+        "max_duration_s": 1200,
+        "should_complete_task": true
+      }
+    },
+    {
+      "id": "qnn-full-build-resnet",
+      "hardware": "snapdragon",
+      "required_ep": "QNNExecutionProvider",
+      "prompt": "Build a QNN-compiled microsoft/resnet-50 for my Snapdragon X Elite NPU in the trial output directory. I need the actual EP-compiled artifact and any required sidecars, not just the optimized intermediate.",
+      "expected_outcomes": {
+        "artifact_glob": "**/*.onnx",
+        "artifact_keys": null,
+        "verify_model_load": true,
+        "verify_execution_device": "npu",
+        "verify_ep_source": "QNNExecutionProvider",
+        "verify_context_sidecars": true,
+        "final_message_must_match": "(compiled|QNN|success)",
+        "max_tool_uses": 25,
+        "max_duration_s": 1800,
+        "should_complete_task": true
+      }
+    },
+    {
+      "id": "vitisai-benchmark-resnet",
+      "hardware": "ryzen-ai",
+      "required_ep": "VitisAIExecutionProvider",
+      "prompt": "I have an AMD Ryzen AI laptop. Benchmark microsoft/resnet-50 on the NPU, save metrics to perf.json in the trial output directory, and report the measured latency. Do not substitute CPU.",
+      "expected_outcomes": {
+        "artifact_glob": "**/perf.json",
+        "artifact_keys": ["latency_ms"],
+        "verify_execution_device": "npu",
+        "verify_execution_ep": "VitisAIExecutionProvider",
+        "final_message_must_match": "\\d+\\.?\\d*\\s*ms",
+        "max_tool_uses": 20,
+        "max_duration_s": 1200,
+        "should_complete_task": true
+      }
+    }
+  ]
+}

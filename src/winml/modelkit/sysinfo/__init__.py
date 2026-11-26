@@ -17,7 +17,13 @@ if TYPE_CHECKING:
         resolve_device,
         resolve_eps,
     )
-    from .dxcore_adapters import DXCoreAdapterInfo, enumerate_compute_adapters
+    from .dxcore_adapters import (
+        DXCoreAdapterError,
+        DXCoreAdapterHandle,
+        DXCoreAdapterInfo,
+        enumerate_compute_adapters,
+        open_gpu_adapter,
+    )
     from .gpu_priority import gpu_priority_key
     from .hardware import CPU, GPU, NPU, get_available_devices
     from .luid import format_pdh_luid, get_ep_device_luid
@@ -31,8 +37,11 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "resolve_check_device_ep": (".device", "resolve_check_device_ep"),
     "resolve_device": (".device", "resolve_device"),
     "resolve_eps": (".device", "resolve_eps"),
+    "DXCoreAdapterError": (".dxcore_adapters", "DXCoreAdapterError"),
+    "DXCoreAdapterHandle": (".dxcore_adapters", "DXCoreAdapterHandle"),
     "DXCoreAdapterInfo": (".dxcore_adapters", "DXCoreAdapterInfo"),
     "enumerate_compute_adapters": (".dxcore_adapters", "enumerate_compute_adapters"),
+    "open_gpu_adapter": (".dxcore_adapters", "open_gpu_adapter"),
     "gpu_priority_key": (".gpu_priority", "gpu_priority_key"),
     "CPU": (".hardware", "CPU"),
     "GPU": (".hardware", "GPU"),
@@ -49,6 +58,8 @@ __all__ = [
     "GPU",
     "NPU",
     "OS",
+    "DXCoreAdapterError",
+    "DXCoreAdapterHandle",
     "DXCoreAdapterInfo",
     "SysInfo",
     "enumerate_compute_adapters",
@@ -58,6 +69,7 @@ __all__ = [
     "get_ep_device_luid",
     "get_ep_device_map",
     "gpu_priority_key",
+    "open_gpu_adapter",
     "resolve_check_device_ep",
     "resolve_device",
     "resolve_eps",

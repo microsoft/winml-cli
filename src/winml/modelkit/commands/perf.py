@@ -18,15 +18,16 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import sys
 import time
+from contextlib import ExitStack
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 
 import click
-import numpy as np
 from rich.markup import escape
 from rich.table import Table
 
@@ -55,9 +56,10 @@ from ._pre_bench import print_pre_bench_block
 
 if TYPE_CHECKING:
     import contextlib
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator, Sequence
     from typing import IO
 
+    import numpy as np
     from rich.console import Console
 
     from ..models.winml.base import WinMLPreTrainedModel
@@ -240,6 +242,21 @@ def _resolve_ep_monitor(
     device_norm = (device or "").lower()
 
     if op_tracing:
+        if ep_norm == "vitisai":
+            from ..session.monitor import VitisAIOpMonitor
+
+            if op_tracing != "basic":
+                raise RuntimeError("VitisAI op-tracing currently supports only level 'basic'.")
+            if device_norm not in ("npu", "auto", ""):
+                raise RuntimeError("VitisAI op-tracing requires --device npu.")
+            if not VitisAIOpMonitor.is_available():
+                raise RuntimeError(
+                    "Op-tracing --ep vitisai requested but VitisAI is not available "
+                    "on this system. Install it through Windows ML EP Catalog "
+                    "or a compatible BYO plugin."
+                )
+            return VitisAIOpMonitor(output_dir=output_dir)
+
         if ep_norm == "nvtensorrtrtx":
             from ..session.monitor import NvTensorRTRTXMonitor
 
@@ -281,7 +298,7 @@ def _resolve_ep_monitor(
         ):
             raise RuntimeError(
                 f"Op-tracing not available for EP {ep!r} on device {device!r}. "
-                "Supported EPs: qnn, openvino (basic on cpu/npu), "
+                "Supported EPs: qnn, vitisai (basic on npu), openvino (basic on cpu/npu), "
                 "nv_tensorrt_rtx (basic on gpu)."
             )
 
@@ -313,7 +330,7 @@ def _resolve_ep_monitor(
 
         raise RuntimeError(
             f"Op-tracing not available for EP {ep!r} on device {device!r}. "
-            "Supported EPs: qnn, openvino (basic on cpu/npu), "
+            "Supported EPs: qnn, vitisai (basic on npu), openvino (basic on cpu/npu), "
             "nv_tensorrt_rtx (basic on gpu)."
         )
 
@@ -572,6 +589,7 @@ class BenchmarkConfig:
     precision: str = "auto"
     iterations: int = 100
     warmup: int = 10
+    warmup_seconds: float = 0.0
     # When set, the benchmark phase runs for this many wall-clock seconds (after
     # warmup) instead of a fixed ``iterations`` count. Ideal with --monitor,
     # whose PDH counters need time to emit real utilization data.
@@ -589,6 +607,7 @@ class BenchmarkConfig:
     allow_unsupported_nodes: bool = False
     monitor: bool = False
     memory: bool = True
+    memory_backend: str = "pdh"
     ep: EPNameOrAlias | None = None
     ep_source: str | None = None  # parsed from '--ep <name>@<source>' syntax
     device_luid: str | None = None
@@ -636,6 +655,8 @@ class BenchmarkResult:
 
     # Raw samples (for advanced analysis)
     raw_samples_ms: list[float] = field(default_factory=list)
+    gpu_execution: dict[str, Any] | None = None
+    warmup_measurement: dict[str, Any] | None = None
 
     # Throughput
     samples_per_sec: float = 0.0
@@ -669,6 +690,8 @@ class BenchmarkResult:
         """Convert to dictionary for JSON serialization."""
         result: dict[str, Any] = {
             "schema_version": 2,
+            **({"gpu_execution": self.gpu_execution} if self.gpu_execution is not None else {}),
+            **({"warmup_measurement": self.warmup_measurement} if self.warmup_measurement else {}),
             "benchmark_info": {
                 "runtime": self.config.runtime,
                 "timing_scope": (
@@ -688,12 +711,12 @@ class BenchmarkResult:
                 "device_luid": self.config.device_luid,
                 "ep_options": self.config.ep_options,
                 "precision": self.config.precision,
-                # In duration mode the run isn't bounded by a fixed count, so
+                # Duration and DXGI minima can extend the requested count, so
                 # report the actual number of timed (post-warmup) samples rather
                 # than the unused ``--iterations`` default.
                 "iterations": (
                     len(self.raw_samples_ms)
-                    if self.config.duration is not None
+                    if self.config.duration is not None or self.config.memory_backend == "dxgi"
                     else self.config.iterations
                 ),
                 "warmup": self.config.warmup,
@@ -778,6 +801,8 @@ def generate_random_inputs(
     Returns:
         Dictionary of input_name -> numpy array
     """
+    import numpy as np
+
     from ..core import generate_dummy_inputs_from_specs
 
     symbolic_shapes = io_config.get("input_symbolic_shapes") or [
@@ -869,7 +894,7 @@ def _resolve_shape(
                     ) from e
                 try:
                     is_integral = isinstance(value, str) or value == coerced_value
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     is_integral = False
                 if not is_integral:
                     raise click.ClickException(
@@ -927,6 +952,8 @@ def _runtime_input_shapes(
         return {}, {}
     shapes: dict[str, tuple[int, ...]] = {}
     if input_data is not None:
+        import numpy as np
+
         if input_data.suffix.lower() != ".npz":
             raise click.UsageError("--input-data must be a named .npz archive.")
         try:
@@ -966,6 +993,8 @@ def _read_numpy_header(
     stream: IO[bytes], version: tuple[int, int]
 ) -> tuple[tuple[int, ...], bool, np.dtype]:
     """Read only a bounded NPY header using NumPy's public format API."""
+    import numpy as np
+
     if version == (3, 0):
         from io import BytesIO
 
@@ -1073,6 +1102,8 @@ class PerfBenchmark:
         # the build and inference.
         self._resolved_device: str | None = None
         self._resolved_ep: EPNameOrAlias | None = None
+        self._initial_ep_monitor: WinMLEPMonitor | None = None
+        self._traced_ep: str | None = None
 
     def _resolve_device_ep(self) -> None:
         """Resolve the concrete target device + EP, failing fast on a bad combo.
@@ -1152,12 +1183,8 @@ class PerfBenchmark:
 
         Uses a concrete ``isinstance(..., WinMLCompositeModel)`` check rather
         than duck-typing on ``sub_models`` so a future single-session model
-        carrying an unrelated ``sub_models`` attribute can't be misrouted. The
-        import is function-local because ``composite_model`` pulls in torch: a
-        module-level runtime import would blow the ``winml perf --help`` import
-        budget (see tests/cli/test_import_time.py). A function-local import
-        runs only when this property is read — i.e. after a model is loaded, by
-        which point torch is already imported — and never at module load.
+        carrying an unrelated ``sub_models`` attribute can't be misrouted.
+        Keep the import local so command discovery does not load model wrappers.
         """
         from ..models.winml.composite_model import WinMLCompositeModel
 
@@ -1188,7 +1215,27 @@ class PerfBenchmark:
     def run(self) -> BenchmarkResult | dict[str, BenchmarkResult]:
         """Run with the model-free baseline device retained through final measurements."""
         try:
-            return self._run_with_memory()
+            with ExitStack() as stack:
+                if self.config.op_tracing == "basic" and self.config.runtime == "winml-ort":
+                    from ..session import short_ep_name
+
+                    ep = short_ep_name(self.config.ep) if self.config.ep else "auto"
+                    if ep in ("vitisai", "auto") and self.config.device.lower() in ("auto", "npu"):
+                        from ..ep_path import EP_CATALOG
+                        from ..session.monitor import VitisAIOpMonitor
+
+                        # Hardware discovery does not load the EP or initialize XRT.
+                        # Non-AMD auto runs must not depend on XRT configuration.
+                        if ep == "vitisai" or EP_CATALOG.is_compatible(
+                            "VitisAIExecutionProvider", device_type="npu"
+                        ):
+                            output_dir = (
+                                self.config.output_path.parent
+                                if self.config.output_path
+                                else Path.cwd()
+                            )
+                            stack.enter_context(VitisAIOpMonitor.profiling_environment(output_dir))
+                return self._run_with_memory()
         finally:
             if self._memory_tracker is not None:
                 self._memory_tracker.close()
@@ -1208,7 +1255,10 @@ class PerfBenchmark:
         if self.config.memory:
             from ..session.monitor import ProcessMemoryTracker
 
-            self._memory_tracker = ProcessMemoryTracker()
+            self._memory_tracker = ProcessMemoryTracker(
+                backend=self.config.memory_backend,
+                interval=0.01 if self.config.memory_backend == "dxgi" else 0.05,
+            )
             self._memory_tracker.start()
         try:
             # [1] Load model (build pipeline: optimize, cache, etc.)
@@ -1280,6 +1330,7 @@ class PerfBenchmark:
             self._memory_tracker = ProcessMemoryTracker(
                 adapter_luid=self._resolve_adapter_luid(),
                 scope="already_loaded_component_through_inference",
+                backend=self.config.memory_backend,
             )
             self._memory_tracker.start()
             self._memory_tracker.checkpoint("after_load")
@@ -1294,7 +1345,7 @@ class PerfBenchmark:
         """Run with the lifecycle baseline captured before model construction."""
         assert self._model is not None
 
-        # Compile session early so model.device is resolved for display
+        # Compile session early so model.device is resolved for display.
         with suppress_native_warnings(enabled=True):
             self._single._session.compile()
 
@@ -1378,6 +1429,20 @@ class PerfBenchmark:
             )
         assert self._ep_device is not None
 
+        if (
+            self.config.op_tracing == "basic"
+            and self.config.runtime == "winml-ort"
+            and self._ep_device.device.ep_name == "VitisAIExecutionProvider"
+        ):
+            self._initial_ep_monitor = _open_ep_monitor_or_exit(
+                op_tracing=self.config.op_tracing,
+                ep=self._ep_device.device.ep_name,
+                device=self._ep_device.device.device_type.lower(),
+                output_dir=(
+                    self.config.output_path.parent if self.config.output_path else Path.cwd()
+                ),
+            )
+
         model_id = self.config.model_id
         model_path = Path(model_id)
         is_onnx = model_path.suffix.lower() == ".onnx"
@@ -1455,6 +1520,26 @@ class PerfBenchmark:
                 max_optim_iterations=self.config.max_optim_iterations,
             ),
         }
+        if self._initial_ep_monitor is not None:
+            from ..compiler import EPConfig
+
+            # AMD workaround: XRT's first session must already be profiled.
+            # Keep the monitor out of model-loading APIs; pass ordinary options.
+            initial_monitor = self._initial_ep_monitor
+            common_kwargs["ep_config"] = EPConfig(enable_ep_context=False)
+            common_kwargs["provider_options"] = {
+                **(self.config.ep_options or {}),
+                **initial_monitor.get_provider_options(),
+            }
+
+            def profiling_session_options() -> Any:
+                import onnxruntime as ort
+
+                options = ort.SessionOptions()
+                initial_monitor.configure_session_options(options)
+                return options
+
+            common_kwargs["session_options"] = profiling_session_options
 
         if is_onnx:
             runtime_shapes: dict[str, tuple[int, ...]] = {}
@@ -1570,13 +1655,47 @@ class PerfBenchmark:
 
         session = self._single._session
         with _native_warning_filtered_perf(session, warmup=self.config.warmup) as ctx:
-            _run_simple_loop(
-                session,
-                self._inputs,
-                total_iterations,
-                warmup=self.config.warmup,
-                duration_sec=self.config.duration,
-            )
+            if self.config.warmup_seconds > 0:
+                started = time.perf_counter()
+                count = 0
+                while (
+                    count < self.config.warmup
+                    or time.perf_counter() - started < self.config.warmup_seconds
+                ):
+                    ctx.stats.warmup = count + 1
+                    session.run(self._inputs)
+                    count += 1
+                self._timed_warmup = {
+                    "count": count,
+                    "duration_ms": (time.perf_counter() - started) * 1000,
+                    "minimum_count": self.config.warmup,
+                    "minimum_seconds": self.config.warmup_seconds,
+                }
+                total_iterations = self.config.iterations
+                if self._memory_tracker is not None:
+                    self._memory_tracker.checkpoint("steady_inference")
+            if self.config.memory_backend == "dxgi":
+                steady_start = time.perf_counter()
+                measured = 0
+                minimum_seconds = max(10.0, self.config.duration or 0.0)
+                while (
+                    measured < self.config.iterations
+                    or time.perf_counter() - steady_start < minimum_seconds
+                ):
+                    session.run(self._inputs)
+                    measured += 1
+                self._steady_measurement = {
+                    "count": measured,
+                    "duration_ms": (time.perf_counter() - steady_start) * 1000,
+                }
+            else:
+                _run_simple_loop(
+                    session,
+                    self._inputs,
+                    total_iterations,
+                    warmup=0 if self.config.warmup_seconds > 0 else self.config.warmup,
+                    duration_sec=self.config.duration,
+                )
 
         # Expose ctx for post-benchmark reporting (parity with monitored path).
         self._perf_ctx = ctx
@@ -1606,7 +1725,7 @@ class PerfBenchmark:
         # correct EP monitor (e.g. QNN op-tracing) instead of the raw string.
         resolved_ep = self._single.ep_name or self._resolved_ep or self.config.ep
         resolved_device = self._single.device or self._resolved_device or self.config.device
-        ep_monitor = _open_ep_monitor_or_exit(
+        ep_monitor = self._initial_ep_monitor or _open_ep_monitor_or_exit(
             op_tracing=self.config.op_tracing,
             ep=resolved_ep,
             device=resolved_device,
@@ -1633,6 +1752,8 @@ class PerfBenchmark:
         )
 
         session = self._single._session
+        # Remove this opt-in once AMD supports profiling after session rebuilds.
+        reuse_options = {"reuse_session": True} if self._initial_ep_monitor is not None else {}
         if hw_available:
             hw_monitor = HWMonitor(
                 poll_interval_ms=_HW_POLL_INTERVAL_MS,
@@ -1643,10 +1764,11 @@ class PerfBenchmark:
             )
             with (
                 _native_warning_filtered_perf(
-                    session, warmup=self.config.warmup, monitor=ep_monitor
+                    session, warmup=self.config.warmup, monitor=ep_monitor, **reuse_options
                 ) as ctx,
                 hw_monitor as hw,
             ):
+                self._traced_ep = self._single.ep_name
                 _run_monitored_loop(
                     session,
                     self._inputs,
@@ -1670,8 +1792,9 @@ class PerfBenchmark:
             # No --monitor (or HWMonitor unavailable): run with the EP monitor
             # only so op-tracing and proof-of-execution still work.
             with _native_warning_filtered_perf(
-                session, warmup=self.config.warmup, monitor=ep_monitor
+                session, warmup=self.config.warmup, monitor=ep_monitor, **reuse_options
             ) as ctx:
+                self._traced_ep = self._single.ep_name
                 _run_simple_loop(
                     session,
                     self._inputs,
@@ -1689,6 +1812,8 @@ class PerfBenchmark:
 
     def _collect_results(self, stats: PerfStats) -> BenchmarkResult:
         """Collect benchmark results from PerfStats."""
+        import numpy as np
+
         io_config = self._single.io_config
 
         # Calculate throughput. Scale by the batch the session actually ran
@@ -1703,11 +1828,12 @@ class PerfBenchmark:
         std_ms = float(np.std(samples)) if samples else 0.0
 
         # Calculate warmup mean latency
-        warmup_samples = stats.all_samples_ms[: self.config.warmup]
+        warmup_samples = stats.all_samples_ms[: stats.warmup]
         warmup_mean_ms = float(np.mean(warmup_samples)) if warmup_samples else 0.0
 
         return BenchmarkResult(
             config=self.config,
+            warmup_measurement=getattr(self, "_timed_warmup", None),
             # Model info
             input_names=io_config["input_names"],
             input_shapes=[list(s) if s else [] for s in io_config["input_shapes"]],
@@ -1733,7 +1859,7 @@ class PerfBenchmark:
             # Actual values (resolved after build + compile)
             actual_device=self._single.device,
             actual_task=self._single.task or self.config.task or "auto-detected",
-            actual_ep=cast("EPName | None", self._single.ep_name),
+            actual_ep=cast("EPName | None", self._single.ep_name or self._traced_ep),
             running_model_path=str(self._single.running_model_path),
             # Hardware monitor metrics (only present when --monitor is used)
             hw_monitor=getattr(self, "_hw_metrics", None),
@@ -1823,6 +1949,8 @@ def _perf_modules(
     import difflib
     import json as json_mod
     import tempfile
+
+    import numpy as np
 
     from ..build import build_hf_model
     from ..cache import get_cache_dir, get_cache_key, get_model_dir
@@ -2167,6 +2295,14 @@ def display_console_report(result: BenchmarkResult, console: SafeConsole) -> Non
     even though they no longer render to stdout — the data model is
     unchanged, only the console rendering was pruned.
     """
+    if result.gpu_execution is not None:
+        gpu = result.gpu_execution
+        console.print("\n[bold]GPU execution time (ms; inference body)[/bold]")
+        console.print(
+            f"Mean {gpu['mean_ms']:.6f} | P50 {gpu['median_ms']:.6f} | "
+            f"P95 {gpu['p95_ms']:.6f} | Valid Runs {gpu['valid_runs']}/{gpu['expected_runs']}"
+        )
+        console.print(f"ETW lost: {gpu['events_lost']} | Recorded excluded: {gpu['recorded_runs']}")
     # Latency table
     console.print()
     console.print("[bold]Latency (ms)[/bold]")
@@ -2370,17 +2506,21 @@ def generate_output_path(
     local time, format ``YYYYMMDD-HHMMSS``.
 
     For ONNX, MLIR, and GGUF inputs, the file stem is used as the slug
-    (e.g., ``model.onnx`` -> ``model``). For HF model IDs, ``/`` and ``\``
+    (e.g., ``model.onnx`` -> ``model``). An existing folder (a checkpoint or a
+    build output) is named by its resolved name, never its full path (e.g.,
+    ``.`` -> the current folder's name). For HF model IDs, ``/`` and ``\``
     are replaced with ``_`` (e.g., ``microsoft/resnet-50`` ->
     ``microsoft_resnet-50``). A ``submodel`` (composite sub-component) is nested
     under its own directory so per-sub-model reports don't collide.
     """
     p = Path(model_id)
-    slug = (
-        p.stem
-        if p.suffix.lower() in {".onnx", ".mlir", ".gguf"}
-        else model_id.replace("/", "_").replace("\\", "_")
-    )
+    if p.suffix.lower() in {".onnx", ".mlir", ".gguf"}:
+        slug = p.stem
+    elif p.is_dir():
+        # A drive root has no name.
+        slug = p.resolve().name or "model"
+    else:
+        slug = model_id.replace("/", "_").replace("\\", "_")
 
     out_dir = Path.home() / ".cache" / "winml" / "perf" / slug
     if module_class:
@@ -2908,9 +3048,9 @@ def _run_genai_runtime(
 # perf() param names that select a benchmark target a GGUF file cannot honor
 # (an ONNX EP, ONNX-only inputs, or model-graph surgery), mapped to the flag.
 # They are rejected rather than ignored so a run never silently measures
-# something other than what was asked for.
+# something other than what was asked for. --backend is checked on its own:
+# --backend cgc routes a GGUF file to CGC text generation before this table.
 _GGUF_REJECTED_FLAGS: dict[str, str] = {
-    "backend": "--backend",
     "ep": "--ep",
     "ep_options": "--ep-options",
     "device_luid": "--device-luid",
@@ -2920,7 +3060,7 @@ _GGUF_REJECTED_FLAGS: dict[str, str] = {
 }
 
 # WinML build and ONNX-only options a prebuilt GGUF file ignores, warned like a
-# prebuilt genai bundle does.
+# prebuilt genai bundle does. CGC text generation ignores the same options.
 _GGUF_IGNORED_FLAGS: dict[str, str] = {
     **_GENAI_IGNORED_FLAGS,
     "no_compile": "--compile/--no-compile",
@@ -2930,6 +3070,270 @@ _GGUF_IGNORED_FLAGS: dict[str, str] = {
     "compare_devices": "--compare-devices",
     "config_file": "--config",
 }
+
+# Exact-workload options only the Task generation routes implement, mapped to
+# the flag: GGUF on llama.cpp and --backend cgc. --evidence, the llama.cpp
+# native log, is checked on its own.
+_GGUF_ONLY_FLAGS: dict[str, str] = {
+    "prompt_ids_file": "--prompt-ids-file",
+    "context_length": "--context-length",
+    "ignore_eos": "--ignore-eos/--no-ignore-eos",
+}
+_EVIDENCE_SCOPE = "--evidence applies only to a .gguf file on llama.cpp"
+
+# Options CGC text generation cannot honor (an ONNX EP or ONNX-only input,
+# model-graph surgery, the llama.cpp native log, or the single-inference ETW
+# measurement), mapped to the flag. They are rejected, never ignored.
+_CGC_GENERATION_REJECTED_FLAGS: dict[str, str] = {
+    "ep": "--ep",
+    "ep_options": "--ep-options",
+    "input_data": "--input-data",
+    "module_class": "--module",
+    "submodel": "--submodel",
+    "evidence": "--evidence",
+    "etw_tracing": "--etw-tracing",
+    "allow_cpu_fallback": "--allow-cpu-fallback",
+}
+
+# Options only CGC text generation implements, mapped to the flag.
+_CGC_ONLY_FLAGS: dict[str, str] = {"program_cache": "--program-cache"}
+
+
+def _reject_gguf_only_options(ctx: click.Context, *, runtime_hint: str = "") -> None:
+    """Reject GGUF-only options for other inputs rather than silently ignoring them.
+
+    ``runtime_hint`` (see :func:`_explicit_runtime_cgc_hint`) follows the text
+    generation options it explains; ``--evidence`` never applies to a checkpoint
+    folder, so its sentence points to no other route.
+    """
+    model = ctx.params["model"]
+    provided = [
+        flag for param, flag in _GGUF_ONLY_FLAGS.items() if cli_utils.is_cli_provided(ctx, param)
+    ]
+    problems: list[str] = []
+    if provided:
+        problems.append(
+            "Options that only apply to GGUF models (.gguf) or to --backend cgc text generation "
+            f"cannot be used with '{model}': {', '.join(provided)}.{runtime_hint}"
+        )
+    if cli_utils.is_cli_provided(ctx, "evidence"):
+        problems.append(f"{_EVIDENCE_SCOPE}; it cannot be used with '{model}'.")
+    if problems:
+        raise click.UsageError(" ".join(problems))
+
+
+def _reject_cgc_only_options(ctx: click.Context, *, runtime_hint: str = "") -> None:
+    """Reject CGC text generation options for other routes rather than silently ignoring them.
+
+    ``runtime_hint`` (see :func:`_explicit_runtime_cgc_hint`) is appended to the rejection.
+    """
+    provided = [
+        flag for param, flag in _CGC_ONLY_FLAGS.items() if cli_utils.is_cli_provided(ctx, param)
+    ]
+    if provided:
+        raise click.UsageError(
+            f"{', '.join(provided)} only applies to --backend cgc text generation (a .gguf file "
+            f"or a local checkpoint folder).{runtime_hint}"
+        )
+
+
+def _resolve_prompt_ids(ctx: click.Context) -> tuple[int, ...] | None:
+    """Read ``--prompt-ids-file`` after checking it against the text-prompt options."""
+    from ._task_generation_perf import read_prompt_ids_file
+
+    p = ctx.params
+    path: Path | None = p.get("prompt_ids_file")
+    if path is None:
+        return None
+    if cli_utils.is_cli_provided(ctx, "prompt") or p.get("prompt_file") is not None:
+        raise click.UsageError(
+            "--prompt-ids-file cannot be combined with --prompt or --prompt-file."
+        )
+    if cli_utils.is_cli_provided(ctx, "apply_template") and p["apply_template"]:
+        raise click.UsageError(
+            "--apply-template cannot be used with --prompt-ids-file: exact token IDs are "
+            "submitted without a chat template."
+        )
+    try:
+        return read_prompt_ids_file(path)
+    except ValueError as exc:
+        raise click.UsageError(f"--prompt-ids-file {path}: {exc}") from exc
+
+
+def _same_file(first: str | Path, second: str | Path) -> bool:
+    """Whether two paths name one file: by identity when either exists, else by path."""
+    first, second = Path(first), Path(second)
+    if first.exists() or second.exists():
+        return first.exists() and second.exists() and first.samefile(second)
+    return first.resolve() == second.resolve()
+
+
+def _reject_input_overwrite(
+    outputs: Sequence[tuple[str, Path]], inputs: Sequence[tuple[str, Path | None]]
+) -> None:
+    """Refuse an output that names an input file; ``--overwrite`` never allows this."""
+    for label, output in outputs:
+        for flag, source in inputs:
+            if source is not None and _same_file(output, source):
+                raise click.UsageError(
+                    f"{label} would overwrite the {flag} input '{source}'. Choose a different path."
+                )
+
+
+def _reject_output_inside_folder(path: Path, folder: Path, *, flag: str) -> None:
+    """Refuse a path inside the ``--model`` checkpoint folder; ``--overwrite`` never allows this.
+
+    Every file in the folder is a model input, so nothing a run writes may land
+    there. A write follows links, and a Hugging Face cache snapshot holds
+    symlinks into ``blobs/``, so the path is refused when it lies in the folder
+    as written, once its parent folders resolve (a symlinked model file still
+    counts), or once it resolves completely, and when it is an existing file
+    that is the same file as one in the folder (a hard link, or the blob behind
+    a symlink).
+    """
+    # abspath is lexical: Path.resolve() would follow the links this check looks at.
+    absolute = Path(os.path.abspath(path))  # noqa: PTH100
+    root = folder.resolve()
+    views = (
+        (absolute, Path(os.path.abspath(folder))),  # noqa: PTH100
+        (absolute.parent.resolve() / absolute.name, root),
+        (absolute.resolve(), root),
+    )
+    if any(place == base or base in place.parents for place, base in views):
+        raise click.UsageError(
+            f"{flag} '{path}' is inside the --model checkpoint folder '{folder}'. "
+            "Choose a path outside the folder."
+        )
+    model_file = _same_file_in_folder(absolute, folder) if absolute.is_file() else None
+    if model_file is not None:
+        raise click.UsageError(
+            f"{flag} '{path}' is the same file as '{model_file}' in the --model checkpoint "
+            "folder. Choose a different path."
+        )
+
+
+def _same_file_in_folder(path: Path, folder: Path) -> Path | None:
+    """The file at any depth of ``folder`` that the existing file ``path`` also names, if any."""
+    identity = path.stat()
+    for parent, _subfolders, names in os.walk(folder):
+        for name in names:
+            entry = Path(parent, name)
+            try:
+                if os.path.samestat(identity, entry.stat()):
+                    return entry
+            except OSError:  # a dangling symlink names no file
+                continue
+    return None
+
+
+def _gguf_model_inputs(model_path: Path) -> tuple[tuple[str, Path], ...]:
+    """The ``.gguf`` file and every expected split shard, labelled for ``--model``.
+
+    A missing shard is not a usage error here: the run reports it, and an
+    evidence run records it as failed.
+    """
+    from ._task_generation_perf import gguf_shard_paths
+
+    return (
+        ("--model", model_path),
+        *(("--model", shard) for shard in gguf_shard_paths(model_path, require_exists=False)),
+    )
+
+
+class _GenerationRequest(NamedTuple):
+    """Protocol options the Task text generation routes resolve the same way."""
+
+    iterations: int
+    warmup: int
+    output: Path
+    prompt: str
+    apply_template: bool
+    prompt_ids: tuple[int, ...] | None
+
+
+def _resolve_generation_request(
+    ctx: click.Context,
+    *,
+    model_path: Path,
+    model_inputs: Sequence[tuple[str, Path]],
+    check_outputs: Callable[[int, Path, Sequence[tuple[str, Path | None]]], None] | None = None,
+) -> _GenerationRequest:
+    """Resolve the protocol options GGUF on llama.cpp and CGC text generation share.
+
+    A full generation is far costlier than one ``session.run()``, so iterations
+    and warmup default to 10 and 2 unless set explicitly (as for ort-genai).
+    ``--output`` never names a model input or the ``--prompt-ids-file``, even
+    with ``--overwrite``, and an existing report needs ``--overwrite``.
+
+    Args:
+        ctx: The ``perf`` command context.
+        model_path: The model the default report path is named after.
+        model_inputs: Model files no output may overwrite, labelled by flag.
+        check_outputs: The route's own checks, called as
+            ``check_outputs(warmup, output, inputs)`` after the input
+            protection and before the report path is guarded.
+
+    Raises:
+        click.UsageError: The token IDs or the prompt options are invalid, or
+            ``--output`` names an input.
+        click.ClickException: The report exists without ``--overwrite``, or
+            the prompt file cannot be read.
+    """
+    p = ctx.params
+    iterations = p["iterations"] if cli_utils.is_cli_provided(ctx, "iterations") else 10
+    warmup = p["warmup"] if cli_utils.is_cli_provided(ctx, "warmup") else 2
+    output: Path = p.get("output") or generate_output_path(str(model_path))
+    prompt_ids = _resolve_prompt_ids(ctx)
+    # Protect every input before evidence or report writers open files.
+    inputs = (*model_inputs, ("--prompt-ids-file", p.get("prompt_ids_file")))
+    _reject_input_overwrite((("--output", output),), inputs)
+    if check_outputs is not None:
+        check_outputs(warmup, output, inputs)
+    cli_utils.guard_output(output, p["overwrite"])
+    return _GenerationRequest(
+        iterations=iterations,
+        warmup=warmup,
+        output=output,
+        # Exact token IDs bypass the text prompt and its chat template.
+        prompt=_resolve_prompt(ctx) if prompt_ids is None else p["prompt"],
+        apply_template=p["apply_template"] and prompt_ids is None,
+        prompt_ids=prompt_ids,
+    )
+
+
+def _check_gguf_evidence(
+    ctx: click.Context,
+    *,
+    warmup: int,
+    output: str | Path,
+    inputs: Sequence[tuple[str, Path | None]],
+) -> None:
+    """Check ``--evidence`` against the in-process options, the inputs and the report path."""
+    p = ctx.params
+    evidence: Path | None = p.get("evidence")
+    if evidence is None:
+        return
+    # Only evidence runs load the evidence module.
+    from ._gguf_evidence import temporary_path
+
+    if cli_utils.is_cli_provided(ctx, "memory") and p["memory"]:
+        raise click.UsageError(
+            "--memory cannot be used with --evidence: an evidence run performs no "
+            "in-process resource sampling."
+        )
+    if warmup < 1:
+        raise click.UsageError(
+            "--evidence needs at least one warmup request: the native log capture runs "
+            "through the first warmup request."
+        )
+    written = (
+        ("--evidence", evidence),
+        ("--evidence temporary file", temporary_path(evidence)),
+    )
+    _reject_input_overwrite(written, inputs)
+    if any(_same_file(output, path) for _, path in written):
+        raise click.UsageError("--evidence and --output must name different files.")
+    cli_utils.guard_output(evidence, p["overwrite"], label="Evidence")
 
 
 def _run_gguf_runtime(
@@ -2954,6 +3358,14 @@ def _run_gguf_runtime(
             "GGUF models run on the Windows ML Runtime llama.cpp backend; --runtime "
             f"{runtime} cannot load '{model}'. Use --runtime winml-runtime or auto."
         )
+    # Only --backend ort reaches here: --backend cgc routed to CGC text generation.
+    if cli_utils.is_cli_provided(ctx, "backend"):
+        raise click.UsageError(
+            "--backend cannot be used with a GGUF model except --backend cgc. Omit --backend "
+            "to run the file on llama.cpp, or pass --backend cgc to run it on the Windows ML "
+            "CGC backend (GPU)."
+        )
+    _reject_cgc_only_options(ctx)
     rejected = [
         flag
         for param, flag in _GGUF_REJECTED_FLAGS.items()
@@ -2984,28 +3396,229 @@ def _run_gguf_runtime(
             f"{', '.join(sorted(ignored))}"
         )
 
-    # A full generation is far costlier than one session.run(): default to
-    # fewer iterations/warmup unless the user set them explicitly (as ort-genai).
-    iterations = p["iterations"] if cli_utils.is_cli_provided(ctx, "iterations") else 10
-    warmup = p["warmup"] if cli_utils.is_cli_provided(ctx, "warmup") else 2
-    output = p.get("output") or generate_output_path(str(model_path))
-    cli_utils.guard_output(output, p["overwrite"])
-    prompt = _resolve_prompt(ctx)
+    request = _resolve_generation_request(
+        ctx,
+        model_path=model_path,
+        model_inputs=_gguf_model_inputs(model_path),
+        check_outputs=lambda warmup, output, inputs: _check_gguf_evidence(
+            ctx, warmup=warmup, output=output, inputs=inputs
+        ),
+    )
+    evidence: Path | None = p.get("evidence")
 
     config = GGUFPerfConfig(
         model_path=model_path,
         # The CPU backend always ships with the llama.cpp payload; GPU is opt-in.
         device="cpu" if requested_device == "auto" else requested_device,
         requested_device=requested_device,
-        prompt=prompt,
-        apply_template=p["apply_template"],
+        prompt=request.prompt,
+        apply_template=request.apply_template,
         max_new_tokens=p["max_new_tokens"],
-        iterations=iterations,
-        warmup=warmup,
-        memory=bool(p.get("memory")),
-        output_path=output,
+        iterations=request.iterations,
+        warmup=request.warmup,
+        memory=bool(p.get("memory")) and evidence is None,
+        output_path=request.output,
+        prompt_ids=request.prompt_ids,
+        context_length=p.get("context_length"),
+        ignore_eos=bool(p.get("ignore_eos")),
+        evidence_path=evidence,
     )
     run_gguf_perf(config, console=console, json_mode=json_mode)
+
+
+def _wants_cgc_generation(runtime: str, model: str, backend: str | None) -> bool:
+    """Whether ``--backend cgc`` selects CGC text generation for ``model``.
+
+    ``runtime`` is the raw ``--runtime`` value, before ``auto`` resolves. A
+    ``.gguf`` file needs ``auto`` or ``winml-runtime``; any other input needs
+    ``auto``, so ``--runtime winml-runtime`` keeps exporting a checkpoint folder
+    to ONNX, and ONNX and MLIR files keep their routes.
+    """
+    if backend != "cgc":  # --backend defaults to None, so "cgc" came from the command line
+        return False
+    suffix = Path(model).suffix.lower()
+    if suffix == ".gguf":
+        return runtime in ("auto", "winml-runtime")
+    return runtime == "auto" and suffix not in (".onnx", ".mlir")  # .mlir + cgc: MLIR benchmark
+
+
+def _explicit_runtime_cgc_hint(runtime: str, model: str, backend: str | None) -> str:
+    """Name ``--runtime`` as what kept a checkpoint folder off CGC text generation.
+
+    ``runtime`` is the raw ``--runtime`` value. :func:`_wants_cgc_generation`
+    sends a checkpoint folder to CGC text generation only with ``--runtime
+    auto``, so with an explicit runtime a rejection of ``--backend`` or of a text
+    generation option would otherwise contradict a command line that already
+    has ``--backend cgc``.
+
+    Returns:
+        The sentence, with a leading space, to append to such a rejection; ``""``
+        when omitting ``--runtime`` would not run ``model`` as CGC text generation.
+    """
+    path = Path(model)
+    if (
+        backend != "cgc"
+        or runtime == "auto"
+        or not path.is_dir()
+        or path.suffix.lower() in (".gguf", ".onnx", ".mlir")
+    ):
+        return ""
+    return (
+        f" With --runtime {runtime}, a checkpoint folder does not run as CGC text generation; "
+        "omit --runtime to use --backend cgc text generation."
+    )
+
+
+def _resolve_cgc_generation_input(model: str) -> tuple[Path, Literal["gguf", "safetensors"]]:
+    """Classify a CGC text generation input: a ``.gguf`` file or a local checkpoint folder.
+
+    The folder check is deliberately minimal: ``config.json`` plus safetensors
+    weights. Whether the model runs is for Windows ML to decide.
+
+    Raises:
+        click.UsageError: ``model`` is neither input, names a missing file, or
+            is a Hugging Face model ID.
+    """
+    path = Path(model)
+    if path.is_dir():
+        has_weights = (path / "model.safetensors.index.json").is_file() or any(
+            weights.is_file() for weights in path.glob("*.safetensors")
+        )
+        if not (path / "config.json").is_file() or not has_weights:
+            message = (
+                f"'{model}' is not a Hugging Face checkpoint folder: --backend cgc needs "
+                "config.json and *.safetensors weights (or model.safetensors.index.json), plus "
+                "tokenizer.json and tokenizer_config.json."
+            )
+            if any(path.glob("*.gguf")):
+                message += " To run a .gguf file, pass the file itself with -m."
+            raise click.UsageError(message)
+        return path, "safetensors"
+    suffix = path.suffix.lower()
+    if suffix == ".gguf":
+        if not path.is_file():
+            raise click.UsageError(f"GGUF file not found: {model}")
+        return path, "gguf"
+    if suffix == ".safetensors":
+        raise click.UsageError(
+            "--backend cgc takes a checkpoint folder, not a single .safetensors file. Pass the "
+            f'folder that contains it: -m "{path.parent}"'
+        )
+    if path.is_file():
+        raise click.UsageError(
+            "--backend cgc takes a .gguf file or a local Hugging Face checkpoint folder; "
+            f"'{model}' is neither."
+        )
+    model_input = classify_model_input(model)
+    if model_input.kind == ModelInputKind.HF_ID:
+        raise click.UsageError(
+            "--backend cgc accepts only a local checkpoint folder path; Hugging Face model IDs "
+            "are not supported yet. Download the checkpoint and pass its folder with -m."
+        )
+    raise click.UsageError(model_input.error or f"Model path does not exist: {model}")
+
+
+def _reject_cgc_generation_options(ctx: click.Context, model: str) -> None:
+    """Reject options CGC text generation cannot honor instead of silently ignoring them."""
+    p = ctx.params
+    rejected = [
+        flag
+        for param, flag in _CGC_GENERATION_REJECTED_FLAGS.items()
+        if cli_utils.is_cli_provided(ctx, param)
+    ]
+    # The default PDH counters measure generation memory; DXGI needs an ETW run.
+    if p["memory_backend"] == "dxgi":
+        rejected.append("--memory-backend dxgi")
+    if p["warmup_seconds"] > 0:
+        rejected.append("--warmup-seconds")
+    if rejected:
+        message = f"{', '.join(rejected)} cannot be used with --backend cgc text generation."
+        if "--evidence" in rejected:
+            # Only a .gguf file has a llama.cpp run that records the native log.
+            if Path(model).suffix.lower() == ".gguf":
+                message += (
+                    " --evidence records the llama.cpp native log; omit --backend cgc to use it."
+                )
+            else:
+                message += f" {_EVIDENCE_SCOPE}."
+        raise click.UsageError(message)
+
+
+def _run_cgc_generation_runtime(
+    ctx: click.Context, *, model: str, console: Console, json_mode: bool
+) -> None:
+    """Validate a ``--backend cgc`` text generation request and dispatch it to Windows ML.
+
+    A ``.gguf`` file or a local Hugging Face checkpoint folder runs on a GPU
+    through the model-backed Windows ML Task API, which ships only in preview
+    Windows ML packages. The CGC imports are function-local so ``winml perf
+    --help`` and the other runtimes never load them. A failed run exits
+    non-zero and never falls back to llama.cpp or the ONNX export path.
+    """
+    _reject_cgc_generation_options(ctx, model)
+    model_path, model_format = _resolve_cgc_generation_input(model)
+    p = ctx.params
+    requested_device = str(p["device"]).lower()
+    if requested_device not in ("auto", "gpu"):
+        cpu_hint = (
+            " To run this .gguf file on the CPU, omit --backend cgc (llama.cpp)."
+            if model_format == "gguf"
+            else ""
+        )
+        raise click.UsageError(
+            f"--device {requested_device} is not supported with --backend cgc: CGC text "
+            f"generation runs only on a GPU. Use --device gpu or auto.{cpu_hint}"
+        )
+
+    ignored = [
+        flag for param, flag in _GGUF_IGNORED_FLAGS.items() if cli_utils.is_cli_provided(ctx, param)
+    ]
+    if ignored:
+        console.print(
+            "[yellow]Warning:[/yellow] the following options are ignored with --backend cgc text "
+            f"generation: {', '.join(sorted(ignored))}"
+        )
+
+    program_cache: Path | None = p.get("program_cache")
+
+    def check_folder_outputs(
+        _warmup: int, output: Path, _inputs: Sequence[tuple[str, Path | None]]
+    ) -> None:
+        # Every file of a checkpoint folder is an input.
+        _reject_output_inside_folder(output, model_path, flag="--output")
+        if program_cache is not None:
+            _reject_output_inside_folder(program_cache, model_path, flag="--program-cache")
+
+    is_gguf = model_format == "gguf"
+    request = _resolve_generation_request(
+        ctx,
+        model_path=model_path,
+        model_inputs=_gguf_model_inputs(model_path) if is_gguf else (),
+        check_outputs=None if is_gguf else check_folder_outputs,
+    )
+
+    from ._perf_cgc import CGCPerfConfig, run_cgc_perf
+
+    config = CGCPerfConfig(
+        model_path=model_path,
+        model_format=model_format,
+        output_path=request.output,
+        device="gpu",
+        requested_device=requested_device,
+        device_luid=p.get("device_luid"),
+        prompt=request.prompt,
+        apply_template=request.apply_template,
+        max_new_tokens=p["max_new_tokens"],
+        iterations=request.iterations,
+        warmup=request.warmup,
+        memory=bool(p.get("memory")),
+        prompt_ids=request.prompt_ids,
+        context_length=p.get("context_length"),
+        ignore_eos=bool(p.get("ignore_eos")),
+        # The report records this directory verbatim, so make it absolute.
+        program_cache_dir=None if program_cache is None else program_cache.resolve(),
+    )
+    run_cgc_perf(config, console=console, json_mode=json_mode)
 
 
 def _resolve_composite_components_for_perf(model: str, task: str | None) -> dict[str, str] | None:
@@ -3055,91 +3668,108 @@ def _validate_duration(
 @cli_utils.model_option(
     required=False,
     optional_message=(
-        "A .gguf file runs on llama.cpp through Windows ML Tasks "
+        "A .gguf file runs on llama.cpp through Windows ML Tasks; with --backend cgc, a .gguf "
+        "file or a local Hugging Face checkpoint folder runs CGC text generation on a GPU "
         "(experimental; requires preview Windows ML packages)"
     ),
 )
 @click.option(
-    "--dxcgc-host",
-    hidden=True,
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="[dxcgc] Built native benchmark host.",
-)
-@click.option(
-    "--dxcgc-dir",
-    hidden=True,
-    type=click.Path(exists=True, file_okay=False, path_type=Path),
-    help="[dxcgc] DLL directory (default: installed windowsml/lib).",
-)
-@click.option(
-    "--dxcgc-sdk-path",
-    hidden=True,
-    type=click.Path(exists=True, file_okay=False, path_type=Path),
-    help="[dxcgc] Agility SDK directory (default: installed windowsml/lib).",
-)
-@click.option("--dxcgc-sdk-version", type=click.IntRange(min=1), default=721, hidden=True)
-@click.option("--dxcgc-gpu-timing", is_flag=True, hidden=True,
-              help="[dxcgc] Collect GPU timestamps in a separate diagnostic run.")
-@click.option(
-    "--disable-d3d-mlir-programs", is_flag=True, hidden=True,
-    help="[dxcgc] Disable the D3D12 MLIR programs target when compiling Input IR.",
-)
-@click.option(
-    "--dxcgc-adapter",
-    hidden=True,
-    type=click.IntRange(min=0),
-    default=0,
-    help="[dxcgc] DXGI high-performance adapter index.",
-)
-@click.option(
     "--runtime",
-    type=click.Choice([*RUNTIME_NAMES, "dxcgc"]),
+    type=click.Choice(list(RUNTIME_NAMES)),
     default="auto",
     show_default=True,
-    metavar=f"[{'|'.join(name for name in RUNTIME_NAMES if name != 'winml-runtime')}]",
     help="'auto' selects ort-genai for folders containing genai_config.json, "
-    "Windows ML Tasks on llama.cpp for .gguf files (experimental; requires preview "
+    "winml-runtime for .mlir files, Windows ML Tasks for .gguf files "
+    "(llama.cpp unless --backend cgc; experimental; requires preview "
     "Windows ML packages), otherwise winml-ort. "
+    "With --backend cgc, 'auto' runs a .gguf file or a local checkpoint folder as CGC "
+    "text generation on a GPU. "
     "'winml-ort' benchmarks single-shot ONNX inference; "
     "'ort-genai' benchmarks an onnxruntime-genai bundle folder "
-    "(LLM generation: TTFT + decode tokens/sec).",
+    "(LLM generation: TTFT + decode tokens/sec); 'winml-runtime' performs "
+    "online conversion for ONNX/PyTorch inputs (a checkpoint folder is exported to "
+    "ONNX first) or loads CGC MLIR directly.",
 )
 @click.option(
     "--backend",
     type=click.Choice(list(RUNTIME_BACKENDS)),
     default=None,
-    hidden=True,
-    help="[winml-runtime] Execution backend for ONNX inputs (default: cgc). "
-    "MLIR inputs always use cgc.",
+    help="Execution backend. With --runtime winml-runtime: the backend for ONNX inputs "
+    "(default: cgc); MLIR inputs always use cgc. With --runtime auto (the default), cgc "
+    "runs a .gguf file or a local Hugging Face checkpoint folder as text generation on the "
+    "Windows ML CGC backend on a GPU (experimental; requires preview Windows ML packages); "
+    "with --runtime winml-runtime a checkpoint folder is still exported to ONNX. Without "
+    "--backend, a .gguf file runs on llama.cpp.",
 )
 @click.option(
     "--prompt",
     type=str,
     default="Explain the theory of relativity in simple terms.",
     show_default=True,
-    help="[ort-genai, GGUF] Prompt text to generate from. By default it is wrapped in "
-    "the model's chat template; pass --no-apply-template to benchmark it verbatim.",
+    help="[ort-genai, GGUF, --backend cgc] Prompt text to generate from. By default it is "
+    "wrapped in the model's chat template; pass --no-apply-template to benchmark it verbatim.",
 )
 @click.option(
     "--prompt-file",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     default=None,
-    help="[ort-genai, GGUF] Read the prompt from a UTF-8 text file. Mutually exclusive "
-    "with an explicit --prompt; avoids command-line length limits for long contexts.",
+    help="[ort-genai, GGUF, --backend cgc] Read the prompt from a UTF-8 text file. Mutually "
+    "exclusive with an explicit --prompt; avoids command-line length limits for long "
+    "contexts.",
 )
 @click.option(
     "--apply-template/--no-apply-template",
     default=True,
     show_default=True,
-    help="[ort-genai, GGUF] Wrap --prompt in the model's chat template before timing. "
-    "Use --no-apply-template to benchmark a prompt that is already formatted.",
+    help="[ort-genai, GGUF, --backend cgc] Wrap --prompt in the model's chat template before "
+    "timing. Use --no-apply-template to benchmark a prompt that is already formatted.",
 )
 @click.option(
     "--max-new-tokens",
     type=click.IntRange(min=1),
     default=128,
     show_default=True,
-    help="[ort-genai, GGUF] Number of new tokens to generate per iteration.",
+    help="[ort-genai, GGUF, --backend cgc] Number of new tokens to generate per iteration.",
+)
+@click.option(
+    "--prompt-ids-file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="[GGUF, --backend cgc] Read exact prompt token IDs from a JSON array file and submit "
+    "them on every request without a chat template. Cannot be combined with --prompt, "
+    "--prompt-file, or --apply-template.",
+)
+@click.option(
+    "--context-length",
+    type=click.IntRange(min=1),
+    default=None,
+    help="[GGUF, --backend cgc] Sequence capacity to load the model with (llama.cpp: use a "
+    "multiple of 256). The run fails unless the Runtime reports exactly this capacity. "
+    "Default: prompt tokens plus --max-new-tokens.",
+)
+@click.option(
+    "--ignore-eos/--no-ignore-eos",
+    default=False,
+    show_default=True,
+    help="[GGUF, --backend cgc] Create the Task with an empty EOS set so every request "
+    "generates --max-new-tokens tokens unless it reaches the sequence capacity.",
+)
+@click.option(
+    "--evidence",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="[GGUF] Write raw gguf-task-events-2 request evidence to this new JSON file. "
+    "Needs --warmup 1 or more and turns off --memory. Not supported with --backend cgc.",
+)
+@click.option(
+    "--program-cache",
+    "program_cache",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    metavar="DIR",
+    help="[--backend cgc] Directory for compiled GPU programs (Windows ML "
+    "compiled_program_directory) that later runs reuse. Default: no cache, so every run "
+    "measures the cold compile. winml-cli never deletes this directory.",
 )
 @click.option(
     "--compile-timeout",
@@ -3198,13 +3828,15 @@ def _validate_duration(
     default="auto",
     include_auto=True,
     include_config=True,
-    optional_message="'config' (ort-genai only) respects the bundle's genai_config.json routing.",
+    optional_message="'config' (ort-genai only) respects the bundle's genai_config.json routing. "
+    "'auto' means cpu for a .gguf file on llama.cpp and gpu with --backend cgc.",
 )
 @cli_utils.precision_option()
 @cli_utils.device_luid_option(
     optional_message=(
         "Cannot be combined with --ep-options device_id=VALUE. "
-        "Not supported with --runtime ort-genai."
+        "Not supported with --runtime ort-genai. "
+        "With --backend cgc, pins the GPU used for text generation."
     )
 )
 @click.option(
@@ -3316,22 +3948,51 @@ def _validate_duration(
 @cli_utils.verbosity_options()
 @cli_utils.no_color_option()
 @click.pass_context
+@click.option(
+    "--memory-backend",
+    type=click.Choice(["pdh", "dxgi"]),
+    default="pdh",
+    help="GPU memory counter backend; dxgi queries in-process application usage.",
+)
+@click.option(
+    "--warmup-seconds",
+    type=click.FloatRange(min=0),
+    default=0.0,
+    callback=_validate_duration,
+    help="Minimum warmup duration in seconds, in addition to --warmup count.",
+)
+@click.option(
+    "--etw-tracing",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Collect Runtime ETW events to a new directory and report GPU execution timing "
+    "(ETW access required).",
+)
+@click.option(
+    "--allow-cpu-fallback",
+    is_flag=True,
+    default=False,
+    hidden=True,
+    help="Allow CPU fallback for WinMLCG EP ETW capture; GPU timing excludes CPU work.",
+)
 def perf(
     ctx: click.Context,
+    memory_backend: str,
+    warmup_seconds: float,
+    etw_tracing: Path | None,
+    allow_cpu_fallback: bool,
     model: str | None,
-    runtime: RuntimeName | Literal["dxcgc"],
-    dxcgc_host: Path | None,
-    dxcgc_dir: Path | None,
-    dxcgc_sdk_path: Path | None,
-    dxcgc_sdk_version: int,
-    dxcgc_adapter: int,
-    dxcgc_gpu_timing: bool,
-    disable_d3d_mlir_programs: bool,
+    runtime: RuntimeName,
     backend: RuntimeBackend | None,
     prompt: str,
     prompt_file: Path | None,
     apply_template: bool,
     max_new_tokens: int,
+    prompt_ids_file: Path | None,
+    context_length: int | None,
+    ignore_eos: bool,
+    evidence: Path | None,
+    program_cache: Path | None,
     compile_timeout: int,
     task: str | None,
     submodel: str | None,
@@ -3409,22 +4070,13 @@ def perf(
 
         # GGUF language model on llama.cpp (experimental; preview packages)
         winml perf -m qwen2.5-0.5b-instruct-q4_k_m.gguf --device cpu
+
+        # GGUF or a safetensors checkpoint on the Windows ML CGC backend (GPU; preview packages)
+        winml perf -m qwen2.5-0.5b-instruct-q4_k_m.gguf --backend cgc
+        winml perf -m ./Qwen2.5-0.5B-Instruct --backend cgc
     """
     if not model:
         raise click.UsageError("A model is required via -m/--model.")
-
-    if runtime == "dxcgc":
-        from ._perf_dxcgc import run_dxcgc
-
-        run_dxcgc(ctx)
-        return
-    if disable_d3d_mlir_programs:
-        raise click.UsageError("--disable-d3d-mlir-programs requires --runtime dxcgc")
-    if any(
-        ctx.get_parameter_source(name) == click.core.ParameterSource.COMMANDLINE
-        for name in ctx.params if name.startswith("dxcgc_")
-    ):
-        raise click.UsageError("--dxcgc-* options require --runtime dxcgc")
 
     ep_provider_options = cli_utils.parse_ep_options(ep_options)
     ctx.params["ep_options"] = ep_provider_options
@@ -3454,28 +4106,21 @@ def perf(
     except Exception as e:
         raise click.ClickException(f"Failed to resolve Hub-hosted ONNX path {model!r}: {e}") from e
     model = hf_model
+    json_mode = output_format == "json"
+    console = SafeConsole(stderr=True) if json_mode else SafeConsole()
+    # --backend cgc text generation routes before --config (load_build_config imports onnx
+    # and onnxruntime) and before the ONNX-only dxgi, ETW and backend checks.
+    if _wants_cgc_generation(runtime, model, backend):
+        _run_cgc_generation_runtime(ctx, model=model, console=console, json_mode=json_mode)
+        return
+    # Read from the raw --runtime value: it ends each rejection of --backend cgc or of a
+    # CGC text generation option for a checkpoint folder that an explicit runtime kept.
+    cgc_runtime_hint = _explicit_runtime_cgc_hint(runtime, model, backend)
     runtime = _resolve_runtime(runtime, model)
     is_gguf = Path(model).suffix.lower() == ".gguf"
-    try:
-        effective_backend = resolve_runtime_api_backend(runtime, model, backend)
-    except ValueError as error:
-        raise click.UsageError(str(error)) from error
-    # AC 11 (mockup spec): --top-k requires --op-tracing. Outside the
-    # op-tracing section the flag is meaningless, so reject it explicitly
-    # rather than silently ignoring a user's intent.
-    if top_k is not None and op_tracing is None:
-        raise click.UsageError("--top-k requires --op-tracing to be set.")
-    if top_k is not None and top_k < 1:
-        raise click.UsageError("--top-k must be >= 1.")
-
-    # Retain multiple trace samples for timing stability without the full
-    # benchmark's trace volume. Explicit iteration counts always take precedence.
-    if op_tracing and ctx.get_parameter_source("iterations") == click.core.ParameterSource.DEFAULT:
-        iterations = 10
-
     # Apply build config defaults (CLI explicit options take precedence).
     # Read raw JSON so missing keys are distinguishable from dataclass defaults.
-    if config_file is not None:
+    if config_file is not None and not is_gguf:
         build_cfg, raw_cfg = cli_utils.load_build_config(config_file)
         lc = raw_cfg.get("loader") or {}
         cc = raw_cfg.get("compile") or {}
@@ -3500,19 +4145,70 @@ def perf(
             elif "execution_provider" in cc:
                 ep = (cc["execution_provider"], None)
 
-    if runtime == "winml-runtime" and ep_provider_options and not is_gguf:
-        logger.warning("--ep-options are ignored with --runtime winml-runtime.")
-        ep_provider_options = None
+    if memory_backend == "dxgi":
+        if not etw_tracing or not memory or device.lower() != "gpu":
+            raise click.UsageError(
+                "DXGI memory measurement requires GPU, memory and --etw-tracing."
+            )
+        warmup_seconds = max(2.0, warmup_seconds)
+        warmup = max(10, warmup)
+        iterations = max(200, iterations)
+    if warmup_seconds > 0 and (monitor or op_tracing or module_class or runtime == "ort-genai"):
+        raise click.UsageError("--warmup-seconds supports unmonitored single-model inference.")
 
-    json_mode = output_format == "json"
-    console = SafeConsole(stderr=True) if json_mode else SafeConsole()
+    cgep_trace = (
+        etw_tracing is not None
+        and runtime == "winml-ort"
+        and ep is not None
+        and ep[0].lower() in ("winmlcg", "winmlcgexecutionprovider")
+    )
+    if allow_cpu_fallback and not cgep_trace:
+        raise click.UsageError("--allow-cpu-fallback requires WinMLCG EP --etw-tracing.")
+    if etw_tracing is not None and (
+        (not cgep_trace and (runtime != "winml-runtime" or backend not in (None, "cgc")))
+        or device.lower() != "gpu"
+        or Path(model).suffix.lower() not in (".onnx", ".mlir")
+        or monitor
+        or op_tracing
+        or module_class
+        or compare_devices
+    ):
+        raise click.UsageError(
+            "--etw-tracing requires --device gpu and either winml-runtime with CGC "
+            "(ONNX/MLIR) or winml-ort with --ep winmlcg (ONNX), without "
+            "monitor/op-tracing/module/compare-devices modes."
+        )
+    try:
+        effective_backend = resolve_runtime_api_backend(runtime, model, backend)
+    except ValueError as error:
+        raise click.UsageError(f"{error}{cgc_runtime_hint}") from error
+    if cgep_trace and Path(model).suffix.lower() != ".onnx":
+        raise click.UsageError("WinMLCG EP tracing requires ONNX.")
 
-    # =========================================================================
-    # GGUF (experimental): Windows ML Tasks over a Runtime llama.cpp pipeline
-    # =========================================================================
+    # AC 11 (mockup spec): --top-k requires --op-tracing. Outside the
+    # op-tracing section the flag is meaningless, so reject it explicitly
+    # rather than silently ignoring a user's intent.
+    if top_k is not None and op_tracing is None:
+        raise click.UsageError("--top-k requires --op-tracing to be set.")
+    if top_k is not None and top_k < 1:
+        raise click.UsageError("--top-k must be >= 1.")
+
+    # Retain multiple trace samples for timing stability without the full
+    # benchmark's trace volume. Explicit iteration counts always take precedence.
+    if op_tracing and ctx.get_parameter_source("iterations") == click.core.ParameterSource.DEFAULT:
+        iterations = 10
+
+    # GGUF ignores ONNX build configuration. Route it before loading config
+    # dataclasses, which import unrelated EP/ORT session dependencies.
     if is_gguf:
         _run_gguf_runtime(ctx, model=model, runtime=runtime, console=console, json_mode=json_mode)
         return
+    _reject_gguf_only_options(ctx, runtime_hint=cgc_runtime_hint)
+    _reject_cgc_only_options(ctx, runtime_hint=cgc_runtime_hint)
+
+    if runtime == "winml-runtime" and ep_provider_options and not is_gguf:
+        logger.warning("--ep-options are ignored with --runtime winml-runtime.")
+        ep_provider_options = None
 
     # =========================================================================
     # GENAI RUNTIME: benchmark an onnxruntime-genai bundle folder
@@ -3825,6 +4521,8 @@ def perf(
     # ``ep_source_part`` were unpacked once from the --ep tuple above.
     config = BenchmarkConfig(
         model_id=hf_model,
+        memory_backend=memory_backend,
+        warmup_seconds=warmup_seconds,
         runtime=runtime,
         backend=effective_backend,
         task=task,
@@ -3919,7 +4617,56 @@ def perf(
             suppress_huggingface_warning_logs(verbosity=verbose, quiet=quiet),
             suppress_third_party_progress(verbosity=verbose, quiet=quiet),
         ):
-            result = benchmark.run()
+            if etw_tracing is None:
+                result = benchmark.run()
+            else:
+                from ..session.gpu_capture import GpuCapture
+
+                try:
+                    with GpuCapture(etw_tracing.resolve()) as capture:
+                        capture.execution_path = "winmlcgep" if cgep_trace else "runtime-api"
+                        capture.allow_cpu_fallback = allow_cpu_fallback
+                        try:
+                            result = benchmark.run()
+                        finally:
+                            benchmark.close()
+                    if isinstance(result, dict):
+                        raise click.UsageError("--etw-tracing does not support composite models.")
+                    result.gpu_execution = capture.finish()
+                    if memory_backend == "dxgi":
+                        gpu_ms = sum(result.gpu_execution["samples_ms"])
+                        if gpu_ms < 2000:
+                            raise click.ClickException(
+                                "Below 2 GPU seconds; increase --iterations."
+                                " Trace retained; steady-memory result is invalid."
+                            )
+                        result.process_memory = result.process_memory or {}
+                        steady = result.process_memory.get("phase_statistics", {}).get(
+                            "steady_inference", {}
+                        )
+                        required = ("rss", "private_commit", "vram_local", "vram_shared")
+                        if any(key not in steady for key in required) or result.process_memory.get(
+                            "phase_query_errors", {}
+                        ).get("steady_inference", 0):
+                            raise click.ClickException("Incomplete steady memory samples.")
+                        result.process_memory["steady_validation"] = {
+                            **benchmark._steady_measurement,
+                            "gpu_time_ms": gpu_ms,
+                            "status": "valid",
+                            "performance_acceptance": False,
+                            "resource_lifetime_tracking": "unavailable",
+                        }
+                        result.process_memory["steady_bytes"] = {
+                            name: steady[key]["median_mib"] * 1048576
+                            for name, key in (
+                                ("working_set", "rss"),
+                                ("private_commit", "private_commit"),
+                                ("local_usage", "vram_local"),
+                                ("nonlocal_usage", "vram_shared"),
+                            )
+                        }
+                except (OSError, RuntimeError) as exc:
+                    raise click.ClickException(str(exc)) from exc
 
         # Composite models (e.g. CLIP/SigLIP dual-encoders) have no single ORT
         # session; each sub-model is benchmarked individually and reported as
@@ -3999,7 +4746,7 @@ def perf(
 
                 try:
                     running_model_is_epcontext = is_compiled_onnx(Path(result.running_model_path))
-                except (OSError, ValueError):
+                except OSError, ValueError:
                     running_model_is_epcontext = False
                 if not running_model_is_epcontext:
                     console.print(

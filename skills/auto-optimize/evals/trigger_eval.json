@@ -1,0 +1,30 @@
+{
+  "skill_name": "auto-optimize",
+  "description": "Native skill-selection regressions. Keep expected labels out of the model prompt. A01-A20 preserve the original evaluation; A21-A24 test adjacent positive and negative boundaries.",
+  "queries": [
+    { "id": "A01", "query": "Optimize the latency of this existing ONNX model on QNN NPU using WinML. Target p50 below 15 ms without losing correctness.", "should_trigger": true },
+    { "id": "A02", "query": "Use WinML to reduce CPU inference latency of my supported ONNX model; investigate graph transformations and confirm the winner.", "should_trigger": true },
+    { "id": "A03", "query": "My ONNX model already runs on DirectML. Find and validate graph optimizations that reduce its GPU latency.", "should_trigger": true },
+    { "id": "A04", "query": "Profile this quantized ONNX model on QNN, identify the dominant accelerator region, and test graph and QDQ-boundary changes to lower latency.", "should_trigger": true },
+    { "id": "A05", "query": "WinML QNN tracing attributes nearly all accelerator time to the positional grouped Conv in my existing Wav2Vec2 ONNX graph. Optimize its representation and boundary placement.", "should_trigger": true },
+    { "id": "A06", "query": "Resume the interrupted WinML ONNX optimization run from state.json. Check artifact and provider-option hashes before reusing earlier measurements.", "should_trigger": true },
+    { "id": "A07", "query": "In our existing ONNX optimization run, validate the supplied candidate numerically only. Structural checks already passed; do not start another search or measure latency.", "should_trigger": true },
+    { "id": "A08", "query": "Our WinML optimization leader passed candidate gates but clean replay failed. Diagnose that replay failure without publishing or substituting an old artifact.", "should_trigger": true },
+    { "id": "A09", "query": "Finish delivery of the confirmed ONNX optimization leader through the WinML report, fresh replay, versioned bundle, and promotion handoff gates.", "should_trigger": true },
+    { "id": "A10", "query": "An ONNX optimization prototype passed graph, correctness, paired latency, and trace gates. Implement the missing generic WinML optimizer capability and revalidate the exact public CLI path.", "should_trigger": true },
+    { "id": "A11", "query": "Add support for a previously unsupported Hugging Face model architecture in winml-cli, including its exporter and first recipe. This is model onboarding, not latency optimization.", "should_trigger": false },
+    { "id": "A12", "query": "Add a new execution-provider backend for a vendor NPU runtime in winml-cli; do not optimize a model graph.", "should_trigger": false },
+    { "id": "A13", "query": "Export this PyTorch model to ONNX only. Do not tune, profile, or optimize its latency.", "should_trigger": false },
+    { "id": "A14", "query": "Explain how ONNX Runtime QNN EPContext compilation is structured. This is a conceptual question; no optimization experiment is requested.", "should_trigger": false },
+    { "id": "A15", "query": "Which execution provider should I choose on a Snapdragon laptop, QNN or DirectML? Give a conceptual comparison, not a tuning workflow.", "should_trigger": false },
+    { "id": "A16", "query": "Run a one-off latency benchmark of this existing ONNX model on CPU using winml perf. Report the measurement only; do not search for optimizations.", "should_trigger": false },
+    { "id": "A17", "query": "Fine-tune a transformer model on my classification dataset to improve task accuracy; do not export to ONNX or tune runtime latency.", "should_trigger": false },
+    { "id": "A18", "query": "Optimize this SQL query and explain which database indexes would reduce latency.", "should_trigger": false },
+    { "id": "A19", "query": "Improve my chatbot system prompt to make answers more concise. No model graph or inference runtime work is needed.", "should_trigger": false },
+    { "id": "A20", "query": "Explain the p50, p90, and p99 latency labels in an existing WinML report. Do not run tools, change the report, or begin optimization.", "should_trigger": false },
+    { "id": "A21", "query": "Explain why this ONNX graph is slow on QNN, then implement and validate graph optimizations with WinML to reduce its NPU latency.", "should_trigger": true },
+    { "id": "A22", "query": "Benchmark the baseline and graph candidates as part of our WinML ONNX optimization run, then select and validate the fastest correct leader.", "should_trigger": true },
+    { "id": "A23", "query": "Describe what the WinML ONNX optimizer flags mean. This is documentation explanation only, not a request to optimize a model.", "should_trigger": false },
+    { "id": "A24", "query": "What do the QNN profiler hardware-time and DRAM counters mean? Answer conceptually; no tuning or optimization workflow is requested.", "should_trigger": false }
+  ]
+}

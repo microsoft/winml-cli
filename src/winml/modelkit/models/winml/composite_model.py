@@ -43,8 +43,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
-import torch
-
 from .base import PreTrainedModel
 
 
@@ -52,6 +50,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
     from pathlib import Path
 
+    import torch
     from transformers import PretrainedConfig
 
     from ...session import WinMLEPDevice
@@ -73,6 +72,8 @@ def register_composite_model(model_type: str, task: str) -> Callable[[type], typ
     """Class decorator that registers a composite model for `winml config`."""
 
     def decorator(cls: type) -> type:
+        from .. import hf as _hf  # noqa: F401 -- load built-in registrations first
+
         if not issubclass(cls, WinMLCompositeModel):
             raise TypeError(
                 f"{cls.__name__} cannot register as a composite model for "
@@ -187,6 +188,8 @@ class WinMLCompositeModel(PreTrainedModel):
         model_type = hf_config.model_type
 
         if not cls._SUB_MODEL_CONFIG:
+            from .. import hf as _hf  # noqa: F401 -- populate the registry before lookup
+
             # Resolve concrete class from registry when called on the base class
             resolved_cls = COMPOSITE_MODEL_REGISTRY.get((model_type, task))
             if resolved_cls is None:
@@ -279,6 +282,8 @@ class WinMLCompositeModel(PreTrainedModel):
         # Resolve concrete class from registry
         model_type = getattr(hf_config, "model_type", None) if hf_config else None
         if not cls._SUB_MODEL_CONFIG:
+            from .. import hf as _hf  # noqa: F401 -- populate the registry before lookup
+
             # model_type/task may be None; the str-keyed registry simply misses
             # (returns None, handled below). dict.get tolerates any hashable key.
             resolved_cls = COMPOSITE_MODEL_REGISTRY.get(cast("tuple[str, str]", (model_type, task)))
@@ -320,6 +325,8 @@ class WinMLCompositeModel(PreTrainedModel):
     @property
     def device(self) -> torch.device:
         """Device (CPU — ORT handles actual placement)."""
+        import torch
+
         return torch.device("cpu")
 
     @property
@@ -330,6 +337,8 @@ class WinMLCompositeModel(PreTrainedModel):
     @property
     def dtype(self) -> torch.dtype:
         """Model dtype for HF compatibility."""
+        import torch
+
         return torch.float32
 
     def to(self, *args: Any, **kwargs: Any) -> WinMLCompositeModel:

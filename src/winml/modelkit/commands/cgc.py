@@ -1823,7 +1823,6 @@ def run_patterns(opts: Options) -> None:
 @click.group(
     name="cgc",
     invoke_without_command=True,
-    hidden=True,
 )
 @click.pass_context
 def cgc(ctx: click.Context) -> None:

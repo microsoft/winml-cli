@@ -30,6 +30,7 @@ from __future__ import annotations
 import ctypes
 import json
 import logging
+import mmap
 import operator
 import threading
 from contextlib import contextmanager
@@ -46,6 +47,7 @@ from ._runtime_import import import_runtime
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping
+    from typing import Literal
 
     import numpy as np
 
@@ -575,6 +577,53 @@ def _normalized_schema_descriptors(schema: Any) -> tuple[list[Any], list[Any]]:
     return normalize(schema.inputs()), normalize(schema.outputs())
 
 
+def _serialize_mlir_as_text(path: Path) -> None:
+    """Replace an MLIR bytecode artifact with its UTF-8 text representation."""
+    from ..export.cgc.ir import read_mlir_text
+
+    path.write_text(read_mlir_text(path), encoding="utf-8", newline="\n")
+
+
+def _cgc_external_weight_options(path: Path) -> dict[str, Any]:
+    """Supply Runtime load options only when Input IR declares external weights."""
+    from ..export.cgc.ir import is_output_ir
+
+    if path.suffix.lower() not in {".mlir", ".mlirbc"} or is_output_ir(path):
+        return {}
+
+    from ..export.cgc import create_foundry_compiler
+
+    with create_foundry_compiler() as compiler:
+        from _foundry import SerializationFormat
+
+        source = path.read_bytes()
+        serialization_format = (
+            SerializationFormat.BYTECODE
+            if source.startswith(b"ML\xefR")
+            else SerializationFormat.TEXT
+        )
+        with compiler.create_module_from_mlir(source, format=serialization_format) as module:
+            tensors = module.external_tensors()
+
+    mappings: dict[Path, mmap.mmap] = {}
+    resources: dict[str, memoryview] = {}
+    for tensor in tensors:
+        weight_path = (path.parent / tensor.file).resolve()
+        if weight_path not in mappings:
+            with weight_path.open("rb") as file:
+                mappings[weight_path] = mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ)
+        mapped = mappings[weight_path]
+        end = tensor.offset + tensor.size
+        if not 0 <= tensor.offset < end <= len(mapped):
+            raise click.ClickException(
+                f"Invalid range for CGIR resource {tensor.key!r} in '{weight_path}': "
+                f"offset={tensor.offset}, size={tensor.size}, file_size={len(mapped)}."
+            )
+        # Views retain their mmap; Runtime retains the buffers through dependent stages.
+        resources[tensor.key] = memoryview(mapped)[tensor.offset:end]
+    return {"resources": resources} if resources else {}
+
+
 def _resolve_onnx_target(
     runtime: Any,
     wr: Any,
@@ -770,16 +819,26 @@ class WinMLRuntimeSession:
             model = runtime.load_model(str(self._model_path))
         return model, model.ort_schema(), True
 
-    def _load_onnx_on_cgc(
+    def _load_on_cgc(
         self,
         runtime: Any,
         resolved_target: _ResolvedRuntimeTarget,
     ) -> tuple[Any, Any, bool]:
-        """Compile ONNX to CGIR and reload it for execution by the CGC backend."""
+        """Compile ONNX or MLIR to CG Output IR and reload it for execution."""
+        from ..export.cgc.ir import is_output_ir
+
+        output_ir = self._is_mlir and is_output_ir(self._model_path)
         with _translate_native_errors("load"):
-            source_model = runtime.load_model(str(self._model_path))
+            source_model = runtime.load_model(
+                str(self._model_path), **_cgc_external_weight_options(self._model_path)
+            )
+        if output_ir:
+            # Output IR already carries its device lowering and compiled resources.
+            # Recompiling it can reject DML artifacts with ERROR_NOT_SUPPORTED.
+            # Ownership transfers to the session, which closes it on reset/failure.
+            return source_model, None, False
         try:
-            ort_schema = source_model.ort_schema()
+            ort_schema = None if self._is_mlir else source_model.ort_schema()
 
             self._compiled_artifacts = TemporaryDirectory(prefix="winml-runtime-cgc-")
             artifact_path = Path(self._compiled_artifacts.name) / "model.mlir"
@@ -793,14 +852,8 @@ class WinMLRuntimeSession:
             with _translate_native_errors("load"):
                 model = runtime.load_model(str(artifact_path))
             return model, ort_schema, False
-        except Exception:
+        finally:
             source_model.close()
-            raise
-
-    def _load_mlir(self, runtime: Any) -> tuple[Any, None, bool]:
-        """Load MLIR directly for execution by the CGC backend."""
-        with _translate_native_errors("load"):
-            return runtime.load_model(str(self._model_path)), None, False
 
     def _ensure_built_locked(self) -> None:
         if self._built:
@@ -810,10 +863,8 @@ class WinMLRuntimeSession:
         runtime = wr.Runtime()
         resolved_target = self._resolve_target(runtime, wr)
         try:
-            if self._is_mlir:
-                model, ort_schema, has_named_bindings = self._load_mlir(runtime)
-            elif self._backend == "cgc":
-                model, ort_schema, has_named_bindings = self._load_onnx_on_cgc(
+            if self._backend == "cgc":
+                model, ort_schema, has_named_bindings = self._load_on_cgc(
                     runtime, resolved_target
                 )
             else:
@@ -971,7 +1022,15 @@ class WinMLRuntimeSession:
         def _do() -> dict[str, np.ndarray]:
             nonlocal outputs
             outputs = self._bind_input_output(prepared)
+            from .gpu_capture import active_capture
+
+            capture = active_capture.get()
+            measured = (capture is not None and self._perf_stats is not None
+                        and len(self._perf_stats.all_samples_ms) >= self._perf_stats.warmup)
+            begin = capture.mark() if measured else None
             self._pipeline.run()
+            if begin is not None:
+                capture.record(begin)
             return self._read_outputs(outputs)
 
         with _translate_native_errors("run"):
@@ -988,12 +1047,19 @@ class WinMLRuntimeSession:
         """Build the Runtime pipeline if it has not already been built."""
         self._ensure_built()
 
-    def compile_to_file(self, output_path: str | Path, *, validate: bool = True) -> None:
+    def compile_to_file(
+        self,
+        output_path: str | Path,
+        *,
+        validate: bool = True,
+        output_format: Literal["bytecode", "text"] = "bytecode",
+    ) -> None:
         """Persist this CGIR model as device-targeted CG Output IR.
 
         The output is compiled through the same Runtime compiler path used by
-        session-backed ONNX-to-CGC execution. Optional validation reloads the
-        artifact, builds a stage and compares normalized I/O schemas.
+        session-backed ONNX-to-CGC execution. Text output is serialized after
+        Runtime compilation. Optional validation reloads the final artifact,
+        builds a stage and compares normalized I/O schemas.
         """
         if self._backend != "cgc" or not self._is_mlir:
             raise ValueError("Persistent Runtime compilation requires a CGIR model.")
@@ -1004,7 +1070,9 @@ class WinMLRuntimeSession:
         source_model = compiled_model = builder = stage = pipeline = source_schema = None
         try:
             with _translate_native_errors("load"):
-                source_model = runtime.load_model(str(self._model_path))
+                source_model = runtime.load_model(
+                    str(self._model_path), **_cgc_external_weight_options(self._model_path)
+                )
                 source_schema = source_model.schema()
             _compile_runtime_model(
                 source_model,
@@ -1012,6 +1080,8 @@ class WinMLRuntimeSession:
                 destination,
                 compiled_form=wr.CompiledModelForm.DEVICE_TARGETED,
             )
+            if output_format == "text":
+                _serialize_mlir_as_text(destination)
             if not validate:
                 return
             with _translate_native_errors("load"):

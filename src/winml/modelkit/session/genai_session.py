@@ -81,7 +81,7 @@ logger = logging.getLogger(__name__)
 # Native ORT GenAI registration is process-wide. Cache only successful calls;
 # failed calls remain retryable because a later candidate may become available.
 _GENAI_REGISTRATION_LOCK = threading.Lock()
-_GENAI_REGISTERED_PATHS: set[Path] = set()
+_GENAI_REGISTERED_PATHS: set[tuple[Path, str]] = set()
 
 # EPs whose hardware target is selected by a ``device_type`` provider option
 # (rather than a backend path/library).  When forcing one of these onto a stage
@@ -2255,25 +2255,27 @@ class GenaiSession:
         """Register each required plugin EP from its selected discovery entries."""
         required = {normalize_ep_name(ep) for ep in required_eps}
         registry = WinMLEPRegistry.instance()
-        for ep in required:
-            registry.ensure_discovered_ep(ep)
-        entries_by_ep: dict[str, list] = {ep: [] for ep in required}
-        for entry in registry.all_discovered():
-            if (
-                entry.ep_name in entries_by_ep
-                and not isinstance(entry.source, BuiltinSource)
-                and entry.status != "shadowed"
-            ):
-                entries_by_ep[entry.ep_name].append(entry)
+        entries_by_ep = {
+            ep: [
+                entry
+                for entry in registry.ensure_discovered_ep(ep)
+                if not isinstance(entry.source, BuiltinSource)
+            ]
+            for ep in required
+        }
 
         for ep in required_eps:
             canonical = normalize_ep_name(ep)
             for entry in entries_by_ep.get(canonical, []):
                 with _GENAI_REGISTRATION_LOCK:
-                    if entry.dll_path in _GENAI_REGISTERED_PATHS:
+                    registration_key = (entry.dll_path, canonical)
+                    if registration_key in _GENAI_REGISTERED_PATHS:
                         registered = True
                     else:
                         try:
+                            # GenAI has no EP enumeration API. Validate identity
+                            # with ORT first, then check GenAI's own library load.
+                            registry.register_ep(entry)
                             og.register_execution_provider_library(
                                 entry.ep_name, str(entry.dll_path)
                             )
@@ -2286,7 +2288,7 @@ class GenaiSession:
                             )
                             registered = False
                         else:
-                            _GENAI_REGISTERED_PATHS.add(entry.dll_path)
+                            _GENAI_REGISTERED_PATHS.add(registration_key)
                             logger.info(
                                 "Registered %s with ORT GenAI from %s.",
                                 entry.ep_name,

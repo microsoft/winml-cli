@@ -8,7 +8,7 @@
 #      EP/device pair available on each agent. Gated by `runEval`.
 #
 #   2. A configurable list of pytest e2e suites under `tests/e2e/`,
-#      controlled by the `pytestTargets` parameter (default: all 11).
+#      controlled by the `pytestTargets` parameter.
 #      Edit the list at queue time for a minimal run (e.g. keep only
 #      `analyze`). Each entry maps 1:1 to `tests/e2e/test_<name>_e2e.py`.
 #      Tests use `require_ep()` to self-skip when the target EP is not
@@ -71,6 +71,11 @@ resources:
       ref: main
 
 parameters:
+  - name: windowsmlReleaseBuild
+    displayName: 'windows-ml-release build name, or default'
+    type: string
+    default: default
+
   # --------------------------------------------------------------------
   # winml perf section
   # --------------------------------------------------------------------
@@ -146,6 +151,7 @@ parameters:
       - analyze
       - inspect
       - build
+      - cgc
       - compile
       - openvino_allocators
       - config
@@ -220,6 +226,7 @@ stages:
           runEval: ${{ parameters.runEval }}
           pytestTargets: ${{ parameters.pytestTargets }}
           pytestTimeout: ${{ parameters.pytestTimeout }}
+          windowsmlReleaseBuild: ${{ parameters.windowsmlReleaseBuild }}
 
   - stage: NPU_OV
     displayName: 'E2E Test — OV'
@@ -236,6 +243,7 @@ stages:
           runEval: ${{ parameters.runEval }}
           pytestTargets: ${{ parameters.pytestTargets }}
           pytestTimeout: ${{ parameters.pytestTimeout }}
+          windowsmlReleaseBuild: ${{ parameters.windowsmlReleaseBuild }}
 
   - stage: NPU_AMD
     displayName: 'E2E Test — AMD'
@@ -251,3 +259,4 @@ stages:
           runEval: ${{ parameters.runEval }}
           pytestTargets: ${{ parameters.pytestTargets }}
           pytestTimeout: ${{ parameters.pytestTimeout }}
+          windowsmlReleaseBuild: ${{ parameters.windowsmlReleaseBuild }}

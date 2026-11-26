@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import onnxruntime as ort
 
-from ..ep_path import BuiltinSource, EPEntry, discover_all_eps
+from ..ep_path import BuiltinSource, EPEntry, _parse_winmlcli_ep_path, discover_all_eps
 from ..sysinfo import get_ep_device_luid, gpu_priority_key
 from .ep_device import (
     DeviceNotFound,
@@ -394,6 +394,24 @@ class WinMLEPRegistry:
         """Return entries for an explicit EP, acquiring its Catalog package if needed."""
         ep_full = expand_ep_name(ep_name)
         candidates = self._entries_for(ep_full)
+        if source in (None, "directory"):
+            overrides = [
+                entry
+                for ep_source in _parse_winmlcli_ep_path(ep_full)
+                for entry in ep_source.resolve()
+                if entry.ep_name == ep_full and entry.dll_path.is_file()
+            ]
+            if overrides:
+                # Keep inferred identities out of the inventory cache: the
+                # DLL's actual EP is only known after registration.
+                seen_paths: set[Path] = set()
+                ordered: list[EPEntry] = []
+                for entry in [*overrides, *candidates]:
+                    if entry.dll_path in seen_paths:
+                        continue
+                    seen_paths.add(entry.dll_path)
+                    ordered.append(replace(entry, status="shadowed" if ordered else "primary"))
+                candidates = ordered
         catalog_missing = source == "winml-catalog" and not any(
             _entry_source_tag(entry) == "winml-catalog" for entry in candidates
         )
@@ -479,7 +497,14 @@ class WinMLEPRegistry:
         # earlier call. Return the cached WinMLEP without re-registering
         # with ORT (which would fail with "library already registered").
         if entry.dll_path in self._registered:
-            return self._registered[entry.dll_path]
+            registered = self._registered[entry.dll_path]
+            if registered.source.ep_name != entry.ep_name:
+                raise WinMLEPRegistrationFailed(
+                    f"{entry.dll_path} is already registered for "
+                    f"{registered.source.ep_name}, not {entry.ep_name}.",
+                    dll_path=entry.dll_path,
+                )
+            return registered
 
         n = self._registration_count.get(entry.ep_name, 0)
         arg0 = entry.ep_name if n == 0 else f"{entry.ep_name}_{n}"
@@ -512,14 +537,17 @@ class WinMLEPRegistry:
         try:
             all_handles = _ort_get_ep_devices_or_fail(entry)
             matching = [
-                d for d in all_handles if d.ep_metadata.get("library_path") == str(entry.dll_path)
+                d
+                for d in all_handles
+                if d.ep_metadata.get("library_path") == str(entry.dll_path)
+                and d.ep_name == entry.ep_name
             ]
             deduped = _dedup_ort_devices(matching)
 
             if not deduped:
                 raise WinMLEPRegistrationFailed(
                     f"Registered {arg0!r} from {entry.dll_path} but no "
-                    f"OrtEpDevices visible in ort.get_ep_devices().",
+                    f"OrtEpDevices for {entry.ep_name} visible in ort.get_ep_devices().",
                     dll_path=entry.dll_path,
                 )
         except WinMLEPRegistrationFailed:
@@ -607,6 +635,9 @@ class WinMLEPRegistry:
             try:
                 winml_ep = self.register_ep(entry)
             except WinMLEPRegistrationFailed as e:
+                logger.warning(
+                    "Skipping EP candidate %s for %s: %s", entry.dll_path, target.ep, e
+                )
                 last_error = e
                 continue
             any_registered = True

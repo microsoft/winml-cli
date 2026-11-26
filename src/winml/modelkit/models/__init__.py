@@ -24,39 +24,34 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .hf import MODEL_BUILD_CONFIGS
-
-# HuggingFace model class mappings (aggregated from hf/ subpackage)
-# Importing triggers ONNX config registration with Optimum's TasksManager
-from .hf import MODEL_CLASS_MAPPING as HF_MODEL_CLASS_MAPPING
-
-# Re-export from winml/ subpackage (WinML inference class mappings)
-# These have no circular dependencies with loader/
-from .winml import (
-    TASK_TO_WINML_CLASS,
-    WINML_MODEL_CLASS_MAPPING,
-    ImageSegmentationOutput,
-    WinMLModelForGenericTask,
-    WinMLModelForImageClassification,
-    WinMLModelForImageSegmentation,
-    WinMLModelForObjectDetection,
-    WinMLModelForSemanticSegmentation,
-    WinMLModelForSequenceClassification,
-    WinMLPreTrainedModel,
-    get_supported_tasks,
-    get_winml_class,
-    register_specialization,
-)
-
 
 if TYPE_CHECKING:
     from .auto import WinMLAutoModel
+    from .hf import MODEL_BUILD_CONFIGS
+    from .hf import MODEL_CLASS_MAPPING as HF_MODEL_CLASS_MAPPING
+    from .winml import (
+        TASK_TO_WINML_CLASS,
+        WINML_MODEL_CLASS_MAPPING,
+        ImageSegmentationOutput,
+        WinMLModelForGenericTask,
+        WinMLModelForImageClassification,
+        WinMLModelForImageSegmentation,
+        WinMLModelForObjectDetection,
+        WinMLModelForSemanticSegmentation,
+        WinMLModelForSequenceClassification,
+        WinMLPreTrainedModel,
+        get_supported_tasks,
+        get_winml_class,
+        register_specialization,
+    )
 
 
 # Lazy loading for modules that cause circular imports
 # WinMLAutoModel imports from loader/, which imports from models/
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "WinMLAutoModel": (".auto", "WinMLAutoModel"),
+    "MODEL_BUILD_CONFIGS": (".hf", "MODEL_BUILD_CONFIGS"),
+    "HF_MODEL_CLASS_MAPPING": (".hf", "MODEL_CLASS_MAPPING"),
 }
 
 
@@ -95,3 +90,5 @@ __all__ = [
     "get_winml_class",
     "register_specialization",
 ]
+
+_LAZY_IMPORTS.update({name: (".winml", name) for name in __all__ if name not in _LAZY_IMPORTS})

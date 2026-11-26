@@ -11,8 +11,8 @@ CGIR workflow can be reviewed, repeated, and checked into source control.
 ## Prerequisites
 
 - A Windows device with a GPU.
-- An activated Python 3.14 environment with winml-cli and the experimental
-    wheels from [CGC environment setup](../getting-started/cgc-onboarding.md#environment-setup).
+- An activated Python 3.14 environment with winml-cli, as described in
+    [CGC environment setup](../getting-started/cgc-onboarding.md#environment-setup).
 - A network connection to download the model and evaluation dataset.
 
 ## Step 1: Check the CGC environment
@@ -77,17 +77,11 @@ preparation, disables EP compilation, and adds `convert.target: "cgir"`.
 `winml build` combines these primitive stages:
 
 1. `winml export` converts the PyTorch model to ONNX.
-2. `winml optimize` rewrites ONNX operators to better align with the current
-   CGC IR.
-3. `winml quantize` converts the model from FP32 to FP16.
-4. The CGIR export stage converts the optimized ONNX model to `.mlir`.
+2. `winml quantize` converts the model from FP32 to FP16.
+3. The CGIR export stage converts the optimized ONNX model to `.mlir`.
 
 FP16 conversion can affect model accuracy. If accuracy drops, rebuild with
 `--no-quant` and compare the results.
-
-!!! important
-    The `.mlir` artifact cannot be used directly by ONNX Runtime. Load it
-    through the Windows ML Runtime API for CGC inference.
 
 ## Step 4: Measure CGIR performance
 

@@ -32,20 +32,30 @@ detokenization timing, so those model phases are not estimated.
 from __future__ import annotations
 
 import importlib
-import importlib.metadata
 import importlib.util
-import logging
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ..sysinfo import format_pdh_luid
+from .task_generation import (
+    TaskGenerationTiming,
+    TaskSessionError,
+    _close_quietly,
+    _distribution_version,
+    _encode_user_prompt,
+    _greedy_task_options,
+    _hresult,
+    _release_closed_interfaces,
+    _run_timed_generation,
+    _validate_token_ids,
+)
+
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Sequence
-
-logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -81,7 +91,7 @@ _DYNAMIC_DIMENSION = 0xFFFFFFFFFFFFFFFF
 # =============================================================================
 
 
-class LlamaSessionError(RuntimeError):
+class LlamaSessionError(TaskSessionError):
     """A GGUF Runtime session could not complete the requested operation."""
 
 
@@ -97,39 +107,8 @@ class LlamaLoadError(LlamaSessionError):
 # Data classes
 # =============================================================================
 
-
-@dataclass(frozen=True)
-class LlamaGenerationTiming:
-    """Task stream wall-clock spans (seconds) for one greedy generation.
-
-    Attributes:
-        input_tokens: Prompt token count reported by the Task result.
-        generated_tokens: Tokens reported by the Task, excluding terminating EOS.
-        reset_s: Resetting the native generation session between requests.
-        stream_create_s: Creating the Task stream from encoded prompt tokens.
-        first_token_s: From stream creation start through the first token update.
-            ``None`` when no token is emitted. Includes sampling and text decoding.
-        decode_s: Arrival intervals between successive token updates, including
-            native generation, sampling, text decoding, and stream overhead.
-        completion_s: From the final update (or stream creation completion) to
-            the terminal stream read. Includes EOS detection and finalization.
-        result_fetch_s: Reading and checking the terminal result.
-        generation_s: Total from stream creation start through result retrieval.
-        response_text: Canonical text returned by the Task result.
-        stop_reason: Normalized Task finish reason.
-    """
-
-    input_tokens: int
-    generated_tokens: int
-    reset_s: float
-    stream_create_s: float
-    first_token_s: float | None
-    decode_s: list[float]
-    completion_s: float
-    result_fetch_s: float
-    generation_s: float
-    response_text: str
-    stop_reason: str
+# The Task stream timing every Task engine reports, under its llama.cpp name.
+LlamaGenerationTiming = TaskGenerationTiming
 
 
 @dataclass(frozen=True)
@@ -149,16 +128,52 @@ class LlamaPayload:
     backends: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class LlamaExecutionDiagnostics:
+    """The decoder stage's execution diagnostics, copied right after Build.
+
+    Attributes:
+        enabled: Whether the stage accepted the request, made before Build, to
+            capture them.
+        reason: Why they are missing, or ``None`` when they were read.
+        coverage: How the stage's work is placed relative to its target's
+            device: a ``PlacementCoverage`` name such as ``FULL``, or its number.
+        work_unit: What the shares count: a ``StageWorkUnit`` name such as
+            ``MODEL_LAYER``, or its number.
+        work_shares: One entry per share, by descending unit count: its
+            ``device_kind``, ``adapter_luid`` (``0xHHHHHHHH_0xLLLLLLLL``, or
+            ``None`` for host code or an adapter the Runtime cannot identify),
+            ``implementation`` and ``unit_count``.
+        description: The Runtime's text for logging, or ``None`` when it gives
+            none; its content is not part of its contract. On llama.cpp it holds
+            the device and the offloaded layers and, when the Runtime records
+            them, the context, batch, attention and KV-cache settings that
+            llama.cpp logged while it created the context, unless a capturing
+            log callback had replaced the Runtime's by then.
+    """
+
+    enabled: bool
+    reason: str | None
+    coverage: str | int | None = None
+    work_unit: str | int | None = None
+    work_shares: tuple[dict[str, Any], ...] = ()
+    description: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the fields as a JSON-ready object."""
+        return {
+            "enabled": self.enabled,
+            "reason": self.reason,
+            "coverage": self.coverage,
+            "work_unit": self.work_unit,
+            "work_shares": [dict(share) for share in self.work_shares],
+            "description": self.description,
+        }
+
+
 # =============================================================================
 # Package and payload discovery
 # =============================================================================
-
-
-def _distribution_version(name: str) -> str | None:
-    try:
-        return importlib.metadata.version(name)
-    except importlib.metadata.PackageNotFoundError:
-        return None
 
 
 def llama_package_versions() -> dict[str, str | None]:
@@ -287,14 +302,6 @@ def _import_tasks_api() -> Any:
 # =============================================================================
 
 
-def _hresult(exc: BaseException) -> int | None:
-    """Return a ``WinMLError``'s normalized 32-bit HRESULT, or ``None``."""
-    hr = getattr(exc, "hresult", None)
-    if isinstance(hr, int):
-        return hr & 0xFFFFFFFF
-    return None
-
-
 @contextmanager
 def _translate_native_errors(phase: str, *, device: str) -> Iterator[None]:
     """Translate native ``WinMLError``s into session errors with guidance.
@@ -311,25 +318,13 @@ def _translate_native_errors(phase: str, *, device: str) -> Iterator[None]:
         if hr is None:
             raise
         hex_hr = f"0x{hr:08X}"
-        if hr == _HRESULT_NOT_SUPPORTED and device == "gpu" and phase != "run":
+        if hr == _HRESULT_NOT_SUPPORTED and device == "gpu":
             raise LlamaLoadError(
                 f"The Windows ML Runtime has no usable llama.cpp GPU backend ({hex_hr}). "
                 "Build a matching backend with Build-LlamaBackend.ps1 and provide its "
                 f"vendor runtime libraries, or use --device cpu. {_DOCS_HINT}"
             ) from exc
-        if phase == "run":
-            raise LlamaSessionError(f"GGUF inference failed ({hex_hr}): {exc}") from exc
         raise LlamaLoadError(f"GGUF {phase} failed ({hex_hr}): {exc}") from exc
-
-
-def _close_quietly(resource: Any) -> None:
-    close = getattr(resource, "close", None)
-    if not callable(close):
-        return
-    try:
-        close()
-    except Exception:  # teardown is best-effort
-        logger.debug("Failed to close %s", type(resource).__name__, exc_info=True)
 
 
 def _fixed_size(dimension: int) -> int | None:
@@ -337,6 +332,61 @@ def _fixed_size(dimension: int) -> int | None:
     if dimension in (0, _DYNAMIC_DIMENSION):
         return None
     return int(dimension)
+
+
+def _enum_name(value: Any) -> str | int:
+    """The name of a Runtime enum value, or the number a newer Runtime returned."""
+    name = getattr(value, "name", None)
+    return int(value) if name is None else str(name)
+
+
+def _enable_execution_diagnostics(stage: Any) -> str | None:
+    """Ask the stage to capture execution diagnostics at Build.
+
+    Returns why it could not, or ``None``. Never raises: the diagnostics are
+    evidence, not part of the load.
+    """
+    # An older projection has no such property, and assigning it would only add an attribute.
+    if not isinstance(getattr(type(stage), "execution_diagnostics_enabled", None), property):
+        return "The installed 'windowsml' package has no stage execution diagnostics."
+    try:
+        stage.execution_diagnostics_enabled = True
+    except Exception as exc:  # an optional Runtime interface must not fail the load
+        return f"The decoder stage refused execution diagnostics: {type(exc).__name__}: {exc}"
+    return None
+
+
+def _read_execution_diagnostics(stage: Any, refusal: str | None) -> LlamaExecutionDiagnostics:
+    """Copy the built stage's execution diagnostics; a refusal or failed read is the reason."""
+    if refusal is not None:
+        return LlamaExecutionDiagnostics(enabled=False, reason=refusal)
+    try:
+        diagnostics = stage.execution_diagnostics
+        return LlamaExecutionDiagnostics(
+            enabled=True,
+            reason=None,
+            coverage=_enum_name(diagnostics.coverage),
+            work_unit=_enum_name(diagnostics.work_unit),
+            work_shares=tuple(
+                {
+                    "device_kind": _enum_name(share.device_kind),
+                    "adapter_luid": (
+                        None
+                        if share.adapter_luid is None
+                        else format_pdh_luid(str(share.adapter_luid))
+                    ),
+                    "implementation": _enum_name(share.implementation),
+                    "unit_count": int(share.unit_count),
+                }
+                for share in diagnostics.work_shares
+            ),
+            description=diagnostics.description,
+        )
+    except Exception as exc:  # a failed read is evidence, not a load failure
+        return LlamaExecutionDiagnostics(
+            enabled=True,
+            reason=f"Could not read the execution diagnostics: {type(exc).__name__}: {exc}",
+        )
 
 
 # =============================================================================
@@ -360,6 +410,11 @@ class WinMLLlamaSession:
         runtime_api: Pre-imported ``windowsml.runtime`` module. When given, the
             payload check is skipped (used by tests to inject a fake Runtime).
         tasks_api: Pre-imported ``windowsml.tasks`` module (optional injection).
+        execution_diagnostics: Ask the decoder stage, when the installed
+            ``windowsml`` supports it, to capture its execution diagnostics at
+            Build, and keep them, or why they are missing, in
+            :attr:`execution_diagnostics`. A stage that accepts can create its
+            llama.cpp context during Build instead of on the first request.
     """
 
     def __init__(
@@ -369,6 +424,7 @@ class WinMLLlamaSession:
         device: str = "cpu",
         runtime_api: Any = None,
         tasks_api: Any = None,
+        execution_diagnostics: bool = False,
     ) -> None:
         path = Path(model_path)
         if path.suffix.lower() != ".gguf":
@@ -380,9 +436,12 @@ class WinMLLlamaSession:
         self._wr: Any = runtime_api
         self._wt: Any = tasks_api
         self._check_payload = runtime_api is None
+        self._capture_diagnostics = execution_diagnostics
         self.payload: LlamaPayload | None = None
         self.load_timings_ms: dict[str, float] = {}
         self.chat_template_applied: bool | None = None
+        # Set by load() once the pipeline is built, when execution_diagnostics was requested.
+        self.execution_diagnostics: LlamaExecutionDiagnostics | None = None
 
         self._runtime: Any = None
         self._tokenizer: Any = None
@@ -419,6 +478,20 @@ class WinMLLlamaSession:
         """Sequence capacity reported by the built stage, or ``None`` before :meth:`load`."""
         return self._sequence_capacity or None
 
+    @property
+    def task_default_eos_token_ids(self) -> tuple[int, ...]:
+        """EOS IDs the native Task stops on, read back after :meth:`load`.
+
+        Raises:
+            LlamaSessionError: The session is not loaded.
+        """
+        if self._task is None:
+            raise LlamaSessionError(
+                "WinMLLlamaSession.load() must be called before reading the Task EOS set."
+            )
+        with _translate_native_errors("EOS read-back", device=self._device):
+            return tuple(int(token) for token in self._task.default_eos_token_ids)
+
     # -- lifecycle ----------------------------------------------------------
     def open_tokenizer(self) -> None:
         """Import the Runtime, check the llama.cpp payload, and load the GGUF tokenizer.
@@ -451,13 +524,21 @@ class WinMLLlamaSession:
             tokenizer_end - tokenizer_start
         ) * 1000.0
 
-    def load(self, *, context_length: int | None = None) -> None:
+    def load(
+        self,
+        *,
+        context_length: int | None = None,
+        eos_token_ids: Sequence[int] | None = None,
+    ) -> None:
         """Load GGUF, build the decoder pipeline, and create its native Task session.
 
         Args:
             context_length: Sequence capacity hint (prompt plus generated tokens).
                 ``None`` keeps the backend default, which can be the model's full
                 training context and reserve a large KV cache.
+            eos_token_ids: Explicit EOS set for the Task. ``None`` keeps the
+                tokenizer's EOS IDs; an empty sequence disables EOS stopping so
+                generation runs to its token limit or the sequence capacity.
 
         Raises:
             LlamaLoadError: Loading the model or building the pipeline failed.
@@ -485,8 +566,13 @@ class WinMLLlamaSession:
                 stage.request_output(0)
                 if context_length:
                     stage.set_sequence_capacity_hint(int(context_length))
+                refusal = (
+                    _enable_execution_diagnostics(stage) if self._capture_diagnostics else None
+                )
                 pipeline = builder.build()
             build_end = time.perf_counter()
+            if self._capture_diagnostics:
+                self.execution_diagnostics = _read_execution_diagnostics(stage, refusal)
             _close_quietly(builder)
             builder = None
 
@@ -516,7 +602,12 @@ class WinMLLlamaSession:
                     tokenizer=self._tokenizer,
                 )
                 configuration.validate()
-                task = tasks.create_text_generation_task(self._tokenizer)
+                if eos_token_ids is None:
+                    task = tasks.create_text_generation_task(self._tokenizer)
+                else:
+                    task = tasks.create_text_generation_task(
+                        self._tokenizer, tuple(int(token) for token in eos_token_ids)
+                    )
                 task_session = task.create_session(configuration)
             task_end = time.perf_counter()
         except Exception:
@@ -563,6 +654,7 @@ class WinMLLlamaSession:
         ):
             _close_quietly(getattr(self, name))
             setattr(self, name, None)
+        _release_closed_interfaces()
 
     def __enter__(self) -> WinMLLlamaSession:
         """Return the session for use as a context manager."""
@@ -589,32 +681,25 @@ class WinMLLlamaSession:
         """
         if self._tokenizer is None:
             self.open_tokenizer()
-        if apply_template:
-            # AttributeError covers Runtime builds without the conversation types.
-            template_errors: tuple[type[BaseException], ...] = (
-                AttributeError,
-                *self._runtime_errors(),
-            )
-            try:
-                token_ids = self._format_user_turn(prompt)
-            except template_errors as exc:
-                logger.info("GGUF chat template unavailable (%s); encoding the raw prompt", exc)
-            else:
-                self.chat_template_applied = True
-                return token_ids
-        self.chat_template_applied = False
-        return [int(token) for token in self._tokenizer.encode(prompt, add_special_tokens=True)]
-
-    def _format_user_turn(self, prompt: str) -> list[int]:
-        """Render one user turn with the GGUF chat template and return its token IDs."""
-        wr = self._wr
-        request = wr.ChatCompletionRequest(
-            messages=(wr.ChatCompletionMessage(role=wr.ChatRole.USER, content=prompt),),
+        token_ids, self.chat_template_applied = _encode_user_prompt(
+            self._wr,
+            self._tokenizer,
+            prompt,
+            apply_template=apply_template,
+            engine_label="GGUF",
         )
-        with self._tokenizer.format_conversation(request) as formatted:
-            return [int(token) for token in formatted.token_ids]
+        return token_ids
 
     # -- generation -----------------------------------------------------------
+    def greedy_options(self, max_new_tokens: int) -> Any:
+        """Greedy Task options (neutral filters, no stops).
+
+        Every field explicit; watermark disabled when the Task API declares it.
+        """
+        if self._wt is None:
+            self._wt = _import_tasks_api()
+        return _greedy_task_options(self._wt, max_new_tokens)
+
     def generate_timed(
         self,
         prompt_token_ids: Iterable[int],
@@ -624,13 +709,18 @@ class WinMLLlamaSession:
     ) -> LlamaGenerationTiming:
         """Read one native greedy generation and measure Task stream latency.
 
+        The session is reset first and its state is read after the reset, outside
+        the timed spans. ``submit_time`` is read immediately before
+        ``generate_tokens`` and one reading follows each ``read_next()`` return.
+
         Args:
             prompt_token_ids: Prompt token IDs, e.g. from :meth:`encode_prompt`.
             max_new_tokens: Upper bound on emitted tokens.
             clock: Monotonic clock in seconds (injectable for tests).
 
         Returns:
-            Timing spans, emitted token count, text, and stop reason.
+            Timing spans and the clock readings they come from, the emitted token
+            IDs and count, text, stop reason, and the tokens left after the reset.
 
         Raises:
             ValueError: ``max_new_tokens`` is not positive.
@@ -641,101 +731,19 @@ class WinMLLlamaSession:
             raise ValueError("max_new_tokens must be positive")
         if self._task_session is None:
             raise LlamaSessionError("WinMLLlamaSession.load() must be called before generation.")
-        token_ids = [int(token) for token in prompt_token_ids]
-        if not token_ids:
-            raise LlamaSessionError("the tokenizer produced an empty prompt")
-        self._validate_token_ids(token_ids, "prompt")
-        capacity = self._sequence_capacity
-        if capacity and len(token_ids) >= capacity:
-            raise LlamaSessionError(
-                f"the prompt ({len(token_ids)} tokens) does not fit the model sequence "
-                f"capacity ({capacity} tokens)"
-            )
-
-        options = self._wt.TextGenerationOptions(max_new_tokens=max_new_tokens, temperature=0.0)
-        with _translate_native_errors("run", device=self._device):
-            reset_start = clock()
-            self._task_session.reset()
-            generation_start = clock()
-            stream = self._task_session.generate_tokens(token_ids, options)
-            try:
-                create_end = clock()
-                previous_arrival = create_end
-                first_token_s: float | None = None
-                emitted_ids: list[int] = []
-                decode_s: list[float] = []
-                while True:
-                    update = stream.read_next()
-                    arrival = clock()
-                    if update is None:
-                        completion_s = arrival - previous_arrival
-                        break
-                    if emitted_ids:
-                        decode_s.append(arrival - previous_arrival)
-                    else:
-                        first_token_s = arrival - generation_start
-                    emitted_ids.append(int(update.token_id))
-                    previous_arrival = arrival
-                result = stream.result
-                result.raise_for_error()
-                result_end = clock()
-                stop_reason = self._task_stop_reason(result.finish_reason)
-                result_ids = tuple(int(token) for token in result.token_ids)
-                if result_ids != tuple(emitted_ids):
-                    raise LlamaSessionError(
-                        "The Task result token IDs disagree with its stream updates."
-                    )
-                if int(result.prompt_token_count) != len(token_ids):
-                    raise LlamaSessionError(
-                        "The Task result prompt count disagrees with the submitted prompt."
-                    )
-                if len(result_ids) > max_new_tokens:
-                    raise LlamaSessionError(
-                        "The Task result exceeds the requested generated token limit."
-                    )
-            finally:
-                _close_quietly(stream)
-
-        return LlamaGenerationTiming(
-            input_tokens=int(result.prompt_token_count),
-            generated_tokens=len(result_ids),
-            reset_s=generation_start - reset_start,
-            stream_create_s=create_end - generation_start,
-            first_token_s=first_token_s,
-            decode_s=decode_s,
-            completion_s=completion_s,
-            result_fetch_s=result_end - arrival,
-            generation_s=result_end - generation_start,
-            response_text=str(result.text),
-            stop_reason=stop_reason,
+        return _run_timed_generation(
+            self._task_session,
+            self._wt,
+            prompt_token_ids,
+            max_new_tokens=max_new_tokens,
+            sequence_capacity=self._sequence_capacity or None,
+            vocabulary_size=self._vocabulary_size,
+            clock=clock,
+            error_type=LlamaSessionError,
+            engine_label="GGUF",
         )
 
     # -- internals --------------------------------------------------------------
-    @staticmethod
-    def _task_stop_reason(reason: Any) -> str:
-        name = str(getattr(reason, "name", ""))
-        normalized = {
-            "EOS_TOKEN": "EOS",
-            "STOP_TOKEN": "STOP_TOKEN",
-            "MAX_TOKENS": "MAX_TOKENS",
-            "SEQUENCE_CAPACITY": "CAPACITY",
-            "CANCELED": "CANCELED",
-        }
-        if name not in normalized:
-            raise LlamaSessionError(f"The Task ended with an unsuccessful finish reason: {name}.")
-        return normalized[name]
-
-    def _runtime_errors(self) -> tuple[type[BaseException], ...]:
-        errors = tuple(
-            error
-            for error in (
-                getattr(self._wr, "NotSupportedError", None),
-                getattr(self._wr, "WinMLError", None),
-            )
-            if isinstance(error, type) and issubclass(error, BaseException)
-        )
-        return errors or (RuntimeError,)
-
     def _create_target(self, wr: Any, runtime: Any) -> Any:
         if self._device == "cpu":
             return runtime.create_cpu_target()
@@ -779,7 +787,12 @@ class WinMLLlamaSession:
         bos_token = self._tokenizer.bos_token_id
         if bos_token is not None:
             special.append(int(bos_token))
-        self._validate_token_ids(special, "tokenizer special")
+        _validate_token_ids(
+            special,
+            "tokenizer special",
+            vocabulary_size=vocabulary_size,
+            error_type=LlamaSessionError,
+        )
         return vocabulary_size
 
     @staticmethod
@@ -793,17 +806,9 @@ class WinMLLlamaSession:
             _close_quietly(target)
         return str(name).lower() if name else None
 
-    def _validate_token_ids(self, token_ids: Sequence[int], label: str) -> None:
-        vocabulary_size = self._vocabulary_size
-        for token_id in token_ids:
-            if token_id < 0 or (vocabulary_size is not None and token_id >= vocabulary_size):
-                raise LlamaSessionError(
-                    f"{label} token {token_id} is outside the model vocabulary of "
-                    f"{vocabulary_size if vocabulary_size is not None else 'unknown'} entries"
-                )
-
 
 __all__ = [
+    "LlamaExecutionDiagnostics",
     "LlamaGenerationTiming",
     "LlamaLoadError",
     "LlamaNotInstalledError",

@@ -103,7 +103,6 @@ def _warn_partial_composite(completed: list[Path]) -> None:
     type=click.Choice(list(EXPORT_TARGETS), case_sensitive=False),
     default="onnx",
     show_default=True,
-    hidden=True,
     help="Export target.",
 )
 @cli_utils.cgc_options_option()

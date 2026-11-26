@@ -271,16 +271,10 @@ def test_generator_cgc_settings(onnx_model_path, backend, ep):
 
 
 def _assert_cgc_optim(optim):
-    from winml.modelkit.optim.pipes import CGIRRewritePipe, ORTGraphPipe
+    from winml.modelkit.optim.pipes import ORTGraphPipe
 
     assert optim["ort_graph_optimization"] is False
     assert "backend" not in optim
-    rules = CGIRRewritePipe.build_config(**optim).rules
-    all_options = {
-        capability.python_name: True for capability in CGIRRewritePipe.capabilities.values()
-    }
-    assert rules == CGIRRewritePipe.build_config(**all_options).rules
-    assert len(optim) - 1 == len(rules)
     assert not ORTGraphPipe.should_process(ORTGraphPipe.build_config(**optim))
 
 

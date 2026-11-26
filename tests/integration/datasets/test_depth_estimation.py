@@ -92,7 +92,7 @@ class TestDepthEstimationDatasetWithMockedDeps:
     """Tests with mocked dependencies for faster execution."""
 
     @patch("winml.modelkit.datasets.image.load_dataset")
-    @patch("winml.modelkit.datasets.depth_estimation.AutoImageProcessor")
+    @patch("transformers.AutoImageProcessor")
     def test_processor_created_with_static_shape(
         self,
         mock_processor_cls: MagicMock,
@@ -133,7 +133,7 @@ class TestDepthEstimationDatasetWithMockedDeps:
         assert call_kwargs.get("do_pad") is False
 
     @patch("winml.modelkit.datasets.image.load_dataset")
-    @patch("winml.modelkit.datasets.depth_estimation.AutoImageProcessor")
+    @patch("transformers.AutoImageProcessor")
     def test_uses_default_size_when_no_io_config(
         self,
         mock_processor_cls: MagicMock,
@@ -179,7 +179,7 @@ class TestDepthEstimationDatasetColumnDetection:
     """Tests for column detection without ClassLabel."""
 
     @patch("winml.modelkit.datasets.image.load_dataset")
-    @patch("winml.modelkit.datasets.depth_estimation.AutoImageProcessor")
+    @patch("transformers.AutoImageProcessor")
     def test_detects_image_column_only(
         self,
         mock_processor_cls: MagicMock,
@@ -216,7 +216,7 @@ class TestDepthEstimationDatasetColumnDetection:
         assert ds.label_names == []
 
     @patch("winml.modelkit.datasets.image.load_dataset")
-    @patch("winml.modelkit.datasets.depth_estimation.AutoImageProcessor")
+    @patch("transformers.AutoImageProcessor")
     def test_raises_when_no_image_column(
         self,
         mock_processor_cls: MagicMock,
@@ -251,7 +251,7 @@ class TestDepthEstimationDatasetCalibrationDefaults:
     """
 
     @patch("winml.modelkit.datasets.image.load_dataset")
-    @patch("winml.modelkit.datasets.depth_estimation.AutoImageProcessor")
+    @patch("transformers.AutoImageProcessor")
     def test_uses_nyu_with_parquet_revision_when_no_dataset_name(
         self,
         mock_processor_cls: MagicMock,
@@ -293,7 +293,7 @@ class TestDepthEstimationDatasetCalibrationDefaults:
         assert kwargs.get("revision") == DEFAULT_DEPTH_ESTIMATION_REVISION
 
     @patch("winml.modelkit.datasets.image.load_dataset")
-    @patch("winml.modelkit.datasets.depth_estimation.AutoImageProcessor")
+    @patch("transformers.AutoImageProcessor")
     def test_no_revision_when_user_specifies_dataset(
         self,
         mock_processor_cls: MagicMock,

@@ -30,7 +30,7 @@ def _get_real_cpu_ort_device():
     return devs[0]
 
 
-def _make_cpu_session(model_path):
+def _make_cpu_session(model_path, **kwargs):
     """Create a WinMLSession bound to a stub CPU WinMLEPDevice.
 
     The real OrtEpDevice is wrapped so add_provider_for_devices() receives a
@@ -42,12 +42,87 @@ def _make_cpu_session(model_path):
 
     cpu_dev = _get_real_cpu_ort_device()
     cpu_ep_device = make_stub_winml_ep_device(cpu_dev, "CPUExecutionProvider")
-    return WinMLSession(model_path, ep_device=cpu_ep_device)
+    return WinMLSession(model_path, ep_device=cpu_ep_device, **kwargs)
 
 
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("failure", [None, "enter", "body", "exit"])
+def test_explicit_reuse_profiles_first_session_without_restoration(tmp_path, monkeypatch, failure):
+    from unittest.mock import Mock
+
+    from winml.modelkit.session.monitor import NullEPMonitor
+
+    class ProfileMonitor(NullEPMonitor):
+        requires_session_teardown = True
+        configures_session_options = True
+
+        def configure_session_options(self, options):
+            options.enable_profiling = True
+            options.profile_file_prefix = str(tmp_path / "profile")
+
+        def __enter__(self):
+            if failure == "enter":
+                raise RuntimeError("enter failed")
+            return self
+
+        def __exit__(self, *args):
+            assert not session.is_compiled
+            assert list(tmp_path.glob("profile*.json"))
+            if failure == "exit":
+                raise RuntimeError("exit failed")
+
+    factory = Mock(wraps=ort.InferenceSession)
+    monkeypatch.setattr(ort, "InferenceSession", factory)
+    monitor = ProfileMonitor()
+
+    def session_options():
+        options = ort.SessionOptions()
+        monitor.configure_session_options(options)
+        return options
+
+    session = _make_cpu_session(
+        get_minimal_onnx_model_path(), session_options=session_options
+    )
+    native_session_id = id(session._session)
+    session.compile()
+    factory.assert_called_once()
+    assert factory.call_args.kwargs["sess_options"].enable_profiling
+    io = session.io_config
+    inputs = {
+        name: np.random.default_rng(42).standard_normal(shape).astype(dtype)
+        for name, shape, dtype in zip(
+            io["input_names"], io["input_shapes"], io["input_types"], strict=True
+        )
+    }
+    def run():
+        with session.perf(monitor=monitor, warmup=1, reuse_session=True) as ctx:
+            assert id(session._session) == native_session_id
+            factory.assert_called_once()
+            for _ in range(3):
+                session.run(inputs)
+            assert ctx.stats.count == 2
+            if failure == "body":
+                raise RuntimeError("body failed")
+
+    if failure:
+        with pytest.raises(RuntimeError, match=f"{failure} failed"):
+            run()
+    else:
+        run()
+    factory.assert_called_once()
+    assert factory.call_args.kwargs["sess_options"].enable_profiling
+    assert not session.is_compiled
+    assert list(tmp_path.glob("profile*.json"))
+    assert session._perf_stats is None
+    with (
+        pytest.raises(ValueError, match="reuse_session requires an active session"),
+        session.perf(monitor=monitor, reuse_session=True),
+    ):
+        pass
+    factory.assert_called_once()
 
 
 def test_active_session_option_entries_default_empty():
@@ -58,6 +133,64 @@ def test_active_session_option_entries_default_empty():
     # Simulate post-__init__ state without file I/O
     session._active_session_option_entries = {}  # from __init__
     assert session._active_session_option_entries == {}
+
+
+def test_reuse_without_teardown_keeps_session_reusable():
+    from winml.modelkit.session.monitor import NullEPMonitor
+
+    monitor = NullEPMonitor()
+    session = _make_cpu_session(get_minimal_onnx_model_path())
+    with session.perf(monitor=monitor, reuse_session=True):
+        assert session.is_compiled
+    native_session_id = id(session._session)
+    assert session.is_compiled
+    with session.perf(monitor=monitor, reuse_session=True):
+        assert id(session._session) == native_session_id
+
+
+@pytest.mark.parametrize("option_kind", ["provider", "session"])
+def test_reuse_rejects_unapplied_options_without_destroying_session(option_kind):
+    from winml.modelkit.session.monitor import NullEPMonitor
+
+    class ChangedOptions(NullEPMonitor):
+        def get_provider_options(self):
+            return {"profiling": "1"} if option_kind == "provider" else {}
+
+        def get_session_options(self):
+            return {"session.test": "1"} if option_kind == "session" else {}
+
+    session = _make_cpu_session(get_minimal_onnx_model_path())
+    native_session_id = id(session._session)
+    with (
+        pytest.raises(ValueError, match="options already applied"),
+        session.perf(monitor=ChangedOptions(), reuse_session=True),
+    ):
+        pass
+    assert id(session._session) == native_session_id
+    assert session._perf_stats is None
+
+
+@pytest.mark.parametrize("explicit_compile", [None, False, True])
+def test_runtime_ep_config_controls_compilation_without_changing_defaults(
+    monkeypatch, explicit_compile
+):
+    from unittest.mock import Mock
+
+    from winml.modelkit.compiler import EPConfig
+
+    factory = Mock(wraps=ort.InferenceSession)
+    monkeypatch.setattr(ort, "InferenceSession", factory)
+    session = _make_cpu_session(
+        get_minimal_onnx_model_path(),
+        provider_options={"use_arena": "1"},
+        ep_config=(
+            EPConfig(enable_ep_context=explicit_compile)
+            if explicit_compile is not None else None
+        ),
+    )
+    expected = EPConfig().enable_ep_context if explicit_compile is None else explicit_compile
+    assert session._persist_jit is expected
+    assert factory.call_count == (0 if expected else 1)
 
 
 def test_perf_monitor_none_yields_perfcontext_with_null_monitor():
