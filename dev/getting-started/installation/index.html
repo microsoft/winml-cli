@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.1">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.2">
     
     
       
@@ -647,6 +647,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Install">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#python-314-runtime-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Python 3.14 runtime policy
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2849,6 +2866,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Install">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#python-314-runtime-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Python 3.14 runtime policy
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2918,7 +2952,7 @@
 </tr>
 <tr>
 <td>Python</td>
-<td>3.11</td>
+<td>3.14 (x64, standard GIL build)</td>
 </tr>
 <tr>
 <td>Package manager</td>
@@ -2935,15 +2969,16 @@
 <p>You can follow most of these docs without NPU hardware. All winml-cli commands accept <code>--device auto</code> and fall back to CPU or DirectML automatically. The tutorials document explicit CPU fallback paths.</p>
 </div>
 <h2 id="install">Install<a class="headerlink" href="#install" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>uv<span class="w"> </span>python<span class="w"> </span>install<span class="w"> </span><span class="m">3</span>.11
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>winml-cli
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>uv<span class="w"> </span>python<span class="w"> </span>install<span class="w"> </span><span class="m">3</span>.14
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>uv<span class="w"> </span>venv<span class="w"> </span>--python<span class="w"> </span><span class="m">3</span>.14
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>winml-cli
 </span></code></pre></div>
-<p><code>uv python install 3.11</code> downloads and pins the exact Python version the project requires. <code>uv pip install winml-cli</code> installs the latest release from PyPI into a managed environment. No separate venv activation is needed.</p>
+<p><code>uv python install 3.14</code> downloads a managed interpreter; <code>uv venv --python 3.14</code> creates <code>.venv</code>, which <code>uv pip install</code> detects without activation. The source checkout pins Python 3.14 in <code>.python-version</code>. Published releases may have different requirements until this migration is released.</p>
 <div class="admonition warning">
 <p class="admonition-title">Windows on Arm requires x64 Python</p>
-<p>winml-cli supports <strong>x64 (AMD64) Python only</strong>. On an Arm64 device, native Arm64 Python cannot install the dependencies because PyTorch and the Windows ML runtime packages publish no <code>win_arm64</code> wheels — <code>uv sync</code> fails with an unsupported-platform error. Install an x64 build of Python 3.11 and point <code>uv</code> at it:</p>
-<div class="language-powershell highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">uv</span> <span class="n">python</span> <span class="n">install</span> <span class="n">cpython</span><span class="p">-</span><span class="n">3</span><span class="p">.</span><span class="n">11-windows-x86_64-none</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">uv</span> <span class="n">sync</span> <span class="p">-</span><span class="n">-python</span> <span class="n">cpython</span><span class="p">-</span><span class="n">3</span><span class="p">.</span><span class="n">11-windows-x86_64-none</span>
+<p>winml-cli supports <strong>x64 (AMD64) Python only</strong>. On an Arm64 device, native Arm64 Python cannot install the dependencies because PyTorch and the Windows ML runtime packages publish no <code>win_arm64</code> wheels — <code>uv sync</code> fails with an unsupported-platform error. Install an x64 build of Python 3.14 and point <code>uv</code> at it:</p>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">uv</span> <span class="n">python</span> <span class="n">install</span> <span class="n">cpython</span><span class="p">-</span><span class="n">3</span><span class="p">.</span><span class="n">14-windows-x86_64-none</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">uv</span> <span class="n">sync</span> <span class="p">-</span><span class="n">-python</span> <span class="n">cpython</span><span class="p">-</span><span class="n">3</span><span class="p">.</span><span class="n">14-windows-x86_64-none</span>
 </span></code></pre></div>
 <p>The x64 interpreter runs under Windows emulation on Arm64 hardware; <code>winml sys</code> still reports the Arm64 machine, and the NPU/GPU/CPU providers work normally.</p>
 </div>
@@ -2955,33 +2990,83 @@
 </span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>uv<span class="w"> </span>sync
 </span></code></pre></div>
 </div>
+<h3 id="python-314-runtime-policy">Python 3.14 runtime policy<a class="headerlink" href="#python-314-runtime-policy" title="Permanent link">&para;</a></h3>
+<p>Python 3.14 is the development and CI runtime. Package metadata requires
+Python 3.14 or later; Python 3.11, 3.12, and 3.13 are no longer supported.
+Later Python releases have not been validated. Free-threaded builds and native
+Arm64 Python are not supported. This policy does not imply every GPU/NPU
+provider or model passes: known pipeline, cache, dataset, and QNN failures
+remain separate validation work.</p>
+<p>From a source checkout, create or update the project environment:</p>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">uv</span> <span class="n">python</span> <span class="n">install</span> <span class="n">cpython</span><span class="p">-</span><span class="n">3</span><span class="p">.</span><span class="n">14-windows-x86_64-none</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">uv</span> <span class="n">sync</span> <span class="p">-</span><span class="n">-python</span> <span class="n">cpython</span><span class="p">-</span><span class="n">3</span><span class="p">.</span><span class="n">14-windows-x86_64-none</span> <span class="p">-</span><span class="n">-all-extras</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">uv</span> <span class="n">run</span> <span class="p">-</span><span class="n">-no-sync</span> <span class="n">python</span> <span class="n">-m</span> <span class="n">winml</span><span class="p">.</span><span class="n">modelkit</span><span class="p">.</span><span class="nb">cli </span><span class="p">-</span><span class="n">-help</span>
+</span></code></pre></div>
+<p>The explicit x64 interpreter is required on Windows on Arm too. Python 3.14
+reports the Arm64 host from an emulated x64 process; provider DLL selection must
+use the interpreter's architecture, not just <code>platform.machine()</code>.</p>
+<p>NumPy, SciPy, ONNX, and Windows ML runtime now use one dependency constraint
+set compatible with Python 3.14. PyArrow and
+pandas remain exactly pinned to preserve the Parquet writer and metadata
+format. This does not guarantee identical regenerated ONNX model bytes:
+ONNX 1.20 changes the default IR/opset. Internal rule generators explicitly keep
+IR 11 for compatibility with the previous artifact baseline, but operator and
+shape-inference changes still require comparison of regenerated rules and models.
+Test each execution provider needed by your workload before adopting 3.14.</p>
+<p>For source validation, install development dependencies and run the suite:</p>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nv">$env:WINML_CACHE_DIR</span> <span class="p">=</span> <span class="p">(</span><span class="nb">Join-Path</span> <span class="nv">$PWD</span> <span class="s2">"temp\python314-cache"</span><span class="p">)</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">uv</span> <span class="n">sync</span> <span class="p">-</span><span class="n">-python</span> <span class="n">cpython</span><span class="p">-</span><span class="n">3</span><span class="p">.</span><span class="n">14-windows-x86_64-none</span> <span class="p">-</span><span class="n">-all-extras</span> <span class="p">-</span><span class="n">-all-groups</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">uv</span> <span class="n">run</span> <span class="p">-</span><span class="n">-no-sync</span> <span class="n">python</span> <span class="n">-m</span> <span class="n">pytest</span> <span class="n">tests</span> <span class="n">skills</span><span class="p">\</span><span class="n">adding-model-support</span><span class="p">\</span><span class="n">tests</span> <span class="n">skills</span><span class="p">\</span><span class="n">auto-optimize</span><span class="p">\</span><span class="n">tests</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">uv</span> <span class="n">run</span> <span class="p">-</span><span class="n">-no-sync</span> <span class="n">python</span> <span class="n">-m</span> <span class="n">pytest</span> <span class="n">tests</span><span class="p">\</span><span class="n">e2e</span> <span class="n">-m</span> <span class="s2">"e2e or e2e_run or e2e_serve"</span> <span class="p">-</span><span class="n">-no-cov</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="n">uv</span> <span class="n">run</span> <span class="p">-</span><span class="n">-no-sync</span> <span class="n">python</span> <span class="n">-m</span> <span class="n">pytest</span> <span class="n">tests</span><span class="p">\</span><span class="n">e2e</span> <span class="n">-m</span> <span class="s2">"not e2e and not e2e_run and not e2e_serve"</span> <span class="p">-</span><span class="n">-no-cov</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="nb">Remove-Item</span> <span class="n">Env</span><span class="p">:</span><span class="n">WINML_CACHE_DIR</span>
+</span></code></pre></div>
+<p>The second pytest command explicitly enables marked end-to-end tests, including
+the normally disabled run/serve groups; the third covers unmarked tests in that
+directory without the directory's default E2E skip. Some require model downloads,
+additional fixtures, or compatible
+hardware/provider packages; skips and environment failures are not passes.
+If a native provider terminates pytest, rerun the affected files in separate
+processes to preserve results for the rest of the suite.
+Use a different <code>WINML_CACHE_DIR</code> when running another build job concurrently:
+simultaneous exports must not write the same cached model artifacts.</p>
+<p>The optional Qualcomm QAIRT SDK backend runs its vendor-pinned compiler in a
+separate Python 3.11 subprocess environment. This is not a supported winml-cli
+runtime or a second project test matrix. Migrating that SDK environment requires
+a compatible vendor SDK, Torch, and ONNX stack; the current vendor requirements
+include Torch 2.4.1, NumPy below 2, and ONNX below 1.17, which cannot simply be
+installed in the CLI's 3.14 environment. This exception applies only to the
+optional QAIRT SDK compiler backend, not the normal ORT QNN/NPU path.
+The CLI itself runs on 3.14.
+The standalone SDK compiler script also has a narrowly scoped Ruff target override
+so formatting the CLI cannot introduce syntax unsupported by the vendor runtime.</p>
 <h2 id="verify">Verify<a class="headerlink" href="#verify" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>winml<span class="w"> </span>sys
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>winml<span class="w"> </span>sys
 </span></code></pre></div>
 <p>Expected output (abbreviated):</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>+------------------------------------+
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>|   winml-cli System Information     |
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>+------------------------------------+
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>Environment
-</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>  Python Version    3.11.x
-</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>  OS                Windows 11
-</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>  Machine           AMD64
-</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>
-</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>ML Libraries
-</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>  Library        Version   Status
-</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a>  torch          2.x.x     OK
-</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a>  onnx           1.x.x     OK
-</span><span id="__span-4-14"><a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a>
-</span><span id="__span-4-15"><a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a>Available Devices (priority order)
-</span><span id="__span-4-16"><a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a>  #1  NPU   ...
-</span><span id="__span-4-17"><a id="__codelineno-4-17" name="__codelineno-4-17" href="#__codelineno-4-17"></a>  #2  GPU   ...
-</span><span id="__span-4-18"><a id="__codelineno-4-18" name="__codelineno-4-18" href="#__codelineno-4-18"></a>  #3  CPU   ...
-</span><span id="__span-4-19"><a id="__codelineno-4-19" name="__codelineno-4-19" href="#__codelineno-4-19"></a>
-</span><span id="__span-4-20"><a id="__codelineno-4-20" name="__codelineno-4-20" href="#__codelineno-4-20"></a>Available Execution Providers
-</span><span id="__span-4-21"><a id="__codelineno-4-21" name="__codelineno-4-21" href="#__codelineno-4-21"></a>  QNNExecutionProvider           -&gt; NPU
-</span><span id="__span-4-22"><a id="__codelineno-4-22" name="__codelineno-4-22" href="#__codelineno-4-22"></a>  DmlExecutionProvider           -&gt; GPU
-</span><span id="__span-4-23"><a id="__codelineno-4-23" name="__codelineno-4-23" href="#__codelineno-4-23"></a>  CPUExecutionProvider           -&gt; CPU
+<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>+------------------------------------+
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>|   winml-cli System Information     |
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>+------------------------------------+
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>Environment
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>  Python Version    3.14.x
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>  OS                Windows 11
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>  Machine           AMD64
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>
+</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>ML Libraries
+</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a>  Library        Version   Status
+</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a>  torch          2.x.x     OK
+</span><span id="__span-6-13"><a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a>  onnx           1.x.x     OK
+</span><span id="__span-6-14"><a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a>
+</span><span id="__span-6-15"><a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a>Available Devices (priority order)
+</span><span id="__span-6-16"><a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a>  #1  NPU   ...
+</span><span id="__span-6-17"><a id="__codelineno-6-17" name="__codelineno-6-17" href="#__codelineno-6-17"></a>  #2  GPU   ...
+</span><span id="__span-6-18"><a id="__codelineno-6-18" name="__codelineno-6-18" href="#__codelineno-6-18"></a>  #3  CPU   ...
+</span><span id="__span-6-19"><a id="__codelineno-6-19" name="__codelineno-6-19" href="#__codelineno-6-19"></a>
+</span><span id="__span-6-20"><a id="__codelineno-6-20" name="__codelineno-6-20" href="#__codelineno-6-20"></a>Available Execution Providers
+</span><span id="__span-6-21"><a id="__codelineno-6-21" name="__codelineno-6-21" href="#__codelineno-6-21"></a>  QNNExecutionProvider           -&gt; NPU
+</span><span id="__span-6-22"><a id="__codelineno-6-22" name="__codelineno-6-22" href="#__codelineno-6-22"></a>  DmlExecutionProvider           -&gt; GPU
+</span><span id="__span-6-23"><a id="__codelineno-6-23" name="__codelineno-6-23" href="#__codelineno-6-23"></a>  CPUExecutionProvider           -&gt; CPU
 </span></code></pre></div>
 <p>This command enumerates available compute devices and execution providers on your machine. If an expected device or execution provider is missing, <code>winml sys</code> is the right place to diagnose it. See <a href="../../commands/sys/">winml sys</a> for the full flag reference and troubleshooting tips.</p>
 <h2 id="next-steps">Next steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>
