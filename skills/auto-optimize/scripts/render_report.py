@@ -22,13 +22,16 @@ REQUIRED_SECTIONS = {
     "updated_at",
     "model",
     "target",
+    "benchmark",
     "baseline",
     "evidence",
     "leader",
+    "optimizations",
     "hypotheses",
     "experiments",
     "feature_gaps",
     "conclusion",
+    "outcome",
     "artifacts",
 }
 
@@ -59,6 +62,11 @@ def report_template() -> dict[str, Any]:
             "latency_target_ms": None,
             "provider_options": {},
         },
+        "benchmark": {
+            "protocol": "pending",
+            "rows": [],
+            "notes": [],
+        },
         "baseline": {
             "p50_ms": None,
             "p90_ms": None,
@@ -87,6 +95,7 @@ def report_template() -> dict[str, Any]:
             "correctness": "pending",
             "quality": "pending",
         },
+        "optimizations": [],
         "hypotheses": [],
         "experiments": [],
         "capability_closure": {
@@ -104,6 +113,17 @@ def report_template() -> dict[str, Any]:
             "stop_reason": "running",
             "remaining_opportunities": [],
             "reproduce": [],
+        },
+        "outcome": {
+            "summary": "pending",
+            "validation": {
+                "status": "pending",
+                "clean_build": False,
+                "runtime_load": "pending",
+                "correctness": "pending",
+                "receipt": "pending",
+            },
+            "files": [],
         },
         "artifacts": {
             "champion_onnx": "pending",
@@ -193,15 +213,17 @@ def validate_report(report: Any, *, final: bool = False) -> dict[str, Any]:
     for field in (
         "model",
         "target",
+        "benchmark",
         "baseline",
         "evidence",
         "leader",
         "conclusion",
+        "outcome",
         "artifacts",
     ):
         if not isinstance(report[field], dict):
             raise ReportError(f"{field} must be an object")
-    for field in ("hypotheses", "experiments", "feature_gaps"):
+    for field in ("optimizations", "hypotheses", "experiments", "feature_gaps"):
         if not isinstance(report[field], list):
             raise ReportError(f"{field} must be a list")
     if final and "capability_closure" not in report:
@@ -310,6 +332,9 @@ def validate_report(report: Any, *, final: bool = False) -> dict[str, Any]:
     leader = report["leader"]
     validate_quality_gate(leader)
     conclusion = report["conclusion"]
+    benchmark = report["benchmark"]
+    optimizations = report["optimizations"]
+    outcome = report["outcome"]
     artifacts = report["artifacts"]
     closure = report.get("capability_closure", _unreviewed_closure())
 
@@ -346,6 +371,102 @@ def validate_report(report: Any, *, final: bool = False) -> dict[str, Any]:
         errors.append("hypotheses")
     if not report["experiments"]:
         errors.append("experiments")
+
+    if _missing(benchmark.get("protocol")):
+        errors.append("benchmark.protocol")
+    benchmark_rows = benchmark.get("rows")
+    if not isinstance(benchmark_rows, list) or not benchmark_rows:
+        errors.append("benchmark.rows")
+        benchmark_rows = []
+    if not isinstance(benchmark.get("notes"), list):
+        errors.append("benchmark.notes")
+    benchmark_roles: dict[str, list[dict[str, Any]]] = {}
+    for index, row in enumerate(benchmark_rows):
+        if not isinstance(row, dict):
+            errors.append(f"benchmark.rows[{index}] must be an object")
+            continue
+        role = row.get("role")
+        if role not in {"reference", "baseline", "champion", "candidate"}:
+            errors.append(f"benchmark.rows[{index}].role")
+        else:
+            benchmark_roles.setdefault(role, []).append(row)
+        for field in ("name", "device", "ep", "precision", "accuracy"):
+            if _missing(row.get(field)):
+                errors.append(f"benchmark.rows[{index}].{field}")
+        p50 = row.get("p50_ms")
+        if type(p50) not in (int, float) or not math.isfinite(p50) or p50 <= 0:
+            errors.append(f"benchmark.rows[{index}].p50_ms")
+        reasons = row.get("missing_reasons", {})
+        if not isinstance(reasons, dict):
+            errors.append(f"benchmark.rows[{index}].missing_reasons")
+            reasons = {}
+        for field in ("p90_ms", "p99_ms", "throughput_ips", "memory_mb", "size_mb"):
+            value = row.get(field)
+            if value is None:
+                if not isinstance(reasons.get(field), str) or not reasons[field].strip():
+                    errors.append(f"benchmark.rows[{index}].{field}")
+            elif type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+                errors.append(f"benchmark.rows[{index}].{field}")
+    for role, expected in (("baseline", baseline.get("p50_ms")), ("champion", leader.get("p50_ms"))):
+        rows_for_role = benchmark_roles.get(role, [])
+        if len(rows_for_role) != 1:
+            errors.append(f"benchmark requires exactly one {role} row")
+        elif type(expected) in (int, float) and not math.isclose(
+            float(rows_for_role[0].get("p50_ms", math.nan)),
+            float(expected),
+            rel_tol=1e-9,
+            abs_tol=1e-9,
+        ):
+            errors.append(f"benchmark {role} p50 does not match report evidence")
+
+    if not optimizations:
+        errors.append("optimizations")
+    for index, item in enumerate(optimizations):
+        if not isinstance(item, dict):
+            errors.append(f"optimizations[{index}] must be an object")
+            continue
+        for field in ("name", "purpose", "change", "evidence", "impact"):
+            if _missing(item.get(field)):
+                errors.append(f"optimizations[{index}].{field}")
+
+    if _missing(outcome.get("summary")):
+        errors.append("outcome.summary")
+    validation = outcome.get("validation")
+    if not isinstance(validation, dict):
+        errors.append("outcome.validation")
+    else:
+        if validation.get("status") != "pass":
+            errors.append("outcome.validation.status")
+        if validation.get("clean_build") is not True:
+            errors.append("outcome.validation.clean_build")
+        for field in ("runtime_load", "correctness"):
+            if validation.get(field) != "pass":
+                errors.append(f"outcome.validation.{field}")
+        if not _relative_artifact(validation.get("receipt")):
+            errors.append("outcome.validation.receipt")
+    outcome_files = outcome.get("files")
+    if not isinstance(outcome_files, list):
+        errors.append("outcome.files")
+        outcome_files = []
+    outcome_roles: set[str] = set()
+    for index, item in enumerate(outcome_files):
+        if not isinstance(item, dict):
+            errors.append(f"outcome.files[{index}] must be an object")
+            continue
+        role = item.get("role")
+        if not isinstance(role, str) or not role:
+            errors.append(f"outcome.files[{index}].role")
+        else:
+            outcome_roles.add(role)
+        for field in ("label", "description"):
+            if _missing(item.get(field)):
+                errors.append(f"outcome.files[{index}].{field}")
+        if not _relative_artifact(item.get("path")):
+            errors.append(f"outcome.files[{index}].path")
+    required_outcome_roles = {"onnx", "config", "rebuild_config", "config_validation"}
+    missing_outcome_roles = sorted(required_outcome_roles - outcome_roles)
+    if missing_outcome_roles:
+        errors.append(f"outcome.files missing roles: {', '.join(missing_outcome_roles)}")
 
     errors.extend(
         [
@@ -636,6 +757,59 @@ def _artifact_links(artifacts: dict[str, Any]) -> str:
     )
 
 
+def _benchmark_rows(items: list[dict[str, Any]]) -> str:
+    rows = []
+    for item in items:
+        p50 = item.get("p50_ms")
+        p99 = item.get("p99_ms")
+        consistency = None
+        if type(p50) in (int, float) and type(p99) in (int, float) and p50:
+            consistency = f"{p99 / p50:.2f}x"
+        rows.append(
+            f'<tr class="benchmark-{_escape(item.get("role"))}">'
+            f"<td><strong>{_escape(item.get('name'))}</strong>"
+            f'<div class="muted">{_escape(item.get("role"))}</div></td>'
+            f"<td>{_escape(item.get('device'))}<div class=\"muted\">"
+            f"{_escape(item.get('ep'))}</div></td>"
+            f"<td>{_escape(item.get('precision'))}</td>"
+            f"<td>{_escape(p50)} ms</td>"
+            f"<td>{_escape(_display_value(item, 'p90_ms'))} ms</td>"
+            f"<td>{_escape(_display_value(item, 'throughput_ips'))}</td>"
+            f"<td>{_escape(consistency or _display_value(item, 'p99_ms'))}</td>"
+            f"<td>{_escape(_display_value(item, 'memory_mb'))}</td>"
+            f"<td>{_escape(item.get('accuracy'))}</td>"
+            f"<td>{_escape(_display_value(item, 'size_mb'))}</td></tr>"
+        )
+    return "".join(rows) or '<tr><td colspan="10" class="empty">No benchmark evidence</td></tr>'
+
+
+def _optimization_rows(items: list[dict[str, Any]]) -> str:
+    return "".join(
+        (
+            "<tr>"
+            f"<td><strong>{_escape(item.get('name'))}</strong>"
+            f'<div class="muted">{_escape(item.get("purpose"))}</div></td>'
+            f"<td>{_escape(item.get('change'))}</td>"
+            f"<td>{_escape(item.get('impact'))}</td>"
+            f"<td>{_escape(item.get('evidence'))}</td></tr>"
+        )
+        for item in items
+    ) or '<tr><td colspan="4" class="empty">No accepted optimization</td></tr>'
+
+
+def _outcome_links(outcome: dict[str, Any]) -> str:
+    return "".join(
+        (
+            f'<a class="artifact" href="{_href(item.get("path"))}">'
+            f"<span>{_escape(item.get('label'))}</span>"
+            f"<strong>{_escape(item.get('path'))}</strong>"
+            f"<small>{_escape(item.get('description'))}</small></a>"
+        )
+        for item in outcome.get("files", [])
+        if isinstance(item, dict)
+    )
+
+
 def _gain_chart(experiments: list[dict[str, Any]]) -> str:
     gains = [abs(float(item.get("gain_pct") or 0)) for item in experiments]
     maximum = max(gains, default=1.0) or 1.0
@@ -657,6 +831,7 @@ def render_report(report: dict[str, Any], output: Path) -> None:
     report = validate_report(report)
     model = report["model"]
     target = report["target"]
+    benchmark = report["benchmark"]
     baseline = report["baseline"]
     evidence = report["evidence"]
     execution = evidence.get("execution", {})
@@ -665,7 +840,24 @@ def render_report(report: dict[str, Any], output: Path) -> None:
     closure = report.get("capability_closure", _unreviewed_closure())
     leader = report["leader"]
     conclusion = report["conclusion"]
+    outcome = report["outcome"]
     artifacts = report["artifacts"]
+    validation = outcome.get("validation", {})
+    speedup = None
+    if isinstance(baseline.get("p50_ms"), (int, float)) and isinstance(
+        leader.get("p50_ms"), (int, float)
+    ) and leader["p50_ms"]:
+        speedup = f"{baseline['p50_ms'] / leader['p50_ms']:.2f}x"
+    benchmark_notes = (
+        "".join(f"<li>{_escape(item)}</li>" for item in benchmark.get("notes", []))
+        or "<li>None recorded</li>"
+    )
+    confidence_metrics = ""
+    if leader.get("ci_low_pct") is not None and leader.get("ci_high_pct") is not None:
+        confidence_metrics = (
+            _metric("95% CI low", leader.get("ci_low_pct"), "%")
+            + _metric("95% CI high", leader.get("ci_high_pct"), "%")
+        )
 
     levers = (
         "".join(
@@ -745,7 +937,7 @@ border-radius:var(--radius);padding:10px 12px}}\
 .metric span{{display:block;color:var(--dim);font-size:13px}}\
 .metric strong{{display:block;font-size:22px;font-weight:600;margin-top:5px;\
 overflow-wrap:anywhere}}\
-nav{{position:sticky;top:0;z-index:5;display:flex;gap:4px;overflow:auto;\
+nav{{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:4px;overflow:visible;\
 padding:8px 28px;background:var(--bg2);border-bottom:1px solid var(--border)}}\
 nav a{{flex:0 0 auto;color:var(--text);text-decoration:none;font-size:13px;\
 padding:6px 9px;border-radius:var(--radius)}}\
@@ -795,6 +987,8 @@ background:var(--bg2);text-decoration:none;color:var(--text)}}\
 .artifact:hover{{border-color:var(--accent)}}\
 .artifact span,.artifact small{{color:var(--dim)}}\
 .artifact strong{{margin:5px 0;overflow-wrap:anywhere;color:var(--accent2)}}\
+.benchmark-champion{{background:var(--passbg)}}\
+.benchmark-reference td:first-child strong{{color:var(--accent2)}}\
 .gain-chart{{border-left:1px solid var(--border2);padding:4px 0}}\
 .gain-row{{display:grid;grid-template-columns:80px 1fr 72px;gap:8px;\
 align-items:center;margin:8px 0}}\
@@ -833,12 +1027,15 @@ title="Toggle dark mode" aria-label="Toggle dark mode">\
 <div class="metrics">\
 {_metric("Baseline p50", baseline.get("p50_ms"), " ms")}\
 {_metric("Champion p50", leader.get("p50_ms"), " ms")}\
-{_metric("Paired gain", leader.get("gain_pct"), "%")}\
-{_metric("95% CI low", leader.get("ci_low_pct"), "%")}\
-{_metric("95% CI high", leader.get("ci_high_pct"), "%")}\
+{_metric("Speedup", speedup)}\
+{_metric("Baseline reduction", leader.get("gain_pct"), "%")}\
+{confidence_metrics}\
 {_metric("Correctness", leader.get("correctness"))}</div></header>
 <nav aria-label="Report sections">\
-<a href="#overview">Overview</a>\
+<a href="#benchmark">Benchmark</a>\
+<a href="#optimizations">Optimizations</a>\
+<a href="#outcome">Outcome</a>\
+<a href="#overview">Technical overview</a>\
 <a href="#diagnosis">Diagnosis</a>\
 <a href="#execution">Execution</a>\
 <a href="#structure">Structure</a>\
@@ -848,7 +1045,25 @@ title="Toggle dark mode" aria-label="Toggle dark mode">\
 <a href="#champion">Champion</a>\
 <a href="#gaps">Feature gaps</a>\
 <a href="#conclusion">Conclusion</a></nav><main>
-<section id="overview"><h2>Overview</h2><div class="artifact-grid">\
+<section id="benchmark"><h2>Benchmark</h2><div class="diagnosis">\
+<strong>Matched measurement protocol</strong>{_escape(benchmark.get("protocol"))}</div>\
+<div class="table-wrap"><table><thead><tr><th>Model</th><th>Target</th>\
+<th>Precision</th><th>P50</th><th>P90</th><th>Inf/s</th><th>P99/P50</th>\
+<th>Memory MB</th><th>Accuracy / quality</th><th>Size MB</th></tr></thead>\
+<tbody>{_benchmark_rows(benchmark.get("rows", []))}</tbody></table></div>\
+<h3>Interpretation notes</h3><ul>{benchmark_notes}</ul></section>
+<section id="optimizations"><h2>Optimizations Applied</h2>\
+<div class="table-wrap"><table><thead><tr><th>Optimization</th><th>Change</th>\
+<th>Measured impact</th><th>Evidence</th></tr></thead><tbody>\
+{_optimization_rows(report["optimizations"])}</tbody></table></div></section>
+<section id="outcome"><h2>Outcome</h2><div class="diagnosis">\
+<strong>Deliverable result</strong>{_escape(outcome.get("summary"))}</div>\
+<div class="metrics">{_metric("Config validation", validation.get("status"))}\
+{_metric("Clean rebuild", "pass" if validation.get("clean_build") else "fail")}\
+{_metric("Runtime load", validation.get("runtime_load"))}\
+{_metric("Correctness", validation.get("correctness"))}</div>\
+<div class="artifact-grid">{_outcome_links(outcome)}</div></section>
+<section id="overview"><h2>Technical Overview</h2><div class="artifact-grid">\
 {_artifact_links(artifacts)}</div><div class="two-col">\
 <div><h3>Model</h3><p><strong>\
 {_escape(model.get("path"))}\

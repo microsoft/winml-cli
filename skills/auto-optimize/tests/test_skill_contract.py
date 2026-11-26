@@ -720,6 +720,47 @@ def test_deterministic_support_scripts_are_present() -> None:
     assert (SCRIPT_ROOT / "render_report.py").is_file()
     assert (SCRIPT_ROOT / "finalize_output.py").is_file()
     assert (SCRIPT_ROOT / "promotion.py").is_file()
+    assert (SCRIPT_ROOT / "validate_config.py").is_file()
+
+
+def test_report_contract_is_skill_owned_not_prompt_dependent() -> None:
+    skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8").lower()
+    delivery = (REFERENCE_ROOT / "report-delivery.md").read_text(encoding="utf-8").lower()
+    normalized_skill = " ".join(skill.split())
+    normalized_delivery = " ".join(delivery.split())
+
+    for required in (
+        "automatic default for every run",
+        "do not require the user prompt to restate",
+        "must not weaken or replace the standard report contract",
+    ):
+        assert required in normalized_skill, required
+    for required in (
+        "standard output contract for every auto-optimize run",
+        "without requiring report-format instructions in the user prompt",
+        "does not replace this report or relax any evidence",
+    ):
+        assert required in normalized_delivery, required
+
+
+def test_cleanup_must_preserve_hash_bound_workflow_evidence() -> None:
+    skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8").lower()
+    workflow = (REFERENCE_ROOT / "workflow.md").read_text(encoding="utf-8").lower()
+    normalized_skill = " ".join(skill.split())
+    normalized_workflow = " ".join(workflow.split())
+
+    for required in (
+        "never delete hash-bound evidence",
+        "workflow status after cleanup",
+        "next_gate=deliver",
+    ):
+        assert required in normalized_skill, required
+    for required in (
+        "never delete a file recorded in workflow state",
+        "prepared source bound by final config validation",
+        "next_gate=deliver",
+    ):
+        assert required in normalized_workflow, required
 
 
 def test_pr_routing_has_two_exclusive_owners_and_local_merge_proof() -> None:

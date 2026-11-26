@@ -59,6 +59,40 @@ def _report() -> dict[str, Any]:
             "latency_target_ms": 25.0,
             "provider_options": {"mode": "burst"},
         },
+        "benchmark": {
+            "protocol": "Matched fixed inputs and alternating paired runs.",
+            "rows": [
+                {
+                    "name": "NPU baseline",
+                    "role": "baseline",
+                    "device": "NPU",
+                    "ep": "QNNExecutionProvider",
+                    "precision": "W8A16",
+                    "p50_ms": 30.0,
+                    "p90_ms": 31.0,
+                    "p99_ms": 33.0,
+                    "throughput_ips": 33.3,
+                    "memory_mb": 240.0,
+                    "accuracy": "cosine 0.999",
+                    "size_mb": 130.0,
+                },
+                {
+                    "name": "Champion",
+                    "role": "champion",
+                    "device": "NPU",
+                    "ep": "QNNExecutionProvider",
+                    "precision": "W8A16",
+                    "p50_ms": 20.0,
+                    "p90_ms": 21.0,
+                    "p99_ms": 22.0,
+                    "throughput_ips": 50.0,
+                    "memory_mb": 220.0,
+                    "accuracy": "cosine 0.999",
+                    "size_mb": 130.0,
+                },
+            ],
+            "notes": [],
+        },
         "baseline": {
             "p50_ms": 30.0,
             "p90_ms": 31.0,
@@ -94,6 +128,15 @@ def _report() -> dict[str, Any]:
             "correctness": "pass",
             "quality": "pass",
         },
+        "optimizations": [
+            {
+                "name": "Constant folding",
+                "purpose": "Remove redundant provider work.",
+                "change": "Fold the confirmed constant subgraph.",
+                "evidence": "Graph delta, correctness, and paired trace evidence.",
+                "impact": "33.3% paired latency gain.",
+            }
+        ],
         "hypotheses": [
             {
                 "mechanism": "fold constants",
@@ -147,6 +190,42 @@ def _report() -> dict[str, Any]:
             "stop_reason": "target confirmed",
             "remaining_opportunities": [],
             "reproduce": ["winml build ..."],
+        },
+        "outcome": {
+            "summary": "A validated champion and reproducible final config.",
+            "validation": {
+                "status": "pass",
+                "clean_build": True,
+                "runtime_load": "pass",
+                "correctness": "pass",
+                "receipt": "config_validation.json",
+            },
+            "files": [
+                {
+                    "role": "onnx",
+                    "label": "Champion ONNX",
+                    "path": "champion.onnx",
+                    "description": "Runnable confirmed leader.",
+                },
+                {
+                    "role": "config",
+                    "label": "Resolved WinML config",
+                    "path": "winml_config.json",
+                    "description": "Config used by the delivered artifact.",
+                },
+                {
+                    "role": "rebuild_config",
+                    "label": "Rebuild config",
+                    "path": "rebuild_config.json",
+                    "description": "Exact composed public-CLI config.",
+                },
+                {
+                    "role": "config_validation",
+                    "label": "Config validation",
+                    "path": "config_validation.json",
+                    "description": "Clean rebuild and correctness receipt.",
+                },
+            ],
         },
         "artifacts": {
             "champion_onnx": "pending",
@@ -343,6 +422,21 @@ def test_finalize_output_publishes_complete_hash_bound_bundle(
     html = (output / "report.html").read_text(encoding="utf-8")
     assert 'href="champion.onnx"' in html
     assert 'href="qnn_context.bin"' in html
+
+
+def test_validate_only_cli_requires_only_existing_bundle(
+    output_module: ModuleType,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    report, champion, config, companion = _inputs(tmp_path)
+    output = tmp_path / "output"
+    output_module.finalize_output(report, champion, config, [companion], output)
+
+    result = output_module.main(["--validate-only", "--output", str(output)])
+
+    assert result == 0
+    assert str(output.resolve()) in capsys.readouterr().out
 
 
 def test_finalize_output_publishes_portable_reproduction_assets(
