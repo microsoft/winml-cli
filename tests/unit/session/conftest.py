@@ -190,7 +190,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     for entry in registry._discovered:
         try:
             registry.register_ep(entry)
-        except WinMLEPRegistrationFailed:  # noqa: PERF203
+        except WinMLEPRegistrationFailed:
             # Best-effort: an individual EP failure must not skip every
             # ep-marked test in the collection.
             continue

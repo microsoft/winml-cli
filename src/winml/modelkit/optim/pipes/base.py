@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar
 
 from ..errors import OptimizationError
-from ..registry import CapabilityDef  # noqa: TC001 (used at runtime)
+from ..registry import CapabilityDef
 
 
 # Re-export for backward compatibility

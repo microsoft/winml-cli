@@ -39,7 +39,7 @@ TINY_TEXT_MODEL = "hf-internal-testing/tiny-random-BertModel"
 
 
 @pytest.fixture(scope="session")
-def test_cache_dir() -> Generator[Path, None, None]:
+def test_cache_dir() -> Generator[Path]:
     """
     Create a temporary cache directory for test artifacts.
 

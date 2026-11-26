@@ -15,7 +15,7 @@ First, follow the guidance in [The CGC backend in Windows ML](https://review.lea
 Create a virtual environment and install WinML CLI version 0.5.0 or above:
 
 ```powershell
-uv venv --python 3.11
+uv venv --python 3.14
 uv pip install winml-cli
 ```
 

@@ -19,12 +19,12 @@ description: Build, optimize, quantize, compile, and benchmark ONNX models for W
 
 When in doubt, include it — a five-line prereq block is cheaper than a stuck user.
 
-`winml-cli` pins **Python 3.11 exactly** (`>=3.11,<3.12`) — use `uv` to create an isolated venv so you don't pollute system Python or land on a 3.12+ environment that won't resolve.
+`winml-cli` requires **Python 3.14 or later**; development and CI use **3.14, x64, standard GIL**. Use `uv` to create an isolated venv rather than changing system Python. On Windows on Arm, select `cpython-3.14-windows-x86_64-none` explicitly; native Arm64 Python is unsupported.
 
-**1. Create a Python 3.11 environment**
+**1. Create a Python 3.14 environment**
 
 ```bash
-uv venv --python 3.11
+uv venv --python 3.14
 ```
 
 Activate it:

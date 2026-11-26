@@ -27,7 +27,7 @@ The 30 trigger prompts, their labels, and the 11 response prompts are retained.
 Skill names, stale explanatory text, and assertion wording are updated for this
 layout. Command validity requires actual CLI-help evidence, not merely
 plausible-looking flags. Installation assertions reflect the current package's
-Python 3.11 requirement. CI repeatability does not imply byte-identical model
+Python 3.14 requirement. CI repeatability does not imply byte-identical model
 artifacts without controlling inputs and dependencies.
 
 The six E2E scenarios are retained with explicit CPU targeting, named benchmark

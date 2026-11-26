@@ -18,7 +18,7 @@ coverage; they do not prove live activation behavior.
 
 ## Workflow simulator
 
-Run manually with Python 3.11 and an authenticated Codex CLI:
+Run manually with Python 3.14 and an authenticated Codex CLI:
 
     python skills/auto-optimize/evals/run_evals.py --output <new-absolute-directory>
 

@@ -408,9 +408,8 @@ def host_machine() -> str:
     Returns:
         ``x64``, ``x86``, ``arm64``, or ``?``.
     """
-    # The interpreter's own build, which is what decides whether this process can load
-    # the DLL. platform.machine() would answer the same on a native install, but on 3.11
-    # it runs `cmd /c ver` first, ~45 ms on every run.
+    # DLL loading follows the process build, not platform.machine()'s host
+    # architecture under Windows-on-Arm emulation.
     return {"win-amd64": "x64", "win32": "x86", "win-arm64": "arm64"}.get(
         sysconfig.get_platform(), "?"
     )
@@ -1799,7 +1798,7 @@ def run_patterns(opts: Options) -> None:
         for adapter in targets:
             try:
                 written = report_patterns(opts, adapter, redist, sdk) or written
-            except RedistUnusable:  # noqa: PERF203 - next to a device, try costs nothing
+            except RedistUnusable:
                 raise  # no adapter can be asked through this redist
             except click.ClickException as exc:
                 # Sweeping every adapter: one driver that cannot answer must not cost

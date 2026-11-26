@@ -38,7 +38,7 @@ import subprocess
 import sys
 import time
 from collections import defaultdict
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 
@@ -155,7 +155,7 @@ def _parse_info_items(json_path: Path, ep: str = "QNNExecutionProvider") -> list
         return []
     try:
         sa_data = json.loads(json_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except json.JSONDecodeError, OSError:
         return []
 
     for ep_result in sa_data.get("results", []):
@@ -1014,7 +1014,7 @@ def build_aggregate_report(
 
     return {
         "run_date": date.today().isoformat(),
-        "run_timestamp": datetime.now(timezone.utc).isoformat(),
+        "run_timestamp": datetime.now(UTC).isoformat(),
         "input": str(models_input),
         "ep": ep,
         "device": device,
@@ -1311,7 +1311,7 @@ def main() -> None:
                     f"\n[{i}/{len(models_to_run)}] {hf_id}  "
                     f"(RETRY - was {existing.get('status', '?')})"
                 )
-            except (json.JSONDecodeError, KeyError):
+            except json.JSONDecodeError, KeyError:
                 pass  # Corrupted result file — re-run
 
         safe_print(f"\n[{i}/{len(models_to_run)}]")

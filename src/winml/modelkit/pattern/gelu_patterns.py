@@ -98,7 +98,7 @@ class Gelu1Pattern(Pattern):
         """
         # Determine the numpy dtype from the first input
         # Default to float32 if type cannot be determined
-        dtype = np.float32
+        dtype = np.dtype(np.float32)
         if "X" in inputs and inputs["X"] is not None:
             dtype = inputs["X"].dtype
 
@@ -200,7 +200,7 @@ class Gelu2Pattern(Pattern):
         Returns:
             Tuple of (internal_constants, internal_attributes).
         """
-        dtype = np.float32
+        dtype = np.dtype(np.float32)
         if "X" in inputs and inputs["X"] is not None:
             dtype = inputs["X"].dtype
 
@@ -307,7 +307,7 @@ class Gelu3Pattern(Pattern):
         Returns:
             Tuple of (internal_constants, internal_attributes).
         """
-        dtype = np.float32
+        dtype = np.dtype(np.float32)
         if "X" in inputs and inputs["X"] is not None:
             dtype = inputs["X"].dtype
 
@@ -413,7 +413,7 @@ class Gelu4Pattern(Pattern):
         Returns:
             Tuple of (internal_constants, internal_attributes).
         """
-        dtype = np.float32
+        dtype = np.dtype(np.float32)
         if "X" in inputs and inputs["X"] is not None:
             dtype = inputs["X"].dtype
 

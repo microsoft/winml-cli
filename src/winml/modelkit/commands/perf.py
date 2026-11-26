@@ -57,6 +57,7 @@ from ._pre_bench import print_pre_bench_block
 if TYPE_CHECKING:
     import contextlib
     from collections.abc import Callable, Iterator, Sequence
+    from typing import IO
 
     import numpy as np
     from rich.console import Console
@@ -893,7 +894,7 @@ def _resolve_shape(
                     ) from e
                 try:
                     is_integral = isinstance(value, str) or value == coerced_value
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     is_integral = False
                 if not is_integral:
                     raise click.ClickException(
@@ -964,12 +965,7 @@ def _runtime_input_shapes(
                 for name in io_config["input_names"]:
                     with archive.open(name + ".npy") as stream:
                         version = np.lib.format.read_magic(stream)
-                        # NumPy has no public v3 header reader. Use the same
-                        # version-aware, size-limited reader as np.load, without
-                        # reading or allocating the array payload.
-                        shape, _, dtype = np.lib.format._read_array_header(  # type: ignore[attr-defined]
-                            stream, version
-                        )
+                        shape, _, dtype = _read_numpy_header(stream, version)
                         if dtype.hasobject:
                             raise ValueError("object input arrays are unsupported")
                         shapes[name] = shape
@@ -991,6 +987,39 @@ def _runtime_input_shapes(
                     shape, name, batch_size, symbolic_shape=symbolic, shape_config=shape_config
                 )
     return shapes, _symbolic_dimensions_for_inputs(io_config, shapes)
+
+
+def _read_numpy_header(
+    stream: IO[bytes], version: tuple[int, int]
+) -> tuple[tuple[int, ...], bool, np.dtype]:
+    """Read only a bounded NPY header using NumPy's public format API."""
+    import numpy as np
+
+    if version == (3, 0):
+        from io import BytesIO
+
+        # V3 uses V2's layout but UTF-8 rather than Latin-1. Escape Unicode in the
+        # literal header so the public V2 parser preserves field names exactly.
+        size_bytes = stream.read(4)
+        if len(size_bytes) != 4:
+            raise EOFError("Truncated NPY header length")
+        size = int.from_bytes(size_bytes, "little")
+        if size > 10_000:
+            raise ValueError("NPY header exceeds the 10000-byte safety limit")
+        header = stream.read(size)
+        if len(header) != size:
+            raise EOFError("Truncated NPY header")
+        ascii_header = header.decode("utf-8").encode("ascii", "backslashreplace")
+        stream = BytesIO(len(ascii_header).to_bytes(4, "little") + ascii_header)
+        version = (2, 0)
+
+    if version == (1, 0):
+        result: tuple[tuple[int, ...], bool, np.dtype] = np.lib.format.read_array_header_1_0(stream)
+    elif version == (2, 0):
+        result = np.lib.format.read_array_header_2_0(stream)
+    else:
+        raise ValueError(f"Unsupported NPY version: {version}")
+    return result
 
 
 def _ort_options_for_dimensions(dimensions: dict[str, int]) -> Any:
@@ -1205,9 +1234,7 @@ class PerfBenchmark:
                                 if self.config.output_path
                                 else Path.cwd()
                             )
-                            stack.enter_context(
-                                VitisAIOpMonitor.profiling_environment(output_dir)
-                            )
+                            stack.enter_context(VitisAIOpMonitor.profiling_environment(output_dir))
                 return self._run_with_memory()
         finally:
             if self._memory_tracker is not None:
@@ -1631,13 +1658,16 @@ class PerfBenchmark:
             if self.config.warmup_seconds > 0:
                 started = time.perf_counter()
                 count = 0
-                while (count < self.config.warmup or
-                       time.perf_counter() - started < self.config.warmup_seconds):
+                while (
+                    count < self.config.warmup
+                    or time.perf_counter() - started < self.config.warmup_seconds
+                ):
                     ctx.stats.warmup = count + 1
                     session.run(self._inputs)
                     count += 1
                 self._timed_warmup = {
-                    "count": count, "duration_ms": (time.perf_counter() - started) * 1000,
+                    "count": count,
+                    "duration_ms": (time.perf_counter() - started) * 1000,
                     "minimum_count": self.config.warmup,
                     "minimum_seconds": self.config.warmup_seconds,
                 }
@@ -1655,7 +1685,8 @@ class PerfBenchmark:
                     session.run(self._inputs)
                     measured += 1
                 self._steady_measurement = {
-                    "count": measured, "duration_ms": (time.perf_counter() - steady_start) * 1000
+                    "count": measured,
+                    "duration_ms": (time.perf_counter() - steady_start) * 1000,
                 }
             else:
                 _run_simple_loop(
@@ -3917,11 +3948,19 @@ def _validate_duration(
 @cli_utils.verbosity_options()
 @cli_utils.no_color_option()
 @click.pass_context
-@click.option("--memory-backend", type=click.Choice(["pdh", "dxgi"]), default="pdh",
-              help="GPU memory counter backend; dxgi queries in-process application usage.")
-@click.option("--warmup-seconds", type=click.FloatRange(min=0), default=0.0,
-              callback=_validate_duration,
-              help="Minimum warmup duration in seconds, in addition to --warmup count.")
+@click.option(
+    "--memory-backend",
+    type=click.Choice(["pdh", "dxgi"]),
+    default="pdh",
+    help="GPU memory counter backend; dxgi queries in-process application usage.",
+)
+@click.option(
+    "--warmup-seconds",
+    type=click.FloatRange(min=0),
+    default=0.0,
+    callback=_validate_duration,
+    help="Minimum warmup duration in seconds, in addition to --warmup count.",
+)
 @click.option(
     "--etw-tracing",
     type=click.Path(path_type=Path),
@@ -4611,16 +4650,20 @@ def perf(
                         ).get("steady_inference", 0):
                             raise click.ClickException("Incomplete steady memory samples.")
                         result.process_memory["steady_validation"] = {
-                            **benchmark._steady_measurement, "gpu_time_ms": gpu_ms,
-                            "status": "valid", "performance_acceptance": False,
+                            **benchmark._steady_measurement,
+                            "gpu_time_ms": gpu_ms,
+                            "status": "valid",
+                            "performance_acceptance": False,
                             "resource_lifetime_tracking": "unavailable",
                         }
                         result.process_memory["steady_bytes"] = {
                             name: steady[key]["median_mib"] * 1048576
-                            for name, key in (("working_set", "rss"),
-                                              ("private_commit", "private_commit"),
-                                              ("local_usage", "vram_local"),
-                                              ("nonlocal_usage", "vram_shared"))
+                            for name, key in (
+                                ("working_set", "rss"),
+                                ("private_commit", "private_commit"),
+                                ("local_usage", "vram_local"),
+                                ("nonlocal_usage", "vram_shared"),
+                            )
                         }
                 except (OSError, RuntimeError) as exc:
                     raise click.ClickException(str(exc)) from exc
@@ -4703,7 +4746,7 @@ def perf(
 
                 try:
                     running_model_is_epcontext = is_compiled_onnx(Path(result.running_model_path))
-                except (OSError, ValueError):
+                except OSError, ValueError:
                     running_model_is_epcontext = False
                 if not running_model_is_epcontext:
                     console.print(

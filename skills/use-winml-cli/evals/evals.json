@@ -78,8 +78,8 @@
       "prompt": "i just got my snapdragon x elite dev box and i don't have winml installed yet. python 3.10 is already on the system. give me the actual install commands i should run to get going before i can do anything else.",
       "files": [],
       "assertions": [
-        { "id": "python-3-11-required", "text": "Recommends Python 3.11 and explains that the existing Python 3.10 does not satisfy the package's >=3.11,<3.12 requirement.", "passed": null, "evidence": "" },
-        { "id": "uses-uv-venv", "text": "Creates an isolated Python 3.11 environment using uv or an equivalent explicit interpreter selection, rather than installing into system Python 3.10.", "passed": null, "evidence": "" },
+        { "id": "python-3-14-required", "text": "Recommends Python 3.14 and explains that the existing Python 3.10 does not satisfy the package's >=3.14 requirement.", "passed": null, "evidence": "" },
+        { "id": "uses-uv-venv", "text": "Creates an isolated Python 3.14 environment using uv or an equivalent explicit interpreter selection, rather than installing into system Python 3.10.", "passed": null, "evidence": "" },
         { "id": "points-to-correct-source", "text": "Installs the winml-cli package from PyPI into that environment, not a different generic winml package.", "passed": null, "evidence": "" },
         { "id": "verifies-after-install", "text": "Includes a post-install CLI and/or provider-discovery verification step.", "passed": null, "evidence": "" }
       ]

@@ -623,9 +623,7 @@ def test_basic_metrics_infer_runtime_partitions_for_raw_model(tmp_path):
     assert operators["SecondOp"].samples_us == [20.0, 60.0]
 
 
-def test_detail_metrics_fall_back_to_complete_csv_for_multiple_partitions(
-    tmp_path, monkeypatch
-):
+def test_detail_metrics_fall_back_to_complete_csv_for_multiple_partitions(tmp_path, monkeypatch):
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
 
     context_model = tmp_path / "model_ctx.onnx"
@@ -1544,7 +1542,7 @@ def test_find_schematic_returns_none_when_csv_metadata_cannot_be_read(tmp_path, 
     assert monitor._find_schematic() is None
 
 
-def test_find_schematic_reuses_exact_candidate_metadata(tmp_path, monkeypatch):
+def test_find_schematic_checks_exact_candidate_once(tmp_path, monkeypatch):
     from pathlib import Path
 
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
@@ -1562,23 +1560,23 @@ def test_find_schematic_reuses_exact_candidate_metadata(tmp_path, monkeypatch):
     fresh = _schematic_for_partition(out_dir, "stat_partition")
     fresh.write_bytes(b"")
 
-    original_stat = Path.stat
-    stat_calls = {fresh: 0}
+    original_is_file = Path.is_file
+    metadata_calls = {fresh: 0}
 
-    def _flaky_stat(self: Path, *args, **kwargs):
+    def _flaky_is_file(self: Path):
         if self == fresh:
-            stat_calls[fresh] += 1
-            if stat_calls[fresh] > 1:
-                raise AssertionError("exact schematic stat() should only be read once")
-        return original_stat(self, *args, **kwargs)
+            metadata_calls[fresh] += 1
+            if metadata_calls[fresh] > 1:
+                raise AssertionError("exact schematic metadata should only be read once")
+        return original_is_file(self)
 
-    monkeypatch.setattr(Path, "stat", _flaky_stat)
+    monkeypatch.setattr(Path, "is_file", _flaky_is_file)
 
     assert monitor._find_schematic() == fresh
-    assert stat_calls[fresh] == 1
+    assert metadata_calls[fresh] == 1
 
 
-def test_find_schematic_returns_none_when_exact_candidate_stat_fails(tmp_path, monkeypatch):
+def test_find_schematic_returns_none_when_exact_candidate_metadata_fails(tmp_path, monkeypatch):
     from pathlib import Path
 
     from winml.modelkit.session.monitor.qnn_monitor import QNNMonitor
@@ -1592,14 +1590,14 @@ def test_find_schematic_returns_none_when_exact_candidate_stat_fails(tmp_path, m
     exact = _schematic_for_partition(tmp_path, "failing_stat_partition")
     exact.write_bytes(b"")
 
-    original_stat = Path.stat
+    original_is_file = Path.is_file
 
-    def _flaky_stat(self: Path, *args, **kwargs):
+    def _flaky_is_file(self: Path):
         if self == exact:
             raise PermissionError("cannot stat exact schematic")
-        return original_stat(self, *args, **kwargs)
+        return original_is_file(self)
 
-    monkeypatch.setattr(Path, "stat", _flaky_stat)
+    monkeypatch.setattr(Path, "is_file", _flaky_is_file)
 
     assert monitor._find_schematic() is None
 

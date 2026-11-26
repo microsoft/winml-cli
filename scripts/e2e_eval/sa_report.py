@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -186,7 +186,7 @@ def generate_sa_html_report(report_data: dict, output_path: Path) -> None:
     else:
         base_css = _fallback_css()
 
-    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    generated_at = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
     n_complete = report_data.get("models_complete", 0)
     n_total = report_data.get("models_total", 0)
     report_ep_display = report_ep or "auto"
