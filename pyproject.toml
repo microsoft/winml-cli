@@ -45,7 +45,7 @@ dependencies = [
   "ml-dtypes>=0.5.3",
   # These release lines provide Windows x64 wheels compatible with CPython 3.14.
   "numpy>=2.3.2,<2.4",
-  "onnx==1.20.0",
+  "onnx==1.22.0",
   "onnx-ir>=0.1",
   "onnxruntime-genai-winml==0.14.1 ; sys_platform == 'win32'",
   "onnxruntime-windowsml==1.30.1.202610302006 ; sys_platform == 'win32'",
