@@ -28,6 +28,34 @@ ERF_CONVNEXT_MODEL_PATH = FIXTURES_DIR / "erf-convnext-tiny.onnx"
 BERT_TINY_OPSET23_MODEL_PATH = FIXTURES_DIR / "nsp_b0ee7fae871bae40_opt_opset23.onnx"
 
 
+@pytest.mark.parametrize("shape", [(2, 3), ("batch", 3), (None, 3)])
+def test_rewrite_placeholder_requires_concrete_shape(shape: tuple[int | str | None, ...]) -> None:
+    from winml.modelkit.pattern.base import make_single_op_pattern
+
+    _, pattern_class = make_single_op_pattern(onnx.defs.get_schema("Relu", 17))
+    graph = onnx.helper.make_graph(
+        [onnx.helper.make_node("Relu", ["X"], ["Y"], name="relu")],
+        "rewrite_shape",
+        [onnx.helper.make_tensor_value_info("X", onnx.TensorProto.FLOAT, [2, 3])],
+        [onnx.helper.make_tensor_value_info("Y", onnx.TensorProto.FLOAT, [2, 3])],
+    )
+    model = onnx.helper.make_model(graph, opset_imports=[onnx.helper.make_opsetid("", 17)])
+    matcher = PatternMatcher(model)
+    matcher.register_pattern(pattern_class())
+    matches = matcher.match()
+    assert len(matches) == 1
+    assert matches[0].input_infos
+    for info in matches[0].input_infos.values():
+        info.shape = shape
+    rewriter = PatternRewriter(model)
+    if all(isinstance(dim, int) for dim in shape):
+        rewritten = rewriter.rewrite([(matches, pattern_class)])
+        onnx.checker.check_model(rewritten, full_check=True)
+    else:
+        with pytest.raises(TypeError, match="unresolved shape"):
+            rewriter.rewrite([(matches, pattern_class)])
+
+
 class TestPatternRewriting:
     """Tests for pattern rewriting functionality."""
 

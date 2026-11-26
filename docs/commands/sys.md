@@ -71,7 +71,7 @@ $ winml sys
 +------------------------------------+
 
 Environment
-  Python Version    3.11.9
+  Python Version    3.14.6
   Python Executable C:\...\python.exe
   OS                Windows 11
   Machine           AMD64

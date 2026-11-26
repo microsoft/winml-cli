@@ -92,12 +92,14 @@ class BlipCaptioningIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base 
     production export route used by ``winml config`` / ``winml build``.
     """
 
-    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
-        num_channels="vision_config.num_channels",
-        image_size="vision_config.image_size",
-        vocab_size="text_config.vocab_size",
-        sequence_length="text_config.max_position_embeddings",
-        allow_new=True,
+    NORMALIZED_CONFIG_CLASS = staticmethod(
+        NormalizedConfig.with_args(
+            num_channels="vision_config.num_channels",
+            image_size="vision_config.image_size",
+            vocab_size="text_config.vocab_size",
+            sequence_length="text_config.max_position_embeddings",
+            allow_new=True,
+        )
     )
     DUMMY_INPUT_GENERATOR_CLASSES = (
         DummyVisionInputGenerator,
@@ -156,10 +158,12 @@ class BlipVisionEncoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum ba
     quantisation picks ``ImageDataset`` for calibration.
     """
 
-    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
-        num_channels="vision_config.num_channels",
-        image_size="vision_config.image_size",
-        allow_new=True,
+    NORMALIZED_CONFIG_CLASS = staticmethod(
+        NormalizedConfig.with_args(
+            num_channels="vision_config.num_channels",
+            image_size="vision_config.image_size",
+            allow_new=True,
+        )
     )
     DUMMY_INPUT_GENERATOR_CLASSES = (DummyVisionInputGenerator,)
 
@@ -206,16 +210,18 @@ class BlipDecoderIOConfig(WinMLStaticCacheDecoderIOConfig):
     Outputs: logits, present_{i}_key / present_{i}_value
     """
 
-    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
-        hidden_size="text_config.hidden_size",
-        num_layers="text_config.num_hidden_layers",
-        num_attention_heads="text_config.num_attention_heads",
-        max_cache_len="text_config.max_position_embeddings",
-        vocab_size="text_config.vocab_size",
-        vision_hidden_size="vision_config.hidden_size",
-        image_size="vision_config.image_size",
-        patch_size="vision_config.patch_size",
-        allow_new=True,
+    NORMALIZED_CONFIG_CLASS = staticmethod(
+        NormalizedConfig.with_args(
+            hidden_size="text_config.hidden_size",
+            num_layers="text_config.num_hidden_layers",
+            num_attention_heads="text_config.num_attention_heads",
+            max_cache_len="text_config.max_position_embeddings",
+            vocab_size="text_config.vocab_size",
+            vision_hidden_size="vision_config.hidden_size",
+            image_size="vision_config.image_size",
+            patch_size="vision_config.patch_size",
+            allow_new=True,
+        )
     )
     DUMMY_INPUT_GENERATOR_CLASSES = (
         BlipDecoderInputGenerator,

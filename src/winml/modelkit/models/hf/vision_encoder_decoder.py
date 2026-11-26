@@ -112,10 +112,12 @@ class VisionEncoderWrapper(nn.Module):
 class VisionEncoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum/transformers base is untyped
     """ONNX config for the vision encoder."""
 
-    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
-        num_channels="encoder.num_channels",
-        image_size="encoder.image_size",
-        allow_new=True,
+    NORMALIZED_CONFIG_CLASS = staticmethod(
+        NormalizedConfig.with_args(
+            num_channels="encoder.num_channels",
+            image_size="encoder.image_size",
+            allow_new=True,
+        )
     )
     DUMMY_INPUT_GENERATOR_CLASSES = (DummyVisionInputGenerator,)
 

@@ -30,7 +30,7 @@ import time
 from abc import ABC, abstractmethod
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, Protocol, TypeVar
 
@@ -355,7 +355,7 @@ class TaskBenchmarkResult:
     BACKEND: ClassVar[str]
 
     config: TaskPerfConfig
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     prompt_tokens: int = 0
     generated_tokens: int = 0
     response_text: str = ""

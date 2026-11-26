@@ -23,7 +23,7 @@ llama.cpp, and a checkpoint folder without it is still exported to ONNX.
 
 ## Prerequisites
 
-- Windows x64 and Python 3.11 (the winml-cli requirements).
+- Windows x64 and Python 3.14 (the winml-cli requirements).
 - A hardware GPU. CGC text generation runs only on a GPU.
 - winml-cli, from PyPI or from a source checkout.
 - The preview `windowsml` wheel, `windowsml-2.8.183.dev0-py3-none-win_amd64.whl`, in
@@ -63,7 +63,7 @@ holds the `windowsml` wheel.
 
     ```powershell
     $wheels = '<folder that holds windowsml-2.8.183.dev0-py3-none-win_amd64.whl>'
-    uv venv .venv-cgc --python 3.11
+    uv venv .venv-cgc --python 3.14
     .venv-cgc\Scripts\activate
     uv pip install -e .
     uv pip install --find-links $wheels --prerelease=allow "windowsml==2.8.183.dev0"
@@ -73,7 +73,7 @@ holds the `windowsml` wheel.
 
     ```powershell
     $wheels = '<folder that holds windowsml-2.8.183.dev0-py3-none-win_amd64.whl>'
-    py -3.11 -m venv .venv-cgc
+    py -3.14 -m venv .venv-cgc
     .venv-cgc\Scripts\activate
     python -m pip install winml-cli
     python -m pip install --pre --find-links $wheels "windowsml==2.8.183.dev0"

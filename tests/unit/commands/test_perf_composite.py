@@ -57,7 +57,7 @@ class _FakeSession:
         self.compiled = True
 
     @contextmanager
-    def perf(self, warmup: int = 0) -> Generator[Any, None, None]:
+    def perf(self, warmup: int = 0) -> Generator[Any]:
         # WinMLSession.perf yields a PerfContext (``.stats`` + ``.monitor``),
         # not the PerfStats directly. Mirror that shape so the benchmark's
         # ``ctx.stats`` access works against the fake.

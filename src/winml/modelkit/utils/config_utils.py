@@ -11,17 +11,14 @@ from __future__ import annotations
 
 import dataclasses
 import typing
-from typing import TYPE_CHECKING, Any, TypeVar, cast
+from typing import TYPE_CHECKING, Any, cast
 
 
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance
 
 
-T = TypeVar("T")
-
-
-def merge_config(base: T, overrides: dict[str, Any] | T | None) -> T:
+def merge_config[T](base: T, overrides: dict[str, Any] | T | None) -> T:
     """Recursively merge overrides into a base config.
 
     Works with dataclasses, dict-like configs, and nested structures.
@@ -63,7 +60,7 @@ def merge_config(base: T, overrides: dict[str, Any] | T | None) -> T:
     return _merge_into(base, overrides_dict)
 
 
-def _merge_into(base: T, overrides: dict[str, Any]) -> T:
+def _merge_into[T](base: T, overrides: dict[str, Any]) -> T:
     """Internal recursive merge implementation."""
     if dataclasses.is_dataclass(base) and not isinstance(base, type):
         # Handle dataclass
@@ -79,7 +76,7 @@ def _merge_into(base: T, overrides: dict[str, Any]) -> T:
     return base
 
 
-def _merge_dataclass(base: T, overrides: dict[str, Any]) -> T:
+def _merge_dataclass[T](base: T, overrides: dict[str, Any]) -> T:
     """Merge overrides into a dataclass, handling nested configs."""
     # Get current field values
     current = {}
@@ -139,7 +136,7 @@ def _get_field_type(obj: Any, field_name: str) -> type | None:
     # Resolve string annotations to actual types
     try:
         hints = typing.get_type_hints(type(obj))
-    except (NameError, AttributeError):
+    except NameError, AttributeError:
         hints = {}
 
     resolved = hints.get(field_name)

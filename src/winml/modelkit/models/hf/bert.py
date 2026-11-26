@@ -57,8 +57,10 @@ class BertIOConfig(BertOnnxConfig):  # type: ignore[misc]  # optimum base is unt
         - Instead of hardcoded 16
     """
 
-    NORMALIZED_CONFIG_CLASS = NormalizedTextConfig.with_args(
-        sequence_length="max_position_embeddings",
-        allow_new=True,
+    NORMALIZED_CONFIG_CLASS = staticmethod(
+        NormalizedTextConfig.with_args(
+            sequence_length="max_position_embeddings",
+            allow_new=True,
+        )
     )
     DUMMY_INPUT_GENERATOR_CLASSES = (MaxLengthTextInputGenerator,)

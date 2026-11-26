@@ -42,7 +42,7 @@ The site config (`mkdocs.yml`) lives at the repo root, not inside `docs/`. The b
 
 ### Prerequisites
 
-Python 3.10+ and [uv](https://github.com/astral-sh/uv).
+Python 3.14 and [uv](https://github.com/astral-sh/uv).
 
 ### Setup and preview
 

@@ -5,19 +5,20 @@
 
 from __future__ import annotations
 
+import email
 import json
 import shutil
 import subprocess
 import sys
 import tarfile
 import textwrap
-from email import message_from_bytes
 from pathlib import Path
 from zipfile import ZipFile
 
 import pytest
 
 from packaging.requirements import Requirement
+from packaging.specifiers import SpecifierSet
 
 
 REPO_ROOT = next(
@@ -65,6 +66,20 @@ def test_built_distributions_include_available_providers(tmp_path: Path) -> None
     with ZipFile(wheels[0]) as wheel:
         assert config_path in wheel.namelist()
         assert json.loads(wheel.read(config_path)) == expected_config
+        metadata_path = next(
+            name for name in wheel.namelist() if name.endswith(".dist-info/METADATA")
+        )
+        metadata = email.message_from_bytes(wheel.read(metadata_path))
+        python_requirement = SpecifierSet(metadata["Requires-Python"])
+        assert str(python_requirement) == ">=3.14"
+        assert "3.14" in python_requirement
+        assert all(version not in python_requirement for version in ("3.11", "3.12", "3.13"))
+        assert "Programming Language :: Python :: 3.14" in metadata.get_all("Classifier", [])
+        requirements = [Requirement(raw) for raw in metadata.get_all("Requires-Dist", [])]
+        for name in ("numpy", "scipy", "onnx", "onnxruntime-windowsml"):
+            matching = [requirement for requirement in requirements if requirement.name == name]
+            assert len(matching) == 1
+            assert "python_version" not in str(matching[0].marker)
     with tarfile.open(sdists[0]) as sdist:
         config_members = [
             member for member in sdist.getmembers() if member.name.endswith(f"/src/{config_path}")
@@ -76,10 +91,8 @@ def test_built_distributions_include_available_providers(tmp_path: Path) -> None
             assert json.load(config_file) == expected_config
 
 
-@pytest.mark.parametrize(
-    ("platform_tag", "machine"), [("win_arm64", "ARM64"), ("win_amd64", "AMD64")]
-)
-def test_windows_runtime_wheel_profile(tmp_path: Path, platform_tag: str, machine: str) -> None:
+@pytest.mark.parametrize("platform_tag", ["win_arm64", "win_amd64"])
+def test_windows_runtime_wheel_profile(tmp_path: Path, platform_tag: str) -> None:
     """Check both the installer's platform tag and the dependencies it will select."""
     uv = shutil.which("uv")
     assert uv is not None
@@ -100,15 +113,16 @@ def test_windows_runtime_wheel_profile(tmp_path: Path, platform_tag: str, machin
     with ZipFile(archive) as wheel:
         (tag_info,) = (n for n in wheel.namelist() if n.endswith(".dist-info/WHEEL"))
         (metadata,) = (n for n in wheel.namelist() if n.endswith(".dist-info/METADATA"))
-        assert message_from_bytes(wheel.read(tag_info)).get_all("Tag") == [
+        assert email.message_from_bytes(wheel.read(tag_info)).get_all("Tag") == [
             f"py3-none-{platform_tag}"
         ]
         # Cross-building these tags is only valid while native code ships separately.
         assert not any(
             n.lower().endswith((".dll", ".pyd", ".exe", ".so")) for n in wheel.namelist()
         )
-        requirements = message_from_bytes(wheel.read(metadata)).get_all("Requires-Dist") or []
-    env = {"sys_platform": "win32", "platform_machine": machine, "extra": ""}
+        requirements = email.message_from_bytes(wheel.read(metadata)).get_all("Requires-Dist") or []
+    # CPython 3.14 reports the ARM64 host for both native and emulated interpreters.
+    env = {"sys_platform": "win32", "platform_machine": "ARM64", "extra": ""}
     active = {
         r.name: r
         for r in map(Requirement, requirements)
@@ -118,12 +132,11 @@ def test_windows_runtime_wheel_profile(tmp_path: Path, platform_tag: str, machin
     full_stack = {"torch", "torchvision", "pyarrow", "pandas", "optimum"}
     if platform_tag == "win_arm64":
         assert full_stack.isdisjoint(active)
-        assert active["windowsml-llama-core"].specifier == active["windowsml"].specifier
-        assert "2.3.5" in active["numpy"].specifier
+        assert "llama" in active["windowsml"].extras
     else:
         assert full_stack <= active.keys()
         assert "windowsml-llama-core" not in active
-        assert "2.3.5" not in active["numpy"].specifier
+        assert "llama" not in active["windowsml"].extras
 
 
 @pytest.mark.network

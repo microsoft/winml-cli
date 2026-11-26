@@ -414,7 +414,7 @@ def test_future_feature():
     pass
 
 # Conditional skip
-@pytest.mark.skipif(sys.version_info < (3, 10), reason="Requires Python 3.10+")
+@pytest.mark.skipif(sys.platform != "win32", reason="Requires Windows")
 def test_pattern_matching():
     match value:
         case 1: return "one"
@@ -863,7 +863,7 @@ name = "myproject"
 version = "1.0.0"
 description = "My awesome project"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.14"
 license = {text = "MIT"}
 authors = [
     {name = "Your Name", email = "you@example.com"},
@@ -900,12 +900,12 @@ where = ["src"]
 
 [tool.black]
 line-length = 88
-target-version = ["py38", "py39", "py310", "py311"]
+target-version = ["py314"]
 include = '\.pyi?$'
 
 [tool.ruff]
 line-length = 88
-target-version = "py38"
+target-version = "py314"
 select = [
     "E",   # pycodestyle errors
     "W",   # pycodestyle warnings
@@ -916,7 +916,7 @@ select = [
 ]
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.14"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
@@ -1721,7 +1721,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.14"]
 
     steps:
     - uses: actions/checkout@v4
@@ -2600,7 +2600,7 @@ pytest --pdbcls=IPython.terminal.debugger:TerminalPdb
 # Set breakpoint in code
 def test_debug():
     value = calculate()
-    import pdb; pdb.set_trace()  # or breakpoint() in Python 3.7+
+    breakpoint()
     assert value == expected
 
 # Print debugging (use -s flag)

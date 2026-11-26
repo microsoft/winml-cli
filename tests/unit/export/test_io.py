@@ -13,18 +13,32 @@ Tests the model-centric I/O utilities that fully leverage Optimum:
 
 from __future__ import annotations
 
+import inspect
+from functools import partial
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 import torch
+from optimum.exporters.onnx.base import ConfigBehavior
+from optimum.exporters.onnx.model_configs import (
+    EncoderDecoderOnnxConfig,
+    GPT2OnnxConfig,
+    VisionEncoderDecoderOnnxConfig,
+)
+from optimum.exporters.tasks import TasksManager
 from transformers import (
+    BertConfig,
     CLIPTextConfig,
     CLIPTextModelWithProjection,
     CLIPVisionConfig,
     CLIPVisionModelWithProjection,
+    EncoderDecoderConfig,
+    GPT2Config,
+    MT5Config,
     ResNetConfig,
     ResNetForImageClassification,
+    VisionEncoderDecoderConfig,
     ViTConfig,
     ViTForImageClassification,
 )
@@ -32,12 +46,157 @@ from transformers import (
 # Import models package to trigger ONNX config registration with TasksManager
 # This is required for BERT/CLIP to use max_position_embeddings as sequence_length
 import winml.modelkit.models  # noqa: F401
-from winml.modelkit.export import generate_dummy_inputs, resolve_io_specs
+from winml.modelkit.export import generate_dummy_inputs, instantiate_onnx_config, resolve_io_specs
 from winml.modelkit.export.io import (  # Testing internal implementation
     _get_onnx_config,
     _populate_image_size_from_preprocessor,
 )
 from winml.modelkit.models.winml.kv_cache import PastKeyValueInputGenerator
+
+
+@pytest.mark.parametrize("partial_constructor", [False, True])
+def test_normalized_config_partial_remains_a_static_factory(partial_constructor: bool) -> None:
+    def factory(config, *, allow_new):
+        return config, allow_new
+
+    normalized_factory = partial(factory, allow_new=True)
+
+    class ExportConfig:
+        NORMALIZED_CONFIG_CLASS = normalized_factory
+
+        def __init__(self, config, *, task):
+            self.normalized = self.NORMALIZED_CONFIG_CLASS(config)
+            self.task = task
+
+    if partial_constructor:
+        constructor = partial(ExportConfig, "config", task="task")
+        result = instantiate_onnx_config(constructor)
+    else:
+        result = instantiate_onnx_config(ExportConfig, "config", task="task")
+    assert isinstance(result, ExportConfig)
+    assert result.normalized == ("config", True)
+    assert result.task == "task"
+    assert inspect.getattr_static(ExportConfig, "NORMALIZED_CONFIG_CLASS") is normalized_factory
+
+
+def test_static_normalized_config_factory_preserves_config_class() -> None:
+    class ExportConfig:
+        NORMALIZED_CONFIG_CLASS = staticmethod(partial(tuple))
+
+        def __init__(self, config):
+            self.normalized = self.NORMALIZED_CONFIG_CLASS(config)
+
+    result = instantiate_onnx_config(ExportConfig, ["value"])
+
+    assert type(result) is ExportConfig
+    assert result.normalized == ("value",)
+
+
+@pytest.mark.parametrize("vision_encoder", [False, True])
+@pytest.mark.parametrize("use_past", [False, True])
+def test_nested_encoder_decoder_partial_factory(vision_encoder: bool, use_past: bool) -> None:
+    decoder = GPT2Config(n_embd=32, n_layer=1, n_head=2, vocab_size=64)
+    if vision_encoder:
+        encoder = ViTConfig(
+            hidden_size=32,
+            num_hidden_layers=1,
+            num_attention_heads=2,
+            intermediate_size=64,
+            image_size=16,
+            patch_size=8,
+        )
+        config = VisionEncoderDecoderConfig.from_encoder_decoder_configs(encoder, decoder)
+        config_class = VisionEncoderDecoderOnnxConfig
+        task = "image-to-text"
+    else:
+        encoder = BertConfig(
+            hidden_size=32,
+            num_hidden_layers=1,
+            num_attention_heads=2,
+            intermediate_size=64,
+            vocab_size=64,
+        )
+        config = EncoderDecoderConfig.from_encoder_decoder_configs(encoder, decoder)
+        config_class = EncoderDecoderOnnxConfig
+        task = "text2text-generation"
+    factory = inspect.getattr_static(GPT2OnnxConfig, "NORMALIZED_CONFIG_CLASS")
+    assert isinstance(factory, partial)
+    constructor = partial(config_class, task=task, use_past=use_past)
+
+    result = instantiate_onnx_config(constructor, config, float_dtype="fp16")
+
+    assert isinstance(result, config_class)
+    assert result.is_decoder_with_past
+    assert result.use_past is use_past
+    assert result.float_dtype == "fp16"
+    assert isinstance(result._decoder_onnx_config, GPT2OnnxConfig)
+    assert result._decoder_onnx_config._normalized_config.hidden_size == 32
+    assert result._encoder_onnx_config._normalized_config.hidden_size == 32
+    assert result._normalized_config.DECODER_NORMALIZED_CONFIG_CLASS is (
+        result._decoder_onnx_config._normalized_config
+    )
+    assert result._normalized_config.ENCODER_NORMALIZED_CONFIG_CLASS is (
+        result._encoder_onnx_config._normalized_config
+    )
+    encoder_result = result.with_behavior(ConfigBehavior.ENCODER)
+    decoder_result = result.with_behavior(
+        ConfigBehavior.DECODER, use_past=use_past, use_past_in_inputs=use_past
+    )
+    assert encoder_result.task == "feature-extraction"
+    assert not encoder_result.use_past_in_inputs
+    assert decoder_result.use_past_in_inputs is use_past
+    assert ("past_key_values.0.key" in decoder_result.inputs) is use_past
+    dummy_inputs = decoder_result.generate_dummy_inputs(
+        framework="pt", batch_size=1, sequence_length=4
+    )
+    assert dummy_inputs["decoder_input_ids"].shape[0] == 1
+    assert ("past_key_values" in dummy_inputs) is use_past
+    assert (
+        TasksManager.get_exporter_config_constructor(
+            exporter="onnx",
+            task="feature-extraction",
+            model_type="gpt2",
+            library_name="transformers",
+        ).func
+        is GPT2OnnxConfig
+    )
+    assert inspect.getattr_static(GPT2OnnxConfig, "NORMALIZED_CONFIG_CLASS") is factory
+
+
+@pytest.mark.parametrize("decoder_type", ["bert", "mt5"])
+@pytest.mark.parametrize("use_past", [False, True])
+def test_nested_encoder_decoder_cache_modes(decoder_type: str, use_past: bool) -> None:
+    encoder = BertConfig(
+        hidden_size=32, num_hidden_layers=1, num_attention_heads=2, intermediate_size=64
+    )
+    decoder = (
+        BertConfig(hidden_size=32, num_hidden_layers=1, num_attention_heads=2, intermediate_size=64)
+        if decoder_type == "bert"
+        else MT5Config(d_model=32, d_kv=16, d_ff=64, num_layers=1, num_heads=2)
+    )
+    config = EncoderDecoderConfig.from_encoder_decoder_configs(encoder, decoder)
+    if decoder_type == "bert" and use_past:
+        with pytest.raises(ValueError, match="does not need past key values"):
+            instantiate_onnx_config(
+                EncoderDecoderOnnxConfig, config, task="text2text-generation", use_past=True
+            )
+        return
+
+    result = instantiate_onnx_config(
+        EncoderDecoderOnnxConfig, config, task="text2text-generation", use_past=use_past
+    )
+    decoder_result = result.with_behavior(
+        ConfigBehavior.DECODER, use_past=use_past, use_past_in_inputs=use_past
+    )
+
+    assert result.is_decoder_with_past is (decoder_type == "mt5")
+    assert result.use_past is use_past
+    if decoder_type == "mt5":
+        assert decoder_result._decoder_onnx_config.use_past_in_inputs is use_past
+    else:
+        assert not hasattr(decoder_result._decoder_onnx_config, "use_past_in_inputs")
+    assert decoder_result._decoder_onnx_config._normalized_config.hidden_size == 32
+    assert ("past_key_values.0.decoder.key" in decoder_result.inputs) is use_past
 
 
 # =============================================================================

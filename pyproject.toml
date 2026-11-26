@@ -1,6 +1,6 @@
 [build-system]
 build-backend = "setuptools.build_meta"
-requires = [ "setuptools>=61", "wheel" ]
+requires = [ "packaging>=24", "setuptools>=70.1", "wheel" ]
 
 [project]
 name = "winml-cli"
@@ -10,23 +10,21 @@ readme = "README.md"
 keywords = [ "onnx", "winml" ]
 license = { text = "MIT" }
 authors = [ { name = "WinML Team" } ]
-requires-python = ">=3.11,<3.12"
+requires-python = ">=3.14"
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
   "Intended Audience :: Science/Research",
   "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
 dependencies = [
-  # The Windows ARM64 interpreter gets a runtime profile, not the export/eval
-  # stack. These are installer markers (also respected by pip), not host checks.
   "click>=8.4",
   "colorama>=0.4.6",
-  "datasets>=4.1.1 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
+  "datasets>=4.1.1",
   # PINNED EXACTLY ON PURPOSE — do NOT relax to a range.
   # pyarrow's writer emits parquet bytes that differ across versions, so any bump
   # produces a huge, semantically-meaningless diff across EVERY generated rule
@@ -35,27 +33,26 @@ dependencies = [
   # (Also avoids the Windows 24.0.0 crash 0xC0000005 when pyarrow's C extension
   # loads after the WinML/ORT EP DLLs — see _preload_bundled_onnxruntime_dll in
   # winml.modelkit.__init__.)
-  "pyarrow==23.0.1 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
-  "diffusers>=0.36 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
-  "evaluate>=0.4.6 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
-  "fastapi>=0.135.3 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
+  "pyarrow==23.0.1",
+  "diffusers>=0.36",
+  "evaluate>=0.4.6",
+  "fastapi>=0.135.3",
   "filelock>=3.20",
-  "hf_xet>=1.1.10 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
+  "hf_xet>=1.1.10",
   "httpx>=0.24.0",
   "jsonschema>=4.23",
-  "mcp>=0.1.0 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
-  "ml-dtypes>=0.5.3 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
-  "ml-dtypes==0.5.4 ; sys_platform == 'win32' and platform_machine == 'ARM64'",
-  "numpy>=2.2,<2.3 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
-  "numpy==2.3.5 ; sys_platform == 'win32' and platform_machine == 'ARM64'",
-  "onnx==1.18",
-  "onnx-ir>=0.1 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
+  "mcp>=0.1.0",
+  "ml-dtypes>=0.5.3",
+  # These release lines provide Windows x64 wheels compatible with CPython 3.14.
+  "numpy>=2.3.2,<2.4",
+  "onnx==1.20.0",
+  "onnx-ir>=0.1",
   "onnxruntime-genai-winml==0.14.1 ; sys_platform == 'win32'",
   "onnxruntime-windowsml==1.30.1.202610302006 ; sys_platform == 'win32'",
-  "onnxscript>=0.2 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
+  "onnxscript>=0.2",
   "opentelemetry-sdk>=1.39.1",
-  "optimum>=2 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
-  "optimum-onnx>=0.1 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
+  "optimum>=2",
+  "optimum-onnx>=0.1",
   # plotext 6.0 was recently released with breaking API changes that conflict
   # with the current live chart code. Upgrade the code and dependency to >=6 together.
   "plotext>=5.3.2,<6",
@@ -63,29 +60,28 @@ dependencies = [
   # pandas version drift changes parquet string typing/metadata, producing
   # non-functional but huge diffs across every generated rule artifact. If you
   # truly must bump this, regenerate ALL parquet artifacts in the same change.
-  "pandas==2.3.3 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
+  "pandas==2.3.3",
   "psutil>=7",
   "pydantic>=2",
-  "python-multipart>=0.0.22 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
-  "rapidfuzz>=3.9 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
+  "python-multipart>=0.0.22",
+  "rapidfuzz>=3.9",
   "requests>=2.32.5",
   "rich>=14",
-  "scikit-learn>=1.7 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
-  "scipy>=1.15,<1.16 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
-  "sentencepiece>=0.2.1 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
-  "seqeval>=1.2.2 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
+  "scikit-learn>=1.7",
+  "scipy>=1.16.1,<1.17",
+  "sentencepiece>=0.2.1",
+  "seqeval>=1.2.2",
   "snakemd>=2",
-  "timm>=1.0.22 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
-  "tokenizers>=0.22 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
-  "torch>=2.9 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
-  "torchinfo>=1.8 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
-  "torchmetrics[detection]>=1.0 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
-  "torchvision>=0.24 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
+  "timm>=1.0.22",
+  "tokenizers>=0.22",
+  "torch>=2.9",
+  "torchinfo>=1.8",
+  "torchmetrics[detection]>=1.0",
+  "torchvision>=0.24",
   "tqdm>=4.67",
-  "transformers>=4.57 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
-  "uvicorn[standard]>=0.42.0 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
+  "transformers>=4.57",
+  "uvicorn[standard]>=0.42.0",
   "windowsml==2.9.36a0 ; sys_platform == 'win32'",
-  "windowsml-llama-core==2.9.36a0 ; sys_platform == 'win32' and platform_machine == 'ARM64'",
 ]
 
 optional-dependencies.audio = [ "soundfile>=0.13" ]
@@ -110,12 +106,13 @@ scripts.winml = "winml.modelkit.cli:main"
 # =============================================================================
 # UV - Full developer resolution environments
 # =============================================================================
-# Native ARM64 is currently a wheel-consumer runtime profile. Do not resolve
-# the full dev groups there. Linux/x86_64 is used by docs CI.
+# CPython 3.14 reports ARM64 even for emulated x64. Source installs use
+# the full stack; only the win_arm64 wheel uses the reduced runtime profile.
+# Linux/x86_64 is used by docs CI.
 [tool.uv]
 environments = [
   "sys_platform == 'linux' and platform_machine == 'x86_64'",
-  "sys_platform == 'win32' and platform_machine == 'AMD64'",
+  "sys_platform == 'win32' and (platform_machine == 'AMD64' or platform_machine == 'ARM64')",
 ]
 
 [[tool.uv.index]]
@@ -199,7 +196,9 @@ include = [ "winml", "winml.*" ]
 # =============================================================================
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py314"
+# This standalone compiler runs under the external SDK, not the CLI interpreter.
+per-file-target-version."src/winml/modelkit/session/qairt/compile_qairt_bin.py" = "py311"
 
 line-length = 100 # Extended for modern screens
 # Indent with spaces (consistent with PEP 8)
@@ -261,11 +260,16 @@ lint.select = [
   "TID", # flake8-tidy-imports (import hygiene)
   # === Exception Handling ===
   "TRY", # tryceratops (exception handling best practices)
-  "UP",  # pyupgrade (Python 3.11+ syntax)
+  "UP",  # pyupgrade (Python 3.14+ syntax)
 
   "W", # pycodestyle warnings (PEP 8)
 ]
 lint.ignore = [
+  # Keep runtime-visible annotations/imports and existing generic/Enum semantics.
+  # Python 3.14 permits these rewrites, but changing reflection and generated
+  # aliases is a separate migration from raising the interpreter minimum.
+  "TC001", "TC003", "UP037", "UP040", "UP042", "UP046", "UP047",
+
   # === Annotations (gradual typing) ===
   "ANN001", # missing type for self/args in nested functions - too strict
   "ANN002", # missing type for *args
@@ -392,6 +396,8 @@ norecursedirs = [
   "dist",
   "build",
   ".venv",
+  ".venv_old",
+  ".venv_new",
   "*.egg-info",
   "__pycache__",
   ".pytest_cache",
@@ -492,7 +498,7 @@ exclude_lines = [
 ]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.14"
 
 # Pydantic v2 plugin: teaches mypy about Field() defaults, so models with
 # Field(None, ...) or Field(default_factory=...) aren't reported as having

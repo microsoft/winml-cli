@@ -427,9 +427,11 @@ class BartEncoderIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is 
     Outputs: encoder_hidden_states
     """
 
-    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
-        vocab_size="vocab_size",
-        allow_new=True,
+    NORMALIZED_CONFIG_CLASS = staticmethod(
+        NormalizedConfig.with_args(
+            vocab_size="vocab_size",
+            allow_new=True,
+        )
     )
     DUMMY_INPUT_GENERATOR_CLASSES = (DummyTextInputGenerator,)
 

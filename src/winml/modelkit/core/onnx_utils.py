@@ -381,15 +381,7 @@ def get_io_config(model_proto: onnx.ModelProto) -> dict:
             - output_types: list of numpy dtypes for outputs
     """
     import numpy as np
-
-    # Handle ONNX version compatibility for dtype conversion
-    try:
-        from onnx.helper import tensor_dtype_to_np_dtype
-    except ImportError:
-        from onnx.mapping import TENSOR_TYPE_TO_NP_TYPE
-
-        def tensor_dtype_to_np_dtype(tensor_dtype: int) -> np.dtype:
-            return np.dtype(TENSOR_TYPE_TO_NP_TYPE[tensor_dtype])  # type: ignore[no-any-return]
+    from onnx.helper import tensor_dtype_to_np_dtype
 
     io_config: dict[str, list] = {
         "input_names": [],

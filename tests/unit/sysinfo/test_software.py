@@ -13,7 +13,21 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from winml.modelkit.sysinfo.software import OS
+from winml.modelkit.sysinfo.software import OS, PythonRuntime
+
+
+@pytest.mark.parametrize(
+    ("process_platform", "expected"),
+    [("win-amd64", "AMD64"), ("win-arm64", "ARM64"), ("win32", "x86")],
+)
+def test_python_runtime_reports_process_architecture(
+    process_platform: str, expected: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("platform.machine", lambda: "ARM64")
+    monkeypatch.setattr("sysconfig.get_platform", lambda: process_platform)
+    runtime = PythonRuntime.get()
+    assert runtime.architecture == expected
+    assert runtime.to_dict()["architecture"] == expected
 
 
 class TestOSClass:

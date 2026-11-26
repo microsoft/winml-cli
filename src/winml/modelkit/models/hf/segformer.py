@@ -89,10 +89,12 @@ class SegformerIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is un
         - logits: {0: "batch_size", 1: "num_labels", 2: "height", 3: "width"}
     """
 
-    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
-        image_size="image_size",
-        num_channels="num_channels",
-        allow_new=True,
+    NORMALIZED_CONFIG_CLASS = staticmethod(
+        NormalizedConfig.with_args(
+            image_size="image_size",
+            num_channels="num_channels",
+            allow_new=True,
+        )
     )
     DUMMY_INPUT_GENERATOR_CLASSES = (_SegformerVisionInputGenerator,)
 

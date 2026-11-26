@@ -77,10 +77,12 @@ class DepthAnythingIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum/transf
         - predicted_depth: {0: "batch_size", 1: "height", 2: "width"}
     """
 
-    NORMALIZED_CONFIG_CLASS = NormalizedConfig.with_args(
-        image_size="backbone_config.image_size",
-        num_channels="backbone_config.num_channels",
-        allow_new=True,
+    NORMALIZED_CONFIG_CLASS = staticmethod(
+        NormalizedConfig.with_args(
+            image_size="backbone_config.image_size",
+            num_channels="backbone_config.num_channels",
+            allow_new=True,
+        )
     )
     DUMMY_INPUT_GENERATOR_CLASSES = (_DepthAnythingVisionInputGenerator,)
 

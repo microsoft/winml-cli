@@ -37,7 +37,7 @@ from winml.modelkit.optim.registry import (
 
 
 @pytest.fixture
-def clean_registry() -> Generator[None, None, None]:
+def clean_registry() -> Generator[None]:
     """Fixture for test isolation - clears capabilities between tests."""
     # Note: In production modelkit, capabilities are class-level constants
     # This fixture provides isolation semantics for testing
