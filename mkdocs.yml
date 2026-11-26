@@ -136,6 +136,7 @@ nav:
       - Qwen3 — Genai Bundle: samples/qwen3-genai-bundle.md
       - GGUF — llama.cpp (Experimental): samples/gguf-llama-perf.md
       - CGC — Text Generation (Experimental): samples/cgc-text-generation-perf.md
+      - OpenAI-Compatible Server (Experimental): samples/openai-endpoint-perf.md
   - Tutorials:
       - Overview: tutorials/index.md
       - Hugging Face Model to NPU: tutorials/npu-convnext.md

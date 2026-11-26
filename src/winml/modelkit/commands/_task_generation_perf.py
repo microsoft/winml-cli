@@ -12,6 +12,11 @@ module owns the request loop, aggregation, the schema 3 report, its console
 view and JSON writer, the shared :func:`run_task_perf` entry point, and the GGUF
 shard and token-ID file helpers.
 
+The report, console view, writer and entry point work over
+:class:`GenerationBenchmarkResult`, the session-agnostic base of
+:class:`TaskBenchmarkResult`, so a runner without a model load or tokenizer can
+report in the same layout.
+
 Schema version 3 measures Task TTFT and successive stream-update arrivals;
 unavailable model-only phases remain null in the ``load`` / ``requests`` /
 ``aggregate`` / ``memory`` layout.
@@ -29,6 +34,7 @@ import re
 import time
 from abc import ABC, abstractmethod
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -39,13 +45,13 @@ from rich.markup import escape
 
 from ._generation_metrics import (
     _GenerationMemoryTracker,
-    _round_stats,
-    _stats,
+    aggregate_requests,
+    request_counts,
 )
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Sequence
+    from collections.abc import Callable, Iterable
 
     from rich.console import Console
 
@@ -59,6 +65,7 @@ logger = logging.getLogger(__name__)
 # Constants
 # =============================================================================
 
+SCHEMA_VERSION = 3
 RUNTIME_TYPE: RuntimeName = "winml-runtime"
 GGUF_SUFFIX = ".gguf"
 # gguf-split names every shard <prefix>-<index>-of-<count>.gguf (five digits each).
@@ -90,6 +97,32 @@ _MEASURED_REQUEST_METRICS = (
     "request_duration_ms",
     "steady_state_tpot_ms",
     "steady_state_decode_tokens_per_second",
+)
+# Schema 3 ``benchmark_info`` fields before ``packages``, in report order. A
+# result reports every field; one its run does not fill is null.
+_BENCHMARK_INFO_FIELDS = (
+    "runtime",
+    "backend",
+    "api",
+    "timing_source",
+    "model_format",
+    "experimental",
+    "model_id",
+    "running_model_path",
+    "ep",
+    "device",
+    "effective_device",
+    "iterations",
+    "warmup",
+    "max_new_tokens",
+    "ignore_eos",
+    "apply_template",
+    "chat_template_applied",
+    "prompt",
+    "prompt_tokens",
+    "generated_tokens",
+    "stop_reason",
+    "context_length",
 )
 
 
@@ -160,7 +193,30 @@ def read_prompt_ids_file(path: Path) -> tuple[int, ...]:
 # =============================================================================
 
 
-class TaskPerfConfig(Protocol):
+class GenerationPerfConfig(Protocol):
+    """The benchmark request every :class:`GenerationBenchmarkResult` reads.
+
+    Every member is read-only, so a dataclass field satisfies it.
+    """
+
+    @property
+    def prompt(self) -> str:
+        """Prompt text generated from on every request."""
+
+    @property
+    def max_new_tokens(self) -> int:
+        """Upper bound on generated tokens per request."""
+
+    @property
+    def iterations(self) -> int:
+        """Timed requests."""
+
+    @property
+    def warmup(self) -> int:
+        """Warmup requests excluded from statistics."""
+
+
+class TaskPerfConfig(GenerationPerfConfig, Protocol):
     """The resolved benchmark request a :class:`TaskPerfBenchmark` reads.
 
     Every member is read-only, so a dataclass field satisfies it.
@@ -179,24 +235,8 @@ class TaskPerfConfig(Protocol):
         """The ``--device`` value as passed."""
 
     @property
-    def prompt(self) -> str:
-        """Prompt text generated from on every request."""
-
-    @property
     def apply_template(self) -> bool:
         """Render the prompt with the model's chat template."""
-
-    @property
-    def max_new_tokens(self) -> int:
-        """Upper bound on generated tokens per request."""
-
-    @property
-    def iterations(self) -> int:
-        """Timed requests."""
-
-    @property
-    def warmup(self) -> int:
-        """Warmup requests excluded from statistics."""
 
     @property
     def memory(self) -> bool:
@@ -265,6 +305,20 @@ class TaskGenerationSession(Protocol):
         """Release native handles."""
 
 
+class GenerationRequestSample(Protocol):
+    """One warmup or timed request of a :class:`GenerationBenchmarkResult`."""
+
+    @property
+    def kind(self) -> str:
+        """``"warmup"`` or ``"timed"``."""
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the request for the ``requests`` report block."""
+
+
+GenerationConfigT = TypeVar("GenerationConfigT", bound=GenerationPerfConfig)
+
+
 # =============================================================================
 # Data classes
 # =============================================================================
@@ -326,87 +380,89 @@ class TaskRequestSample:
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize measured request spans and explicit unavailable legacy fields."""
-        result: dict[str, Any] = {
-            "kind": self.kind,
-            "index": self.index,
-            "prompt_tokens": self.prompt_tokens,
-            "generated_tokens": self.generated_tokens,
-            "decode_token_durations_ms": [
-                round(value, 3) for value in self.decode_token_durations_ms
-            ],
-            **dict.fromkeys(_UNAVAILABLE_MODEL_METRICS),
-        }
-        for metric in _MEASURED_REQUEST_METRICS:
-            value = getattr(self, metric)
-            precision = 2 if metric == "steady_state_decode_tokens_per_second" else 3
-            result[metric] = round(value, precision) if value is not None else None
-        return result
+        return _request_report_fields(self)
+
+
+def _request_report_fields(sample: Any) -> dict[str, Any]:
+    """Return the schema 3 per-request fields of a request sample.
+
+    A metric the sample does not define, such as a Task span on a runner that
+    has no Task, is null, as are the model metrics no stream-timed runner measures.
+    """
+    result: dict[str, Any] = {
+        "kind": sample.kind,
+        "index": sample.index,
+        "prompt_tokens": sample.prompt_tokens,
+        "generated_tokens": sample.generated_tokens,
+        "decode_token_durations_ms": [
+            round(value, 3) for value in sample.decode_token_durations_ms
+        ],
+        **dict.fromkeys(_UNAVAILABLE_MODEL_METRICS),
+    }
+    for metric in _MEASURED_REQUEST_METRICS:
+        value = getattr(sample, metric, None)
+        precision = 2 if metric == "steady_state_decode_tokens_per_second" else 3
+        result[metric] = round(value, precision) if value is not None else None
+    return result
 
 
 @dataclass
-class TaskBenchmarkResult:
-    """Canonical results from a Task generation benchmark.
+class GenerationBenchmarkResult(ABC, Generic[GenerationConfigT]):
+    """Session-agnostic results of a stream-timed generation benchmark.
 
-    A binding subclass names its engine in ``BACKEND``, adds its own
-    ``benchmark_info`` fields through :meth:`_backend_fields` and its console
-    rows through :meth:`display_rows`.
+    Holds what every generation runner reports in the schema 3 layout: the
+    shared ``benchmark_info`` core, the warmup and timed request samples, the
+    aggregate, the first timed response, package versions and optional memory
+    checkpoints. It needs no model load or tokenizer, so a runner that only
+    times a request stream can subclass it.
+
+    A runner subclass names itself in ``RUNTIME``, ``API`` and
+    ``TIMING_SOURCE`` and labels its timing in the console attributes. Report
+    hooks fill its own ``benchmark_info`` fields (:meth:`_run_fields`,
+    :meth:`_backend_fields`) and report blocks (:meth:`_report_sections`);
+    console hooks add its header rows (:meth:`identity_rows`,
+    :meth:`display_rows`) and sections (:meth:`display_sections`).
+
+    Attributes:
+        RUNTIME: ``benchmark_info.runtime``.
+        API: ``benchmark_info.api``.
+        TIMING_SOURCE: ``benchmark_info.timing_source``.
+        TTFT_METRIC: Aggregate metric shown in the console TTFT table.
+        TTFT_TITLE: Title of the console TTFT table.
+        DECODE_LABEL: Label of the console decode-throughput line.
+        PREFILL_NOTE: Console prefill line, or ``None`` to print none.
     """
 
-    BACKEND: ClassVar[str]
+    RUNTIME: ClassVar[str]
+    API: ClassVar[str]
+    TIMING_SOURCE: ClassVar[str]
+    TTFT_METRIC: ClassVar[str]
+    TTFT_TITLE: ClassVar[str]
+    DECODE_LABEL: ClassVar[str]
+    PREFILL_NOTE: ClassVar[str | None] = None
 
-    config: TaskPerfConfig
+    config: GenerationConfigT
     timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
-    prompt_tokens: int = 0
+    prompt_tokens: int | None = 0
     generated_tokens: int = 0
     response_text: str = ""
     stop_reason: str | None = None
-    context_length: int | None = None
-    effective_device: str | None = None
-    chat_template_applied: bool | None = None
     packages: dict[str, str | None] = field(default_factory=dict)
-    load: dict[str, float | str | None] = field(default_factory=dict)
-    requests: list[TaskRequestSample] = field(default_factory=list)
+    requests: Sequence[GenerationRequestSample] = field(default_factory=list)
     aggregate: dict[str, Any] = field(default_factory=dict)
     memory_profile: dict[str, float | None] | None = None
-    model_format: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to a JSON-serializable Task timing report."""
-        cfg = self.config
+        """Convert to a JSON-serializable schema 3 report."""
         result: dict[str, Any] = {
-            "schema_version": 3,
+            "schema_version": SCHEMA_VERSION,
             "benchmark_info": {
-                "runtime": RUNTIME_TYPE,
-                "backend": self.BACKEND,
-                "api": "windowsml.tasks",
-                "timing_source": "task-stream",
-                "model_format": self.model_format,
-                "experimental": True,
-                "model_id": str(cfg.model_path),
-                "running_model_path": str(cfg.model_path),
-                "ep": None,
-                "device": cfg.requested_device,
-                "effective_device": self.effective_device,
-                "iterations": cfg.iterations,
-                "warmup": cfg.warmup,
-                "max_new_tokens": cfg.max_new_tokens,
-                "ignore_eos": cfg.ignore_eos,
-                "apply_template": cfg.apply_template,
-                "chat_template_applied": self.chat_template_applied,
-                # Exact token IDs are submitted instead of the prompt text.
-                "prompt": cfg.prompt if cfg.prompt_ids is None else None,
-                "prompt_tokens": self.prompt_tokens,
-                "generated_tokens": self.generated_tokens,
-                "stop_reason": self.stop_reason,
-                "context_length": self.context_length,
+                **self._benchmark_info(),
                 "packages": dict(self.packages),
                 **self._backend_fields(),
                 "timestamp": self.timestamp,
             },
-            "load": {
-                key: round(value, 3) if isinstance(value, float) else value
-                for key, value in self.load.items()
-            },
+            **self._report_sections(),
             "requests": [sample.to_dict() for sample in self.requests],
             "aggregate": self._round_aggregate(),
             "response_text": self.response_text,
@@ -415,25 +471,179 @@ class TaskBenchmarkResult:
             result["memory"] = self.memory_profile
         return result
 
+    def _benchmark_info(self) -> dict[str, Any]:
+        """The shared core merged with :meth:`_run_fields` in schema order.
+
+        Raises:
+            ValueError: :meth:`_run_fields` returned a field outside the schema.
+        """
+        cfg = self.config
+        fields: dict[str, Any] = {
+            "runtime": self.RUNTIME,
+            "api": self.API,
+            "timing_source": self.TIMING_SOURCE,
+            "experimental": True,
+            "iterations": cfg.iterations,
+            "warmup": cfg.warmup,
+            "max_new_tokens": cfg.max_new_tokens,
+            "prompt": cfg.prompt,
+            "prompt_tokens": self.prompt_tokens,
+            "generated_tokens": self.generated_tokens,
+            "stop_reason": self.stop_reason,
+            **self._run_fields(),
+        }
+        unknown = sorted(fields.keys() - set(_BENCHMARK_INFO_FIELDS))
+        if unknown:
+            raise ValueError(f"benchmark_info fields outside schema 3: {', '.join(unknown)}")
+        return {name: fields.get(name) for name in _BENCHMARK_INFO_FIELDS}
+
+    def _run_fields(self) -> dict[str, Any]:
+        """Runner ``benchmark_info`` fields; a schema field left out is null."""
+        return {}
+
     def _backend_fields(self) -> dict[str, Any]:
         """Engine-specific ``benchmark_info`` fields, placed after ``packages``."""
         return {}
+
+    def _report_sections(self) -> dict[str, Any]:
+        """Runner report blocks, placed between ``benchmark_info`` and ``requests``."""
+        return {}
+
+    def _round_aggregate(self) -> dict[str, Any]:
+        """Round aggregate statistics, nested blocks included, preserving counters and flags."""
+
+        def round_value(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {key: round_value(item) for key, item in value.items()}
+            return round(value, 3) if isinstance(value, float) else value
+
+        return {key: round_value(value) for key, value in self.aggregate.items()}
+
+    @abstractmethod
+    def identity_rows(self) -> list[tuple[str, str]]:
+        """Leading ``(label, value)`` console rows that identify the run, through ``Model:``."""
 
     def display_rows(self) -> list[tuple[str, str]]:
         """Engine-specific ``(label, value)`` console rows, printed after ``Model:``."""
         return []
 
-    def _round_aggregate(self) -> dict[str, Any]:
-        """Round aggregate statistics while preserving counters and flags."""
-        rounded: dict[str, Any] = {}
-        for key, value in self.aggregate.items():
-            if isinstance(value, dict):
-                rounded[key] = _round_stats(value)
-            elif isinstance(value, float):
-                rounded[key] = round(value, 3)
-            else:
-                rounded[key] = value
-        return rounded
+    def prompt_note(self) -> str:
+        """Console markup appended to the ``Prompt:`` line."""
+        return ""
+
+    def display_sections(self, console: Console) -> None:
+        """Print runner sections between the response and the TTFT table."""
+
+    def zero_token_advice(self) -> str:
+        """Input changes that can avoid an immediate stop, or ``""`` for none."""
+        return ""
+
+
+@dataclass
+class TaskBenchmarkResult(GenerationBenchmarkResult[TaskPerfConfig]):
+    """Canonical results from a Task generation benchmark.
+
+    A binding subclass names its engine in ``BACKEND``, adds its own
+    ``benchmark_info`` fields through :meth:`_backend_fields` and its console
+    rows through :meth:`display_rows`.
+    """
+
+    BACKEND: ClassVar[str]
+    RUNTIME: ClassVar[str] = RUNTIME_TYPE
+    API: ClassVar[str] = "windowsml.tasks"
+    TIMING_SOURCE: ClassVar[str] = "task-stream"
+    TTFT_METRIC: ClassVar[str] = "task_ttft_duration_ms"
+    TTFT_TITLE: ClassVar[str] = "Task TTFT"
+    DECODE_LABEL: ClassVar[str] = "Decode (Task stream)"
+    PREFILL_NOTE: ClassVar[str | None] = "unavailable (not exposed by Tasks)"
+
+    context_length: int | None = None
+    effective_device: str | None = None
+    chat_template_applied: bool | None = None
+    load: dict[str, float | str | None] = field(default_factory=dict)
+    requests: list[TaskRequestSample] = field(default_factory=list)
+    model_format: str = ""
+
+    def _run_fields(self) -> dict[str, Any]:
+        cfg = self.config
+        return {
+            "backend": self.BACKEND,
+            "model_format": self.model_format,
+            "model_id": str(cfg.model_path),
+            "running_model_path": str(cfg.model_path),
+            "ep": None,
+            "device": cfg.requested_device,
+            "effective_device": self.effective_device,
+            "ignore_eos": cfg.ignore_eos,
+            "apply_template": cfg.apply_template,
+            "chat_template_applied": self.chat_template_applied,
+            # Exact token IDs are submitted instead of the prompt text.
+            "prompt": cfg.prompt if cfg.prompt_ids is None else None,
+            "context_length": self.context_length,
+        }
+
+    def _report_sections(self) -> dict[str, Any]:
+        """The ``load`` block of startup spans."""
+        return {
+            "load": {
+                key: round(value, 3) if isinstance(value, float) else value
+                for key, value in self.load.items()
+            }
+        }
+
+    def identity_rows(self) -> list[tuple[str, str]]:
+        """The runtime and engine, the Task API, the device and the model."""
+        cfg = self.config
+        device = self.effective_device or cfg.device
+        device_str = (
+            device if cfg.requested_device == device else f"{cfg.requested_device} -> {device}"
+        )
+        return [
+            ("Runtime", f"{self.RUNTIME} ({self.BACKEND}, experimental)"),
+            ("API", "Windows ML Tasks (task-stream timing)"),
+            ("Device", device_str),
+            ("Model", str(cfg.model_path)),
+        ]
+
+    def prompt_note(self) -> str:
+        """Note a requested chat template the model does not have."""
+        if self.config.apply_template and self.chat_template_applied is False:
+            return "  [dim](no chat template; raw prompt)[/dim]"
+        return ""
+
+    def display_sections(self, console: Console) -> None:
+        """Print the startup spans and the cold-start latencies."""
+        load = self.load
+        aggregate = self.aggregate
+        console.print()
+        console.print("[bold]Startup[/bold]")
+        console.print(
+            f"  Session load: {float(load.get('session_load_duration_ms') or 0.0):.2f} ms  |  "
+            f"Native load: {float(load.get('native_load_duration_ms') or 0.0):.2f} ms"
+        )
+        if "session_create_duration_ms" in load:
+            # Only CGC times the first create_session apart: its GPU program compiles there.
+            console.print(
+                f"  set_model: {float(load.get('set_model_duration_ms') or 0.0):.2f} ms  |  "
+                "First session (GPU compile): "
+                f"{float(load.get('session_create_duration_ms') or 0.0):.2f} ms"
+            )
+        console.print(
+            f"  Cold TTFT: {_format_metric(aggregate.get('cold_start_ttft_duration_ms'))} ms  |  "
+            f"Cold total: {_format_metric(aggregate.get('cold_start_total_duration_ms'))} ms"
+        )
+
+    def zero_token_advice(self) -> str:
+        """Suggest the input changes that can avoid an immediate end-of-sequence stop."""
+        cfg = self.config
+        choices = ["different token IDs" if cfg.prompt_ids is not None else "another --prompt"]
+        if cfg.prompt_ids is None and self.chat_template_applied:
+            choices.append("--no-apply-template")
+        if not cfg.ignore_eos:
+            choices.append("--ignore-eos")
+        if len(choices) > 2:
+            return f"Try {', '.join(choices[:-1])}, or {choices[-1]}."
+        return f"Try {' or '.join(choices)}."
 
 
 ConfigT = TypeVar("ConfigT", bound=TaskPerfConfig)
@@ -688,9 +898,7 @@ class TaskPerfBenchmark(ABC, Generic[ConfigT, ResultT]):
         first = samples[0] if samples else None
         first_ttft_ms = first.request_ttft_duration_ms if first is not None else None
         aggregate: dict[str, Any] = {
-            "warmup_excluded": True,
-            "warmup_request_count": sum(sample.kind == "warmup" for sample in samples),
-            "timed_request_count": len(timed),
+            **request_counts(samples),
             "cold_start_ttft_duration_ms": (
                 session_load_ms + first_ttft_ms if first_ttft_ms is not None else None
             ),
@@ -698,10 +906,8 @@ class TaskPerfBenchmark(ABC, Generic[ConfigT, ResultT]):
                 session_load_ms + first.request_duration_ms if first is not None else None
             ),
             **dict.fromkeys(_UNAVAILABLE_MODEL_METRICS),
+            **aggregate_requests(samples, _MEASURED_REQUEST_METRICS),
         }
-        for metric in _MEASURED_REQUEST_METRICS:
-            values = [value for sample in timed if (value := getattr(sample, metric)) is not None]
-            aggregate[metric] = _stats(values) if values else None
         timed_stops = [reason for kind, reason in self._stop_reasons if kind == "timed"]
         aggregate["stop_reason_counts"] = dict(sorted(Counter(timed_stops).items()))
         first_timed = timed[0] if timed else None
@@ -726,39 +932,19 @@ class TaskPerfBenchmark(ABC, Generic[ConfigT, ResultT]):
 # =============================================================================
 
 
-def _zero_token_advice(result: TaskBenchmarkResult) -> str:
-    """Suggest the input changes that can avoid an immediate end-of-sequence stop."""
-    cfg = result.config
-    choices = ["different token IDs" if cfg.prompt_ids is not None else "another --prompt"]
-    if cfg.prompt_ids is None and result.chat_template_applied:
-        choices.append("--no-apply-template")
-    if not cfg.ignore_eos:
-        choices.append("--ignore-eos")
-    if len(choices) > 2:
-        return f"Try {', '.join(choices[:-1])}, or {choices[-1]}."
-    return f"Try {' or '.join(choices)}."
+def _format_metric(value: float | None) -> str:
+    return f"{value:.2f}" if value is not None else "n/a"
 
 
-def display_task_report(result: TaskBenchmarkResult, console: Console) -> None:
-    """Render a Task generation benchmark report to the console."""
+def display_task_report(result: GenerationBenchmarkResult[Any], console: Console) -> None:
+    """Render a generation benchmark report to the console."""
     from rich.table import Table
-
-    def format_metric(value: float | None) -> str:
-        return f"{value:.2f}" if value is not None else "n/a"
 
     def format_mib(value: float | None) -> str:
         return f"{value:.1f}" if value is not None else "unavailable"
 
     cfg = result.config
-    device = result.effective_device or cfg.device
-    device_str = device if cfg.requested_device == device else f"{cfg.requested_device} -> {device}"
-    rows = [
-        ("Runtime", f"{RUNTIME_TYPE} ({result.BACKEND}, experimental)"),
-        ("API", "Windows ML Tasks (task-stream timing)"),
-        ("Device", device_str),
-        ("Model", str(cfg.model_path)),
-        *result.display_rows(),
-    ]
+    rows = [*result.identity_rows(), *result.display_rows()]
     packages = ", ".join(
         f"{name} {version}" for name, version in result.packages.items() if version
     )
@@ -774,48 +960,29 @@ def display_task_report(result: TaskBenchmarkResult, console: Console) -> None:
     console.print()
     for label, value in rows:
         console.print(f"{labeled(label)}{escape(value)}")
-    template_note = ""
-    if cfg.apply_template and result.chat_template_applied is False:
-        template_note = "  [dim](no chat template; raw prompt)[/dim]"
+    prompt_tokens = "n/a" if result.prompt_tokens is None else result.prompt_tokens
     console.print(
-        f"{labeled('Prompt')}{result.prompt_tokens} tokens   "
+        f"{labeled('Prompt')}{prompt_tokens} tokens   "
         f"[dim]Generated:[/dim] {result.generated_tokens} tokens "
-        f"(max_new_tokens={cfg.max_new_tokens}, stop={result.stop_reason}){template_note}"
+        f"(max_new_tokens={cfg.max_new_tokens}, stop={result.stop_reason}){result.prompt_note()}"
     )
     if result.response_text:
         console.print()
         console.print("[bold]Response[/bold]")
         console.print(result.response_text, markup=False)
 
-    load = result.load
+    result.display_sections(console)
+
     aggregate = result.aggregate
     console.print()
-    console.print("[bold]Startup[/bold]")
-    console.print(
-        f"  Session load: {float(load.get('session_load_duration_ms') or 0.0):.2f} ms  |  "
-        f"Native load: {float(load.get('native_load_duration_ms') or 0.0):.2f} ms"
-    )
-    if "session_create_duration_ms" in load:
-        # Only CGC times the first create_session apart: its GPU program compiles there.
-        console.print(
-            f"  set_model: {float(load.get('set_model_duration_ms') or 0.0):.2f} ms  |  "
-            "First session (GPU compile): "
-            f"{float(load.get('session_create_duration_ms') or 0.0):.2f} ms"
-        )
-    console.print(
-        f"  Cold TTFT: {format_metric(aggregate.get('cold_start_ttft_duration_ms'))} ms  |  "
-        f"Cold total: {format_metric(aggregate.get('cold_start_total_duration_ms'))} ms"
-    )
-
-    console.print()
-    console.print("[bold]Task TTFT (ms)[/bold]")
-    task_ttft = aggregate.get("task_ttft_duration_ms") or {}
+    console.print(f"[bold]{result.TTFT_TITLE} (ms)[/bold]")
+    ttft = aggregate.get(result.TTFT_METRIC) or {}
     table = Table(show_header=True, header_style="bold cyan")
     for column in ["Avg", "P50", "P90", "P95", "P99", "Min", "Max"]:
         table.add_column(column, justify="right")
     table.add_row(
         *(
-            format_metric(task_ttft.get(key))
+            _format_metric(ttft.get(key))
             for key in ("mean", "p50", "p90", "p95", "p99", "min", "max")
         )
     )
@@ -825,14 +992,15 @@ def display_task_report(result: TaskBenchmarkResult, console: Console) -> None:
     tpot = aggregate.get("steady_state_tpot_ms") or {}
     request_duration = aggregate.get("request_duration_ms") or {}
     console.print()
-    console.print("[bold]Pure prefill:[/bold] unavailable (not exposed by Tasks)")
+    if result.PREFILL_NOTE is not None:
+        console.print(f"[bold]Pure prefill:[/bold] {result.PREFILL_NOTE}")
     console.print(
-        "[bold]Decode (Task stream):[/bold] "
-        f"{format_metric(decode_tps.get('mean'))} tokens/sec  |  "
-        f"{format_metric(tpot.get('mean'))} ms/token (TPOT)"
+        f"[bold]{result.DECODE_LABEL}:[/bold] "
+        f"{_format_metric(decode_tps.get('mean'))} tokens/sec  |  "
+        f"{_format_metric(tpot.get('mean'))} ms/token (TPOT)"
     )
     console.print(
-        f"[bold]Warm start:[/bold] {format_metric(request_duration.get('mean'))} "
+        f"[bold]Warm start:[/bold] {_format_metric(request_duration.get('mean'))} "
         "ms avg per generation"
     )
     if cfg.warmup > 0:
@@ -840,9 +1008,10 @@ def display_task_report(result: TaskBenchmarkResult, console: Console) -> None:
             f"  [dim]Excluded first {cfg.warmup} warmup generation(s) from statistics[/dim]"
         )
     if result.generated_tokens == 0:
+        advice = result.zero_token_advice()
         console.print(
             "[yellow]Warning:[/yellow] the model stopped before generating a token, so "
-            f"decode metrics are empty. {_zero_token_advice(result)}"
+            "decode metrics are empty." + (f" {advice}" if advice else "")
         )
 
     if result.memory_profile:
@@ -867,8 +1036,8 @@ def display_task_report(result: TaskBenchmarkResult, console: Console) -> None:
     console.print()
 
 
-def write_task_report(result: TaskBenchmarkResult, output_path: str | Path) -> None:
-    """Write the Task generation benchmark result to a JSON file."""
+def write_task_report(result: GenerationBenchmarkResult[Any], output_path: str | Path) -> None:
+    """Write a generation benchmark result to a JSON file."""
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as f:
@@ -880,23 +1049,40 @@ def write_task_report(result: TaskBenchmarkResult, output_path: str | Path) -> N
 # =============================================================================
 
 
+GenerationResultT = TypeVar("GenerationResultT", bound=GenerationBenchmarkResult[Any])
+_GenerationResultT_co = TypeVar(
+    "_GenerationResultT_co", bound=GenerationBenchmarkResult[Any], covariant=True
+)
+
+
+class GenerationBenchmark(Protocol[_GenerationResultT_co]):
+    """A runner :func:`run_task_perf` drives; :class:`TaskPerfBenchmark` is one."""
+
+    @property
+    def SESSION_ERROR(self) -> type[Exception]:  # noqa: N802 - a binding's class attribute
+        """The runner's expected failure, reported as a CLI error."""
+
+    def run(self) -> _GenerationResultT_co:
+        """Execute the benchmark and return its result."""
+
+
 def run_task_perf(
-    benchmark: TaskPerfBenchmark[Any, ResultT],
+    benchmark: GenerationBenchmark[GenerationResultT],
     *,
     resolve_output_path: Callable[[], str | Path],
     console: Console,
     json_mode: bool,
-) -> ResultT:
-    """Run a Task generation benchmark, print its report, and persist JSON.
+) -> GenerationResultT:
+    """Run a generation benchmark, print its report, and persist JSON.
 
-    Translates the binding's session failures (``SESSION_ERROR``, which covers
-    not-installed and load errors) and a missing model file into ``click``
-    errors so the CLI exits cleanly instead of dumping a traceback. Any other
-    exception, a Ctrl+C included, propagates unchanged. A failed run writes no
-    report.
+    Translates the runner's failures (``SESSION_ERROR``, which for a Task
+    binding covers not-installed and load errors) and a missing model file into
+    ``click`` errors so the CLI exits cleanly instead of dumping a traceback.
+    Any other exception, a Ctrl+C included, propagates unchanged. A failed run
+    writes no report.
 
     Args:
-        benchmark: The binding's benchmark, ready to run.
+        benchmark: The runner, ready to run.
         resolve_output_path: Returns the JSON report path; called only after the
             run succeeds.
         console: Console for the report and the saved-report line.

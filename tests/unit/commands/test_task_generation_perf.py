@@ -23,6 +23,7 @@ import pytest
 from rich.console import Console
 
 from tests.unit.test_helpers import make_timing
+from winml.modelkit.commands._generation_metrics import aggregate_requests
 from winml.modelkit.commands._task_generation_perf import (
     RUNTIME_TYPE,
     TaskBenchmarkResult,
@@ -232,3 +233,92 @@ class TestRunTaskPerf:
         assert not run.report.parent.exists()
         assert run.console_output.getvalue() == ""
         assert run.session.closed
+
+
+# ---------------------------------------------------------------------------
+# Request aggregation
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _Sample:
+    kind: str
+    latency_ms: float | None
+    groups: dict[str, str]
+
+
+class TestAggregateRequests:
+    def test_without_group_by_summarizes_only_the_timed_metrics(self) -> None:
+        samples = [
+            _Sample("warmup", 100.0, {}),
+            _Sample("timed", 2.0, {}),
+            _Sample("timed", None, {}),
+            _Sample("timed", 4.0, {}),
+        ]
+
+        result = aggregate_requests(samples, ["latency_ms"])
+
+        assert list(result) == ["latency_ms"]
+        assert result["latency_ms"]["mean"] == 3.0
+        assert result["latency_ms"]["max"] == 4.0
+
+    def test_group_by_summarizes_each_dimension_value_with_its_counts(self) -> None:
+        samples = [
+            _Sample("warmup", 100.0, {"domain": "math"}),
+            _Sample("timed", 4.0, {"domain": "qa", "length": "short"}),
+            _Sample("timed", 2.0, {"domain": "math", "length": "long"}),
+            _Sample("timed", 6.0, {"domain": "math"}),
+            _Sample("timed", None, {"domain": "qa"}),
+        ]
+
+        groups = aggregate_requests(samples, ["latency_ms"], group_by="groups")["groups"]
+
+        assert list(groups) == ["domain", "length"]
+        assert list(groups["domain"]) == ["math", "qa"]
+        math = groups["domain"]["math"]
+        assert math["warmup_request_count"] == 1
+        assert math["timed_request_count"] == 2
+        assert math["latency_ms"]["mean"] == 4.0
+        assert groups["domain"]["qa"]["timed_request_count"] == 2
+        assert groups["domain"]["qa"]["latency_ms"]["mean"] == 4.0
+        # A sample without a dimension is left out of that dimension's groups.
+        assert {
+            value: group["timed_request_count"] for value, group in groups["length"].items()
+        } == {
+            "long": 1,
+            "short": 1,
+        }
+
+    def test_group_values_are_in_natural_order(self) -> None:
+        # Superscripts and circled digits are digits to str.isdigit() but not to int().
+        labels = ["16k", "qualitative", "1k", "32k", "10\u00b2", "2k", "\u2460", "8k"]
+        samples = [_Sample("timed", 1.0, {"bucket": label}) for label in labels]
+
+        groups = aggregate_requests(samples, ["latency_ms"], group_by="groups")["groups"]
+
+        assert list(groups["bucket"]) == [
+            "1k",
+            "2k",
+            "8k",
+            "10\u00b2",
+            "16k",
+            "32k",
+            "qualitative",
+            "\u2460",
+        ]
+
+    def test_group_with_only_warmups_reports_no_metric_stats(self) -> None:
+        samples = [_Sample("warmup", 1.0, {"domain": "math"}), _Sample("timed", 2.0, {})]
+
+        groups = aggregate_requests(samples, ["latency_ms"], group_by="groups")["groups"]
+
+        assert groups == {
+            "domain": {
+                "math": {
+                    "warmup_excluded": True,
+                    "warmup_request_count": 1,
+                    "timed_request_count": 0,
+                    "latency_ms": None,
+                }
+            }
+        }
