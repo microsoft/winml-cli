@@ -151,7 +151,7 @@ _QWEN_EMBEDDINGS_NORMALIZED = NormalizedConfig.with_args(
 class QwenEmbeddingsOnlyIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """Embeddings lookup — ``input_ids`` -> ``input_hidden_states``."""
 
-    NORMALIZED_CONFIG_CLASS = _QWEN_EMBEDDINGS_NORMALIZED
+    NORMALIZED_CONFIG_CLASS = staticmethod(_QWEN_EMBEDDINGS_NORMALIZED)
     DUMMY_INPUT_GENERATOR_CLASSES = (_EmbeddingsInputIdsGenerator,)
 
     @property

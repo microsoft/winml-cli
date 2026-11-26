@@ -149,7 +149,7 @@ _QWEN_LM_HEAD_NORMALIZED = NormalizedConfig.with_args(
 class QwenLMHeadOnlyIOConfig(OnnxConfig):  # type: ignore[misc]  # optimum base is untyped
     """LM head — ``output_hidden_states`` -> ``logits``."""
 
-    NORMALIZED_CONFIG_CLASS = _QWEN_LM_HEAD_NORMALIZED
+    NORMALIZED_CONFIG_CLASS = staticmethod(_QWEN_LM_HEAD_NORMALIZED)
     DUMMY_INPUT_GENERATOR_CLASSES = (_LMHeadHiddenStateGenerator,)
 
     @property

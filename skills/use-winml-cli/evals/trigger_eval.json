@@ -60,7 +60,7 @@
     {
       "query": "just got my snapdragon x elite dev box, python 3.11 already installed. how do i install winml? want to run microsoft/resnet-50 first to see NPU latency.",
       "should_trigger": true,
-      "rationale": "Installation and first benchmark. Python 3.11 matches the package requirement; still use an isolated environment."
+      "rationale": "Installation and first benchmark. The existing Python 3.11 does not meet the package requirement; use an isolated Python 3.14 environment."
     },
     {
       "query": "need to get ultralytics/yolov8n running on my ryzen ai laptop for an object detection demo. how fast can we get it on the NPU?",

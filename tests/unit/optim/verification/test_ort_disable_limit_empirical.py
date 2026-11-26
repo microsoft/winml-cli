@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture
-def temp_dir() -> Generator[Path, None, None]:
+def temp_dir() -> Generator[Path]:
     """Provide temporary directory for model files."""
     with tempfile.TemporaryDirectory() as tmpdir:
         yield Path(tmpdir)

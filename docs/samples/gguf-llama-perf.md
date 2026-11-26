@@ -17,7 +17,7 @@ phase timings reported by `--runtime ort-genai`.
 
 ## Prerequisites
 
-- Windows x64 and Python 3.11 (the winml-cli requirements).
+- Windows x64 and Python 3.14 (the winml-cli requirements).
 - winml-cli, from PyPI or from a source checkout.
 - The preview packages below, all at the **same version**. Each llama.cpp
   distribution pins the exact `windowsml` version it was built with.
@@ -46,7 +46,7 @@ environment.
 === "uv (source checkout)"
 
     ```powershell
-    uv venv .venv-gguf --python 3.11
+    uv venv .venv-gguf --python 3.14
     .venv-gguf\Scripts\activate
     uv pip install -e .
     uv pip install --prerelease=allow "windowsml[with-ort]==2.7.2021a0" "windowsml-llama-core==2.7.2021a0"
@@ -55,16 +55,15 @@ environment.
 === "pip"
 
     ```powershell
-    py -3.11 -m venv .venv-gguf
+    py -3.14 -m venv .venv-gguf
     .venv-gguf\Scripts\activate
     python -m pip install winml-cli
     python -m pip install --pre "windowsml[with-ort]==2.7.2021a0" "windowsml-llama-core==2.7.2021a0"
     ```
 
-`pip` (or `uv pip check`) reports that winml-cli requires different `windowsml`
-and `onnxruntime-windowsml` versions. These conflicts are expected in this
-environment: the preview's `with-ort` extra installs ONNX Runtime 1.30, above
-winml-cli's `<1.28` constraint.
+`pip` (or `uv pip check`) reports dependency conflicts when these preview packages
+do not match winml-cli's exact `windowsml` and `onnxruntime-windowsml` pins.
+These overrides are intentional in this experimental environment.
 
 !!! note "Run `winml` from the activated environment"
     Run `winml` directly in the activated environment. `uv run` and `uv sync`

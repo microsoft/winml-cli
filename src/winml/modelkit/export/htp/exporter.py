@@ -718,7 +718,11 @@ class HTPExporter:
             # forward arguments can populate it. Some patchers (e.g. ViTPose MoE,
             # which sets a constant dataset_index) assume a mutable dict and crash
             # on the None default from patch_model_for_export.
-            return cfg_cls(model_config).patch_model_for_export(model, model_kwargs={})
+            from .. import instantiate_onnx_config
+
+            return instantiate_onnx_config(cfg_cls, model_config).patch_model_for_export(
+                model, model_kwargs={}
+            )
         except KeyError:
             logger.debug(
                 "Model type '%s' (task='%s') not in Optimum registry; "

@@ -37,6 +37,7 @@ if TYPE_CHECKING:
         MaxLengthTextInputGenerator,
         ONNXConfigNotFoundError,
         generate_dummy_inputs,
+        instantiate_onnx_config,
         register_onnx_overwrite,
         resolve_io_specs,
     )
@@ -59,6 +60,7 @@ __all__ = [
     "export_policy_targets_for_request",
     "export_pytorch",
     "generate_dummy_inputs",
+    "instantiate_onnx_config",
     "register_onnx_overwrite",
     "resolve_export_compatibility",
     "resolve_export_config",
@@ -70,6 +72,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "MaxLengthTextInputGenerator": (".io", "MaxLengthTextInputGenerator"),
     "ONNXConfigNotFoundError": (".io", "ONNXConfigNotFoundError"),
     "generate_dummy_inputs": (".io", "generate_dummy_inputs"),
+    "instantiate_onnx_config": (".io", "instantiate_onnx_config"),
     "register_onnx_overwrite": (".io", "register_onnx_overwrite"),
     "resolve_io_specs": (".io", "resolve_io_specs"),
     "export_pytorch": (".pytorch", "export_pytorch"),

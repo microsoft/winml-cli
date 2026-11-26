@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import email
 import json
 import shutil
 import subprocess
@@ -17,6 +18,7 @@ from zipfile import ZipFile
 import pytest
 
 from packaging.requirements import Requirement
+from packaging.specifiers import SpecifierSet
 
 
 REPO_ROOT = next(
@@ -64,6 +66,20 @@ def test_built_distributions_include_available_providers(tmp_path: Path) -> None
     with ZipFile(wheels[0]) as wheel:
         assert config_path in wheel.namelist()
         assert json.loads(wheel.read(config_path)) == expected_config
+        metadata_path = next(
+            name for name in wheel.namelist() if name.endswith(".dist-info/METADATA")
+        )
+        metadata = email.message_from_bytes(wheel.read(metadata_path))
+        python_requirement = SpecifierSet(metadata["Requires-Python"])
+        assert str(python_requirement) == ">=3.14"
+        assert "3.14" in python_requirement
+        assert all(version not in python_requirement for version in ("3.11", "3.12", "3.13"))
+        assert "Programming Language :: Python :: 3.14" in metadata.get_all("Classifier", [])
+        requirements = [Requirement(raw) for raw in metadata.get_all("Requires-Dist", [])]
+        for name in ("numpy", "scipy", "onnx", "onnxruntime-windowsml"):
+            matching = [requirement for requirement in requirements if requirement.name == name]
+            assert len(matching) == 1
+            assert "python_version" not in str(matching[0].marker)
     with tarfile.open(sdists[0]) as sdist:
         config_members = [
             member for member in sdist.getmembers() if member.name.endswith(f"/src/{config_path}")

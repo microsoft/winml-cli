@@ -103,7 +103,7 @@ def _reset_resolve_arch_key_cache() -> None:
 
     The cache is correct for production (host/process arch can't change
     within a process), but it's process-global — a test that fakes
-    ``os.name``, ``CPU.get_all``, or ``platform.machine`` to simulate a
+    ``os.name``, ``CPU.get_all``, or ``sysconfig.get_platform`` to simulate a
     different host would otherwise leak its cached result into whichever
     test runs next, independent of whether that later test does any
     mocking at all.
@@ -192,18 +192,27 @@ class TestResolveArchKey:
         # Smoke test against the real host — must not raise.
         assert _resolve_arch_key() in ("x64_native", "x64_on_arm64", "arm64_native")
 
+    def test_python314_x64_process_on_arm64_host(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("winml.modelkit.ep_path.os.name", "nt")
+        monkeypatch.setattr(
+            CPU, "get_all", lambda: [SimpleNamespace(architecture=CPU.Architecture.ARM64)]
+        )
+        monkeypatch.setattr("platform.machine", lambda: "ARM64")
+        monkeypatch.setattr("sysconfig.get_platform", lambda: "win-amd64")
+        assert _resolve_arch_key() == "x64_on_arm64"
+
     @pytest.mark.parametrize(
-        ("host_is_arm64", "machine", "expected_key"),
+        ("host_is_arm64", "process_platform", "expected_key"),
         [
-            (False, "AMD64", "x64_native"),  # x64 process, x64 host, no emulation
-            (True, "AMD64", "x64_on_arm64"),  # x64 process, ARM64 host — the bug scenario
-            (True, "ARM64", "arm64_native"),  # native ARM64 process, ARM64 host
+            (False, "win-amd64", "x64_native"),
+            (True, "win-amd64", "x64_on_arm64"),
+            (True, "win-arm64", "arm64_native"),
         ],
     )
     def test_all_three_reachable_combinations(
         self,
         host_is_arm64: bool,
-        machine: str,
+        process_platform: str,
         expected_key: str,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -211,13 +220,13 @@ class TestResolveArchKey:
         # prior review S-6 requirement for the function this replaced).
         #
         # Patches CPU.get_all (host truth — WMI's Win32_Processor.Architecture,
-        # correct under x64-on-ARM64 emulation) and platform.machine (process
-        # truth — correct as-is, per _resolve_arch_key's docstring)
+        # correct under x64-on-ARM64 emulation) and sysconfig.get_platform
+        # (process architecture)
         # independently.
         arch = CPU.Architecture.ARM64 if host_is_arm64 else CPU.Architecture.x64
         monkeypatch.setattr("winml.modelkit.ep_path.os.name", "nt")
         monkeypatch.setattr(CPU, "get_all", lambda: [SimpleNamespace(architecture=arch)])
-        monkeypatch.setattr("platform.machine", lambda: machine)
+        monkeypatch.setattr("sysconfig.get_platform", lambda: process_platform)
         assert _resolve_arch_key() == expected_key
 
     def test_false_on_non_windows(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -232,24 +241,22 @@ class TestResolveArchKey:
         assert _resolve_arch_key() == "x64_native"
 
     @pytest.mark.parametrize(
-        ("machine", "expected_key"),
+        ("process_platform", "expected_key"),
         [
-            ("AMD64", "x64_on_arm64"),
-            ("x86_64", "x64_on_arm64"),
-            ("ARM64", "arm64_native"),
-            ("aarch64", "arm64_native"),
+            ("win-amd64", "x64_on_arm64"),
+            ("win-arm64", "arm64_native"),
         ],
     )
-    def test_recognizes_process_arch_spellings_under_arm64_host(
-        self, machine: str, expected_key: str, monkeypatch: pytest.MonkeyPatch
+    def test_recognizes_process_platform_under_arm64_host(
+        self, process_platform: str, expected_key: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # Only reachable/meaningful when the host is ARM64 — that's the
-        # branch that checks platform.machine()'s spelling.
+        # branch that checks the process platform.
         monkeypatch.setattr("winml.modelkit.ep_path.os.name", "nt")
         monkeypatch.setattr(
             CPU, "get_all", lambda: [SimpleNamespace(architecture=CPU.Architecture.ARM64)]
         )
-        monkeypatch.setattr("platform.machine", lambda: machine)
+        monkeypatch.setattr("sysconfig.get_platform", lambda: process_platform)
         assert _resolve_arch_key() == expected_key
 
     def test_returns_x64_native_when_cpu_query_raises(

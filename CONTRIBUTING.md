@@ -13,10 +13,15 @@ We're always looking for your help to improve the product (bug fixes, new featur
 
 See the [README](./README.md#getting-started) for prerequisites and installation instructions. Then set up your development environment:
 
+Development, CI, and Python pre-commit hooks use standard-GIL x64 Python 3.14.
+The CLI no longer supports older Python runtimes. On Windows on Arm, explicitly
+install the x64 interpreter rather than a native Arm64 build.
+
 ```bash
 git clone https://github.com/microsoft/winml-cli.git
 cd winml-cli
-uv sync
+uv python install cpython-3.14-windows-x86_64-none
+uv sync --python cpython-3.14-windows-x86_64-none --all-extras --all-groups
 uv run pre-commit install
 ```
 
@@ -50,13 +55,25 @@ Before submitting a pull request, please ensure:
 ```bash
 uv run ruff check src/ tests/
 uv run ruff format src/ tests/
-uv run mypy src/
+uv run mypy -p winml.modelkit
 uv run pytest tests/
 ```
 
 ### Testing
 
 New code *must* be accompanied by unit tests. Code coverage should aim at maintaining over 80% coverage.
+
+For a comprehensive local test inventory, run `tests/unit/build` separately:
+the existing recursion exclusions hide that directory, and combining an ancestor
+path with this explicit path does not restore its collection. Include the
+skill tests as well. E2E tests are opt-in and require the corresponding models,
+datasets, execution providers, and hardware; a default test run does not certify
+every provider. See the [pytest guide](docs/pytest-best-practices.md) for markers.
+
+```bash
+uv run pytest tests/ skills/adding-model-support/tests/ skills/auto-optimize/tests/
+uv run pytest tests/unit/build/
+```
 
 ### License header
 
