@@ -28,7 +28,11 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
+import subprocess
+import sys
 from typing import ClassVar
+from xml.etree import ElementTree
 
 import pytest
 from click.testing import CliRunner
@@ -74,6 +78,63 @@ def _torch_installed() -> bool:
     except PackageNotFoundError:
         return False
     return True
+
+
+class TestSysPowerContract:
+    """Compare system report power configuration against native command results."""
+
+    def test_active_power_scheme_matches_powercfg(self):
+        data = _run_sys_json()
+        if sys.platform != "win32":
+            assert data["power_scheme"] is None
+            return
+        executable = shutil.which("powercfg")
+        assert executable is not None
+        output = subprocess.check_output(  # noqa: S603 - Resolved tool path and fixed arguments
+            [executable, "/getactivescheme"], text=True, errors="replace", timeout=10
+        )
+        scheme = data["power_scheme"]
+        assert scheme["guid"].casefold() in output.casefold()
+        assert f"({scheme['name']})" in output
+
+    def test_device_limits_match_nvidia_xml(self):
+        from winml.modelkit.commands._sys_power import _get_gpu_pci_bus_id
+
+        data = _run_sys_json("--list-device")
+        executable = shutil.which("nvidia-smi")
+        if executable is None:
+            assert all(
+                "gpu_current_power_limit_w" not in device["details"]
+                and "module_current_power_limit_w" not in device["details"]
+                for device in data["devices"]
+            )
+            return
+        output = subprocess.check_output(  # noqa: S603 - Resolved tool path and fixed arguments
+            [executable, "-q", "-x"], timeout=10
+        )
+        # XML is an independent representation of the same driver readings;
+        # -x cannot be combined with -d POWER.
+        root = ElementTree.fromstring(output)  # noqa: S314 - Trusted local NVIDIA tool output
+        gpus = {gpu.findtext("pci/pci_bus_id").casefold(): gpu for gpu in root.findall("gpu")}
+        matched = 0
+        for device in data["devices"]:
+            details = device["details"]
+            if device["type"] != "GPU" or not details.get("luid"):
+                continue
+            bus_id = _get_gpu_pci_bus_id(details["luid"])
+            if bus_id not in gpus:
+                continue
+            matched += 1
+            for section, key in (
+                ("gpu_power_readings", "gpu_current_power_limit_w"),
+                ("module_power_readings", "module_current_power_limit_w"),
+            ):
+                raw = gpus[bus_id].findtext(f"{section}/current_power_limit")
+                if raw is None or raw == "N/A":
+                    assert key not in details
+                else:
+                    assert details[key] == float(raw.removesuffix(" W"))
+        assert matched == len(gpus)
 
 
 # ---------------------------------------------------------------------------
@@ -195,9 +256,7 @@ class TestSysJsonShape:
         for device in data["devices"]:
             assert "luid" in device["details"]
             luid = device["details"]["luid"]
-            assert luid is None or re.fullmatch(
-                r"0x[0-9A-F]{8}_0x[0-9A-F]{8}", luid
-            )
+            assert luid is None or re.fullmatch(r"0x[0-9A-F]{8}_0x[0-9A-F]{8}", luid)
 
     def test_default_json_accelerators_include_memory(self):
         data = _run_sys_json()
