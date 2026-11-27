@@ -151,7 +151,7 @@ class PnpDevice:
                 ],
                 stderr=subprocess.DEVNULL,
             )
-        except subprocess.CalledProcessError, FileNotFoundError:
+        except (subprocess.CalledProcessError, FileNotFoundError):
             return []
 
         text = output.decode("utf-8").strip()

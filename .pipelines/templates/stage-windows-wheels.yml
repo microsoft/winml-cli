@@ -1,0 +1,31 @@
+parameters:
+- name: destination
+  type: string
+
+steps:
+- task: PowerShell@2
+  name: stageWheels
+  displayName: 'Validate and stage x64 and ARM64 wheels'
+  inputs:
+    targetType: 'inline'
+    script: |
+      $root = "$(Build.SourcesDirectory)"
+      $src = Join-Path $root 'official_build'
+      $dst = Join-Path $root '${{ parameters.destination }}'
+      $project = Get-Content -LiteralPath (Join-Path $root 'pyproject.toml') -Raw
+      if ($project -notmatch '(?m)^version\s*=\s*"([^"]+)"') {
+        throw "Cannot determine release version from pyproject.toml"
+      }
+      $version = $Matches[1]
+      $expected = 'win_amd64', 'win_arm64' | ForEach-Object { "winml_cli-$version-py3-none-$_.whl" }
+      $wheels = @(Get-ChildItem -LiteralPath $src -File -Filter '*.whl' -Recurse)
+      if ($wheels.Count -ne 2 -or (Compare-Object $expected @($wheels | ForEach-Object Name))) {
+        throw "Expected $($expected -join ', ') from the official build; found: $($wheels.Name -join ', '). Check OFFICIAL_BUILD_ID."
+      }
+      if ((Test-Path -LiteralPath $dst) -and (Get-ChildItem -LiteralPath $dst -Force)) {
+        throw "Release staging directory is not empty: $dst"
+      }
+      New-Item -ItemType Directory -Path $dst -Force | Out-Null
+      $wheels | Copy-Item -Destination $dst -ErrorAction Stop
+      Write-Host "Staged $($wheels.Name -join ', ')"
+      Write-Host "##vso[task.setvariable variable=ReleaseVersion;isOutput=true]$version"

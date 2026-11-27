@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tarfile
 import textwrap
+import tomllib
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -96,20 +97,24 @@ def test_windows_runtime_wheel_profile(tmp_path: Path, platform_tag: str) -> Non
     """Check both the installer's platform tag and the dependencies it will select."""
     uv = shutil.which("uv")
     assert uv is not None
+    is_arm = platform_tag == "win_arm64"
     _run(
         [
             uv,
             "build",
+            "--python",
+            sys.executable,
             "--wheel",
-            f"-C=--build-option=--plat-name={platform_tag}",
+            *([] if is_arm else [f"-C=--build-option=--plat-name={platform_tag}"]),
             "--out-dir",
             str(tmp_path),
-            str(REPO_ROOT),
+            str(REPO_ROOT / "_envs" / "arm64" if is_arm else REPO_ROOT),
         ],
         cwd=tmp_path,
     )
     (archive,) = tmp_path.glob("*.whl")
-    assert archive.name.endswith(f"-py3-none-{platform_tag}.whl")
+    project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    assert archive.name == f"winml_cli-{project['version']}-py3-none-{platform_tag}.whl"
     with ZipFile(archive) as wheel:
         (tag_info,) = (n for n in wheel.namelist() if n.endswith(".dist-info/WHEEL"))
         (metadata,) = (n for n in wheel.namelist() if n.endswith(".dist-info/METADATA"))
@@ -120,7 +125,14 @@ def test_windows_runtime_wheel_profile(tmp_path: Path, platform_tag: str) -> Non
         assert not any(
             n.lower().endswith((".dll", ".pyd", ".exe", ".so")) for n in wheel.namelist()
         )
-        requirements = email.message_from_bytes(wheel.read(metadata)).get_all("Requires-Dist") or []
+        metadata = email.message_from_bytes(wheel.read(metadata))
+        assert metadata["Version"] == project["version"]
+        assert metadata["Description-Content-Type"] == "text/markdown"
+        supported = SpecifierSet(metadata["Requires-Python"])
+        assert ("3.13" in supported) == is_arm
+        assert ("3.14" in supported) != is_arm
+        assert "winml/modelkit/session/qairt/compile_qairt_bin.py" in wheel.namelist()
+        requirements = metadata.get_all("Requires-Dist") or []
     # CPython 3.14 reports the ARM64 host for both native and emulated interpreters.
     env = {"sys_platform": "win32", "platform_machine": "ARM64", "extra": ""}
     active = {

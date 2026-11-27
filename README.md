@@ -35,13 +35,13 @@ Purpose-built for Windows hardware diversity, the CLI handles conversion, graph 
 | Component | Details |
 |---|---|
 | Windows | Windows 11 24H2 or later (required for NPU support; earlier versions work for CPU/GPU) |
-| Python | 3.14 (standard GIL build; x64 for the full CLI) |
+| Python | Standard GIL: x64 3.14 for the full CLI, ARM64 3.13 for the native runtime preview |
 | Package manager | [uv](https://github.com/astral-sh/uv) |
 | WinML CLI | [PyPI](https://pypi.org/project/winml-cli/) |
 
 ### Installation
 
-This source version of WinML CLI requires **Python 3.14 or later**; Python 3.11 through 3.13 are no longer supported. Development and CI use Python 3.14. Later Python releases have not been validated. Free-threaded Python is not supported. We recommend [uv](https://docs.astral.sh/uv/) for environment setup.
+The default project requires **Python 3.14 or later**. Development and CI use Python 3.14. The separate [native Windows ARM64 project](_envs/arm64/pyproject.toml) uses Python 3.13. Later Python releases have not been validated. Free-threaded Python is not supported. We recommend [uv](https://docs.astral.sh/uv/) for environment setup.
 
 From a source checkout, create or update the project environment:
 
@@ -59,7 +59,7 @@ vendor-pinned environment, not a second CLI runtime. See the
 before changing its Python or dependency versions. The normal ORT QNN path
 runs in the CLI's Python 3.14 environment.
 
-> **Windows on Arm:** For export, evaluation and development, use **x64 Python 3.14** under emulation. For native inference, use the [ARM64 runtime wheel](docs/getting-started/installation.md#native-windows-arm64-runtime-preview). To create the full x64 environment:
+> **Windows on Arm:** The [native ARM64 environment](docs/getting-started/installation.md#native-windows-arm64-runtime-preview) supports inference and, with `uv sync --extra export`, tested Hugging Face export and CPU builds. Use **x64 Python 3.14** under emulation for dataset evaluation and Parquet-backed analysis. To create the full x64 environment:
 >
 > ```powershell
 > uv python install cpython-3.14-windows-x86_64-none

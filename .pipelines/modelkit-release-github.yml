@@ -48,29 +48,18 @@ extends:
             pipelineId: ${{ parameters.OFFICIAL_BUILD_ID }}
             targetPath: '$(Build.SourcesDirectory)/official_build'
 
+        - template: templates/stage-windows-wheels.yml
+          parameters:
+            destination: release_assets
+
         - task: PowerShell@2
-          displayName: 'Stage wheels + rules zip'
+          displayName: 'Stage rules zip and release notes'
           inputs:
             targetType: 'inline'
             script: |
               $src = "$(Build.SourcesDirectory)/official_build"
               $dst = "$(Build.SourcesDirectory)/release_assets"
-              New-Item -ItemType Directory -Path $dst -Force | Out-Null
-
-              $wheels = Get-ChildItem $src -Filter "*.whl" -Recurse
-              if (-not $wheels) {
-                throw "No wheel files found under $src"
-              }
-              $wheels | Copy-Item -Destination $dst -Force
-
-              # Wheel filename is <normalized_name>-<version>-<python tag>-<abi tag>-<platform tag>.whl
-              # PEP 503 normalizes "winml-cli" -> "winml_cli" in filenames.
-              $firstWheel = $wheels | Select-Object -First 1
-              if ($firstWheel.Name -notmatch '^winml_cli-([^-]+)-') {
-                  throw "wheel filename '$($firstWheel.Name)' does not match expected pattern 'winml_cli-<version>-...'"
-              }
-              $version = $matches[1]
-              Write-Host "Version: $version"
+              $version = "$(stageWheels.ReleaseVersion)"
 
               $rulesZipCandidates = Get-ChildItem $src -Filter "rules.zip" -Recurse
               if (-not $rulesZipCandidates) {
@@ -83,7 +72,6 @@ extends:
               $rulesZipName = "rules-v$version.zip"
               Copy-Item $selectedRulesZip.FullName -Destination (Join-Path $dst $rulesZipName) -Force
 
-              Write-Host "Found $($wheels.Count) wheel(s)"
               Write-Host "Using build-produced rules.zip from $($selectedRulesZip.FullName) -> $rulesZipName"
               Write-Host "Staged GitHub release assets:"
               Get-ChildItem $dst | ForEach-Object { Write-Host (" - {0} ({1:N0} bytes)" -f $_.Name, $_.Length) }
@@ -121,6 +109,8 @@ extends:
       - job: CreateGitHubRelease
         displayName: 'Create GitHub Release'
         dependsOn: Prepare
+        variables:
+          ReleaseVersion: $[ dependencies.Prepare.outputs['stageWheels.ReleaseVersion'] ]
         templateContext:
           type: releaseJob   # Required, this indicates this job is a release job
           isProduction: true # Required, must be 'true' or 'false'
@@ -131,22 +121,14 @@ extends:
 
         steps:
         - task: PowerShell@2
-          displayName: 'Extract version from wheel filename'
+          displayName: 'Set release tag'
           inputs:
             targetType: 'inline'
             script: |
-              $wheel = Get-ChildItem "$(Build.SourcesDirectory)/release_assets/*.whl" | Select-Object -First 1
-              if (-not $wheel) { throw "no wheel found in staged assets" }
-              # Wheel filename is <normalized_name>-<version>-<python tag>-<abi tag>-<platform tag>.whl
-              # PEP 503 normalizes "winml-cli" -> "winml_cli" in filenames.
-              if ($wheel.Name -notmatch '^winml_cli-([^-]+)-') {
-                  throw "wheel filename '$($wheel.Name)' does not match expected pattern 'winml_cli-<version>-...'"
-              }
-              $version = $matches[1]
+              $version = "$(ReleaseVersion)"
               $tag = "v$version"
               Write-Host "Version: $version"
               Write-Host "Tag: $tag"
-              Write-Host "##vso[task.setvariable variable=ReleaseVersion]$version"
               Write-Host "##vso[task.setvariable variable=ReleaseTag]$tag"
               # A plain X.Y.Z is a real release; any PEP 440 suffix
               # (e.g. 0.3.0rc1, 0.3.0.dev1, 0.3.0b1) is a pre-release.

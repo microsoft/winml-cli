@@ -56,22 +56,22 @@ extends:
             pipelineId: ${{ parameters.OFFICIAL_BUILD_ID }}
             targetPath: '$(Build.SourcesDirectory)/official_build'
 
+        - template: templates/stage-windows-wheels.yml
+          parameters:
+            destination: pyPackage
+
         - task: PowerShell@2
-          displayName: 'Stage wheel + sdist'
+          displayName: 'Stage matching source distribution'
           inputs:
             targetType: 'inline'
             script: |
               $src = "$(Build.SourcesDirectory)/official_build"
               $dst = "$(Build.SourcesDirectory)/pyPackage"
-              New-Item -ItemType Directory -Path $dst -Force | Out-Null
-
-              $wheels = Get-ChildItem $src -Filter "*.whl" -Recurse
-              $sdists = Get-ChildItem $src -Filter "*.tar.gz" -Recurse
-
-              if ($wheels.Count -eq 0) { throw "no wheel found under $src - PyPI requires at least one wheel" }
-              if ($sdists.Count -eq 0) { throw "no sdist (.tar.gz) found under $src - official build always produces one, missing means upstream is broken" }
-
-              $wheels | Copy-Item -Destination $dst
+              $sdists = @(Get-ChildItem $src -File -Filter "*.tar.gz" -Recurse)
+              $expected = "winml_cli-$(stageWheels.ReleaseVersion).tar.gz"
+              if ($sdists.Count -ne 1 -or $sdists[0].Name -ne $expected) {
+                throw "Expected $expected from the official build; found: $($sdists.Name -join ', ')"
+              }
               $sdists | Copy-Item -Destination $dst
 
               # Note: official build also emits *.zip (runtime check rules).
@@ -80,30 +80,6 @@ extends:
 
               Write-Host "Staged for PyPI publish:"
               Get-ChildItem $dst | ForEach-Object { Write-Host (" - {0} ({1:N0} bytes)" -f $_.Name, $_.Length) }
-
-        - task: PowerShell@2
-          displayName: 'Sanity-check wheel version vs pyproject.toml'
-          inputs:
-            targetType: 'inline'
-            script: |
-              $wheel = Get-ChildItem "$(Build.SourcesDirectory)/pyPackage/*.whl" | Select-Object -First 1
-              # Wheel filename is <normalized_name>-<version>-<python tag>-<abi tag>-<platform tag>.whl
-              # PEP 503 normalizes "winml-cli" -> "winml_cli" in filenames.
-              if ($wheel.Name -notmatch '^winml_cli-([^-]+)-') {
-                  throw "wheel filename '$($wheel.Name)' does not match expected pattern 'winml_cli-<version>-...'"
-              }
-              $wheelVersion = $matches[1]
-
-              $pyproject = Get-Content "$(Build.SourcesDirectory)/pyproject.toml" -Raw
-              if ($pyproject -notmatch 'version\s*=\s*"([^"]+)"') {
-                  throw "could not parse version from pyproject.toml"
-              }
-              $repoVersion = $matches[1]
-
-              if ($wheelVersion -ne $repoVersion) {
-                  throw "version mismatch: wheel says '$wheelVersion', pyproject.toml says '$repoVersion'. Wrong OFFICIAL_BUILD_ID?"
-              }
-              Write-Host "Version check passed: $wheelVersion"
 
       - job: ManualValidation
         displayName: 'Manual Approval'
@@ -116,7 +92,7 @@ extends:
           inputs:
             notifyUsers: '${{ parameters.ESRP_OWNERS }}'
             instructions: |
-              Review the Prepare job logs (staged wheel + sdist filenames, version check).
+              Review the Prepare logs for the matching win_amd64 wheel, win_arm64 wheel and sdist.
               Approve to invoke ESRP Release - ESRP will then trigger its own approval flow.
               Reject if the wrong OFFICIAL_BUILD_ID was queued or the staged artifacts look wrong.
             onTimeout: 'reject'

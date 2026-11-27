@@ -1,6 +1,6 @@
 [build-system]
 build-backend = "setuptools.build_meta"
-requires = [ "packaging>=24", "setuptools>=70.1", "wheel" ]
+requires = [ "setuptools>=61", "wheel" ]
 
 [project]
 name = "winml-cli"
@@ -15,8 +15,6 @@ classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
   "Intended Audience :: Science/Research",
-  "License :: OSI Approved :: MIT License",
-  "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.14",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
@@ -197,6 +195,8 @@ include = [ "winml", "winml.*" ]
 
 [tool.ruff]
 target-version = "py314"
+# The shared CLI sources must also parse in the native ARM64 Python 3.13 wheel.
+per-file-target-version."src/winml/modelkit/**/*.py" = "py313"
 # This standalone compiler runs under the external SDK, not the CLI interpreter.
 per-file-target-version."src/winml/modelkit/session/qairt/compile_qairt_bin.py" = "py311"
 
