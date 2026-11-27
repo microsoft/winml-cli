@@ -43,7 +43,16 @@ Purpose-built for Windows hardware diversity, the CLI handles conversion, graph 
 
 The default project requires **Python 3.14 or later**. Development and CI use Python 3.14. The separate [native Windows ARM64 project](_envs/arm64/pyproject.toml) uses Python 3.13. Later Python releases have not been validated. Free-threaded Python is not supported. We recommend [uv](https://docs.astral.sh/uv/) for environment setup.
 
-From a source checkout, create or update the project environment:
+**On a Windows ARM64 machine, you can use both environments side by side:**
+
+| Workload | Python environment |
+|---|---|
+| Native ONNX or GGUF inference; Hugging Face export and CPU builds with the `export` extra | ARM64 Python 3.13 |
+| Evaluation that needs Hugging Face `datasets` (including the current `eval --mode compare`), or `analyze` with Parquet rules | x64 Python 3.14 under Windows emulation |
+
+See [Windows on Arm: choose an environment](docs/getting-started/installation.md#windows-on-arm-choose-an-environment) for setup and switching commands. You do not need x64 Python just to run inference.
+
+From a source checkout, create or update the **x64** project environment:
 
 ```powershell
 uv python install cpython-3.14-windows-x86_64-none
@@ -58,13 +67,6 @@ vendor-pinned environment, not a second CLI runtime. See the
 [SDK environment exception](docs/getting-started/installation.md#python-314-runtime-policy)
 before changing its Python or dependency versions. The normal ORT QNN path
 runs in the CLI's Python 3.14 environment.
-
-> **Windows on Arm:** The [native ARM64 environment](docs/getting-started/installation.md#native-windows-arm64-runtime-preview) supports inference and, with `uv sync --extra export`, tested Hugging Face export and CPU builds. Use **x64 Python 3.14** under emulation for dataset evaluation and Parquet-backed analysis. To create the full x64 environment:
->
-> ```powershell
-> uv python install cpython-3.14-windows-x86_64-none
-> uv venv --python cpython-3.14-windows-x86_64-none
-> ```
 
 **1. Create an environment**
 

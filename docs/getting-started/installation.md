@@ -15,6 +15,8 @@
 
 ## Install
 
+On a Windows ARM64 machine, follow [Windows on Arm: choose an environment](#windows-on-arm-choose-an-environment) instead. The following quick install is for x64 Windows:
+
 ```bash
 uv python install 3.14
 uv venv --python 3.14
@@ -22,16 +24,6 @@ uv pip install winml-cli
 ```
 
 `uv python install 3.14` downloads a managed interpreter; `uv venv --python 3.14` creates `.venv`, which `uv pip install` detects without activation. The source checkout pins Python 3.14 in `.python-version`. Published releases may have different requirements until this migration is released.
-
-!!! warning "Full CLI on Windows on Arm"
-    Use x64 Python 3.14 under emulation for dataset evaluation and Parquet-backed rule analysis. For native inference, Hugging Face export and CPU builds, see the [ARM64 preview](#native-windows-arm64-runtime-preview).
-
-    ```powershell
-    uv python install cpython-3.14-windows-x86_64-none
-    uv sync --python cpython-3.14-windows-x86_64-none
-    ```
-
-    The x64 interpreter runs under Windows emulation on Arm64 hardware; `winml sys` still reports the Arm64 machine, and the NPU/GPU/CPU providers work normally.
 
 !!! tip "Install from source (for development)"
     If you want to contribute or run the latest unreleased code:
@@ -42,22 +34,63 @@ uv pip install winml-cli
     uv sync
     ```
 
-### Native Windows ARM64 runtime preview
+### Windows on Arm: choose an environment
 
-The [ARM project](../../_envs/arm64/pyproject.toml) owns its interpreter pin,
-dependencies, local lockfile and `.venv`; the root project remains the default
-for x64. Both build the same CLI source and package data. From a checkout on
-Windows ARM64:
+Both options run on the **same Windows ARM64 machine**. Start with the one
+your workload needs; install both if you switch between them.
+
+| Use case | Interpreter and wheel | Source project |
+|---|---|---|
+| Native ONNX or GGUF inference; Hugging Face export and CPU builds with the `export` extra | ARM64 Python 3.13, `win_arm64` | `_envs\arm64` |
+| Dataset evaluation, `eval --mode compare`, or `analyze` with Parquet rules | x64 Python 3.14 under emulation, `win_amd64` | Repository root |
+
+The x64 environment supplies Hugging Face `datasets` and PyArrow, which the
+native profile omits. This is a Python dependency difference, not a hardware
+limitation. `WINMLCLI_RULES_DIR` selects where to find rules; it does not
+install a Parquet reader.
+
+**From a checkout:** run the commands for either environment from the repository
+root. Each project has its own `.venv`; no activation or reinstall is needed to
+switch after setup.
+
+```powershell
+# Native ARM64: set up once, then run native commands with --project.
+uv sync --project _envs\arm64
+uv run --no-sync --project _envs\arm64 winml sys --list-device
+
+# Emulated x64: set up once, then run dataset-dependent commands from the root.
+uv sync --python cpython-3.14-windows-x86_64-none
+uv run --no-sync python -c "import datasets, pyarrow, sysconfig; print(sysconfig.get_platform())"
+```
+
+The last command should print `win-amd64`. To check the native interpreter,
+run `uv run --no-sync --project _envs\arm64 python -c "import sysconfig; print(sysconfig.get_platform())"`;
+it should print `win-arm64`.
+
+**Installing a published release instead:** once a release includes both wheels,
+create separate environments outside the checkout. `uv` selects the wheel
+matching each interpreter. Run `winml.exe` from the environment you need:
+
+```powershell
+uv venv --python cpython-3.13-windows-aarch64-none .venv-arm64
+uv pip install --python .venv-arm64\Scripts\python.exe --only-binary winml-cli winml-cli
+.\.venv-arm64\Scripts\winml.exe sys --list-device
+
+uv venv --python cpython-3.14-windows-x86_64-none .venv-x64
+uv pip install --python .venv-x64\Scripts\python.exe --only-binary winml-cli winml-cli
+.\.venv-x64\Scripts\winml.exe eval --help
+```
+
+#### Native Windows ARM64 runtime preview
+
+The [ARM project](../../_envs/arm64/pyproject.toml) owns its interpreter pin
+and dependencies. To work there directly instead of passing `--project`:
 
 ```powershell
 cd _envs\arm64
-uv sync
-uv run --no-sync python -c "import sysconfig; print(sysconfig.get_platform())"
-uv run --no-sync winml sys --list-device
-uv build --wheel --out-dir dist
 ```
 
-The architecture check must print `win-arm64`. Choose the profile for your workload:
+Choose the profile for your workload:
 
 | Command (from `_envs\arm64`) | Installed profile |
 |---|---|
@@ -78,19 +111,8 @@ uv run --no-sync winml perf -m ..\..\tests\assets\resnet_fp32\model.onnx `
     --device cpu --ep cpu --iterations 1 --warmup 0 --no-memory
 ```
 
-For a release that includes the ARM64 wheel, you can install the base runtime
-outside the checkout without building it yourself:
-
-```powershell
-uv venv --python cpython-3.13-windows-aarch64-none .venv
-uv pip install --python .venv\Scripts\python.exe --only-binary winml-cli winml-cli
-.\.venv\Scripts\winml.exe sys --list-device
-```
-
 The ARM64 preview has been tested with ONNX inference on CPU, DirectML and
-QNN, and GGUF CPU generation. Use the x64 profile for `eval --mode compare`
-and Parquet-backed `analyze`: the official ARM64 environment does not include
-`datasets` or a Parquet engine. See the [wheel validation guide](../../_envs/arm64/README.md)
+QNN, and GGUF CPU generation. See the [wheel validation guide](../../_envs/arm64/README.md)
 for release artifacts and how to compare real workloads on both architectures.
 
 ### Python 3.14 runtime policy
