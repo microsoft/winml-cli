@@ -50,6 +50,7 @@ from ..session import WinMLEPRegistry
 from ..sysinfo import OS
 from ..utils import cli as cli_utils
 from ..utils.logging import configure_logging
+from ._sys_power import _enrich_nvidia_power_limits, _get_active_power_scheme
 
 
 if TYPE_CHECKING:
@@ -134,7 +135,7 @@ if sys.platform == "win32":
             ctypes.POINTER(ctypes.c_ushort),
         ]
         _IS_WOW64_PROCESS_2.restype = ctypes.wintypes.BOOL
-    except (OSError, AttributeError):
+    except OSError, AttributeError:
         _KERNEL32 = None  # type: ignore[assignment]
         _IS_WOW64_PROCESS_2 = None  # type: ignore[assignment]
 else:
@@ -393,6 +394,7 @@ def _gather_system_info(verbose: bool = False) -> dict[str, Any]:
         "schema_version": _SYS_JSON_SCHEMA_VERSION,
         "python": _get_python_info(),
         "platform": _get_platform_info(),
+        "power_scheme": _get_active_power_scheme(),
         "memory": _get_memory_info(),
         "libraries": _get_library_versions(),
         "torch": _get_torch_info(verbose=verbose),
@@ -454,6 +456,12 @@ def _output_text(info: dict[str, Any], verbose: bool = False) -> None:
         value = info["platform"].get(key)
         if value is not None:
             table.add_row(label, escape(str(value)))
+    if info["platform"]["system"] == "Windows":
+        power_scheme = info.get("power_scheme")
+        table.add_row(
+            "Active power scheme",
+            escape(f"{power_scheme['name']} ({power_scheme['guid']})") if power_scheme else "N/A",
+        )
 
     console.print("\n[bold blue]Environment[/bold blue]")
     console.print(table)
@@ -647,6 +655,7 @@ def _gather_device_info(
             native_adapters = []
 
     result: list[dict[str, Any]] = []
+    nvidia_devices: list[dict[str, Any]] = []
     priority = 1
     for device_label, items in ordered_results:
         system_adapters = [
@@ -707,6 +716,12 @@ def _gather_device_info(
                             "shared_memory_mib": None,
                         }
                     )
+                if device_label == "GPU" and (
+                    getattr(item, "vendor_id", None) == 0x10DE
+                    or getattr(metadata_item, "vendor_id", None) == 0x10DE
+                    or "nvidia" in (entry["details"]["manufacturer"] or "").casefold()
+                ):
+                    nvidia_devices.append(entry)
             elif device_label == "CPU":
                 entry["details"] = {
                     "cores": item.core_count,
@@ -758,6 +773,7 @@ def _gather_device_info(
         except Exception as e:
             logger.warning("device_facts enrichment failed: %s", e)
 
+    _enrich_nvidia_power_limits(nvidia_devices)
     return result
 
 
@@ -858,6 +874,13 @@ def _output_device_text(devices: list[dict[str, Any]]) -> None:
                     + (f"{shared_memory} MiB" if shared_memory is not None else "N/A"),
                 ]
                 console.print(f"             {' | '.join(parts)}")
+            for label, key in (
+                ("GPU current power limit", "gpu_current_power_limit_w"),
+                ("Module current power limit", "module_current_power_limit_w"),
+            ):
+                limit = details.get(key)
+                if limit is not None:
+                    console.print(f"             {label}: {limit:g} W")
         elif dev["type"] == "CPU":
             console.print(
                 f"             LUID: {details.get('luid') or 'N/A'} | "

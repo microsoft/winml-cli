@@ -48,9 +48,7 @@ class TestGetWindowsNativeMachine:
 
         assert sys_mod._get_windows_native_machine() == expected
 
-    def test_returns_none_when_win32_query_fails(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_returns_none_when_win32_query_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from winml.modelkit.commands import sys as sys_mod
 
         monkeypatch.setattr(sys, "platform", "win32")
@@ -69,9 +67,7 @@ class TestGetWindowsNativeMachine:
 class TestGetWindowsVersionInfo:
     """Test detailed Windows version collection from the registry."""
 
-    def test_reads_available_current_version_values(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_reads_available_current_version_values(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from winml.modelkit.commands import sys as sys_mod
 
         values = {
@@ -106,9 +102,7 @@ class TestGetWindowsVersionInfo:
             access=winreg.KEY_READ | winreg.KEY_WOW64_64KEY,
         )
 
-    def test_keeps_other_values_when_one_is_missing(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_keeps_other_values_when_one_is_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from winml.modelkit.commands import sys as sys_mod
 
         winreg = MagicMock()
@@ -472,6 +466,7 @@ class TestGatherDeviceInfo:
             patch("winml.modelkit.sysinfo.hardware.CPU.get_all", side_effect=slow_empty),
             patch("winml.modelkit.sysinfo.hardware.GPU.get_all", side_effect=slow_empty),
             patch("winml.modelkit.sysinfo.hardware.NPU.get_all", side_effect=slow_empty),
+            patch("winml.modelkit.sysinfo.enumerate_compute_adapters", return_value=[]),
         ):
             t0 = time.perf_counter()
             sys_cmd._gather_device_info()

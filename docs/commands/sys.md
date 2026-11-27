@@ -33,6 +33,8 @@ $ winml sys [options]
 library versions. On Windows, it also reads the native
 `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion` registry key to report the
 display version, build, update build revision (UBR), build branch, and build lab.
+The Environment section also reports the active Windows power scheme (name and
+GUID) from `powercfg /getactivescheme`.
 It then probes PyTorch for CUDA availability and GPU device names.
 Backend availability checks use the installed runtime environment. GPU and NPU
 enumeration uses DXCore as the source of adapter identity and LUID, then enriches
@@ -44,6 +46,15 @@ merges the WinML EP registry with ONNX Runtime's
 `get_available_providers()`. When
 `--format json` is used the full report — including devices and EPs — is emitted as
 a single JSON object, making it easy to capture in CI pipelines.
+
+For NVIDIA GPUs, `nvidia-smi -q -d POWER` supplies the **Current Power Limit**
+from GPU Power Readings and, when supported, Module Power Readings. These are
+configured limits in watts, not instantaneous power draw. The readings are
+joined to each native device by its PCI address resolved from its LUID, so
+identically named GPUs remain distinct. Limits are included in the full report
+and `--list-device`, in both text and JSON. Unsupported (`N/A`) limits are omitted;
+missing `nvidia-smi` does not prevent device enumeration. Query or identity
+resolution failures are logged without discarding the rest of the report.
 
 Within the GPU class, devices are ordered by ONNX Runtime hardware metadata
 `DxgiHighPerformanceIndex` numerically (0 first), with LUID as a stable
@@ -80,6 +91,7 @@ Environment
   UBR               4946
   Build Branch      ge_release
   BuildLabEx        26100.1.amd64fre.ge_release.240331-1435
+  Active power scheme Balanced (381b4222-f694-41f0-9685-ff5bb260df2e)
 
 ML Libraries
   Library        Version   Status
@@ -129,6 +141,10 @@ The full JSON report includes a schema version and installed physical memory:
   }
 }
 ```
+
+On Windows, `power_scheme` contains `name` and `guid`, or is `null` if unavailable.
+Supported NVIDIA device `details` additionally contain
+`gpu_current_power_limit_w` and, where applicable, `module_current_power_limit_w`.
 
 Memory capacity uses MiB. If the host does not expose the physical memory total,
 the field is `null` and `winml sys` emits a warning while preserving the rest of
