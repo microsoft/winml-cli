@@ -15,16 +15,13 @@ dependencies = [
   "jsonschema>=4.23", "ml-dtypes==0.5.4", "numpy>=2.3.2,<2.4",
   "onnx==1.20.0", "onnxruntime-genai-winml==0.14.1",
   "onnxruntime-windowsml==1.30.1.202610302006", "opentelemetry-sdk>=1.39.1",
+  "onnxscript==0.7.2", "optimum==2.1.0", "optimum-onnx==0.1.0", "pandas==3.1.1",
   "plotext>=5.3.2,<6", "psutil>=7", "pydantic>=2", "requests>=2.32.5",
-  "rich>=14", "snakemd>=2", "tqdm>=4.67", "windowsml[llama]==2.9.36a0",
+  "rich>=14", "snakemd>=2", "torch==2.9.1+cpu", "torchvision==0.24.1+d801a34",
+  "tqdm>=4.67", "transformers==4.57.6", "windowsml[llama]==2.9.36a0",
 ]
 
 [project.optional-dependencies]
-torch-cpu = ["torch==2.9.1+cpu", "torchvision==0.24.1+d801a34"]
-export = [
-  "winml-cli[torch-cpu]", "transformers==4.57.6", "optimum==2.1.0",
-  "optimum-onnx==0.1.0", "onnxscript==0.7.2", "pandas==3.1.1",
-]
 qnn = []
 
 [dependency-groups]

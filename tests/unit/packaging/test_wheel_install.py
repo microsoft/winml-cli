@@ -141,12 +141,21 @@ def test_windows_runtime_wheel_profile(tmp_path: Path, platform_tag: str) -> Non
         if r.marker is None or r.marker.evaluate(env)
     }
     assert {"ml-dtypes", "numpy", "onnx", "onnxruntime-windowsml", "windowsml"} <= active.keys()
-    full_stack = {"torch", "torchvision", "pyarrow", "pandas", "optimum"}
-    if platform_tag == "win_arm64":
-        assert full_stack.isdisjoint(active)
+    assert {
+        "torch",
+        "torchvision",
+        "pandas",
+        "transformers",
+        "optimum",
+        "optimum-onnx",
+        "onnxscript",
+    } <= active.keys()
+    if is_arm:
+        assert {"datasets", "pyarrow"}.isdisjoint(active)
+        assert {"torch-cpu", "export"}.isdisjoint(metadata.get_all("Provides-Extra", []))
         assert "llama" in active["windowsml"].extras
     else:
-        assert full_stack <= active.keys()
+        assert {"datasets", "pyarrow"} <= active.keys()
         assert "windowsml-llama-core" not in active
         assert "llama" not in active["windowsml"].extras
 

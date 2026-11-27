@@ -30,7 +30,9 @@ ROOT = next(
 def test_python_runtime_policy_matches_project_tools() -> None:
     config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     assert SpecifierSet(config["project"]["requires-python"]) == SpecifierSet(">=3.14")
-    assert (ROOT / ".python-version").read_text(encoding="utf-8").strip() == "3.14"
+    assert (ROOT / ".python-version").read_text(encoding="utf-8").strip() == (
+        "cpython-3.14-any-x86_64-any"
+    )
     assert config["tool"]["ruff"]["target-version"] == "py314"
     assert config["tool"]["mypy"]["python_version"] == "3.14"
     version_classifiers = [

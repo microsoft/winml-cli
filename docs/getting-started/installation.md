@@ -23,7 +23,7 @@ uv venv --python 3.14
 uv pip install winml-cli
 ```
 
-`uv python install 3.14` downloads a managed interpreter; `uv venv --python 3.14` creates `.venv`, which `uv pip install` detects without activation. The source checkout pins Python 3.14 in `.python-version`. Published releases may have different requirements until this migration is released.
+`uv python install 3.14` downloads a managed interpreter; `uv venv --python 3.14` creates `.venv`, which `uv pip install` detects without activation. The repository root pins x64 CPython 3.14 in `.python-version`. Published releases may have different requirements until this migration is released.
 
 !!! tip "Install from source (for development)"
     If you want to contribute or run the latest unreleased code:
@@ -41,7 +41,7 @@ your workload needs; install both if you switch between them.
 
 | Use case | Interpreter and wheel | Source project |
 |---|---|---|
-| Native ONNX or GGUF inference; Hugging Face export and CPU builds with the `export` extra | ARM64 Python 3.13, `win_arm64` | `_envs\arm64` |
+| Native ONNX or GGUF inference, Hugging Face export and CPU builds | ARM64 Python 3.13, `win_arm64` | `_envs\arm64` |
 | Dataset evaluation, `eval --mode compare`, or `analyze` with Parquet rules | x64 Python 3.14 under emulation, `win_amd64` | Repository root |
 
 The x64 environment supplies Hugging Face `datasets` and PyArrow, which the
@@ -49,23 +49,19 @@ native profile omits. This is a Python dependency difference, not a hardware
 limitation. `WINMLCLI_RULES_DIR` selects where to find rules; it does not
 install a Parquet reader.
 
-**From a checkout:** run the commands for either environment from the repository
-root. Each project has its own `.venv`; no activation or reinstall is needed to
-switch after setup.
+**From a checkout:** choose the directory, then use the same commands in either
+one. Stay at the repository root for x64, or run `cd _envs\arm64` for native
+ARM64. `uv sync` uses that project's interpreter pin to create its own `.venv`.
 
 ```powershell
-# Native ARM64: set up once, then run native commands with --project.
-uv sync --project _envs\arm64
-uv run --no-sync --project _envs\arm64 winml sys --list-device
-
-# Emulated x64: set up once, then run dataset-dependent commands from the root.
-uv sync --python cpython-3.14-windows-x86_64-none
-uv run --no-sync python -c "import datasets, pyarrow, sysconfig; print(sysconfig.get_platform())"
+uv sync
+uv run --no-sync python -c "import sysconfig; print(sysconfig.get_platform())"
+uv run --no-sync winml sys --list-device
 ```
 
-The last command should print `win-amd64`. To check the native interpreter,
-run `uv run --no-sync --project _envs\arm64 python -c "import sysconfig; print(sysconfig.get_platform())"`;
-it should print `win-arm64`.
+The architecture check prints `win-amd64` at the root and `win-arm64` in
+`_envs\arm64`. Once both environments exist, switching directories is enough:
+`uv run --no-sync winml ...` uses the environment for the current project.
 
 **Installing a published release instead:** once a release includes both wheels,
 create separate environments outside the checkout. `uv` selects the wheel
@@ -73,7 +69,9 @@ matching each interpreter. Run `winml.exe` from the environment you need:
 
 ```powershell
 uv venv --python cpython-3.13-windows-aarch64-none .venv-arm64
-uv pip install --python .venv-arm64\Scripts\python.exe --only-binary winml-cli winml-cli
+uv pip install --python .venv-arm64\Scripts\python.exe --only-binary winml-cli `
+    --find-links https://download-r2.pytorch.org/whl/cpu/torch/ `
+    --find-links https://download-r2.pytorch.org/whl/cpu/torchvision/ winml-cli
 .\.venv-arm64\Scripts\winml.exe sys --list-device
 
 uv venv --python cpython-3.14-windows-x86_64-none .venv-x64
@@ -84,25 +82,20 @@ uv pip install --python .venv-x64\Scripts\python.exe --only-binary winml-cli win
 #### Native Windows ARM64 runtime preview
 
 The [ARM project](../../_envs/arm64/pyproject.toml) owns its interpreter pin
-and dependencies. To work there directly instead of passing `--project`:
+and dependencies. From the repository root:
 
 ```powershell
 cd _envs\arm64
+uv sync
 ```
 
-Choose the profile for your workload:
-
-| Command (from `_envs\arm64`) | Installed profile |
-|---|---|
-| `uv sync` | Native inference; no Torch required |
-| `uv sync --extra torch-cpu` | Also installs the official CPU Torch/TorchVision wheels |
-| `uv sync --extra export` | Includes `torch-cpu`, Transformers, Optimum ONNX, ONNX Script and pandas for HF export and CPU builds |
-
-The `export` profile uses publisher-provided wheels from the package index and
-the official PyTorch CPU index. It does not install a private PyArrow wheel or
-`datasets`. The project-specific PyTorch index is not embedded in the wheel
-for pip consumers. Build the ARM wheel from a complete checkout; build the
-release source distribution from the repository root.
+One install includes CPU Torch/TorchVision, Transformers, Optimum ONNX,
+ONNX Script and pandas. The source project configures the official PyTorch
+CPU index for Torch/TorchVision. A wheel cannot configure the installer's
+indexes, so the wheel installation above supplies the two PyTorch package
+pages explicitly. Neither `datasets` nor PyArrow is installed on ARM64.
+Build the ARM wheel from a complete checkout; build the release source
+distribution from the repository root.
 
 To verify local CPU inference from the ARM directory:
 
@@ -127,12 +120,11 @@ remain separate validation work.
 From a source checkout, create or update the project environment:
 
 ```powershell
-uv python install cpython-3.14-windows-x86_64-none
-uv sync --python cpython-3.14-windows-x86_64-none --all-extras
+uv sync --all-extras
 uv run --no-sync python -m winml.modelkit.cli --help
 ```
 
-The full source environment requires the explicit x64 interpreter on Windows on Arm. Python 3.14
+The root pin selects x64 even on Windows on Arm. Python 3.14
 reports the Arm64 host from an emulated x64 process; provider DLL selection must
 use the interpreter's architecture, not just `platform.machine()`.
 
@@ -149,7 +141,7 @@ For source validation, install development dependencies and run the suite:
 
 ```powershell
 $env:WINML_CACHE_DIR = (Join-Path $PWD "temp\python314-cache")
-uv sync --python cpython-3.14-windows-x86_64-none --all-extras --all-groups
+uv sync --all-extras --all-groups
 uv run --no-sync python -m pytest tests skills\adding-model-support\tests skills\auto-optimize\tests
 uv run --no-sync python -m pytest tests\e2e -m "e2e or e2e_run or e2e_serve" --no-cov
 uv run --no-sync python -m pytest tests\e2e -m "not e2e and not e2e_run and not e2e_serve" --no-cov

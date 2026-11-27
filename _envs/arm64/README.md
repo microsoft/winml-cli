@@ -1,6 +1,6 @@
 # Windows wheel build and validation
 
-For native ARM64 setup and available profiles, see the
+For native ARM64 setup, including the PyTorch wheel sources, see the
 [installation guide](../../docs/getting-started/installation.md#native-windows-arm64-runtime-preview).
 
 ## Release artifacts
@@ -19,9 +19,10 @@ into the CLI wheels. The version comes from the root `pyproject.toml`.
 Before approving publication, download **both** wheels from the pinned official
 build. Record their hashes and smoke-test each in a clean environment outside the
 checkout: x64 CPython 3.14 and native ARM64 CPython 3.13. Install the matching
-archive with its dependencies, run `uv pip check`, `winml sys --list-ep`, and
+archive with its dependencies (for ARM64, use the PyTorch `--find-links` options
+in the installation guide), run `uv pip check`, `winml sys --list-ep`, and
 a CPU `winml perf` inference. Verify bundled rules with `WINMLCLI_RULES_DIR`
-unset; ARM64 includes the files, but its default profile cannot read Parquet.
+unset; ARM64 includes the files, but has no Parquet engine.
 Local builds are useful for development, not substitutes for this release gate.
 
 ## Compare local wheels
@@ -40,10 +41,10 @@ Then replace the ARM editable install with the wheel built from the same checkou
 
 ```powershell
 cd _envs\arm64
-uv sync --extra export
+uv sync
 uv build --wheel --out-dir dist
 $wheel = Get-Item dist\winml_cli-*-win_arm64.whl
-uv pip install --python .venv\Scripts\python.exe --no-index --only-binary :all: --reinstall-package winml-cli "$($wheel.FullName)[export]"
+uv pip install --python .venv\Scripts\python.exe --no-index --only-binary :all: --reinstall-package winml-cli $wheel.FullName
 uv pip check --python .venv\Scripts\python.exe
 uv run --no-sync python -I -m pytest -q -s tests\test_wheel_comparison.py
 ```
@@ -55,5 +56,5 @@ Face model ID for offline export and build, `WINML_LOCAL_GGUF` to a GGUF file
 for generation, and `WINMLCLI_RULES_DIR` to a directory containing
 `OpenVINOExecutionProvider_CPU\*.parquet` for rule-backed analysis. QNN may
 provision its provider on first use. A passing smoke baseline does not mean
-every optional workload passed; inspect the report. Run `uv sync --extra export`
+every optional workload passed; inspect the report. Run `uv sync`
 again to restore the editable ARM install.

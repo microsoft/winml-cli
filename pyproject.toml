@@ -105,7 +105,7 @@ scripts.winml = "winml.modelkit.cli:main"
 # UV - Full developer resolution environments
 # =============================================================================
 # CPython 3.14 reports ARM64 even for emulated x64. Source installs use
-# the full stack; only the win_arm64 wheel uses the reduced runtime profile.
+# the x64 dependencies here; _envs/arm64 defines the native ARM64 dependencies.
 # Linux/x86_64 is used by docs CI.
 [tool.uv]
 environments = [

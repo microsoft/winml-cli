@@ -47,7 +47,7 @@ The default project requires **Python 3.14 or later**. Development and CI use Py
 
 | Workload | Python environment |
 |---|---|
-| Native ONNX or GGUF inference; Hugging Face export and CPU builds with the `export` extra | ARM64 Python 3.13 |
+| Native ONNX or GGUF inference, Hugging Face export and CPU builds | ARM64 Python 3.13 |
 | Evaluation that needs Hugging Face `datasets` (including the current `eval --mode compare`), or `analyze` with Parquet rules | x64 Python 3.14 under Windows emulation |
 
 See [Windows on Arm: choose an environment](docs/getting-started/installation.md#windows-on-arm-choose-an-environment) for setup and switching commands. You do not need x64 Python just to run inference.
@@ -55,8 +55,7 @@ See [Windows on Arm: choose an environment](docs/getting-started/installation.md
 From a source checkout, create or update the **x64** project environment:
 
 ```powershell
-uv python install cpython-3.14-windows-x86_64-none
-uv sync --python cpython-3.14-windows-x86_64-none --all-extras
+uv sync
 uv run --no-sync python -m winml.modelkit.cli --help
 ```
 
