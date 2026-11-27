@@ -1,0 +1,3 @@
+build/
+# Resolution includes machine-specific package feeds. Generate on first sync.
+uv.lock

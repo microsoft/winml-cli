@@ -35,19 +35,27 @@ Purpose-built for Windows hardware diversity, the CLI handles conversion, graph 
 | Component | Details |
 |---|---|
 | Windows | Windows 11 24H2 or later (required for NPU support; earlier versions work for CPU/GPU) |
-| Python | 3.14 (x64, standard GIL build) |
+| Python | Standard GIL: x64 3.14 for the full CLI, ARM64 3.13 for the native runtime preview |
 | Package manager | [uv](https://github.com/astral-sh/uv) |
 | WinML CLI | [PyPI](https://pypi.org/project/winml-cli/) |
 
 ### Installation
 
-This source version of WinML CLI requires **Python 3.14 or later**; Python 3.11 through 3.13 are no longer supported. Development and CI use Python 3.14. Later Python releases have not been validated. Free-threaded Python and native Arm64 Python are not supported. We recommend [uv](https://docs.astral.sh/uv/) for environment setup.
+The default project requires **Python 3.14 or later**. Development and CI use Python 3.14. The separate [native Windows ARM64 project](_envs/arm64/pyproject.toml) uses Python 3.13. Later Python releases have not been validated. Free-threaded Python is not supported. We recommend [uv](https://docs.astral.sh/uv/) for environment setup.
 
-From a source checkout, create or update the project environment:
+**On a Windows ARM64 machine, you can use both environments side by side:**
+
+| Workload | Python environment |
+|---|---|
+| Native ONNX or GGUF inference, Hugging Face export and CPU builds | ARM64 Python 3.13 |
+| Evaluation that needs Hugging Face `datasets` (including the current `eval --mode compare`), or `analyze` with Parquet rules | x64 Python 3.14 under Windows emulation |
+
+See [Windows on Arm: choose an environment](docs/getting-started/installation.md#windows-on-arm-choose-an-environment) for setup and switching commands. You do not need x64 Python just to run inference.
+
+From a source checkout, create or update the **x64** project environment:
 
 ```powershell
-uv python install cpython-3.14-windows-x86_64-none
-uv sync --python cpython-3.14-windows-x86_64-none --all-extras
+uv sync
 uv run --no-sync python -m winml.modelkit.cli --help
 ```
 
@@ -58,13 +66,6 @@ vendor-pinned environment, not a second CLI runtime. See the
 [SDK environment exception](docs/getting-started/installation.md#python-314-runtime-policy)
 before changing its Python or dependency versions. The normal ORT QNN path
 runs in the CLI's Python 3.14 environment.
-
-> **Windows on Arm:** winml-cli supports **x64 (AMD64) Python only**. On an Arm64 device, install an x64 build of Python 3.14 so `uv` resolves the `win_amd64` wheels — PyTorch and the Windows ML runtime packages publish no `win_arm64` wheels, so native Arm64 Python fails during setup. The x64 interpreter runs under Windows emulation. Create the environment with an explicit x64 interpreter:
->
-> ```powershell
-> uv python install cpython-3.14-windows-x86_64-none
-> uv venv --python cpython-3.14-windows-x86_64-none
-> ```
 
 **1. Create an environment**
 

@@ -157,12 +157,16 @@ extends:
                   INSTRUMENTATION_KEY: $(INSTRUMENTATION_KEY)
                 displayName: 'Inject InstrumentationKey into constants.py'
 
-              # Build wheel AFTER injection so the wheel carries the
-              # real iKey.
-              - script: python -m build --wheel --outdir "$(ob_outputDirectory)"
-                displayName: 'Build wheel (with injected iKey)'
+              # Both wheels package the same source after injection. Their
+              # platform tags select separate runtime dependency profiles.
+              - powershell: |
+                  python -m build --wheel "-C--build-option=--plat-name=win_amd64" --outdir "$(ob_outputDirectory)"
+                  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                  python -m build --wheel --outdir "$(ob_outputDirectory)" _envs\arm64
+                  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                displayName: 'Build ARM64 and x64 wheels (with injected iKey)'
 
-              # Verify the wheel carries the real iKey AND the sdist
+              # Verify both wheels carry the real iKey AND the sdist
               # carries the empty placeholder. Reading constants.py out
               # of each archive directly catches build-cache / ordering
               # bugs that disk-only checks would miss.
@@ -173,6 +177,9 @@ extends:
                   function Read-ConstantsFromArchive($archivePath) {
                     $zip = [System.IO.Compression.ZipFile]::OpenRead($archivePath)
                     try {
+                      if (-not ($zip.Entries | Where-Object { $_.FullName -like 'winml/modelkit/analyze/rules/runtime_check_rules/*.parquet' } | Select-Object -First 1)) {
+                        throw "No bundled runtime check rules in $archivePath"
+                      }
                       $entry = $zip.Entries | Where-Object { $_.FullName -like "*telemetry/constants.py" } | Select-Object -First 1
                       if (-not $entry) { throw "telemetry/constants.py not found in $archivePath" }
                       $reader = [System.IO.StreamReader]::new($entry.Open())
@@ -180,13 +187,17 @@ extends:
                     } finally { $zip.Dispose() }
                   }
 
-                  $wheel = Get-ChildItem "$(ob_outputDirectory)\*.whl" | Select-Object -First 1
-                  if (-not $wheel) { throw "no wheel found in $(ob_outputDirectory)" }
-                  $wheelContent = Read-ConstantsFromArchive $wheel.FullName
-                  if ($wheelContent -match 'INSTRUMENTATION_KEY\s*=\s*""') {
-                    throw "wheel contains empty INSTRUMENTATION_KEY placeholder - injection failed"
+                  $wheels = @(Get-ChildItem "$(ob_outputDirectory)\*.whl")
+                  if ($wheels.Count -ne 2) { throw "Expected exactly two Windows wheels" }
+                  foreach ($platform in 'win_arm64', 'win_amd64') {
+                    $wheel = $wheels | Where-Object Name -like "*-py3-none-$platform.whl"
+                    if (-not $wheel) { throw "Missing wheel for $platform" }
+                    $wheelContent = Read-ConstantsFromArchive $wheel.FullName
+                    if ($wheelContent -notmatch '(?m)^INSTRUMENTATION_KEY = "[^"\r\n]+"') {
+                      throw "$platform wheel is missing the injected INSTRUMENTATION_KEY"
+                    }
+                    Write-Host "$platform wheel verified - constants.py has non-empty iKey"
                   }
-                  Write-Host "Wheel verified - constants.py has non-empty iKey"
 
                   $sdist = Get-ChildItem "$(ob_outputDirectory)\*.tar.gz" | Select-Object -First 1
                   if (-not $sdist) { throw "no sdist found in $(ob_outputDirectory)" }
@@ -204,8 +215,7 @@ extends:
                     throw "sdist contains a non-empty iKey - sdist must ship clean"
                   }
                   Write-Host "Sdist verified - constants.py has empty placeholder"
-                displayName: 'Verify wheel has iKey, sdist does not'
+                displayName: 'Verify both wheels include rules and iKey, and sdist has no iKey'
 
               - script: python -m twine check "$(ob_outputDirectory)\*.whl" "$(ob_outputDirectory)\*.tar.gz"
-                continueOnError: true
                 displayName: 'Validate packages for PyPI'

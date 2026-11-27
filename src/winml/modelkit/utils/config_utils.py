@@ -136,7 +136,7 @@ def _get_field_type(obj: Any, field_name: str) -> type | None:
     # Resolve string annotations to actual types
     try:
         hints = typing.get_type_hints(type(obj))
-    except NameError, AttributeError:
+    except (NameError, AttributeError):
         hints = {}
 
     resolved = hints.get(field_name)

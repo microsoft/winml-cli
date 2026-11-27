@@ -894,7 +894,7 @@ def _resolve_shape(
                     ) from e
                 try:
                     is_integral = isinstance(value, str) or value == coerced_value
-                except TypeError, ValueError:
+                except (TypeError, ValueError):
                     is_integral = False
                 if not is_integral:
                     raise click.ClickException(
@@ -4746,7 +4746,7 @@ def perf(
 
                 try:
                     running_model_is_epcontext = is_compiled_onnx(Path(result.running_model_path))
-                except OSError, ValueError:
+                except (OSError, ValueError):
                     running_model_is_epcontext = False
                 if not running_model_is_epcontext:
                     console.print(

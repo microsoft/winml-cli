@@ -4,7 +4,7 @@
 # --------------------------------------------------------------------------
 """Model config introspection shared by loading and config orchestration."""
 
-from annotationlib import get_annotations
+from inspect import get_annotations
 from typing import Any
 
 
