@@ -4,6 +4,7 @@
 # --------------------------------------------------------------------------
 """Tests for compiler configuration classes."""
 
+import json
 import warnings
 
 import pytest
@@ -190,6 +191,7 @@ class TestCompileConfig:
         assert config.ep_config.enable_ep_context is True
         assert config.validate is True
         assert config.ep_device is None
+        assert config.ep_config.target_platform is None
 
     def test_roundtrip(self):
         """Test to_dict -> from_dict roundtrip."""
@@ -201,6 +203,23 @@ class TestCompileConfig:
         assert restored.ep_config.provider == original.ep_config.provider
         assert restored.ep_config.enable_ep_context == original.ep_config.enable_ep_context
         assert restored.validate == original.validate
+
+    @pytest.mark.parametrize("target_platform", [None, "4000", "60"])
+    def test_json_roundtrip_preserves_target_platform(
+        self, target_platform: str | None
+    ) -> None:
+        original = WinMLCompileConfig(
+            ep_config=EPConfig(
+                compiler="offdevice",
+                target_platform=target_platform,
+            )
+        )
+        serialized = json.loads(json.dumps(original.to_dict()))
+        assert serialized["target_platform"] == target_platform
+
+        restored = WinMLCompileConfig.from_dict(serialized)
+        assert restored.ep_config.target_platform == target_platform
+        assert restored.ep_config.compiler == "offdevice"
 
     def test_roundtrip_preserves_provider_option_file_keys(self) -> None:
         """Explicit file-backed option keys survive config serialization."""

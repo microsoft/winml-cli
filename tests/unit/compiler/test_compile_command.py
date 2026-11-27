@@ -32,6 +32,29 @@ def runner() -> CliRunner:
 class TestCompileCommand:
     """Test compile command functionality."""
 
+    @pytest.mark.parametrize(
+        ("ep", "device", "supports_offdevice"),
+        [
+            ("QNNExecutionProvider", "npu", True),
+            ("OpenVINOExecutionProvider", "npu", True),
+            ("VitisAIExecutionProvider", "npu", True),
+            ("DmlExecutionProvider", "gpu", False),
+            ("CPUExecutionProvider", "cpu", False),
+        ],
+    )
+    def test_list_advertises_offdevice_for_supported_providers(
+        self,
+        runner: CliRunner,
+        ep: str,
+        device: str,
+        supports_offdevice: bool,
+    ) -> None:
+        result = runner.invoke(
+            main, ["compile", "--list", "--ep", ep, "--device", device]
+        )
+        assert result.exit_code == 0, result.output
+        assert ("offdevice" in result.output) == supports_offdevice
+
     def test_compile_help_shows_options(self, runner: CliRunner) -> None:
         """Test compile --help shows all expected options."""
         result = runner.invoke(main, ["compile", "--help"])

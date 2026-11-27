@@ -19,6 +19,7 @@ if TYPE_CHECKING:
         WinMLCGCSession,
         cgc_package_versions,
     )
+    from .compilation_device import bind_compilation_device
     from .ep_device import (
         DEVICE_TO_DEVICE_TYPE,
         DEVICE_TYPE_TO_DEVICE,
@@ -73,6 +74,7 @@ if TYPE_CHECKING:
     from .monitor.openvino_monitor import OpenVinoMonitor
     from .monitor.qnn_monitor import QNNMonitor
     from .monitor.vitisai_monitor import VitisAIMonitor
+    from .offdevice_session import WinMLOffDeviceSession
     from .qairt.qairt_session import WinMLQairtSession
     from .runtime_session import WinMLRuntimeSession
     from .session import InferenceError, PerfContext, SessionState, WinMLSession
@@ -81,6 +83,7 @@ if TYPE_CHECKING:
 
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
+    "bind_compilation_device": (".compilation_device", "bind_compilation_device"),
     "import_runtime": ("._runtime_import", "import_runtime"),
     "VALID_SOURCE_TAGS": ("..ep_path", "VALID_SOURCE_TAGS"),
     "DirectorySource": ("..ep_path", "DirectorySource"),
@@ -145,6 +148,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "NvTensorRTRTXMonitor": (".monitor", "NvTensorRTRTXMonitor"),
     "VitisAIMonitor": (".monitor.vitisai_monitor", "VitisAIMonitor"),
     "VitisAIOpMonitor": (".monitor", "VitisAIOpMonitor"),
+    "WinMLOffDeviceSession": (".offdevice_session", "WinMLOffDeviceSession"),
     "WinMLQairtSession": (".qairt.qairt_session", "WinMLQairtSession"),
     "WinMLRuntimeSession": (".runtime_session", "WinMLRuntimeSession"),
     "InferenceError": (".session", "InferenceError"),
@@ -211,11 +215,13 @@ __all__ = [
     "WinMLEPRegistrationFailed",
     "WinMLEPRegistry",
     "WinMLLlamaSession",
+    "WinMLOffDeviceSession",
     "WinMLQairtSession",
     "WinMLRuntimeSession",
     "WinMLSession",
     "auto_detect_device",
     "available_eps_for_device",
+    "bind_compilation_device",
     "cgc_package_versions",
     "default_device_for_ep",
     "default_ep_for_device",

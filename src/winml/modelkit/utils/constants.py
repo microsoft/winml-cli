@@ -78,7 +78,8 @@ EPNameOrAlias: TypeAlias = EPName | EPAlias
 #   "ort"          -> ort.ModelCompiler (default)
 #   "ort_session"  -> ort.InferenceSession (ep.context_enable)
 #   "qairt"        -> QAIRT SDK compiler
-CompilerName = Literal["ort", "ort_session", "qairt"]
+#   "offdevice"    -> off-device ORT ModelCompiler strategy
+CompilerName = Literal["ort", "ort_session", "qairt", "offdevice"]
 
 # The ``--compiler`` choice that selects the ort.InferenceSession backend (the others
 # go through ort.ModelCompiler / the QAIRT SDK). Referenced wherever the backend is

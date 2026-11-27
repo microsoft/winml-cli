@@ -18,6 +18,7 @@ Examples:
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -32,7 +33,6 @@ from ..session import (
     EPDeviceTarget,
     WinMLEPNotDiscovered,
     WinMLEPRegistrationFailed,
-    available_eps_for_device,
     resolve_device,
 )
 from ..utils import cli as cli_utils
@@ -42,22 +42,9 @@ from ..utils.constants import COMPILER_NAMES, ORT_SESSION_COMPILER, normalize_ep
 if TYPE_CHECKING:
     from typing import Literal, TypeGuard
 
-    from ..utils.constants import CompilerName, EPName, EPNameOrAlias
+    from ..utils.constants import CompilerName, EPAlias, EPName
 from ..utils.logging import configure_logging
 from ._ep_arg import EpAtSourceParamType
-
-
-def _resolve_compile_provider(resolved_device: str, ep: EPNameOrAlias | None) -> EPName:
-    """Resolve the compile provider from device + ep flags.
-
-    ``ep`` overrides the device mapping. Returns the canonical EP name.
-    Device/EP compatibility is enforced upstream; this only normalizes.
-    """
-    if ep is not None:
-        normalized = normalize_ep_name(ep)
-        if normalized is not None:
-            return normalized
-    return cast("EPName", available_eps_for_device(resolved_device)[0])
 
 
 logger = logging.getLogger(__name__)
@@ -74,7 +61,7 @@ def _is_epcontext_compiler(value: str) -> TypeGuard[CompilerName]:
     multiple=True,
     help_text="Input model file. "
     "Repeat -m to compile multiple ONNX models with a shared "
-    "EP context (weight sharing). Required unless --list.",
+    "EP context (weight sharing). Required unless listing compilers, EPs, or targets.",
 )
 @cli_utils.output_option("Output file path (e.g., model_compiled.onnx)")
 @cli_utils.overwrite_option()
@@ -103,12 +90,15 @@ def _is_epcontext_compiler(value: str) -> TypeGuard[CompilerName]:
 )
 @cli_utils.ep_options_option(
     optional_message="Applied to the compilation session; overrides matching "
-    "compile.provider_options keys from --config.",
+    "compile.provider_options keys from --config. "
+    "VitisAI off-device compilation requires target=X2.",
 )
 @click.option(
     "--validate/--no-validate",
     default=True,
-    help="Validate compiled model.",
+    help="Request post-compilation validation. With --compiler offdevice, "
+    "embedded-artifact checks always run, including with --no-validate; "
+    "target-device inference is skipped.",
 )
 @click.option(
     "--compiler",
@@ -116,6 +106,7 @@ def _is_epcontext_compiler(value: str) -> TypeGuard[CompilerName]:
     default="ort",
     help="Compiler backend (default: ort). 'ort_session' compiles via "
     "ort.InferenceSession (ep.context_enable) — required for shared-context multi-model. "
+    "'offdevice' compiles without matching target hardware using ORT ModelCompiler. "
     "'cgc' compiles CGIR to CG Output IR.",
 )
 @click.option(
@@ -128,7 +119,8 @@ def _is_epcontext_compiler(value: str) -> TypeGuard[CompilerName]:
     "--embed/--no-embed",
     default=False,
     show_default=True,
-    help="Embed EP context in ONNX file (default: external .bin file)",
+    help="Embed EP context in ONNX file (default: external .bin file). "
+    "Off-device compilation always embeds.",
 )
 @click.option(
     "--list",
@@ -136,6 +128,25 @@ def _is_epcontext_compiler(value: str) -> TypeGuard[CompilerName]:
     is_flag=True,
     default=False,
     help="List available compilers for the selected device and exit",
+)
+@click.option(
+    "--target-platform",
+    "target",
+    type=str,
+    default=None,
+    help="Deployment platform: OpenVINO virtual NPU platform ID or QNN numeric "
+    "soc_model ID from QAIRT. Requires --compiler offdevice.",
+)
+@click.option(
+    "--list-eps",
+    is_flag=True,
+    help="List implemented off-device compilation EPs and payload availability as JSON.",
+)
+@click.option(
+    "--list-targets",
+    is_flag=True,
+    help="List advertised deployment platforms for the selected off-device EP, "
+    "or explain how to specify targets that cannot be enumerated.",
 )
 @cli_utils.build_config_option()
 @cli_utils.verbosity_options()
@@ -158,6 +169,9 @@ def compile(
     qnn_sdk_root: Path | None,
     embed: bool,
     list_compilers_flag: bool,
+    target: str | None,
+    list_eps: bool,
+    list_targets: bool,
     config_file: Path | None,
 ) -> None:
     r"""Compile ONNX to EPContext, or CGIR to CG Output IR.
@@ -179,6 +193,9 @@ def compile(
         # Compile using QAIRT SDK
         winml compile -m model.onnx --compiler qairt --qnn-sdk-root /path/to/sdk
 
+        # Compile off-device for a platform returned by --list-targets
+        winml compile --compiler offdevice --ep openvino --target-platform 4000 -m model.onnx
+
         # Compile CGIR to device-targeted CG Output IR
         winml compile -m input.mlir --compiler cgc --device gpu -o output.mlir
     """
@@ -199,6 +216,9 @@ def compile(
             "--qnn-sdk-root": qnn_sdk_root is not None,
             "--embed/--no-embed": cli_utils.is_cli_provided(ctx, "embed"),
             "--list": list_compilers_flag,
+            "--target-platform": target is not None,
+            "--list-eps": list_eps,
+            "--list-targets": list_targets,
             "--config": config_file is not None,
         }
         rejected = [name for name, present in incompatible.items() if present]
@@ -250,12 +270,14 @@ def compile(
     # Read raw JSON so missing keys are distinguishable from dataclass defaults.
     config_provider_options: dict[str, str] = {}
     config_provider_option_file_keys: set[str] = set()
+    config_compile_keys: set[str] = set()
     if config_file is not None:
         try:
             build_cfg, raw_cfg = cli_utils.load_build_config(config_file)
         except (AttributeError, KeyError, TypeError, ValueError) as e:
             raise click.UsageError(f"Invalid compile configuration: {e}") from e
         cc = raw_cfg.get("compile") or {}
+        config_compile_keys.update(cc)
         configured_target = (
             build_cfg.compile.ep_device
             if build_cfg.compile is not None and "ep_device" in cc
@@ -279,6 +301,8 @@ def compile(
                 ep_name = cc["execution_provider"]
         if not cli_utils.is_cli_provided(ctx, "compiler") and "compiler" in cc:
             compiler = cc["compiler"]
+        if not cli_utils.is_cli_provided(ctx, "target") and "target_platform" in cc:
+            target = cc["target_platform"]
         if not cli_utils.is_cli_provided(ctx, "embed") and "embed_context" in cc:
             embed = cc["embed_context"]
         if not cli_utils.is_cli_provided(ctx, "validate") and "validate" in cc:
@@ -292,6 +316,18 @@ def compile(
         # https://github.com/microsoft/winml-cli/issues/799
         if verbose == 0 and not quiet and "verbose" in cc:
             verbose = int(cc["verbose"])
+
+    off_device = compiler == "offdevice"
+    if (list_eps or list_targets) and not off_device:
+        raise click.UsageError(
+            "--list-eps and --list-targets require --compiler offdevice."
+        )
+    if list_eps and list_targets:
+        raise click.UsageError("--list-eps and --list-targets are mutually exclusive.")
+    if target is not None and not off_device:
+        raise click.UsageError("--target-platform requires --compiler offdevice.")
+    if target is not None and not isinstance(target, str):
+        raise click.UsageError("compile.target_platform must be a string.")
 
     if not _is_epcontext_compiler(compiler):
         raise click.UsageError(
@@ -309,6 +345,115 @@ def compile(
         raise click.UsageError(
             f"compile.execution_provider must be a string, got {type(ep_name).__name__}"
         )
+    if off_device:
+        if list_compilers_flag:
+            raise click.UsageError("Off-device mode cannot be combined with --list.")
+        if device is not None and device.lower() not in {"auto", "npu"}:
+            raise click.UsageError("Off-device mode requires --device npu.")
+        if qnn_sdk_root is not None:
+            raise click.UsageError(
+                "Off-device mode uses ORT ModelCompiler and does not accept "
+                "--qnn-sdk-root."
+            )
+        is_vitisai = normalize_ep_name(ep_name) == "VitisAIExecutionProvider"
+        provider_options = {**config_provider_options, **(cli_provider_options or {})}
+        if config_provider_option_file_keys or (
+            provider_options
+            and (
+                list_eps
+                or list_targets
+                or not is_vitisai
+                or set(provider_options) - {"target"}
+            )
+        ):
+            raise click.UsageError("Off-device mode does not accept provider options.")
+        if list_eps or list_targets:
+            if model:
+                raise click.UsageError("Off-device enumeration does not accept --model.")
+            if target is not None:
+                raise click.UsageError(
+                    "Off-device enumeration does not accept --target-platform."
+                )
+            if list_targets and ep_name in {None, "auto"}:
+                raise click.UsageError("--list-targets requires --ep.")
+            from ..compiler import list_compilation_eps, list_compilation_targets
+
+            try:
+                listing = (
+                    list_compilation_targets(ep_name, source=source_part)
+                    if list_targets and ep_name is not None
+                    else list_compilation_eps(ep_name, source=source_part)
+                )
+            except Exception as e:
+                logger.exception("Off-device enumeration failed")
+                raise click.ClickException(str(e)) from e
+            click.echo(json.dumps(listing, indent=2))
+            return
+
+        if len(model) != 1:
+            raise click.UsageError("Off-device compilation requires exactly one --model.")
+        if not ep_name or ep_name.lower() == "auto":
+            raise click.UsageError("Off-device compilation requires --ep.")
+        if is_vitisai:
+            if target is not None:
+                raise click.UsageError(
+                    "VitisAI selects a compiler backend, not a deployment platform. "
+                    "Use --ep-options target=X2 instead of --target-platform."
+                )
+            target = provider_options.get("target")
+            if target != "X2":
+                raise click.UsageError(
+                    "VitisAI off-device compilation requires --ep-options target=X2."
+                )
+        elif target is None or not target.strip():
+            raise click.UsageError(
+                "Off-device compilation requires --target-platform: "
+                "an OpenVINO virtual platform ID "
+                "or a QNN numeric soc_model ID from QAIRT."
+            )
+        if not embed and (
+            cli_utils.is_cli_provided(ctx, "embed") or "embed_context" in config_compile_keys
+        ):
+            raise click.UsageError("Off-device compilation requires embedded context. Use --embed.")
+        from ..compiler import EPConfig, WinMLCompileConfig, compile_onnx
+
+        destination = output or (output_dir or model[0].parent) / f"{model[0].stem}_ctx.onnx"
+        cli_utils.guard_output(destination, overwrite)
+        config = WinMLCompileConfig(
+            ep_config=EPConfig(
+                provider=cast("EPAlias", ep_name),
+                provider_options=provider_options,
+                compiler=compiler,
+                device="npu",
+                embed_context=True,
+                target_platform=None if is_vitisai else target,
+            ),
+            ep_device=EPDeviceTarget(ep=ep_name, device="npu", source=source_part),
+            validate=validate,
+            verbose=bool(verbose),
+        )
+        try:
+            result = compile_onnx(
+                model[0],
+                output_path=destination,
+                config=config,
+                overwrite=overwrite,
+            )
+            if not result.success or result.output_path is None:
+                detail = "; ".join(result.errors) or "No compiled artifact was produced."
+                raise RuntimeError(detail)
+        except Exception as e:
+            logger.exception("Off-device compilation failed")
+            raise click.ClickException(f"Off-device compilation failed: {e}") from e
+        console.print("[bold green]Success![/bold green] Model compiled off-device")
+        target_label = "Compiler backend" if is_vitisai else "Target platform"
+        console.print(f"[dim]{target_label}: {target}[/dim]")
+        console.print(f"[dim]Output: {result.output_path}[/dim]")
+        console.print("Artifact validation: passed (embedded-context checks)")
+        for warning in result.warnings:
+            console.print(warning, markup=False)
+        return
+
     _device_arg = "auto" if (device is None or device.lower() == "auto") else device.lower()
     try:
         ep_device_resolved = resolve_device(

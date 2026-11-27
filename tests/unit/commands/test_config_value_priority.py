@@ -216,9 +216,8 @@ def _run_compile(
     (e.g. ``"qnn"``, ``"openvino"``, ``"vitisai"``). The captured
     ``ep`` key reflects that lowercase short form.
 
-    The compile command also calls ``resolve_device``/``resolve_eps`` and
-    a registry-availability check; both are mocked so the test does not
-    depend on the host's installed EPs.
+    Device resolution and registry availability are mocked so the test does
+    not depend on the host's installed EPs.
     """
     from winml.modelkit.commands.compile import compile as compile_cmd
 
@@ -259,10 +258,6 @@ def _run_compile(
                 device=("npu" if target.device == "auto" else target.device),
                 source=target.source,
             ),
-        ),
-        patch(
-            "winml.modelkit.commands.compile.available_eps_for_device",
-            return_value=["QNNExecutionProvider"],
         ),
         patch(
             "winml.modelkit.session.ep_registry.WinMLEPRegistry.get_instance",
@@ -580,10 +575,8 @@ COMPILE_CASES = [
         json_key="execution_provider",
         json_value="vitisai",
         json_value_effective="vitisai",
-        # When neither CLI nor JSON specifies ep, ``_resolve_compile_provider``
-        # falls back to ``resolve_eps(resolved_device)[0]`` -- mocked to
-        # ``"QNNExecutionProvider"`` which ``for_provider`` stores as
-        # ``ep_config.provider == "qnn"``.
+        # With no CLI or JSON EP, the mocked resolver selects QNN, stored
+        # canonically as ep_config.provider == "qnn".
         cli_default_effective="qnn",
     ),
 ]

@@ -10,7 +10,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from winml.modelkit.commands.compile import _resolve_compile_provider
 from winml.modelkit.commands.quantize import _resolve_quant_types
 from winml.modelkit.session import EPDeviceTarget
 
@@ -19,112 +18,21 @@ def _fake_ep_device(ep: str, device: str) -> EPDeviceTarget:
     return EPDeviceTarget(ep=ep, device=device)
 
 
-_DEVICE_TO_EPS = {
-    "npu": ["QNNExecutionProvider"],
-    "gpu": ["DmlExecutionProvider"],
-    "cpu": ["CPUExecutionProvider"],
-}
-
-
 @pytest.fixture(autouse=True)
 def mock_functions():
-    """Mock available EP lookup and ``WinMLEPRegistry`` to avoid hardware detection.
-
-    The compile CLI's ``_resolve_compile_provider`` calls
-    ``WinMLEPRegistry.instance().is_ep_available`` to reject EPs not
-    registered on the host — for unit tests we stub it to ``True``. Tests
-    that exercise the negative path patch the singleton locally.
-    """
+    """Mock registry availability to avoid host-dependent EP checks."""
     mock_registry = MagicMock()
     mock_registry.is_ep_available.return_value = True
 
-    with (
-        patch(
-            "winml.modelkit.commands.compile.available_eps_for_device",
-            side_effect=lambda device: list(_DEVICE_TO_EPS.get(device, [])),
-        ),
-        patch(
-            "winml.modelkit.session.ep_registry.WinMLEPRegistry.instance",
-            return_value=mock_registry,
-        ),
+    with patch(
+        "winml.modelkit.session.ep_registry.WinMLEPRegistry.instance",
+        return_value=mock_registry,
     ):
         yield
 
 
-# =============================================================================
-# _resolve_compile_provider tests
-# =============================================================================
-
-
-class TestResolveCompileProvider:
-    """Test compile provider resolution from resolved-device + ep flags.
-
-    ``_resolve_compile_provider`` expects an already-resolved device
-    (lowercase, never ``"auto"``) — ``resolve_device`` is called upstream
-    by the ``compile`` CLI. Device case-handling and ``auto``-resolution
-    are covered by ``tests/unit/sysinfo`` and the CLI integration tests.
-    """
-
-    def test_npu_defaults_to_qnn(self):
-        assert _resolve_compile_provider("npu", None) == "QNNExecutionProvider"
-
-    def test_gpu_defaults_to_dml(self):
-        assert _resolve_compile_provider("gpu", None) == "DmlExecutionProvider"
-
-    def test_cpu_returns_cpu(self):
-        assert _resolve_compile_provider("cpu", None) == "CPUExecutionProvider"
-
-    def test_ep_overrides_device(self):
-        """``ep`` takes priority over the device default.
-
-        For each pair below, the device alone would resolve to a different
-        EP via ``resolve_eps`` (e.g. ``gpu`` -> NV first); the explicit
-        ``--ep`` overrides that default. Devices are kept compatible with
-        the EP per ``EP_SUPPORTED_DEVICES`` — the incompatible counterpart
-        is covered by ``test_incompatible_pair_rejected``.
-        """
-        assert _resolve_compile_provider("gpu", "migraphx") == "MIGraphXExecutionProvider"
-        assert _resolve_compile_provider("npu", "vitisai") == "VitisAIExecutionProvider"
-        assert (
-            _resolve_compile_provider("gpu", "nv_tensorrt_rtx") == "NvTensorRTRTXExecutionProvider"
-        )
-
-    def test_ep_is_case_insensitive(self):
-        assert _resolve_compile_provider("gpu", "MIGraphX") == "MIGraphXExecutionProvider"
-        assert (
-            _resolve_compile_provider("gpu", "NV_TENSORRT_RTX") == "NvTensorRTRTXExecutionProvider"
-        )
-
-    @pytest.mark.parametrize(
-        # Each row pairs an EP alias with a device the EP actually supports
-        # (per ``EP_SUPPORTED_DEVICES``); using an incompatible device would
-        # now correctly raise ``UsageError`` and is covered in
-        # ``test_ep_device_pair.py``.
-        ("device", "ep", "expected"),
-        [
-            ("npu", "qnn", "QNNExecutionProvider"),
-            ("gpu", "dml", "DmlExecutionProvider"),
-            ("gpu", "migraphx", "MIGraphXExecutionProvider"),
-            ("gpu", "nv_tensorrt_rtx", "NvTensorRTRTXExecutionProvider"),
-            ("npu", "vitisai", "VitisAIExecutionProvider"),
-            ("gpu", "openvino", "OpenVINOExecutionProvider"),
-            ("cpu", "cpu", "CPUExecutionProvider"),
-        ],
-    )
-    def test_all_valid_eps(self, device, ep, expected):
-        """All alias inputs resolve to their canonical EP name."""
-        assert _resolve_compile_provider(device, ep) == expected
-
-
 class TestCompileAutoDeviceEndToEnd:
-    """End-to-end test for ``--device auto`` through the compile CLI.
-
-    ``_resolve_compile_provider`` itself no longer accepts ``"auto"`` — the
-    CLI calls ``resolve_device("auto")`` upstream to produce a concrete
-    device. This test pins the full pipeline so the auto path keeps
-    resolving to QNN on an NPU-first host (replacing the removed
-    ``test_auto_defaults_to_qnn`` unit-level test).
-    """
+    """Cover automatic device resolution and incompatible pairs through the CLI."""
 
     def test_auto_resolves_to_qnn_when_npu_available(self, tmp_path):
         from click.testing import CliRunner
@@ -140,9 +48,7 @@ class TestCompileAutoDeviceEndToEnd:
         mock_result.compile_time = 1.0
         mock_result.total_time = 1.5
 
-        # ``resolve_device`` is patched at compile.py's binding site so
-        # ``auto`` deterministically becomes ``npu``; available EP lookup is
-        # already pinned by the module-level autouse fixture.
+        # Pin automatic resolution at the command's binding site.
         with (
             patch(
                 "winml.modelkit.commands.compile.resolve_device",
@@ -192,12 +98,6 @@ class TestCompileAutoDeviceEndToEnd:
 
         assert result.exit_code != 0
         assert "does not support device" in result.output
-
-
-# Note: unknown / out-of-set devices are validated upstream by
-# ``resolve_device`` (called by the compile CLI before
-# ``_resolve_compile_provider``). The resolver itself trusts its caller to
-# pass a concrete device from ``{cpu, gpu, npu}``.
 
 
 # =============================================================================

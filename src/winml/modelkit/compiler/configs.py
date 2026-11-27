@@ -39,10 +39,12 @@ class EPConfig:
         provider_option_file_keys: Provider option keys whose values are file paths
         enable_ep_context: Generate EPContext model with pre-compiled graph
         embed_context: Embed context in ONNX (True) or external .bin file (False)
-        compiler: Compiler backend ("ort", "ort_session", or "qairt").
+        compiler: Compiler backend ("ort", "ort_session", "qairt", or "offdevice").
             "ort_session" selects the ort.InferenceSession backend.
         qnn_sdk_root: Path to QAIRT SDK root (required when compiler is "qairt")
         device: Target device ("npu", "gpu", "cpu", "auto")
+        target_platform: Off-device deployment platform ID for OpenVINO or QNN.
+            VitisAI selects its compiler backend through provider_options["target"].
     """
 
     provider: EPAlias | None = None
@@ -53,6 +55,7 @@ class EPConfig:
     qnn_sdk_root: Path | None = None
     device: str = "auto"
     provider_option_file_keys: set[str] = field(default_factory=set)
+    target_platform: str | None = None
 
 
 @dataclass
@@ -70,7 +73,8 @@ class WinMLCompileConfig:
 
     Attributes:
         ep_config: Execution provider settings
-        validate: Validate compiled model
+        validate: Request inference validation. Off-device compilation skips
+            inference and reports a warning; artifact-integrity checks always run.
         verbose: Enable verbose logging
 
     Examples:
@@ -333,6 +337,7 @@ class WinMLCompileConfig:
             "enable_ep_context": self.ep_config.enable_ep_context,
             "embed_context": self.ep_config.embed_context,
             "compiler": self.ep_config.compiler,
+            "target_platform": self.ep_config.target_platform,
             "qnn_sdk_root": (
                 str(self.ep_config.qnn_sdk_root) if self.ep_config.qnn_sdk_root else None
             ),
@@ -355,6 +360,7 @@ class WinMLCompileConfig:
             compiler=data.get("compiler", "ort"),
             qnn_sdk_root=(Path(data["qnn_sdk_root"]) if data.get("qnn_sdk_root") else None),
             device=data.get("device", "auto"),
+            target_platform=data.get("target_platform"),
         )
 
         return cls(
